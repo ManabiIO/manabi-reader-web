@@ -43,7 +43,11 @@
     "typescript-eslint": "8.25.0",
     "esbuild": "0.28.2",
     "@playwright/test": "1.63.0",
-    "jsdom": "26.1.0"
+    "jsdom": "26.1.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "rxjs": "7.8.2",
+    "fake-indexeddb": "6.2.5"
   },
   "lint-staged": {
     "*.{js,cjs,mjs,ts,svelte}": [

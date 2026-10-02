@@ -4,6 +4,9 @@ import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, CircleHelp, CloudUpload, Download, Ellipsis, Info, LoaderCircle, MoveVertical, Pencil, Plus, RefreshCw, Save, SlidersHorizontal, SquarePen, Table, Trash2, TriangleAlert, Upload, X } from 'lucide-react';
 const Lucide = { ChevronLeft, ChevronRight, CircleHelp, CloudUpload, Download, Ellipsis, Info, LoaderCircle, MoveVertical, Pencil, Plus, RefreshCw, Save, SlidersHorizontal, SquarePen, Table, Trash2, TriangleAlert, Upload, X };
 import { goto } from '$app/navigation';
+import { cn } from '$lib/utils';
+import { buttonVariants } from '../snippets-react/button-styles';
+import type { VariantProps } from 'tailwind-variants';
 import { Dom as ReaderDom } from '../reader-react/dom';
 import { Menu } from '../library-react/primitives';
 import { AppNav, ActionMenu } from '../library-react/navigation';
@@ -42,17 +45,17 @@ export function Dom({ as = 'div', bindings = {}, events = {}, group, elementRef,
   const ref = (node: HTMLElement | null) => { elementRef?.(node); bindings.ref?.(node); bindings.this?.(node); };
   return <ReaderDom as={as} {...props} events={handlers} elementRef={ref}>{children}</ReaderDom>;
 }
-export function Button({ href, variant = 'default', size, shape, className = '', events = {}, children, ...props }: Props) {
-  const click = props.onClick ?? events.click;
-  const handle = (event: any) => {
+export function Button({ href, variant = 'default', size = 'default', shape = 'auto', className = '', disabled = false, tabIndex, tabindex, onClick, events = {}, children, ...props }: Props & VariantProps<typeof buttonVariants>) {
+  const click = onClick ?? events.click;
+  const handle = (event: MouseEvent) => {
+    if (disabled) { event.preventDefault(); event.stopPropagation(); return; }
     click?.(event);
-    if (href && !event.defaultPrevented && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !props.target && props.rel !== 'external' && new URL(href, location.href).origin === location.origin) { event.preventDefault(); void goto(href); }
+    if (href && !event.defaultPrevented && event.button === 0 && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && !props.target && (props.download === undefined || props.download === false) && !String(props.rel ?? '').split(/\s+/).includes('external') && new URL(href, location.href).origin === location.origin) { event.preventDefault(); void goto(href); }
   };
-  const classes = `settings-button inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium disabled:opacity-50 ${variant === 'default' ? 'bg-primary text-primary-foreground' : variant === 'outline' ? 'border border-input bg-background' : variant === 'secondary' ? 'bg-secondary text-secondary-foreground' : variant === 'link' ? 'text-primary underline-offset-4 hover:underline' : 'hover:bg-muted'} ${size === 'icon' ? 'min-w-11 px-2' : ''} ${className}`;
-  return <Dom as={href ? 'a' : 'button'} type={href ? undefined : 'button'} {...props} href={href} data-slot="button" data-size={size} className={classes} events={{ ...events, click: handle }} onClick={undefined}>{children}</Dom>;
+  return <Dom as={href ? 'a' : 'button'} type={href ? undefined : 'button'} {...props} href={disabled ? undefined : href} disabled={href ? undefined : disabled} aria-disabled={href ? disabled || props['aria-disabled'] : undefined} role={href && disabled ? 'link' : props.role} tabIndex={disabled && href ? -1 : tabIndex ?? tabindex ?? 0} data-slot="button" data-variant={variant} data-size={size} data-shape={shape} className={cn('settings-button', buttonVariants({ variant, size, shape }), className)} events={{ ...events, click: handle }}>{children}</Dom>;
 }
 export function Input({ className = '', ...props }: Props) { return <Dom as="input" {...props} data-slot="input" className={`bg-background border-input focus-visible:border-ring focus-visible:ring-ring/30 min-h-[44px] rounded-[10px] border px-3 py-2 text-base focus-visible:ring-3 md:text-sm w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent file:text-foreground placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 ${className}`}/>; }
-export function Switch({ checked, onCheckedChange, className = '', ...props }: Props) { return <button {...props} type="button" role="switch" aria-checked={!!checked} data-state={checked ? 'checked' : 'unchecked'} className={`settings-switch ${className}`} onClick={() => onCheckedChange?.(!checked)}><span/></button>; }
+export function Switch({ checked, onCheckedChange, className = '', ...props }: Props & { checked?: boolean; onCheckedChange?: (checked: boolean) => void }) { return <button {...props} type="button" role="switch" aria-checked={!!checked} data-state={checked ? 'checked' : 'unchecked'} className={`settings-switch ${className}`} onClick={() => onCheckedChange?.(!checked)}><span/></button>; }
 export const Field = {
   Field: ({ children, ...props }: Props) => <div {...props} data-slot="field" className={`flex min-w-0 flex-col gap-3 ${props.className ?? ''}`}>{children}</div>,
   Description: ({ children, ...props }: Props) => <p {...props} data-slot="field-description" className={`text-sm text-muted-foreground ${props.className ?? ''}`}>{children}</p>

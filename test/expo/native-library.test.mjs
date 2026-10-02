@@ -12,7 +12,7 @@ const output = mkdtempSync(join(tmpdir(), 'native-library-'));
 const require = createRequire(import.meta.url);
 function bundle(name) { const outfile = join(output, `${name}.cjs`); buildSync({ entryPoints: [resolve(`apps/web/src/native-library/${name}.ts`)], bundle: true, platform: 'node', format: 'cjs', outfile, tsconfig: 'apps/web/tsconfig.json', logLevel: 'silent' }); return require(outfile); }
 const { NativeLibraryService } = bundle('service');
-const { parseLibraryQuery, libraryNodes, reconcileNativeSelection } = bundle('view-model');
+const { parseLibraryQuery, libraryNodes, reconcileNativeSelection, nativeOwnedCards } = bundle('view-model');
 const { commitNativeCompletion } = bundle('completion');
 const org = () => ({ version: 1, collections: [], books: {} });
 function book(id = 1, extra = {}) { return { key: `book:${id}`, bookId: id, organizationKey: `content:${String(id).repeat(64).slice(0,64)}`, organizationAliases: [`book:${id}`, `content:${String(id).repeat(64).slice(0,64)}`], title: `Book ${id}`, canonicalTitle: `Book ${id}`, imagePath: '', characters: 1000, lastBookModified: 10, lastBookOpen: id, progress: .3, lastBookmarkModified: 1, isPlaceholder: false, direction: 'unknown', contentHash: String(id).repeat(64).slice(0,64), ...extra }; }
@@ -96,4 +96,35 @@ test('cancellation after first completion put aborts every write', async () => {
   const db = await database(); const one = book(1), two = book(2); await seed(db, one); await seed(db, two); const controller = new AbortController(); let checks = 0;
   await assert.rejects(commitNativeCompletion(db, [one, two], 'finished', '2026-01-02', null, guard(controller.signal, () => { if (++checks === 4) controller.abort(); })), /abort/i);
   assert.equal((await db.get('bookmark', 1)).completion, undefined); assert.equal((await db.get('bookmark', 2)).completion, undefined); db.close();
+});
+
+test('DOM projection protects account visibility and foreign personal progress independently', () => {
+  const summaries = [book(1), book(2, { libraryOwner: 'other', lastBookOpen: 99 }), book(3, { lastBookOpen: 88 })].map(value => ({ ...value, id: value.bookId }));
+  const projected = nativeOwnedCards(summaries, [], [{ dataId: 1, progress: '75%', lastBookmarkModified: 15 }, { dataId: 3, progress: 1, lastBookmarkModified: 100, completion: { state: 'finished', finishedOn: '2026-01-01', modifiedAt: 100 } }], [{ bookId: 3, accountId: 'other' }], null);
+  assert.deepEqual(projected.cards.map(card => card.id), [1, 3]); assert.equal(projected.cards[0].progress, .75);
+  assert.equal(projected.cards[1].progress, 0); assert.equal(projected.cards[1].lastBookOpen, 0); assert.equal(projected.cards[1].completion, undefined); assert.equal(projected.cards[1].lastBookmarkModified, 0);
+});
+
+test('native access admission owns exact identities, rejects replacements and consumes its token', async () => {
+  const f = setup(); const state = await f.service.state({}, f.authority);
+  const request = { token: state.token, keys: [state.items[0].key], operation: 'open' };
+  const identities = await f.service.admitAccess(request, f.authority);
+  assert.deepEqual(identities, [{ bookId: 1, contentHash: '1'.repeat(64), title: 'Book 1', lastBookModified: 10 }]);
+  await assert.rejects(f.service.admitAccess(request, f.authority), /expired/);
+  const second = await f.service.state({}, f.authority); f.data.tree[0].book.contentHash = 'e'.repeat(64);
+  await assert.rejects(f.service.admitAccess({ token: second.token, keys: [second.items[0].key], operation: 'delete' }, f.authority), /book changed/);
+});
+test('native access never opens source-only or placeholder books and cannot target unseen rows', async () => {
+  const f = setup([book(1, { isPlaceholder: true })]); const state = await f.service.state({}, f.authority);
+  await assert.rejects(f.service.admitAccess({ token: state.token, keys: [state.items[0].key], operation: 'open' }, f.authority), /available imported copy/);
+  await assert.rejects(f.service.admitAccess({ token: state.token, keys: ['forged'], operation: 'delete' }, f.authority), /available imported copy/);
+});
+test('two physical copies of one saved book have distinct opaque row handles', async () => {
+  const source = { id: 'source', root: 'private-path', owner: null, provider: 'local', name: 'Folder' };
+  const first = book(1, { source, file: { id: 'one', name: 'one.epub', kind: 'file', parent: '' } });
+  const second = book(1, { source, file: { id: 'two', name: 'two.epub', kind: 'file', parent: '' } });
+  const f = setup([first, second]); const state = await f.service.state({}, f.authority);
+  assert.notEqual(state.items[0].key, state.items[1].key);
+  const detail = await f.service.state({ detail: state.items[1].key }, f.authority); assert.equal(detail.detail.title, 'Book 1');
+  await f.service.action({ token: detail.token, type: 'presentation', keys: [detail.detail.key], change: { coverBlur: true } }, f.authority); assert.equal(f.writes[0][1][0].file.id, 'two');
 });

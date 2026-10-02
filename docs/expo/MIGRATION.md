@@ -28,6 +28,8 @@ The primary application build is Expo Metro, not a separately deployed web wrapp
 
 Expo documents that public assets are bundled into the native binary for DOM components and must use the Expo base URL. It also documents that public assets are unsupported by EAS Update. Accordingly, **EAS Update is disabled**; bundled asset updates require a new reviewed binary.
 
+Manabitan's pinned public ES modules use Metro's documented `@metro-ignore` escape hatch, only inside the browser/DOM graph; URLs are anchored to the HTML document, not the origin or the hashed JS chunk.
+
 Metro's web-worker bundling is explicitly **alpha**. Browser Worker execution is not available in Hermes; all current DOM-dependent worker entry points must stay inside the DOM graph. Web and Android DOM production exports, not just TypeScript parsing, must verify:
 
 - `features/whispersync/pitch/voice-pitch.worker.ts`, SwiftF0 ONNX model and ONNX WASM URL resolution
@@ -47,9 +49,9 @@ Status is intentionally separate from coverage. `Ported` means source implementa
 | Area | Web port | Android presentation | Existing coverage to retain |
 | --- | --- | --- | --- |
 | Reader: continuous, paginated, Foliate, typography, ruby, selection, search, annotations, progress | React/controllers ported; integration validation underway | Same DOM surface; native close/back bridge added | `test/reader`, `tests/browser/test_static_reader.py`, Foliate/navigation/style/lifetime suites, annotations/search/reader-control suites |
-| Library, import/backup/export, selection, series/collections, organization, sources/previews | React/controllers ported; integration validation underway | Native local library/import/search/delete implemented; complete source/organization native parity remains open | Library/account ownership, import hydration/cancellation, collection commit, local/cloud relocation and library browser suites |
-| Settings, appearance/themes/backgrounds, fonts, goals, sync | React/controllers ported; integration validation underway | Native schema-driven controls implemented; complete advanced editors/goals/fonts/sync native parity remains open | Settings/editor/modal/appearance/preference-sync suites |
-| Account/connections, shared libraries, TTU migration | React route ports underway | Native refresh/logout shell implemented; native sign-in/session handoff and provider/local-folder UI remain open | Auth/account lifecycle, connections/shared-safety/WebDAV/TTU suites |
+| Library, import/backup/export, selection, series/collections, organization, sources/previews | React/controllers ported; integration validation underway | Native local import/open/delete, paged sort/search, cached sources/folders, collections, metadata/series, completion and want-to-read controls implemented; provider access, content search and export/backup still open | Library/account ownership, import hydration/cancellation, collection commit, local/cloud relocation and library browser suites |
+| Settings, appearance/themes/backgrounds, fonts, goals, sync | React/controllers ported; integration validation underway | 70 native controls, custom themes/dimensions/font selection and reset implemented; image/font transfer, goals and sync editor parity remain open | Settings/editor/modal/appearance/preference-sync suites |
+| Account/connections, shared libraries, TTU migration | React route ports implemented; integration qualification underway | Native refresh/logout shell implemented; native sign-in/session handoff and provider/local-folder UI remain open | Auth/account lifecycle, connections/shared-safety/WebDAV/TTU suites |
 | Snippets and rich-text editing | React/controller screen ported; focused tests pass, full integration pending | Native shell/editor split pending | `test/snippets`, snippets browser/integration suites |
 | Statistics and reading goals/history | React/controller screen ported; focused tests pass, full integration pending | Scoped native summary/history/heatmap and deletion implemented; advanced editors/goals parity pending | Statistics deletion/identity/goals/history suites |
 | Audiobook/Whispersync/pitch | React reader panel ported; runtime verification pending | Browser media/pitch retained in DOM initially; native background playback qualification remains open | `test/whispersync`, `test/pitch`, voice-pitch/Whispersync browser suites |
@@ -57,10 +59,17 @@ Status is intentionally separate from coverage. `Ported` means source implementa
 
 ### Validation recorded so far
 
-- Ten executable bridge/store/encoding tests pass on the installed Node 24.21 toolchain (version/size admission, duplicate/stale/ABA commands, outcome handling, bounded byte transfer, synchronous store compatibility and binary encoding).
+- Working tree as of 2026-10-02: 1,331 existing/adapted unit tests pass locally with zero skipped; 51 migration tests pass. This is not the result for the published head until the associated commit is identified by CI. Original button-render assertions now exercise actual React components.
+- First real CI head `8b0c0a01cefdaed633930326ff5689c465162bee`: dependency/dictionary/public preparation passed. Both web and Android Metro exports failed resolving a retained TypeScript `.js` specifier. A local-source-only fallback now preserves normal Metro resolution first, then substitutes TypeScript siblings; it never rewrites npm imports. Strict CI reported 171 migration diagnostics, being fixed with concrete types and original behavioral tests. Reader (163 tests) and Whispersync (98 tests with coverage) passed on that head; browser acceptance was skipped because exports failed.
 - Reader and library React entries bundle through a real esbuild dependency graph without a Svelte component loader. These are focused integration checks, not production Expo exports.
 - Reader controller/readiness and library lifecycle/IME source tests are being adapted to the active React implementation. Tests that still inspect legacy `.svelte` sources are not counted as evidence for the new UI.
 - Global Sass/public-asset preparation passes. Actual Metro production web export reaches the application graph, but a 384 MiB attempt exhausted its heap and a single-worker 768 MiB attempt was SIGKILLed in this sandbox. Production web/Android exports are being qualified on normal PR CI. Full browser acceptance remains unrun locally because Chromium socket launch and cloud localhost access are blocked.
+
+## Secure Android reader host
+
+The exact `@expo/dom-webview@57.0.1` patch in [patches/reader-dom](../../patches/reader-dom/README.md) gives the persistent DOM owner a stable packaged HTTPS origin through AndroidX WebViewAssetLoader. It blocks main-frame navigation, scopes message receipt to the exact origin/main frame, disables native-module evaluation and file-origin bypasses, and fails closed on unsupported WebView features. Imported EPUB frames are scriptless on Android. User-gesture external links are revalidated before Custom Tab opening. The patch's JVM URL policy has 89 executable assertions; Kotlin compilation, APK assets and device OPFS/Web Locks/worker persistence remain unqualified.
+
+Book selection tokens are checked against content identity at the actual read/delete boundary. Reader authorization outlives the asynchronous bridge reply and is revoked on replacement, close, teardown or account generation change. This avoids treating `setBookId` as a completed authorized load.
 
 ## Native account boundary
 

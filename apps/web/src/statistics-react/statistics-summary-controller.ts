@@ -52,7 +52,7 @@ export function createStatisticsSummary(
 ) {
   const __readerController = new ReaderController();
   let statisticsSummaryPageLabel: any;
-  let statisticsSummaryPages: any;
+  let statisticsSummaryPages: number[];
   let $lastPrimaryReadingDataAggregationMode$: StoreValue<
     typeof lastPrimaryReadingDataAggregationMode$
   > = __readerController.read(lastPrimaryReadingDataAggregationMode$);
@@ -79,21 +79,21 @@ export function createStatisticsSummary(
   const statisticsSummaryBaseRowRem = 3;
   const statisticsSummaryBaseRowGap = 1.5;
   let renderFullStatisticsSummaryTable = window && window.matchMedia('(min-width: 768px)').matches;
-  let statisticsSummaryTableContainerElm: HTMLElement;
+  let statisticsSummaryTableContainerElm: HTMLElement | null = null;
   let statisticsSummaryPopover: any;
-  let statisticsSummaryButtonContainer: HTMLElement;
+  let statisticsSummaryButtonContainer: HTMLElement | null = null;
   let statisticsData: BookStatistic[] = [];
   let currentStatisticsSummaryRows: BookStatistic[] = [];
   let statisticsSummaryGridRowMod = 0;
   let statisticsSummaryMaxPages = 0;
   let currentStatisticsSummaryPage = 1;
   let rowsPerStatisticsSummaryPage = 0;
-  const statisticsSummaryPageRefs: HTMLButtonElement[] = [];
-  let statisticsSummaryPagesContainer: HTMLElement;
+  const statisticsSummaryPageRefs: Array<HTMLButtonElement | null> = [];
+  let statisticsSummaryPagesContainer: HTMLElement | null = null;
   let statisticsSummaryPopoverDetails: string[] = [];
   let rowInEdit: BookStatistic | undefined;
-  let rowInEditTime = 0;
-  let rowInEditCharacters = 0;
+  let rowInEditTime: number | undefined = 0;
+  let rowInEditCharacters: number | undefined = 0;
   let rowInEditResetMinMaxValues = false;
   const resizeHandler$ = fromEvent(window, 'resize').pipe(
     debounceTime(250),
@@ -250,20 +250,22 @@ export function createStatisticsSummary(
   function updateRowsPerPage(executeSort = true) {
     readerTick().then(() => {
       if (__readerController.disposed) return;
+      const table = statisticsSummaryTableContainerElm;
+      const buttons = statisticsSummaryButtonContainer;
       __readerController.changed(
-        (rowsPerStatisticsSummaryPage = renderFullStatisticsSummaryTable
-          ? Math.max(
-              1,
-              Math.ceil(
-                (getFullHeight(window, statisticsSummaryTableContainerElm) -
-                  getFullHeight(window, statisticsSummaryButtonContainer, true)) /
-                  convertRemToPixels(
-                    window,
-                    statisticsSummaryBaseRowRem + statisticsSummaryBaseRowGap + 0.4
-                  )
+        (rowsPerStatisticsSummaryPage =
+          renderFullStatisticsSummaryTable && table && buttons
+            ? Math.max(
+                1,
+                Math.ceil(
+                  (getFullHeight(window, table) - getFullHeight(window, buttons, true)) /
+                    convertRemToPixels(
+                      window,
+                      statisticsSummaryBaseRowRem + statisticsSummaryBaseRowGap + 0.4
+                    )
+                )
               )
-            )
-          : 1)
+            : 1)
       );
       updatePageData(executeSort);
     });
@@ -667,9 +669,6 @@ export function createStatisticsSummary(
     },
     get $resizeHandler$() {
       return $resizeHandler$;
-    },
-    set $resizeHandler$(nextValue: typeof $resizeHandler$) {
-      writeStore(resizeHandler$, nextValue);
     },
     get $lastBlurredTrackerItems$() {
       return $lastBlurredTrackerItems$;

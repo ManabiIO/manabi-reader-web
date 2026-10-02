@@ -51,7 +51,7 @@ export function SharedLibraryScreen(props: Partial<SharedLibraryScreenProps> & R
     <Dom as="p" role={"status"}>{c.message}</Dom>
         {(c.sources.length) ? <><Dom as="section" aria-labelledby={"connected-folder"}>
         <Dom as="h2" id={"connected-folder"}>{"Connected shared library"}</Dom>
-        <Dom as="label">{"Shared folder"}<Dom as="select" value={c.selected} disabled={c.busy} events={{ "change": () => c.run(c.refresh) }} bindings={{ "value": (value) => { c.controller.changed(c.selected = value); } }}>{(c.sources ?? []).map((item, index0) => <React.Fragment key={item.name}><Dom as="option" value={item.name}>{item.name}</Dom></React.Fragment>)}</Dom></Dom>
+        <Dom as="label">{"Shared folder"}<Dom as="select" value={c.selected} disabled={c.busy} events={{ "change": () => c.run(c.refresh) }} bindings={{ "value": (value: typeof c.selected) => { c.controller.changed(c.selected = value); } }}>{(c.sources ?? []).map((item, index0) => <React.Fragment key={item.name}><Dom as="option" value={item.name}>{item.name}</Dom></React.Fragment>)}</Dom></Dom>
             {(c.source) ? <><Dom as="p">{filesystemData(c.source).fsPath}</Dom>
             <Dom as="div" className={["actions"].filter(Boolean).join(' ')}>
             <Button variant={"outline"} disabled={c.busy} onClick={c.reconnect}>{"Reconnect folder permission"}</Button>
@@ -63,12 +63,12 @@ export function SharedLibraryScreen(props: Partial<SharedLibraryScreenProps> & R
                 })}>{"Open shared library"}</Button>
             <Button variant={"ghost"} disabled={c.busy} onClick={() => c.run(c.refresh)}>{"Refresh shared library"}</Button>
             </Dom>
-            <Dom as="label"><Dom as="input" type={"checkbox"} checked={c.$syncTarget$ === c.source.name && c.$autoReplication$ === AutoReplicationType.All} disabled={c.busy} events={{ "change": (event) => c.setAutomatic(event.currentTarget.checked) }}/>{"Use this library as the automatic Ttu Ebook Reader import/export target"}</Dom>
+            <Dom as="label"><Dom as="input" type={"checkbox"} checked={c.$syncTarget$ === c.source.name && c.$autoReplication$ === AutoReplicationType.All} disabled={c.busy} events={{ "change": (event: Event & { currentTarget: HTMLInputElement }) => c.setAutomatic(event.currentTarget.checked) }}/>{"Use this library as the automatic Ttu Ebook Reader import/export target"}</Dom>
             <Dom as="p" className={["note"].filter(Boolean).join(' ')}>{" This replaces the current automatic sync target. Read the shared copy from “Open shared library” so its identity stays associated with this source. Concurrent edits from other apps may require conflict recovery; the OS cloud client finishes its own upload separately. "}</Dom></> : null}
         </Dom>
         <Dom as="section" aria-labelledby={"shared-books"}>
         <Dom as="h2" id={"shared-books"}>{"Shared books"}</Dom>
-            {(c.remoteTitles ?? []).map((title, index1) => <React.Fragment key={title}><Dom as="label"><Dom as="input" type={"checkbox"} group={c.imports} value={title} bindings={{ "group": (value) => { c.controller.changed(c.imports = value); } }}/>{title}</Dom></React.Fragment>)}
+            {(c.remoteTitles ?? []).map((title, index1) => <React.Fragment key={title}><Dom as="label"><Dom as="input" type={"checkbox"} group={c.imports} value={title} bindings={{ "group": (value: typeof c.imports) => { c.controller.changed(c.imports = value); } }}/>{title}</Dom></React.Fragment>)}
         {(!c.remoteTitles.length) ? <><Dom as="p">{" No Ttu Ebook Reader book packages are present yet. A folder of EPUBs alone is not a Ttu Ebook Reader library; publish selected books below. "}</Dom></> : null}
         <Button variant={"secondary"} disabled={c.busy || !c.source || !c.imports.length} onClick={() => c.run(async () => {
                 if (!c.source)
@@ -82,7 +82,7 @@ export function SharedLibraryScreen(props: Partial<SharedLibraryScreenProps> & R
         <Dom as="h2" id={"publish-books"}>{"Publish browser books"}</Dom>
         <Dom as="p">{" Publish only the books you select. This creates Ttu Ebook Reader book packages and their reading-data files; it does not modify original EPUB files or replace existing shared packages. "}</Dom>
             {(c.localBooks.filter((book) => !c.remoteTitles.includes(book.title)) ?? []).map((book, index2) => <React.Fragment key={book.title}><Dom as="div">
-            <Dom as="label"><Dom as="input" type={"checkbox"} group={c.exports} value={book.title} disabled={c.busy || book.copies !== 1} bindings={{ "group": (value) => { c.controller.changed(c.exports = value); } }}/>{book.title}</Dom>
+            <Dom as="label"><Dom as="input" type={"checkbox"} group={c.exports} value={book.title} disabled={c.busy || book.copies !== 1} bindings={{ "group": (value: typeof c.exports) => { c.controller.changed(c.exports = value); } }}/>{book.title}</Dom>
                 {(book.copies !== 1) ? <><Dom as="p" className={["note"].filter(Boolean).join(' ')}>
                 {book.copies}{" local copies share this title. Ttu Ebook Reader libraries identify books by title. Resolve the duplicate titles before sharing; your local copies are unchanged. "}</Dom></> : null}
             </Dom></React.Fragment>)}

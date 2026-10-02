@@ -26,7 +26,7 @@ export function SettingsCustomTheme(props: Partial<SettingsCustomThemeProps> & R
     <DialogTemplate>
     <Dom as="div" slot={"content"}>
     <Dom as="div" className={["grid grid-cols-1 gap-2 items-center overflow-auto max-h-[60vh] sm:grid-cols-[auto_auto_5rem] sm:gap-4"].filter(Boolean).join(' ')}>
-    <Dom as="select" aria-label={"Copy colors from theme"} value={c.themeToCopy} className={["min-h-11 rounded-xl border border-input bg-background px-3 sm:col-span-2"].filter(Boolean).join(' ')} bindings={{ "value": (value) => { c.controller.changed(c.themeToCopy = value); } }}>
+    <Dom as="select" aria-label={"Copy colors from theme"} value={c.themeToCopy} className={["min-h-11 rounded-xl border border-input bg-background px-3 sm:col-span-2"].filter(Boolean).join(' ')} bindings={{ "value": (value: typeof c.themeToCopy) => { c.controller.changed(c.themeToCopy = value); } }}>
         {(c.existingThemes ?? []).map((theme, index0) => <React.Fragment key={theme.id}><Dom as="option" value={theme.id}>
         {theme.id}
         </Dom></React.Fragment>)}
@@ -42,7 +42,7 @@ export function SettingsCustomTheme(props: Partial<SettingsCustomThemeProps> & R
     <SettingsCustomThemeInput label={"Furigana Partial Hide Font"} attribute={"hintFuriganaFontColor"} values={c.customTheme.hintFuriganaFontColor} events={{ "color": c.handleColorValueChange, "alpha": c.handleAlphaValueChange }}></SettingsCustomThemeInput>
     <SettingsCustomThemeInput label={"Furigana Partial/Full Hide Shadow"} attribute={"hintFuriganaShadowColor"} values={c.customTheme.hintFuriganaShadowColor} events={{ "color": c.handleColorValueChange, "alpha": c.handleAlphaValueChange }}></SettingsCustomThemeInput>
     <SettingsCustomThemeInput label={"Footer Font"} attribute={"tooltipTextFontColor"} values={c.customTheme.tooltipTextFontColor} events={{ "color": c.handleColorValueChange, "alpha": c.handleAlphaValueChange }}></SettingsCustomThemeInput>
-    <Input type={"text"} placeholder={"Theme Name"} aria-label={"Theme name"} aria-invalid={Boolean(c.nameError)} aria-describedby={c.nameError ? 'custom-theme-name-error' : undefined} onInput={c.clearNameError} value={c.themeName} ref={c.themeNameElm} className={["min-h-11 sm:col-span-2"].filter(Boolean).join(' ')} bindings={{ "value": (value) => { c.controller.changed(c.themeName = value); }, "ref": (value) => { c.controller.changed(c.themeNameElm = value); } }}></Input>
+    <Input type={"text"} placeholder={"Theme Name"} aria-label={"Theme name"} aria-invalid={Boolean(c.nameError)} aria-describedby={c.nameError ? 'custom-theme-name-error' : undefined} onInput={c.clearNameError} value={c.themeName} ref={c.themeNameElm} className={["min-h-11 sm:col-span-2"].filter(Boolean).join(' ')} bindings={{ "value": (value: typeof c.themeName) => { c.controller.changed(c.themeName = value); }, "ref": (value: typeof c.themeNameElm) => { c.controller.changed(c.themeNameElm = value); } }}></Input>
     <Dom as="div" data-theme-preview={true} aria-hidden={"true"} styleText={c.themeStyle} className={["flex min-h-11 items-center justify-center rounded-xl border-2 border-border p-2 text-lg"].filter(Boolean).join(' ')}>{" ぁあ "}</Dom>
     </Dom>
         {(c.nameError) ? <><Dom as="p" id={"custom-theme-name-error"} role={"alert"} className={["mt-3"].filter(Boolean).join(' ')}>{c.nameError}</Dom></> : null}

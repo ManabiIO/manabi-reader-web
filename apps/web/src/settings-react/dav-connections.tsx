@@ -38,18 +38,18 @@ export function DavConnections(props: Partial<DavConnectionsProps> & ReaderViewP
         })}>{"Reload WebDAV connections"}</Button>
     </Dom>
     {(c.message) ? <><Dom as="p" role={"status"}>{c.message}</Dom></> : null}
-        {(c.editing) ? <><Dom as="form" aria-label={"WebDAV connection"} onSubmit={(event) => {
+        {(c.editing) ? <><Dom as="form" aria-label={"WebDAV connection"} onSubmit={(event: React.FormEvent<HTMLFormElement>) => {
                 event.preventDefault();
                 void c.run(c.save);
             }}>
-        <Dom as="label">{"Name"}<Input required={true} maxLength={240} value={c.name} disabled={c.busy} bindings={{ "value": (value) => { c.controller.changed(c.name = value); } }}></Input></Dom>
-        <Dom as="label">{"WebDAV folder URL"}<Input required={true} type={"url"} value={c.url} disabled={c.busy || c.existing} placeholder={"https://cloud.example/remote.php/dav/files/name/Books/"} bindings={{ "value": (value) => { c.controller.changed(c.url = value); } }}></Input></Dom>
-        <Dom as="label">{"Username"}<Input autoComplete={"username"} value={c.username} disabled={c.busy || c.existing} bindings={{ "value": (value) => { c.controller.changed(c.username = value); } }}></Input></Dom>
+        <Dom as="label">{"Name"}<Input required={true} maxLength={240} value={c.name} disabled={c.busy} bindings={{ "value": (value: typeof c.name) => { c.controller.changed(c.name = value); } }}></Input></Dom>
+        <Dom as="label">{"WebDAV folder URL"}<Input required={true} type={"url"} value={c.url} disabled={c.busy || c.existing} placeholder={"https://cloud.example/remote.php/dav/files/name/Books/"} bindings={{ "value": (value: typeof c.url) => { c.controller.changed(c.url = value); } }}></Input></Dom>
+        <Dom as="label">{"Username"}<Input autoComplete={"username"} value={c.username} disabled={c.busy || c.existing} bindings={{ "value": (value: typeof c.username) => { c.controller.changed(c.username = value); } }}></Input></Dom>
         {(c.existing) ? <><Dom as="p" className={["text-sm text-muted-foreground"].filter(Boolean).join(' ')}>{" Folder and username identify this connection. Add a new connection to change either; importing the same book can reuse its existing local copy and reading history. "}</Dom></> : null}
-        <Dom as="label">{"Password or app password"}<Input type={"password"} autoComplete={"current-password"} value={c.password} disabled={c.busy} bindings={{ "value": (value) => { c.controller.changed(c.password = value); } }}></Input></Dom>
-        <Dom as="label" className={["choice"].filter(Boolean).join(' ')}><Dom as="input" type={"checkbox"} checked={c.remember} disabled={c.busy} bindings={{ "checked": (value) => { c.controller.changed(c.remember = value); } }}/>{" Remember password on this device"}</Dom>
+        <Dom as="label">{"Password or app password"}<Input type={"password"} autoComplete={"current-password"} value={c.password} disabled={c.busy} bindings={{ "value": (value: typeof c.password) => { c.controller.changed(c.password = value); } }}></Input></Dom>
+        <Dom as="label" className={["choice"].filter(Boolean).join(' ')}><Dom as="input" type={"checkbox"} checked={c.remember} disabled={c.busy} bindings={{ "checked": (value: typeof c.remember) => { c.controller.changed(c.remember = value); } }}/>{" Remember password on this device"}</Dom>
         <Dom as="p" className={["text-sm text-muted-foreground"].filter(Boolean).join(' ')}>{" Otherwise the password is kept only for this tab. A remembered password is stored in this site’s browser database, not encrypted with a separate key. Use a limited app password. Credentials are not exported or sent to Manabi. "}</Dom>
-        <Dom as="label" className={["choice"].filter(Boolean).join(' ')}><Dom as="input" type={"checkbox"} checked={c.writable} disabled={c.busy} bindings={{ "checked": (value) => { c.controller.changed(c.writable = value); } }}/>{" Allow reading-data write-back in .manabi-reader"}</Dom>
+        <Dom as="label" className={["choice"].filter(Boolean).join(' ')}><Dom as="input" type={"checkbox"} checked={c.writable} disabled={c.busy} bindings={{ "checked": (value: typeof c.writable) => { c.controller.changed(c.writable = value); } }}/>{" Allow reading-data write-back in .manabi-reader"}</Dom>
         <Dom as="p" className={["text-sm text-muted-foreground"].filter(Boolean).join(' ')}>{" Original books are never modified. Enabling permission does not start sync; enable it for individual books below. "}</Dom>
         <Dom as="div" className={["flex flex-wrap gap-2"].filter(Boolean).join(' ')}>
         <Button type={"submit"} disabled={c.busy}>{"Test and save WebDAV"}</Button>

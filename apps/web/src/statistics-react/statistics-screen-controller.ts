@@ -266,9 +266,6 @@ export function createStatisticsScreen(
     get $currentBookId$() {
       return $currentBookId$;
     },
-    set $currentBookId$(nextValue: typeof $currentBookId$) {
-      writeStore(currentBookId$, nextValue);
-    },
     get $statisticsActionInProgress$() {
       return $statisticsActionInProgress$;
     },

@@ -124,6 +124,7 @@ export function NativeStatisticsScreen() {
             })
               .then(() => {
                 if (owner === latestScope.current) return refresh();
+                return undefined;
               })
               .catch((cause) => {
                 if (owner === latestScope.current)

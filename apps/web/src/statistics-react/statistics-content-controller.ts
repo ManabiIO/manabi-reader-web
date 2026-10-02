@@ -1162,34 +1162,17 @@ export function createStatisticsContent(
     get $copyStatisticsDataHandler$() {
       return $copyStatisticsDataHandler$;
     },
-    set $copyStatisticsDataHandler$(nextValue: typeof $copyStatisticsDataHandler$) {
-      writeStore(copyStatisticsDataHandler$, nextValue);
-    },
     get $exportStatisticsDataHandler$() {
       return $exportStatisticsDataHandler$;
-    },
-    set $exportStatisticsDataHandler$(nextValue: typeof $exportStatisticsDataHandler$) {
-      writeStore(exportStatisticsDataHandler$, nextValue);
     },
     get $exportRawStatisticsHandler$() {
       return $exportRawStatisticsHandler$;
     },
-    set $exportRawStatisticsHandler$(nextValue: typeof $exportRawStatisticsHandler$) {
-      writeStore(exportRawStatisticsHandler$, nextValue);
-    },
     get $deleteStatisticsDataHandler$() {
       return $deleteStatisticsDataHandler$;
     },
-    set $deleteStatisticsDataHandler$(nextValue: typeof $deleteStatisticsDataHandler$) {
-      writeStore(deleteStatisticsDataHandler$, nextValue);
-    },
     get $setStatisticsDatesToAllTimeHandler$() {
       return $setStatisticsDatesToAllTimeHandler$;
-    },
-    set $setStatisticsDatesToAllTimeHandler$(
-      nextValue: typeof $setStatisticsDatesToAllTimeHandler$
-    ) {
-      writeStore(setStatisticsDatesToAllTimeHandler$, nextValue);
     },
     get $lastStatisticsTab$() {
       return $lastStatisticsTab$;

@@ -19,9 +19,9 @@ export interface ImportTtuScreenProps {
 
 export function createImportTtuScreen(props: ImportTtuScreenProps, emit: (name: string, detail?: unknown) => void = () => {}, componentContext: SettingsContextValue) {
 const __readerController = new ReaderController();
-let visibleRows: any;
-let selected: any;
-let ignored: any;
+let visibleRows: Row[] = [];
+let selected: Row[] = [];
+let ignored = 0;
 
 interface Row extends MigrationItem {
     key: string;
@@ -32,7 +32,7 @@ interface Row extends MigrationItem {
     message: string;
     bookId?: number;
 }
-let filePicker: HTMLInputElement;
+let filePicker: HTMLInputElement | null = null;
 let rows: Row[] = [];
 let sources: TtuMigration[] = [];
 let choices: MigratedBookChoice[] = [];
@@ -196,7 +196,7 @@ __readerController.onDestroy(beforeNavigate(({ cancel: prevent, type }) => {
 }));
 __readerController.onMount(() => {
     __readerController.changed(yatsu = new URLSearchParams(window.location.search).get('source') === 'yatsu');
-    consumeSelection(filePicker);
+    if (filePicker) consumeSelection(filePicker);
     void migratedBookChoices()
         .then((value) => {
         if (!stopped)

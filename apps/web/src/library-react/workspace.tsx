@@ -209,7 +209,7 @@ export function WorkspaceView({ c, children }: {
             </p></> : null}
             {c.resume ? <><Button onClick={() => c.openBook(c.resume!)} disabled={c.busy} className={["mt-6 h-auto min-h-14 max-w-lg flex-col whitespace-normal px-6 py-3"].filter(Boolean).join(" ")}><span className={["font-semibold"].filter(Boolean).join(" ")}>{hasReadingEvidence(c.resume) ? 'Continue Reading' : 'Start Reading'}</span><span className={["max-w-full truncate font-normal opacity-80"].filter(Boolean).join(" ")}>{c.resume.title}</span></Button></> : <><p className={["mt-6 inline-flex items-center gap-2 text-sm"].filter(Boolean).join(" ")}>
             <CircleCheck aria-hidden={"true"} className={["size-4"].filter(Boolean).join(" ")}/>{"All books finished "}</p></>}
-        {c.collectionId !== 'books' ? <><Button variant={"ghost"} onClick={() => c.navigate(c.series.id, 'books', false)} className={["mt-3"].filter(Boolean).join(" ")}>{"View full series"}</Button></> : null}
+        {c.collectionId !== 'books' ? <><Button variant={"ghost"} onClick={() => { const series = c.series; if (series) c.navigate(series.id, 'books', false); }} className={["mt-3"].filter(Boolean).join(" ")}>{"View full series"}</Button></> : null}
         </div>
         </Action>
         </> : <>{c.recentBooks.length && !c.normalizedQuery ? <><h2 id={"books-heading"} className={["shelf-heading mb-4"].filter(Boolean).join(" ")}>{" Books "}</h2></> : null}</>}
@@ -409,9 +409,10 @@ export function WorkspaceView({ c, children }: {
         <Dialog.Footer><Button variant={"secondary"} onClick={() => (c.dialogOpen = false)}>{"Done"}</Button></Dialog.Footer>
         </> : <>{c.dialog === 'membership' && c.targetBook ? <>
             <div className={["grid max-h-[40dvh] gap-3 overflow-y-auto"].filter(Boolean).join(" ")}>
-                {([c.wantToRead, ...c.customCollections]).map((collection, __index) => <Fragment key={collection.id}><label className={["flex min-h-11 items-center gap-3 rounded-xl border border-border px-3"].filter(Boolean).join(" ")}><input type={"checkbox"} checked={c.targetBook.organizationAliases.some((alias) => collection.members.includes(alias))} disabled={c.busy} onChange={(event: any) => {
+                {([c.wantToRead, ...c.customCollections]).map((collection, __index) => <Fragment key={collection.id}><label className={["flex min-h-11 items-center gap-3 rounded-xl border border-border px-3"].filter(Boolean).join(" ")}><input type={"checkbox"} checked={c.targetBook?.organizationAliases.some((alias) => collection.members.includes(alias)) ?? false} disabled={c.busy} onChange={(event: any) => {
                         const included = event.currentTarget.checked;
-                        const selected = c.targetBook!;
+                        const selected = c.targetBook;
+                        if (!selected) return;
                         void c.action(async () => {
                             const stable = await c.stableOrganizationBook(selected);
                             c.targetBook = stable;

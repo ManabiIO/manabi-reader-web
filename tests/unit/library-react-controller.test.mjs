@@ -87,3 +87,11 @@ test('the active React header preserves IME text until composition ends, with ex
     model.searchCompositionStarted({currentTarget:{value:'途中'}});model.libraryMenu={search:{query:'new navigation',setQuery:q=>queries.push(q)}};model.flush();model.searchCompositionEnded({currentTarget:{value:'古い入力'}});assert.deepEqual(queries,['日本語']);assert.equal(model.searchDraft,'new navigation');stop();await drain();
   }finally{h.restore();}
 });
+
+test('unwatched synchronous store reads dispose function and object subscriptions', () => {
+  for (const objectSubscription of [false, true]) {
+    let stops = 0;
+    const source = { subscribe(run) { run(42); return objectSubscription ? { unsubscribe() { stops++; } } : () => { stops++; }; } };
+    assert.equal(boundary.readStore(source), 42); assert.equal(stops, 1);
+  }
+});

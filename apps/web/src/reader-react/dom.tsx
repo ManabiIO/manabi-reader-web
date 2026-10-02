@@ -56,6 +56,8 @@ import {
   Headphones,
   X
 } from 'lucide-react';
+import { buttonVariants } from '../snippets-react/button-styles';
+import { cn } from '$lib/utils';
 import { HtmlReadiness } from './html-readiness';
 import type { ControlledReader } from './controller';
 
@@ -295,54 +297,48 @@ export function StyleSheetRenderer({ styleSheet }: { styleSheet?: string }) {
   return <style>{styleSheet}</style>;
 }
 
-const buttonStyles: Record<string, string> = {
-  default: 'bg-primary text-primary-foreground',
-  outline:
-    'border-primary bg-transparent text-primary hover:bg-primary hover:text-primary-foreground',
-  secondary: 'bg-secondary text-secondary-foreground',
-  ghost: 'hover:bg-muted hover:text-foreground aria-expanded:bg-muted',
-  destructive: 'bg-destructive/10 text-destructive',
-  link: 'bg-transparent text-primary underline-offset-4 hover:underline'
-};
-const buttonSizes: Record<string, string> = {
-  default: 'min-h-10 gap-2 px-4 py-2',
-  xs: 'min-h-7 gap-1 px-2.5 py-1 text-xs',
-  sm: 'min-h-8 gap-1 px-3 py-1',
-  lg: 'min-h-11 gap-2 px-[22px] py-[10px]',
-  icon: 'size-10 p-0',
-  'icon-xs': 'size-7 p-0',
-  'icon-sm': 'size-8 p-0',
-  'icon-lg': 'size-11 p-0'
-};
 export function Button({
   className = '',
   variant = 'default',
   size = 'default',
   shape = 'auto',
   href,
+  disabled,
+  tabIndex,
+  tabindex,
+  onClick,
   events,
   bindings,
   children,
   ...props
 }: ControlProps) {
-  const rounded =
-    shape === 'circle' ||
-    shape === 'capsule' ||
-    (shape === 'auto' &&
-      ['default', 'secondary', 'outline', 'destructive'].includes(variant) &&
-      ['default', 'lg'].includes(size))
-      ? 'rounded-full'
-      : 'rounded-[10px]';
+  const click = (event: MouseEvent) => {
+    if (disabled) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+    (onClick ?? events?.click)?.(event);
+  };
   return (
     <Dom
       as={href ? 'a' : 'button'}
       type={href ? undefined : 'button'}
-      href={href}
-      tabIndex={0}
       {...props}
-      events={events}
+      href={disabled ? undefined : href}
+      disabled={href ? undefined : disabled}
+      aria-disabled={href ? disabled || props['aria-disabled'] : props['aria-disabled']}
+      role={href && disabled ? 'link' : props.role}
+      tabIndex={href && disabled ? -1 : (tabIndex ?? tabindex ?? 0)}
+      events={{ ...events, click }}
       bindings={bindings}
-      className={`reader-button reader-button-${variant} border border-transparent min-w-0 max-w-full whitespace-normal text-center text-sm [overflow-wrap:anywhere] disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:min-w-11 ${buttonStyles[variant] ?? ''} ${buttonSizes[size] ?? ''} ${rounded} ${shape === 'circle' ? 'aspect-square p-0' : ''} ${className}`}
+      className={cn(
+        'reader-button',
+        `reader-button-${variant}`,
+        buttonVariants({ variant, size, shape }),
+        className
+      )}
+      data-slot="button"
       data-variant={variant}
       data-size={size}
       data-shape={shape}
@@ -360,9 +356,9 @@ export function CloseButton({ className = '', ...props }: ControlProps) {
       size="icon-lg"
       shape="circle"
       data-modal-dismiss=""
-      className={`size-[44px] min-h-[44px] min-w-[44px] text-muted-foreground hover:text-foreground ${className}`}
+      className={`size-[44px] min-h-[44px] min-w-[44px] pointer-coarse:min-h-[44px] pointer-coarse:min-w-[44px] text-muted-foreground hover:text-foreground ${className}`}
     >
-      <Icon name="X" />
+      <X className="size-[18px]" strokeWidth={3} aria-hidden="true" />
     </Button>
   );
 }

@@ -1,7 +1,7 @@
 name: Expo Android and web migration
 on:
   pull_request:
-    paths: ['apps/web/**', 'scripts/**', 'test/**', 'tests/**', 'package.json', 'pnpm-lock.yaml', '.github/workflows/expo-migration.yml']
+    paths: ['apps/web/**', 'scripts/**', 'test/**', 'tests/**', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'patches/**', '.github/workflows/expo-migration.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -27,17 +27,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.21.0'
-      # Temporary draft bootstrap: the sandbox cannot resolve the complete Expo
-      # dependency graph without exhausting memory. Capture the resolved lock for
-      # review/commit, then restore frozen-lockfile admission in this same PR.
-      - name: Resolve migration dependencies
+      # Draft-only lock bootstrap for the exact patched graph: local pnpm policy
+      # verification is SIGKILLed even at network concurrency two. Commit the
+      # generated graph and restore frozen install in the next same-PR commit.
+      - name: Resolve reviewed dependency graph
         run: pnpm install --no-frozen-lockfile
-      - name: Record reviewed dependency graph
+      - name: Record dependency graph for reviewed lock commit
         if: matrix.platform == 'web'
         run: |
           printf 'MANABI_EXPO_LOCK_GZIP_BASE64='
           gzip -c pnpm-lock.yaml | base64 -w 0
           printf '\n'
+      - uses: actions/setup-java@v4
+        if: matrix.platform == 'android'
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: Prepare pinned dictionary and public assets
         run: |
           pnpm prepare:dictionary
@@ -61,6 +66,15 @@ jobs:
           test -d apps/web/android
           test ! -d apps/web/ios
           test ! -d apps/web/macos
+      - name: Compile Android host and run origin policy tests
+        if: matrix.platform == 'android'
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          node --test patches/reader-dom/contract.test.mjs
+          cd apps/web/android
+          ./gradlew :expo-dom-webview:testDebugUnitTest :app:assembleRelease --no-daemon --max-workers=2
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -68,6 +82,7 @@ jobs:
           path: |
             apps/web/build
             apps/web/dist-android
+            apps/web/android/app/build/outputs/apk/release
             pnpm-lock.yaml
           retention-days: 7
   regression:
@@ -96,7 +111,9 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
         run: |
           node --test --test-concurrency=2 tests/unit/*.test.mjs
-          pnpm test:expo
+      - name: Migration contract tests
+        if: success() || failure()
+        run: pnpm test:expo
       - name: Existing reader regressions
         if: success() || failure()
         run: pnpm test:reader
@@ -113,6 +130,7 @@ jobs:
   browser:
     name: Existing browser acceptance
     needs: export
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:

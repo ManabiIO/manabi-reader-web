@@ -114,7 +114,19 @@ export function AppIcon({ icon, spin, className = '', ...props }: Props) {
 
 /** React equivalent of the original externally anchored popover. The imperative
  * handle is stable; all callbacks read the latest props to avoid stale closures. */
-export function Popover(props: Props) {
+export interface PopoverHandle {
+  openAt(reference: HTMLElement): void;
+  close(restoreFocus?: boolean): void;
+  toggleOpen(reference?: HTMLElement | Event): void;
+}
+type PopoverProps = Props & {
+  bindings?: {
+    this?: (value: PopoverHandle | undefined) => void;
+    isOpen?: (value: boolean) => void;
+  };
+  events?: { open?: (event: { detail: undefined }) => void };
+};
+export function Popover(props: PopoverProps) {
   const live = useRef(props);
   live.current = props;
   const id = useRef(Symbol('statistics-popover')).current;
@@ -264,7 +276,7 @@ export function Popover(props: Props) {
         {(icons.length > 0 || defaults.length > 0) && (
           <Dom
             as="button"
-            elementRef={(value) => {
+            elementRef={(value: HTMLButtonElement | null) => {
               trigger.current = value;
             }}
             type="button"
@@ -289,7 +301,7 @@ export function Popover(props: Props) {
           <div className="react-statistics-statistics-heatmap react-statistics-statistics-summary react-statistics-statistics-summary-header">
             <Dom
               as="div"
-              elementRef={(value) => {
+              elementRef={(value: HTMLDivElement | null) => {
                 panel.current = value;
               }}
               data-popover

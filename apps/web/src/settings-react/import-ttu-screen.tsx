@@ -48,14 +48,14 @@ export function ImportTtuScreen(props: Partial<ImportTtuScreenProps> & ReaderVie
         <Dom as="h2" id={"yatsu-export-instructions"}>{"Export in Yatsu Reader"}</Dom>
         <Dom as="p">{" In the Library, open More library actions and choose "}<Dom as="strong">{"Get complete local backup"}</Dom>{". Select that ZIP below. Version-11 backups include book data, current reading position, collection tags, statistics, saved bookmarks, highlights, passage notes and book notes. Safe reader settings are optional and unchecked by default. Original note records are retained; an ambiguous passage stays available in Imported Yatsu notes rather than jumping to a guessed location. Keep your original ZIP for unsupported settings and external audio files. "}</Dom>
         </Dom></>}
-    <Dom as="label" className={["file-picker"].filter(Boolean).join(' ')}>{"Choose "}{c.yatsu ? 'Yatsu backup' : 'Ttu export'}{" ZIPs "}<Dom as="input" type={"file"} accept={".zip,application/zip"} multiple={true} disabled={c.busy} elementRef={(value) => { c.controller.changed(c.filePicker = value); }} events={{ "change": (event) => c.consumeSelection(event.currentTarget) }}/>
+    <Dom as="label" className={["file-picker"].filter(Boolean).join(' ')}>{"Choose "}{c.yatsu ? 'Yatsu backup' : 'Ttu export'}{" ZIPs "}<Dom as="input" type={"file"} accept={".zip,application/zip"} multiple={true} disabled={c.busy} elementRef={(value: typeof c.filePicker) => { c.controller.changed(c.filePicker = value); }} events={{ "change": (event: Event & { currentTarget: HTMLInputElement }) => c.consumeSelection(event.currentTarget) }}/>
     </Dom>
     <Dom as="p">{"Imports stay on this device. No sign-in or cloud access is required."}</Dom>
     {(c.message) ? <><Dom as="p" role={"status"}>{c.message}</Dom></> : null}
         {(c.rows.length) ? <><Dom as="details">
         <Dom as="summary">{"Data to import"}</Dom>
         <Dom as="div" className={["parts"].filter(Boolean).join(' ')}>
-            {(Object.entries(importLabels) ?? []).map(([part, label], index0) => <React.Fragment key={part}>{(!['metadata', 'savedBookmarks', 'highlights', 'notes', 'settings'].includes(part) || c.sources.some((source) => source.source === 'yatsu')) ? <><Dom as="label"><Dom as="input" type={"checkbox"} group={c.parts} value={part} disabled={c.busy} bindings={{ "group": (value) => { c.controller.changed(c.parts = value); } }}/>{label}</Dom></> : null}</React.Fragment>)}
+            {(Object.entries(importLabels) ?? []).map(([part, label], index0) => <React.Fragment key={part}>{(!['metadata', 'savedBookmarks', 'highlights', 'notes', 'settings'].includes(part) || c.sources.some((source) => source.source === 'yatsu')) ? <><Dom as="label"><Dom as="input" type={"checkbox"} group={c.parts} value={part} disabled={c.busy} bindings={{ "group": (value: typeof c.parts) => { c.controller.changed(c.parts = value); } }}/>{label}</Dom></> : null}</React.Fragment>)}
         <Dom as="p">{" Settings require selecting both the settings row and its data-type checkbox. Existing Manabi sync choices and credentials are never imported. "}</Dom>
         </Dom>
         </Dom>
@@ -82,13 +82,13 @@ export function ImportTtuScreen(props: Partial<ImportTtuScreenProps> & ReaderVie
             </Dom></> : null}
         <Dom as="div" aria-label={"Import preview"} aria-busy={c.busy} className={["import-list"].filter(Boolean).join(' ')}>
             {(c.visibleRows ?? []).map((row, index1) => <React.Fragment key={row.key}><Dom as="article" aria-label={"Import " + String((row.title) ?? '')}>
-            <Dom as="label" className={["book-choice"].filter(Boolean).join(' ')}><Dom as="input" type={"checkbox"} checked={row.selected} disabled={c.busy || !!row.error} bindings={{ "checked": (value) => { c.setRowSelection(row.key, value); } }}/>{row.title}</Dom>
+            <Dom as="label" className={["book-choice"].filter(Boolean).join(' ')}><Dom as="input" type={"checkbox"} checked={row.selected} disabled={c.busy || !!row.error} bindings={{ "checked": (value: boolean) => { c.setRowSelection(row.key, value); } }}/>{row.title}</Dom>
             <Dom as="p" className={["details"].filter(Boolean).join(' ')}>
             {row.source.source === 'yatsu' ? 'Yatsu Reader' : 'Ttu Ebook Reader'}{" · "}{row.source.file.name}{" · "}{row.parts
                     .map((part) => `${importLabels[part]}${row.counts?.[part] !== undefined ? ` (${row.counts[part]})` : ''}`)
                     .join(', ')}
             </Dom>
-                {(!row.parts.includes('goals') && !row.parts.includes('settings') && (!row.parts.includes('book') || row.status === 'conflict')) ? <><Dom as="label">{"Destination book "}<Dom as="select" value={row.targetId} disabled={c.busy} aria-label={"Destination for " + String((row.title) ?? '')} bindings={{ "value": (value) => { c.setRowTarget(row.key, value); } }}>
+                {(!row.parts.includes('goals') && !row.parts.includes('settings') && (!row.parts.includes('book') || row.status === 'conflict')) ? <><Dom as="label">{"Destination book "}<Dom as="select" value={row.targetId} disabled={c.busy} aria-label={"Destination for " + String((row.title) ?? '')} bindings={{ "value": (value: number) => { c.setRowTarget(row.key, value); } }}>
                 <Dom as="option" value={0}>{"Choose a previously imported book"}</Dom>
                 {(c.choices.filter((book) => book.sourceTitle === row.title) ?? []).map((book, index2) => <React.Fragment key={book.id}><Dom as="option" value={book.id}>{book.title}</Dom></React.Fragment>)}
                 </Dom>

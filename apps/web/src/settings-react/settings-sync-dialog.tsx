@@ -29,7 +29,7 @@ export function SettingsSyncDialog(props: Partial<SettingsSyncDialogProps> & Rea
     <Dom as="div" className={["grid gap-4"].filter(Boolean).join(' ')}>
     <Dom as="label" className={["grid gap-2 text-sm font-medium"].filter(Boolean).join(' ')}>
     <Dom as="span">{"Source"}</Dom>
-    <Dom as="select" value={c.selectedSource} className={["min-h-11 min-w-0 rounded-[10px] border border-input bg-background px-3 py-2 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 md:text-sm"].filter(Boolean).join(' ')} bindings={{ "value": (value) => { c.controller.changed(c.selectedSource = value); } }}>
+    <Dom as="select" value={c.selectedSource} className={["min-h-11 min-w-0 rounded-[10px] border border-input bg-background px-3 py-2 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 md:text-sm"].filter(Boolean).join(' ')} bindings={{ "value": (value: typeof c.selectedSource) => { c.controller.changed(c.selectedSource = value); } }}>
         {(c.sources ?? []).map((source, index0) => <React.Fragment key={source.id}><Dom as="option" value={source.id}>
         {source.label}
         </Dom></React.Fragment>)}
@@ -47,7 +47,7 @@ export function SettingsSyncDialog(props: Partial<SettingsSyncDialogProps> & Rea
     </Button>
     <Dom as="label" className={["grid gap-2 text-sm font-medium"].filter(Boolean).join(' ')}>
     <Dom as="span">{"Target"}</Dom>
-    <Dom as="select" value={c.selectedTarget} className={["min-h-11 min-w-0 rounded-[10px] border border-input bg-background px-3 py-2 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 md:text-sm"].filter(Boolean).join(' ')} bindings={{ "value": (value) => { c.controller.changed(c.selectedTarget = value); } }}>
+    <Dom as="select" value={c.selectedTarget} className={["min-h-11 min-w-0 rounded-[10px] border border-input bg-background px-3 py-2 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 md:text-sm"].filter(Boolean).join(' ')} bindings={{ "value": (value: typeof c.selectedTarget) => { c.controller.changed(c.selectedTarget = value); } }}>
         {(c.targets ?? []).map((target, index1) => <React.Fragment key={target.id}><Dom as="option" value={target.id}>
         {target.label}
         </Dom></React.Fragment>)}

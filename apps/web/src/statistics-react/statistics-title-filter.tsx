@@ -57,7 +57,7 @@ export function StatisticsTitleFilter(
           placeholder={'Filter titles'}
           aria-label={'Filter book titles'}
           value={c.titleFilter}
-          onInput={(event) => {
+          onInput={(event: React.FormEvent<HTMLInputElement>) => {
             c.titleFilter = event.currentTarget.value;
             c.page = 1;
           }}
@@ -129,7 +129,7 @@ export function StatisticsTitleFilter(
           <>
             <Dom
               as="div"
-              elementRef={(value) => {
+              elementRef={(value: HTMLDivElement | null) => {
                 c.titleList = value;
               }}
               role={'group'}
@@ -144,7 +144,9 @@ export function StatisticsTitleFilter(
                       type={'checkbox'}
                       aria-label={item.title}
                       checked={item.isSelected}
-                      onChange={(event) => c.selectTitle(item.title, event.currentTarget.checked)}
+                      onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                        c.selectTitle(item.title, event.currentTarget.checked)
+                      }
                     />
                     <Dom
                       as="span"

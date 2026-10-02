@@ -119,7 +119,7 @@ export function HeaderView({ c, children }: {
                 <Menu.Separator /><Menu.Label>{"Show"}</Menu.Label>
                 <Menu.RadioGroup value={c.libraryMenu.showValue} onValueChange={c.libraryMenu.setShow}>
                     {(c.libraryMenu.showChoices).map((choice, __index) => <Fragment key={choice.value}>
-                    <Menu.RadioItem value={choice.value} disabled={c.libraryMenu.showChoices.length === 1}>{choice.label}</Menu.RadioItem>
+                    <Menu.RadioItem value={choice.value} disabled={(c.libraryMenu?.showChoices.length ?? 0) <= 1}>{choice.label}</Menu.RadioItem>
                     </Fragment>)}
                 </Menu.RadioGroup>
                 <Menu.Separator />

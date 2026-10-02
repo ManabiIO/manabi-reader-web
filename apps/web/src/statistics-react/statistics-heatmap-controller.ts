@@ -77,7 +77,7 @@ export function createStatisticsHeatmap(
   const __readerController = new ReaderController();
   let activeDay: any;
   let heatmapLabel: any;
-  let dayLabels: any;
+  let dayLabels: string[];
   let $lastStartDayOfWeek$: StoreValue<typeof lastStartDayOfWeek$> =
     __readerController.read(lastStartDayOfWeek$);
   let $lastStatisticsStartDate$: StoreValue<typeof lastStatisticsStartDate$> =
@@ -93,7 +93,7 @@ export function createStatisticsHeatmap(
   let today: any = props.today;
   let todayKey: string = props.todayKey;
   const colorRanges: HeatmapColorRange[] = [];
-  let heatmapElement: HTMLElement;
+  let heatmapElement: HTMLElement | null = null;
   let heatmapDetailDataPopover: any;
   let monthLabels: HeatmapMonthLabel[] = [...monthLabelList];
   let dayElementSize = heatmapDayElementSize;
@@ -170,13 +170,14 @@ export function createStatisticsHeatmap(
       }
     }
   );
-  __readerController.onMount(() =>
-    observeElementWidth(heatmapElement, (width) => {
+  __readerController.onMount(() => {
+    if (!heatmapElement) return undefined;
+    return observeElementWidth(heatmapElement, (width) => {
       __readerController.changed(
         (dayElementSize = heatmapCellSize(width, heatmapDayElementSize, heatmapGridGapValue, 57))
       );
-    })
-  );
+    });
+  });
   __readerController.onDestroy(() => {
     __readerController.changed((alive = false));
     __readerController.changed((popupGeneration += 1));
@@ -216,7 +217,7 @@ export function createStatisticsHeatmap(
     });
   }
   function handleHeatmapDayKeydown(event: KeyboardEvent, day: StatisticsHeatmapDayData) {
-    if (event.altKey || event.metaKey || event.shiftKey) return;
+    if (!heatmapElement || event.altKey || event.metaKey || event.shiftKey) return;
     // Native buttons own Enter/Space activation. Ignore held activation keys.
     if (event.repeat && (event.key === 'Enter' || event.key === ' ')) {
       event.preventDefault();

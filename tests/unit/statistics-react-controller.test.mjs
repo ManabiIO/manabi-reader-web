@@ -311,6 +311,106 @@ test('React summary keeps an in-progress edit through resize and only resets for
   await f.frame();
 });
 
+test('React statistics exposes observable projections as read-only while source updates still flow', async () => {
+  const f = fixture();
+  const screen = f.start('statistics-screen');
+  const summary = f.start('statistics-summary', {
+    aggregratedStatistics: [],
+    statisticsDateRangeLabel: '2024'
+  });
+  const content = f.start('statistics-content');
+  for (const [controller, names] of [
+    [screen, ['$currentBookId$']],
+    [summary, ['$resizeHandler$']],
+    [
+      content,
+      [
+        '$copyStatisticsDataHandler$',
+        '$exportStatisticsDataHandler$',
+        '$exportRawStatisticsHandler$',
+        '$deleteStatisticsDataHandler$',
+        '$setStatisticsDatesToAllTimeHandler$'
+      ]
+    ]
+  ]) {
+    for (const name of names) {
+      const descriptor = Object.getOwnPropertyDescriptor(controller, name);
+      assert.equal(typeof descriptor.get, 'function');
+      assert.equal(descriptor.set, undefined);
+      assert.throws(() => {
+        controller[name] = 'not a writable store';
+      }, TypeError);
+    }
+  }
+  f.db.lastItem$.next({ dataId: 17 });
+  await settle();
+  assert.equal(screen.$currentBookId$, 17);
+  f.db.lastItem$.next(undefined);
+  await settle();
+  assert.equal(screen.$currentBookId$, undefined);
+  for (const controller of [screen, summary, content]) controller.controller.destroy();
+  await f.frame();
+});
+
+test('React summary tolerates detached DOM refs and resumes bounded full-table measurement', async () => {
+  const f = fixture();
+  const measured = [];
+  f.mock['$lib/functions/utils'].getFullHeight = (_window, element) => {
+    assert.ok(element, 'Never measure a detached ref');
+    measured.push(element);
+    return element.height;
+  };
+  const c = f.start('statistics-summary', {
+    aggregratedStatistics: [f.row('One', '2024-02-28')],
+    statisticsDateRangeLabel: '2024'
+  });
+  c.renderFullStatisticsSummaryTable = true;
+  c.statisticsSummaryTableContainerElm = null;
+  c.statisticsSummaryButtonContainer = null;
+  c.updateRowsPerPage(false);
+  await f.frame();
+  assert.equal(c.rowsPerStatisticsSummaryPage, 1);
+  assert.equal(measured.length, 0);
+  const table = { height: 500 },
+    buttons = { height: 44 };
+  c.statisticsSummaryTableContainerElm = table;
+  c.statisticsSummaryButtonContainer = buttons;
+  c.updateRowsPerPage(false);
+  await f.frame();
+  assert.equal(c.rowsPerStatisticsSummaryPage, 6);
+  assert.deepEqual(measured, [table, buttons]);
+  c.controller.destroy();
+  c.statisticsSummaryTableContainerElm = null;
+  c.statisticsSummaryButtonContainer = null;
+  c.updateRowsPerPage(false);
+  await f.frame();
+  assert.equal(measured.length, 2);
+});
+
+test('React heatmap skips measurement and keyboard navigation after its DOM ref is detached', async () => {
+  const f = fixture();
+  let observations = 0;
+  f.mock['$lib/hooks/observe-element-width'].observeElementWidth = () => {
+    observations++;
+    return () => {};
+  };
+  const c = f.start('statistics-heatmap', {
+    heatmapAggregration: f.heatmap.HeatmapDataAggregration.YEAR,
+    statisticsData: [],
+    readingGoals: [],
+    statisticsTitleFilters: new Map(),
+    today: new Date('2024-02-29T12:00:00'),
+    todayKey: '2024-02-29'
+  });
+  assert.equal(observations, 0);
+  c.heatmapElement = null;
+  const activeDate = c.activeDate;
+  c.handleHeatmapDayKeydown({ key: 'ArrowRight' }, c.currentHeatmapDays[0]);
+  assert.equal(c.activeDate, activeDate);
+  c.controller.destroy();
+  await f.frame();
+});
+
 test('React heatmap preserves year navigation and highlighted streak on unrelated renders', async () => {
   const f = fixture(),
     rows = [f.row('One', '2024-02-28'), f.row('One', '2024-02-29')];

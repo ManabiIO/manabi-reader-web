@@ -49,7 +49,7 @@ get showHeading() { return showHeading; }, set showHeading(nextValue: typeof sho
 get filter() { return filter; },
 get visible() { return visible; }, set visible(nextValue: typeof visible) { if (Object.is(visible, nextValue)) return; visible = nextValue; __readerController.invalidate(); },
 get headingId() { return headingId; }, set headingId(nextValue: typeof headingId) { if (Object.is(headingId, nextValue)) return; headingId = nextValue; __readerController.invalidate(); },
-get $filter() { return $filter; }, set $filter(nextValue: typeof $filter) { writeStore(filter, nextValue); },
+get $filter() { return $filter; },
 updateProps(next: Record<string, unknown>) {
 if ('title' in next) api.title = next.title as typeof title;
 if ('tooltip' in next && next.tooltip !== undefined) api.tooltip = next.tooltip as typeof tooltip;

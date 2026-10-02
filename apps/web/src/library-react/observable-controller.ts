@@ -3,12 +3,16 @@
  * Small framework-independent controller subscription boundary. Mutable state is
  * immediately visible to async transaction guards; React receives batched notices.
  */
-import { get } from '$lib/state/store';
 import type { Subscribable } from '$runtime/use-store';
 type Stop = () => void;
 const snapshots = new WeakMap<object, unknown>();
 export function readStore<T>(store: Subscribable<T>): T {
-    return snapshots.has(store) ? snapshots.get(store) as T : get(store);
+    if (snapshots.has(store)) return snapshots.get(store) as T;
+    let value!: T;
+    const stop = store.subscribe(next => { value = next; });
+    if (typeof stop === 'function') stop();
+    else stop.unsubscribe();
+    return value;
 }
 export function writeStore<T>(store: {
     next?(value: T): void;

@@ -63,7 +63,7 @@ const categories = [
 const initialCategory = typeof location === 'undefined' ? '' : location.hash.slice(1);
 const filter = writable({ category: categories.some(item => item.id === initialCategory) ? initialCategory : 'appearance', query: '' });
 componentContext.setContext(SETTINGS_FILTER, filter);
-let root: HTMLElement;
+let root: HTMLElement | null = null;
 let visibleCount = 0;
 __readerController.effect(() => [categories, $filter], () => { __readerController.changed(selected = categories.find((category) => category.id === $filter.category) ?? categories[0]); });
 __readerController.onDestroy(afterNavigate(({ to }) => {
@@ -84,7 +84,7 @@ __readerController.onMount(() => {
     // Enabling tracking or changing writing mode mounts conditional fields even
     // when the search hasn't changed. Count those real fields, not stale results.
     const observer = new MutationObserver(countVisibleSettings);
-    observer.observe(root, {
+    if (root) observer.observe(root, {
         subtree: true,
         childList: true,
         attributes: true,
@@ -105,7 +105,7 @@ function choose(category: string) {
         noScroll: true
     });
 }
-function handleCategoryClick(event: MouseEvent, category: string) {
+function handleCategoryClick(event: Pick<MouseEvent, 'button' | 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'preventDefault'>, category: string) {
     if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey)
         return;
     event.preventDefault();

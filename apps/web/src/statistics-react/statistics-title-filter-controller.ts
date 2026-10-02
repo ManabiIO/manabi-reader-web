@@ -36,8 +36,8 @@ export function createStatisticsTitleFilter(
   emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
-  let filteredTitles: any;
-  let current: any;
+  let filteredTitles: StatisticsTitleFilterItem[];
+  let current: ReturnType<typeof statisticsTitlePage<StatisticsTitleFilterItem>>;
   let $lastStatisticsFilterDateRangeOnly$: StoreValue<typeof lastStatisticsFilterDateRangeOnly$> =
     __readerController.read(lastStatisticsFilterDateRangeOnly$);
   let $lastStatisticsFilterShowSelectedTitlesOnly$: StoreValue<
@@ -54,7 +54,7 @@ export function createStatisticsTitleFilter(
   const dispatch = (name: string, detail?: unknown) => emit(name, detail);
   let titleFilter = '';
   let page = 1;
-  let titleList: HTMLDivElement | undefined;
+  let titleList: HTMLDivElement | null = null;
   let titlesToFilter: StatisticsTitleFilterItem[] = [];
   __readerController.effect(
     () => [statisticsTitleFilters],

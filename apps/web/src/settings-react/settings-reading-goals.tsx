@@ -72,15 +72,15 @@ export function SettingsReadingGoals(props: Partial<SettingsReadingGoalsProps> &
     <Dom as="div" className={["mt-4 grid grid-cols-1 items-end justify-between gap-4 md:grid-cols-4"].filter(Boolean).join(' ')}>
     <Dom as="label" className={["grid min-w-0 gap-2 text-sm font-medium"].filter(Boolean).join(' ')}>
     <Dom as="span">{"Time goal (minutes)"}</Dom>
-    <Input type={"number"} min={"0"} disabled={!c.isInEditMode} value={c.currentTimeGoalInMin} onBlur={(event) => c.handleReadingGoalChange(event, true)} bindings={{ "value": (value) => { c.controller.changed(c.currentTimeGoalInMin = value); } }}></Input>
+    <Input type={"number"} min={"0"} disabled={!c.isInEditMode} value={c.currentTimeGoalInMin} onBlur={(event: React.FocusEvent<HTMLInputElement>) => c.handleReadingGoalChange(event, true)} bindings={{ "value": (value: typeof c.currentTimeGoalInMin) => { c.controller.changed(c.currentTimeGoalInMin = value); } }}></Input>
     </Dom>
     <Dom as="label" className={["grid min-w-0 gap-2 text-sm font-medium"].filter(Boolean).join(' ')}>
     <Dom as="span">{"Character goal"}</Dom>
-    <Input type={"number"} min={"0"} disabled={!c.isInEditMode} value={c.currentCharacterGoal} onBlur={(event) => c.handleReadingGoalChange(event, false)} bindings={{ "value": (value) => { c.controller.changed(c.currentCharacterGoal = value); } }}></Input>
+    <Input type={"number"} min={"0"} disabled={!c.isInEditMode} value={c.currentCharacterGoal} onBlur={(event: React.FocusEvent<HTMLInputElement>) => c.handleReadingGoalChange(event, false)} bindings={{ "value": (value: typeof c.currentCharacterGoal) => { c.controller.changed(c.currentCharacterGoal = value); } }}></Input>
     </Dom>
     <Dom as="label" className={["grid min-w-0 gap-2 text-sm font-medium"].filter(Boolean).join(' ')}>
     <Dom as="span">{"Frequency"}</Dom>
-    <Dom as="select" disabled={!c.isInEditMode} value={c.currentReadingGoalFrequency} className={["min-h-11 min-w-0 rounded-[10px] border border-input bg-background px-3 py-2 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"].filter(Boolean).join(' ')} bindings={{ "value": (value) => { c.controller.changed(c.currentReadingGoalFrequency = value); } }}>
+    <Dom as="select" disabled={!c.isInEditMode} value={c.currentReadingGoalFrequency} className={["min-h-11 min-w-0 rounded-[10px] border border-input bg-background px-3 py-2 text-base text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"].filter(Boolean).join(' ')} bindings={{ "value": (value: typeof c.currentReadingGoalFrequency) => { c.controller.changed(c.currentReadingGoalFrequency = value); } }}>
         {(c.readingGoalFrequencies ?? []).map((readingGoalFrequency, index0) => <React.Fragment key={readingGoalFrequency.id}><Dom as="option" value={readingGoalFrequency.id}>
         {readingGoalFrequency.label}
         </Dom></React.Fragment>)}
@@ -88,7 +88,7 @@ export function SettingsReadingGoals(props: Partial<SettingsReadingGoalsProps> &
     </Dom>
     <Dom as="label" className={["grid min-w-0 gap-2 text-sm font-medium"].filter(Boolean).join(' ')}>
     <Dom as="span">{"Start date"}</Dom>
-    <Input type={"date"} disabled={!c.isInEditMode} value={c.currentReadingGoalStartDate} bindings={{ "value": (value) => { c.controller.changed(c.currentReadingGoalStartDate = value); } }}></Input>
+    <Input type={"date"} disabled={!c.isInEditMode} value={c.currentReadingGoalStartDate} bindings={{ "value": (value: typeof c.currentReadingGoalStartDate) => { c.controller.changed(c.currentReadingGoalStartDate = value); } }}></Input>
     </Dom>
     </Dom>
     <Dom as="details" className={["mt-6 cursor-pointer"].filter(Boolean).join(' ')}>

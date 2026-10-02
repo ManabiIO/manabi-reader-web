@@ -20,7 +20,7 @@ export interface AppearanceProps {
   open?: boolean;
   showLayout?: boolean;
   returnFocus?: HTMLElement | undefined;
-  description?: 'Adjust text and appearance without leaving your book.';
+  description?: string;
 }
 
 export function createAppearance(

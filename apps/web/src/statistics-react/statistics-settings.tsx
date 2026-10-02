@@ -86,7 +86,7 @@ export function StatisticsSettings(props: Partial<StatisticsSettingsProps> & Rea
                 id={'datesTemplate'}
                 value={c.$lastStatisticsRangeTemplate$}
                 bindings={{
-                  value: (value) => {
+                  value: (value: typeof c.$lastStatisticsRangeTemplate$) => {
                     c.$lastStatisticsRangeTemplate$ = value;
                   }
                 }}
@@ -109,7 +109,7 @@ export function StatisticsSettings(props: Partial<StatisticsSettingsProps> & Rea
                 id={'weekDay'}
                 value={c.$lastStartDayOfWeek$}
                 bindings={{
-                  value: (value) => {
+                  value: (value: typeof c.$lastStartDayOfWeek$) => {
                     c.$lastStartDayOfWeek$ = value;
                   }
                 }}
@@ -133,7 +133,7 @@ export function StatisticsSettings(props: Partial<StatisticsSettingsProps> & Rea
                 type={'date'}
                 value={c.selectedStatisticsStartDate}
                 events={{
-                  change: (event) =>
+                  change: (event: Event & { currentTarget: HTMLInputElement }) =>
                     c.dispatch('statisticsDateChange', {
                       isStartDate: true,
                       dateString: event.currentTarget.value
@@ -151,7 +151,7 @@ export function StatisticsSettings(props: Partial<StatisticsSettingsProps> & Rea
                 type={'date'}
                 value={c.selectedStatisticsEndDate}
                 events={{
-                  change: (event) =>
+                  change: (event: Event & { currentTarget: HTMLInputElement }) =>
                     c.dispatch('statisticsDateChange', {
                       isStartDate: false,
                       dateString: event.currentTarget.value
@@ -220,7 +220,7 @@ export function StatisticsSettings(props: Partial<StatisticsSettingsProps> & Rea
                 aria-describedby={'statistics-measurement-help'}
                 value={c.$lastReadingTimeDataSource$}
                 bindings={{
-                  value: (value) => {
+                  value: (value: typeof c.$lastReadingTimeDataSource$) => {
                     c.$lastReadingTimeDataSource$ = value;
                   }
                 }}
@@ -244,7 +244,7 @@ export function StatisticsSettings(props: Partial<StatisticsSettingsProps> & Rea
                 aria-describedby={'statistics-measurement-help'}
                 value={c.$lastCharactersDataSource$}
                 bindings={{
-                  value: (value) => {
+                  value: (value: typeof c.$lastCharactersDataSource$) => {
                     c.$lastCharactersDataSource$ = value;
                   }
                 }}
@@ -268,7 +268,7 @@ export function StatisticsSettings(props: Partial<StatisticsSettingsProps> & Rea
                 aria-describedby={'statistics-measurement-help'}
                 value={c.$lastReadingSpeedDataSource$}
                 bindings={{
-                  value: (value) => {
+                  value: (value: typeof c.$lastReadingSpeedDataSource$) => {
                     c.$lastReadingSpeedDataSource$ = value;
                   }
                 }}
@@ -292,7 +292,7 @@ export function StatisticsSettings(props: Partial<StatisticsSettingsProps> & Rea
                 aria-describedby={'statistics-measurement-help'}
                 value={c.$lastPrimaryReadingDataAggregationMode$}
                 bindings={{
-                  value: (value) => {
+                  value: (value: typeof c.$lastPrimaryReadingDataAggregationMode$) => {
                     c.$lastPrimaryReadingDataAggregationMode$ = value;
                   }
                 }}

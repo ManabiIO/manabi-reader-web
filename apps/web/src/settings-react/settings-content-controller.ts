@@ -120,8 +120,8 @@ adjustStatisticsAfterIdleTime: boolean;
 export function createSettingsContent(props: SettingsContentProps, emit: (name: string, detail?: unknown) => void = () => {}, componentContext: SettingsContextValue) {
 const __readerController = new ReaderController();
 let availablePrimaryFonts: any;
-let availableThemes: any;
-let optionsForTheme: any;
+let availableThemes: { theme: string; option: ReturnType<typeof themeForMode> }[] = [];
+let optionsForTheme: ToggleOption<string>[] = [];
 let verticalTextOrientationTooltip: any;
 let autoBookmarkTooltip: any;
 let wakeLockSupported: any;
@@ -643,10 +643,10 @@ get showExternalPlaceholderToolTip() { return showExternalPlaceholderToolTip; },
 get startOfDayHours() { return startOfDayHours; }, set startOfDayHours(nextValue: typeof startOfDayHours) { if (Object.is(startOfDayHours, nextValue)) return; startOfDayHours = nextValue; __readerController.invalidate(); },
 get trackerIdleTimeInMin() { return trackerIdleTimeInMin; }, set trackerIdleTimeInMin(nextValue: typeof trackerIdleTimeInMin) { if (Object.is(trackerIdleTimeInMin, nextValue)) return; trackerIdleTimeInMin = nextValue; __readerController.invalidate(); },
 get $customThemes$() { return $customThemes$; }, set $customThemes$(nextValue: typeof $customThemes$) { writeStore(customThemes$, nextValue); },
-get $resolvedMode$() { return $resolvedMode$; }, set $resolvedMode$(nextValue: typeof $resolvedMode$) { writeStore(resolvedMode$, nextValue); },
+get $resolvedMode$() { return $resolvedMode$; },
 get $textMarginMode$() { return $textMarginMode$; }, set $textMarginMode$(nextValue: typeof $textMarginMode$) { writeStore(textMarginMode$, nextValue); },
 get $textMarginValue$() { return $textMarginValue$; }, set $textMarginValue$(nextValue: typeof $textMarginValue$) { writeStore(textMarginValue$, nextValue); },
-get $storageSources$() { return $storageSources$; }, set $storageSources$(nextValue: typeof $storageSources$) { writeStore(storageSources$, nextValue); },
+get $storageSources$() { return $storageSources$; },
 get $theme$() { return $theme$; }, set $theme$(nextValue: typeof $theme$) { writeStore(theme$, nextValue); },
 updateProps(next: Record<string, unknown>) {
 if ('selectedTheme' in next) api.selectedTheme = next.selectedTheme as typeof selectedTheme;

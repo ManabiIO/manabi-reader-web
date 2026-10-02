@@ -4,12 +4,20 @@ import { View, StyleSheet, AppState, BackHandler } from 'react-native';
 import { router, usePathname } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
+import * as WebBrowser from 'expo-web-browser';
+import type { DOMProps } from 'expo/dom';
 import ReaderRuntime, { type ReaderRuntimeRef } from './reader-runtime.dom';
-import { BRIDGE_VERSION, IMPORT_CHUNK_BYTES, MAX_IMPORT_BYTES, type BridgeMethod, type BridgeReply } from './bridge-contract';
+import { BRIDGE_VERSION, safeExternalLink, IMPORT_CHUNK_BYTES, MAX_IMPORT_BYTES, type BridgeMethod, type BridgeReply } from './bridge-contract';
 import { EMPTY_SNAPSHOT, type RuntimeSnapshot } from './runtime-contract';
 import { bytesToBase64 } from './transfer-encoding';
 import { BridgeClient } from './bridge-client';
 
+type ReaderHostDOMProps = DOMProps & {
+  manabiReaderHost: true;
+  manabiReaderDevOrigin?: string;
+  onReaderExternalLink(event: { nativeEvent: { url: string } }): void;
+  onReaderHostError(event: { nativeEvent: { message: string } }): void;
+};
 interface RuntimeValue { snapshot: RuntimeSnapshot; error: string; busy: boolean; command(method: BridgeMethod, payload?: Record<string, unknown>): Promise<unknown>; importBooks(): Promise<void>; clearError(): void }
 const RuntimeContext = createContext<RuntimeValue | null>(null);
 export function useReaderRuntime() { const value = useContext(RuntimeContext); if (!value) throw new Error('Reader runtime is missing.'); return value; }
@@ -67,8 +75,15 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     finally { importActive.current = false; setBusy(false); }
   }
   const reading = path === '/b';
+  const dom: ReaderHostDOMProps = {
+    style: styles.root, scrollEnabled: false, javaScriptCanOpenWindowsAutomatically: false,
+    useExpoDOMWebView: true, unstable_useExpoModulesBridge: false, manabiReaderHost: true,
+    ...(__DEV__ && process.env.EXPO_PUBLIC_READER_DEV_ORIGIN ? { manabiReaderDevOrigin: process.env.EXPO_PUBLIC_READER_DEV_ORIGIN } : {}),
+    onReaderExternalLink: event => { const url = safeExternalLink(event.nativeEvent.url); if (url) void WebBrowser.openBrowserAsync(url).catch(() => setError('The link could not be opened.')); },
+    onReaderHostError: event => setError(event.nativeEvent.message || 'The secure offline reader could not start.')
+  };
   useEffect(() => { const subscription = AppState.addEventListener('change', state => { if (state === 'active' && latest.current.session) void command('account.refresh').catch(() => {}); }); return () => subscription.remove(); }, [command]);
   useEffect(() => { if (!reading) return; const subscription = BackHandler.addEventListener('hardwareBackPress', () => { void command('close').then(result => { if (result && typeof result === 'object' && 'allowed' in result && result.allowed) router.replace('/manage'); }).catch(() => {}); return true; }); return () => subscription.remove(); }, [reading, command]);
-  return <RuntimeContext.Provider value={{ snapshot, error, busy, command, importBooks, clearError: () => setError('') }}><View style={styles.root}>{children}<View pointerEvents={reading ? 'auto' : 'none'} accessibilityElementsHidden={!reading} importantForAccessibility={reading ? 'auto' : 'no-hide-descendants'} style={reading ? styles.reader : styles.hidden}><ReaderRuntime ref={ref} onReply={receiveReply} onSnapshot={receive} onNavigate={async destination => { if (/^\/(manage|settings|connections|statistics|snippets|shared-library|import-ttu|auth|videos|b)(?:\?|$)/.test(destination)) router.push(destination as never); }} dom={{ style: styles.root, scrollEnabled: false, javaScriptCanOpenWindowsAutomatically: false, unstable_useExpoModulesBridge: false }}/></View></View></RuntimeContext.Provider>;
+  return <RuntimeContext.Provider value={{ snapshot, error, busy, command, importBooks, clearError: () => setError('') }}><View style={styles.root}>{children}<View pointerEvents={reading ? 'auto' : 'none'} accessibilityElementsHidden={!reading} importantForAccessibility={reading ? 'auto' : 'no-hide-descendants'} style={reading ? styles.reader : styles.hidden}><ReaderRuntime ref={ref} onReply={receiveReply} onSnapshot={receive} onNavigate={async destination => { if (/^\/(manage|settings|connections|statistics|snippets|shared-library|import-ttu|auth|videos|b)(?:\?|$)/.test(destination)) router.push(destination as never); }} dom={dom}/></View></View></RuntimeContext.Provider>;
 }
-const styles = StyleSheet.create({ root: { flex: 1 }, reader: { ...StyleSheet.absoluteFillObject, zIndex: 5 }, hidden: { position: 'absolute', width: 1, height: 1, left: -10000, top: -10000, overflow: 'hidden', opacity: 0 } });
+const styles = StyleSheet.create({ root: { flex: 1 }, reader: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 5 }, hidden: { position: 'absolute', width: 1, height: 1, left: -10000, top: -10000, overflow: 'hidden', opacity: 0 } });

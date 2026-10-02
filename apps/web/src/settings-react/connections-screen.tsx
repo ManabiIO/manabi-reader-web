@@ -51,8 +51,8 @@ export function ConnectionsScreen(props: Partial<ConnectionsScreenProps> & Reade
                     await c.reload();
                 }) }}>{"Sign out"}</Dom>
         <Dom as="div" className={["preference-controls"].filter(Boolean).join(' ')}>
-        <Dom as="label"><Dom as="input" type={"checkbox"} checked={c.$preferenceStatus.enabled} disabled={c.busy} events={{ "change": (event) => c.action(() => enablePreferenceSync(event.currentTarget.checked, c.preferenceChoice)) }}/>{" Sync reader settings with this Manabi account"}</Dom>
-            {(!c.$preferenceStatus.enabled) ? <><Dom as="label">{"When first enabling sync "}<Dom as="select" value={c.preferenceChoice} bindings={{ "value": (value) => { c.controller.changed(c.preferenceChoice = value); } }}>
+        <Dom as="label"><Dom as="input" type={"checkbox"} checked={c.$preferenceStatus.enabled} disabled={c.busy} events={{ "change": (event: Event & { currentTarget: HTMLInputElement }) => c.action(() => enablePreferenceSync(event.currentTarget.checked, c.preferenceChoice)) }}/>{" Sync reader settings with this Manabi account"}</Dom>
+            {(!c.$preferenceStatus.enabled) ? <><Dom as="label">{"When first enabling sync "}<Dom as="select" value={c.preferenceChoice} bindings={{ "value": (value: typeof c.preferenceChoice) => { c.controller.changed(c.preferenceChoice = value); } }}>
             <Dom as="option" value={"remote"}>{"Use account settings when they exist"}</Dom>
             <Dom as="option" value={"local"}>{"Use this device’s settings"}</Dom>
             </Dom>
@@ -66,8 +66,8 @@ export function ConnectionsScreen(props: Partial<ConnectionsScreenProps> & Reade
             <Dom as="button" disabled={c.busy} events={{ "click": () => c.action(() => syncPreferences('local')) }}>{"Keep this device’s settings"}</Dom>
             <Dom as="button" disabled={c.busy} events={{ "click": () => c.action(() => syncPreferences('remote')) }}>{"Use account settings"}</Dom></> : <> {(c.$preferenceStatus.enabled) ? <><Dom as="button" disabled={c.busy} events={{ "click": () => c.action(() => syncPreferences()) }}>{"Sync settings now"}</Dom></> : null}</>}
         <Dom as="div" className={["quick-settings"].filter(Boolean).join(' ')}>
-        <Dom as="label">{"Font size"}<Dom as="input" type={"number"} min={"8"} max={"96"} step={"1"} value={c.$fontSize$} bindings={{ "value": (value) => { c.controller.changed(c.$fontSize$ = value); } }}/></Dom>
-        <Dom as="label">{"Writing direction"}<Dom as="select" value={c.$writingMode$} bindings={{ "value": (value) => { c.controller.changed(c.$writingMode$ = value); } }}><Dom as="option" value={"vertical-rl"}>{"Vertical"}</Dom><Dom as="option" value={"horizontal-tb"}>{"Horizontal"}</Dom></Dom></Dom>
+        <Dom as="label">{"Font size"}<Dom as="input" type={"number"} min={"8"} max={"96"} step={"1"} value={c.$fontSize$} bindings={{ "value": (value: typeof c.$fontSize$) => { c.controller.changed(c.$fontSize$ = value); } }}/></Dom>
+        <Dom as="label">{"Writing direction"}<Dom as="select" value={c.$writingMode$} bindings={{ "value": (value: typeof c.$writingMode$) => { c.controller.changed(c.$writingMode$ = value); } }}><Dom as="option" value={"vertical-rl"}>{"Vertical"}</Dom><Dom as="option" value={"horizontal-tb"}>{"Horizontal"}</Dom></Dom></Dom>
         </Dom>
         <Dom as="p" className={["hint"].filter(Boolean).join(' ')}>{" Settings sync does not upload your books, local folder handles, fonts, or cloud credentials. "}</Dom>
         </Dom></> : <> <Dom as="p">{"An account is optional. Sign in to sync your preferences and connect cloud libraries."}</Dom>
@@ -99,10 +99,10 @@ export function ConnectionsScreen(props: Partial<ConnectionsScreenProps> & Reade
             {(!connection.roots.length) ? <><Dom as="p">{" No folders selected. Manabi will not read files from this connection. "}</Dom></> : null}
                 {(connection.roots ?? []).map((root, index2) => <React.Fragment key={root}><Dom as="button" disabled={c.busy} events={{ "click": () => c.action(() => c.openCloud(connection, root)) }}>{"Browse selected folder "}{root}</Dom></React.Fragment>)}
             </Dom></React.Fragment>)}</> : <> <Dom as="p">{"Sign in above to connect Google Drive, OneDrive, or Dropbox."}</Dom></>}
-        {(c.folderPicker) ? <><Dom as="form" aria-label={"Select cloud folders"} events={{ "submit": (event) => { event.preventDefault(); Reflect.apply(() => c.action(c.saveFolders), undefined, [event]); } }}>
+        {(c.folderPicker) ? <><Dom as="form" aria-label={"Select cloud folders"} events={{ "submit": (event: Event & { currentTarget: HTMLFormElement }) => { event.preventDefault(); Reflect.apply(() => c.action(c.saveFolders), undefined, [event]); } }}>
         <Dom as="h3">{"Folders Manabi may use"}</Dom>
         <Dom as="p" className={["hint"].filter(Boolean).join(' ')}>{" The provider’s OAuth permission may cover more than these folders. Manabi restricts book access to your selection. "}</Dom>
-            {(c.folderPicker!.folders ?? []).map((folder, index3) => <React.Fragment key={folder.id}><Dom as="label" className={["folder-choice"].filter(Boolean).join(' ')}><Dom as="input" type={"checkbox"} group={c.folderPicker!.selected} value={folder.id} bindings={{ "group": (value) => { c.controller.changed(c.folderPicker!.selected = value); } }}/>{folder.name}<Dom as="small">{folder.id}</Dom></Dom></React.Fragment>)}
+            {(c.folderPicker!.folders ?? []).map((folder, index3) => <React.Fragment key={folder.id}><Dom as="label" className={["folder-choice"].filter(Boolean).join(' ')}><Dom as="input" type={"checkbox"} group={c.folderPicker!.selected} value={folder.id} bindings={{ "group": (value: string[]) => { c.controller.changed(c.folderPicker!.selected = value); } }}/>{folder.name}<Dom as="small">{folder.id}</Dom></Dom></React.Fragment>)}
         <Dom as="div" className={["actions"].filter(Boolean).join(' ')}>
         <Dom as="button" type={"submit"} disabled={c.busy}>{"Save folder access"}</Dom><Dom as="button" type={"button"} events={{ "click": () => (c.controller.changed(c.folderPicker = null)) }}>{"Cancel"}</Dom>
         </Dom>
@@ -188,7 +188,7 @@ export function ConnectionsScreen(props: Partial<ConnectionsScreenProps> & Reade
     <Button variant={"secondary"} disabled={c.busy} onClick={() => c.action(syncAllLinkedBooks)}>{"Sync personal reading data now"}</Button>
     {(!c.$linkedBooks.length) ? <><Dom as="p">{" Verified local books and annotations sync through your account even without a linked cloud library. "}</Dom></> : null}
         {(c.$linkedBooks ?? []).map((link, index7) => <React.Fragment key={link.id}><Dom as="article" aria-label={"Reading sync for " + String((link.title) ?? '')} className={["library"].filter(Boolean).join(' ')}>
-            {(link.sourceId.startsWith('webdav-')) ? <><Dom as="label"><Dom as="input" type={"checkbox"} checked={link.syncEnabled} disabled={c.busy} events={{ "change": (event) => c.action(async () => {
+            {(link.sourceId.startsWith('webdav-')) ? <><Dom as="label"><Dom as="input" type={"checkbox"} checked={link.syncEnabled} disabled={c.busy} events={{ "change": (event: Event & { currentTarget: HTMLInputElement }) => c.action(async () => {
                         await setDavBookSync(link.id, event.currentTarget.checked);
                         await refreshLinkedBooks();
                     }) }}/>{" Sync this book’s reading data with WebDAV"}</Dom>

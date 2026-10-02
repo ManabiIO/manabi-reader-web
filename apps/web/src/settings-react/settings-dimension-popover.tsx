@@ -25,6 +25,6 @@ export function SettingsDimensionPopover(props: Partial<SettingsDimensionPopover
     <Dom as="span" slot={"icon"} className={["flex min-h-11 min-w-9 items-center justify-center"].filter(Boolean).join(' ')}>
     <AppIcon icon={SlidersHorizontal} className={["size-5"].filter(Boolean).join(' ')}></AppIcon>
     </Dom>
-    <SettingsDimensionContent slot={"content"} isFirstDimension={c.isFirstDimension} isVertical={c.isVertical} dimensionValue={c.dimensionValue} bindings={{ "dimensionValue": (value) => { c.controller.changed(c.dimensionValue = value); } }}></SettingsDimensionContent>
+    <SettingsDimensionContent slot={"content"} isFirstDimension={c.isFirstDimension} isVertical={c.isVertical} dimensionValue={c.dimensionValue} bindings={{ "dimensionValue": (value: typeof c.dimensionValue) => { c.controller.changed(c.dimensionValue = value); } }}></SettingsDimensionContent>
     </Popover></div></SettingsContext.Provider>;
 }

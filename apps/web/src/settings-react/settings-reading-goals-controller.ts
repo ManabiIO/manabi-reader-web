@@ -34,12 +34,12 @@ storageSources?: BooksDbStorageSource[];
 
 export function createSettingsReadingGoals(props: SettingsReadingGoalsProps, emit: (name: string, detail?: unknown) => void = () => {}, componentContext: SettingsContextValue) {
 const __readerController = new ReaderController();
-let availableSources: any;
-let saveDisabled: any;
-let currentTimeGoalInMin: any;
-let currentHistoryIndex: any;
-let historyReadingGoals: any;
-let hasNextHistoryPage: any;
+let availableSources: BooksDbStorageSource[] = [];
+let saveDisabled = false;
+let currentTimeGoalInMin = 0;
+let currentHistoryIndex = 0;
+let historyReadingGoals: BooksDbReadingGoal[] = [];
+let hasNextHistoryPage = false;
 let $isOnline$: StoreValue<typeof isOnline$> = __readerController.read(isOnline$);
 let $readingGoal$: StoreValue<typeof readingGoal$> = __readerController.read(readingGoal$);
 let $startDayHoursForTracker$: StoreValue<typeof startDayHoursForTracker$> = __readerController.read(startDayHoursForTracker$);
@@ -84,7 +84,7 @@ __readerController.effect(() => [$readingGoal$], () => { if ($readingGoal$) {
     } = $readingGoal$);
 } });
 __readerController.onMount(init);
-function handleReadingGoalChange(event: Event, isTimeGoal: boolean) {
+function handleReadingGoalChange(event: Pick<Event, 'target'>, isTimeGoal: boolean) {
     const { value } = event.target as HTMLInputElement;
     const mod = isTimeGoal ? 60 : 1;
     const val = Math.floor((Number.parseFloat(value) || 0) * mod);

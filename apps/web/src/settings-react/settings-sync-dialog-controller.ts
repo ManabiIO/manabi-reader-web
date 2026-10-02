@@ -23,8 +23,8 @@ resolver: (arg0: SyncSelection[]) => void;
 
 export function createSettingsSyncDialog(props: SettingsSyncDialogProps, emit: (name: string, detail?: unknown) => void = () => {}, componentContext: SettingsContextValue) {
 const __readerController = new ReaderController();
-let sources: any;
-let targets: any;
+let sources: SyncSelection[] = [];
+let targets: SyncSelection[] = [];
 let $lastSyncedSettingsSource$: StoreValue<typeof lastSyncedSettingsSource$> = __readerController.read(lastSyncedSettingsSource$);
 let $lastSyncedSettingsTarget$: StoreValue<typeof lastSyncedSettingsTarget$> = __readerController.read(lastSyncedSettingsTarget$);
 let settingsSyncHeader = props.settingsSyncHeader !== undefined ? props.settingsSyncHeader : '';

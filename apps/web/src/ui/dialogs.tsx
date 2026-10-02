@@ -84,7 +84,7 @@ export function ConfirmDialog({
   contentStyles?: string;
   resolver: (cancelled: boolean) => void;
 }) {
-  const finish = useResolution(resolver, true, onClose);
+  const finish = useResolution<boolean>(resolver, true, onClose);
   return (
     <DialogTemplate
       title={dialogHeader}
@@ -125,7 +125,7 @@ export function NumberDialog({
 }) {
   const [value, setValue] = useState(String(minValue));
   const [error, setError] = useState('');
-  const finish = useResolution(resolver, undefined, onClose);
+  const finish = useResolution<number | undefined>(resolver, undefined, onClose);
   function submit() {
     const number = value === '' ? NaN : Number(value);
     if (!Number.isSafeInteger(minValue) || !Number.isSafeInteger(maxValue) || minValue > maxValue)
@@ -259,7 +259,7 @@ export function ExternalReadDialog({
   resolver,
   onClose
 }: Close & { resolver: (value: string) => void }) {
-  const finish = useResolution(resolver, 'cancel', onClose);
+  const finish = useResolution<string>(resolver, 'cancel', onClose);
   const hide = useStore(hideExternalReadHint$);
   return (
     <DialogTemplate
@@ -319,7 +319,7 @@ export function StorageUnlock({
   const [pending, setPending] = useState(false);
   const active = useRef(true);
   const running = useRef(false);
-  const finish = useResolution(resolver, undefined, onClose);
+  const finish = useResolution<StorageUnlockAction | undefined>(resolver, undefined, onClose);
   useEffect(() => {
     active.current = true;
     skipKeyDownListener$.next(true);

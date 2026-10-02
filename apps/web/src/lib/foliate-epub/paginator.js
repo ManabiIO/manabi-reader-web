@@ -267,7 +267,10 @@ class View {
         })
         // `allow-scripts` is needed for events because of WebKit bug
         // https://bugs.webkit.org/show_bug.cgi?id=218086
-        this.#iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts')
+        // Android's persistent host has native capabilities. Imported frames must
+        // remain scriptless even if sanitization ever misses hostile markup.
+        this.#iframe.setAttribute('sandbox', document.documentElement.dataset.manabiReaderHost === 'android'
+            ? 'allow-same-origin' : 'allow-same-origin allow-scripts')
         this.#iframe.setAttribute('scrolling', 'no')
     }
     get element() {

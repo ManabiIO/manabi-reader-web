@@ -93,6 +93,7 @@ export function StatisticsHeatmap(props: Partial<StatisticsHeatmapProps> & Reade
           aria-label={'Previous heatmap period'}
           title={'Previous heatmap period'}
           onClick={() => {
+            if (!c.heatmapElement) return;
             if (c.heatmapElement.scrollLeft === 0) {
               c.changeHeatmapYear(-1);
             } else {
@@ -110,7 +111,7 @@ export function StatisticsHeatmap(props: Partial<StatisticsHeatmapProps> & Reade
           as="div"
           role={'group'}
           aria-label={`${c.heatmapLabel}. Use arrow keys for days and weeks; Home and End for week boundaries.`}
-          elementRef={(value) => {
+          elementRef={(value: HTMLDivElement | null) => {
             c.heatmapElement = value;
           }}
           className={['heatmap-calendar grid min-w-0 flex-1 items-center overflow-x-auto py-1']
@@ -219,13 +220,14 @@ export function StatisticsHeatmap(props: Partial<StatisticsHeatmapProps> & Reade
                         borderWidth: `${isSelected || isToday ? '3' : '1'}px`
                       }}
                       events={{
-                        click: (event) => {
+                        click: (event: MouseEvent) => {
                           if (event.currentTarget instanceof HTMLElement)
                             c.openHeatmapDay(event.currentTarget, heatmapDay);
                         },
                         focus: () => (c.activeDate = heatmapDay.dateString),
-                        keydown: (event) => c.handleHeatmapDayKeydown(event, heatmapDay),
-                        keyup: (event) => event.stopPropagation()
+                        keydown: (event: KeyboardEvent) =>
+                          c.handleHeatmapDayKeydown(event, heatmapDay),
+                        keyup: (event: KeyboardEvent) => event.stopPropagation()
                       }}
                     ></Dom>
                   </>
@@ -241,6 +243,7 @@ export function StatisticsHeatmap(props: Partial<StatisticsHeatmapProps> & Reade
           aria-label={'Next heatmap period'}
           title={'Next heatmap period'}
           onClick={() => {
+            if (!c.heatmapElement) return;
             const scrollWidth =
               c.heatmapElement.scrollWidth - c.heatmapElement.scrollLeft - heatmapDayMargins;
             if (scrollWidth <= c.heatmapElement.clientWidth) {

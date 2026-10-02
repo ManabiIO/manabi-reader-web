@@ -4,6 +4,11 @@
  * All rights reserved.
  */
 
+import {
+  assertBookAccessIdentity,
+  snapshotBookAccessIdentity,
+  type BookAccessIdentity
+} from './book-identity';
 import { encodeBook, decodeBook } from './book-binary';
 import {
   contentStatisticKey,
@@ -494,10 +499,27 @@ export class DatabaseService {
     cancelSignal: AbortSignal,
     keepLocalStatistics: boolean,
     profileId?: string | null,
-    assertCurrent?: () => void
+    assertCurrent?: () => void,
+    expectedBooks?: ReadonlyMap<number, BookAccessIdentity>
   ) {
     // Snapshot the selected IDs, not their mutable title/resume metadata.
     const selectedIds = [...new Set(dataIds)];
+    // Supplying admission identities opts the entire selection into validation.
+    // A missing map entry must never fall back to an unguarded numeric-ID delete.
+    // Copy before opening the database so callers cannot mutate a pending admission.
+    const expectedSelection =
+      expectedBooks === undefined
+        ? undefined
+        : new Map(
+            selectedIds.map((id) => {
+              const expected = expectedBooks.get(id);
+              if (!expected || expected.bookId !== id)
+                throw new Error(
+                  'The deletion selection changed. Refresh the Library and select it again.'
+                );
+              return [id, snapshotBookAccessIdentity(expected)] as const;
+            })
+          );
     const db = await this.db;
     const deleted: number[] = [];
     const limiter = pLimit(1);
@@ -521,7 +543,8 @@ export class DatabaseService {
                 !keepLocalStatistics,
                 profileId,
                 assertCurrent,
-                cancelSignal
+                cancelSignal,
+                expectedSelection?.get(id)
               )
             );
           } catch (error) {
@@ -636,7 +659,8 @@ export class DatabaseService {
     shouldDeleteStatistics: boolean,
     profileId?: string | null,
     assertCurrent?: () => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    expectedBook?: BookAccessIdentity
   ) {
     const storeNames: (
       | 'data'
@@ -681,7 +705,10 @@ export class DatabaseService {
         // A batch may span reader writes, renames and other tabs. Decisions must
         // use the current record in the same transaction as its deletion.
         const book = await tx.objectStore('data').get(dataId);
+        if (expectedBook) assertBookAccessIdentity(book, expectedBook);
         const owner = await tx.objectStore('readerBookScope').get(dataId);
+        assertCurrent?.();
+        throwIfAborted(signal);
         if (
           profileId !== undefined &&
           ((book?.libraryOwner && book.libraryOwner !== profileId) ||

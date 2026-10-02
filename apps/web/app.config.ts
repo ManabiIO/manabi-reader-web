@@ -10,7 +10,7 @@ for (const key of ['BASE_PATH', 'CLEAR_ON_RELOAD', 'TTU_COMPATIBILITY_ROOT_NAME'
 const config: ExpoConfig = {
   name: 'Manabi Reader', slug: 'manabi-reader', version: '2.0.0',
   scheme: 'manabi-reader', platforms: ['android', 'web'],
-  android: { package: 'io.manabi.reader', edgeToEdgeEnabled: true },
+  android: { package: 'io.manabi.reader' },
   web: { bundler: 'metro', output: 'single', name: 'Manabi Reader' },
   plugins: ['expo-router', 'expo-document-picker', 'expo-file-system', 'expo-audio'],
   experiments: { typedRoutes: true, baseUrl: base },

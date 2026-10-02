@@ -4,6 +4,13 @@
  * All rights reserved.
  */
 
+import {
+  assertBookAccessIdentity,
+  snapshotBookAccessIdentity,
+  type BookAccessAuthority,
+  type BookAccessIdentity
+} from '$lib/data/database/books-db/book-identity';
+import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 import type { createBookReader } from './book-reader-controller';
 import type { createDictionary } from './dictionary-controller';
 import type { createTracker } from './tracker-controller';
@@ -192,13 +199,18 @@ import {
 } from '$lib/functions/range-util';
 import { ReaderController, readerTick, writeStore, type StoreValue } from './controller';
 import { LogReportDialog, MessageDialog, ConfirmDialog, NumberDialog } from '../ui/dialogs';
-export interface SessionProps {}
+export interface SessionProps {
+  expectedBook?: BookAccessIdentity;
+  bookAuthority?: BookAccessAuthority;
+}
 
 export function createSession(
   props: SessionProps,
   emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
+  const expectedBook = props.expectedBook && snapshotBookAccessIdentity(props.expectedBook);
+  const bookAuthority = props.bookAuthority;
   let isPaginated: boolean;
   let firstDimensionMargin: number;
   let tapButtonHeight: string;
@@ -548,17 +560,28 @@ export function createSession(
     shareReplay({ refCount: true, bufferSize: 1 })
   );
   const readerLeaseLifetime = new AbortController();
+  let readerLoadGeneration = 0;
   let readerLease: Promise<void> | undefined;
   const rawBookData$ = bookId$.pipe(
     switchMap(async (id) => {
+      const generation = ++readerLoadGeneration;
+      const operation = captureLibraryOperation();
+      const assertLoadCurrent = () => {
+        readerLeaseLifetime.signal.throwIfAborted();
+        bookAuthority?.signal.throwIfAborted();
+        bookAuthority?.assertCurrent();
+        operation.assertCurrent();
+        if (generation !== readerLoadGeneration) throw new Error('A newer book was opened.');
+      };
       let bookData: BooksDbBookData | undefined;
       __readerController.changed((readerProtectedOwners = []));
       try {
+        assertLoadCurrent();
         __readerController.changed(
           (readerLease ??= acquireReaderLease(readerLeaseLifetime.signal))
         );
         await readerLease;
-        if (readerLeaseLifetime.signal.aborted) return undefined;
+        assertLoadCurrent();
         __readerController.changed(
           (localStorageHandler = getStorageHandler(
             window,
@@ -573,22 +596,29 @@ export function createSession(
         );
         localStorageHandler.startContext({ id, title: '' });
         bookData = await localStorageHandler.getBook();
+        assertLoadCurrent();
+        if (expectedBook) assertBookAccessIdentity(bookData, expectedBook);
         if (!bookData) {
           return bookData;
         }
         const integration = await integrationDB();
+        assertLoadCurrent();
         const booksDb = await database.db;
+        assertLoadCurrent();
         const [links, readerScope] = await Promise.all([
           integration.getAll('books').then((items) => items.filter((link) => link.bookId === id)),
           booksDb.get('readerBookScope', id)
         ]);
+        assertLoadCurrent();
         const protectedOwners = readerAccessOwners(bookData, readerScope, links);
         if (!protectedOwners) return undefined;
         if (protectedOwners.length && $account.status === 'loading') await refreshAccount();
+        assertLoadCurrent();
         if (protectedOwners.length && !protectedOwners.includes(localProfileUser()?.id ?? ''))
           return undefined;
         __readerController.changed((readerProtectedOwners = protectedOwners));
         const personalReadingAuthority = await hasPersonalReadingAuthority(bookData);
+        assertLoadCurrent();
         __readerController.changed(
           (personalManagedBookId = personalReadingAuthority ? bookData.id : undefined)
         );
@@ -607,9 +637,12 @@ export function createSession(
             (externalStorageHandler = await getStorageHandlerByName($syncTarget$))
           );
         }
+        assertLoadCurrent();
         bookData.lastBookOpen = new Date().getTime();
         await localStorageHandler.updateLastRead(bookData);
+        assertLoadCurrent();
         await syncDownData(externalStorageHandler, currentContext, bookData);
+        assertLoadCurrent();
         if (!$statisticsEnabled$) {
           const wasNew = (
             await database.setFirstBookRead(
@@ -619,16 +652,24 @@ export function createSession(
               currentContext.id
             )
           )[1];
+          assertLoadCurrent();
           if (wasNew) {
             scheduleReplication(StorageDataType.STATISTICS);
           }
         }
         bookData = await saveExternalLastRead(externalStorageHandler, bookData);
+        assertLoadCurrent();
         if (bookData.language) {
           document.documentElement.lang = bookData.language;
         }
       } catch (error: any) {
-        if (readerLeaseLifetime.signal.aborted) return undefined;
+        if (
+          readerLeaseLifetime.signal.aborted ||
+          bookAuthority?.signal.aborted ||
+          operation.signal.aborted ||
+          generation !== readerLoadGeneration
+        )
+          return undefined;
         const message = `Error loading book: ${error.message}`;
         logger.warn(message);
         dialogManager.dialogs$.next([
@@ -642,8 +683,11 @@ export function createSession(
         ]);
         return undefined;
       } finally {
-        syncedResolver();
-        __readerController.changed((showSpinner = false));
+        operation.stop();
+        if (generation === readerLoadGeneration) {
+          syncedResolver();
+          __readerController.changed((showSpinner = false));
+        }
       }
       if (externalStorageHandler) {
         externalStorageHandler.updateSettings(

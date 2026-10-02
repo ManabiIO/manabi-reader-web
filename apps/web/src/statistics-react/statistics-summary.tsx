@@ -61,7 +61,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
       </Dom>
       <Dom
         as="div"
-        elementRef={(value) => {
+        elementRef={(value: HTMLDivElement | null) => {
           c.statisticsSummaryTableContainerElm = value;
         }}
         className={[
@@ -274,7 +274,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                     .filter(Boolean)
                                     .join(' ')}
                                   events={{
-                                    click: (event) => {
+                                    click: (event: MouseEvent) => {
                                       c.statisticsSummaryPopoverDetails = [
                                         currentStatisticsSummaryRow.title
                                       ];
@@ -299,7 +299,8 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                         change: () => {
                                           if (
                                             c.rowInEdit &&
-                                            (!Number.isFinite(c.rowInEditTime) ||
+                                            (typeof c.rowInEditTime !== 'number' ||
+                                              !Number.isFinite(c.rowInEditTime) ||
                                               c.rowInEditTime < 0)
                                           ) {
                                             c.rowInEditTime = c.rowInEdit.readingTime;
@@ -307,7 +308,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                         }
                                       }}
                                       bindings={{
-                                        value: (value) => {
+                                        value: (value: number | undefined) => {
                                           c.rowInEditTime = value;
                                         }
                                       }}
@@ -325,7 +326,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                         .filter(Boolean)
                                         .join(' ')}
                                       events={{
-                                        click: (event) => {
+                                        click: (event: MouseEvent) => {
                                           c.statisticsSummaryPopoverDetails = [
                                             `Time: ${secondsToMinutes(currentStatisticsSummaryRow.readingTime)} min`,
                                             `Average Time: ${secondsToMinutes(currentStatisticsSummaryRow.averageReadingTime)} min`,
@@ -360,7 +361,8 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                         change: () => {
                                           if (
                                             c.rowInEdit &&
-                                            (!Number.isFinite(c.rowInEditCharacters) ||
+                                            (typeof c.rowInEditCharacters !== 'number' ||
+                                              !Number.isFinite(c.rowInEditCharacters) ||
                                               c.rowInEditCharacters < 0)
                                           ) {
                                             c.rowInEditCharacters = c.rowInEdit.charactersRead;
@@ -368,7 +370,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                         }
                                       }}
                                       bindings={{
-                                        value: (value) => {
+                                        value: (value: number | undefined) => {
                                           c.rowInEditCharacters = value;
                                         }
                                       }}
@@ -386,7 +388,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                         .filter(Boolean)
                                         .join(' ')}
                                       events={{
-                                        click: (event) => {
+                                        click: (event: MouseEvent) => {
                                           c.statisticsSummaryPopoverDetails = [
                                             `Characters: ${currentStatisticsSummaryRow.charactersRead}`,
                                             `Average Characters: ${currentStatisticsSummaryRow.averageCharactersRead}`,
@@ -419,7 +421,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                         type={'checkbox'}
                                         checked={c.rowInEditResetMinMaxValues}
                                         bindings={{
-                                          checked: (value) => {
+                                          checked: (value: boolean) => {
                                             c.rowInEditResetMinMaxValues = value;
                                           }
                                         }}
@@ -446,7 +448,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                         .filter(Boolean)
                                         .join(' ')}
                                       events={{
-                                        click: (event) => {
+                                        click: (event: MouseEvent) => {
                                           c.statisticsSummaryPopoverDetails = [
                                             `Speed: ${currentStatisticsSummaryRow.lastReadingSpeed}`,
                                             `Min Speed: ${currentStatisticsSummaryRow.minReadingSpeed}`,
@@ -532,7 +534,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
       </Dom>
       <Dom
         as="div"
-        elementRef={(value) => {
+        elementRef={(value: HTMLDivElement | null) => {
           c.statisticsSummaryButtonContainer = value;
         }}
         className={['my-6 flex justify-between', c.statisticsSummaryMaxPages < 2 && 'invisible']
@@ -580,7 +582,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
           <Dom
             as="div"
             slot={'content'}
-            elementRef={(value) => {
+            elementRef={(value: HTMLDivElement | null) => {
               c.statisticsSummaryPagesContainer = value;
             }}
             className={['max-h-32 w-32 p-2 flex flex-col overflow-auto'].filter(Boolean).join(' ')}
@@ -589,7 +591,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
               <React.Fragment key={statisticsSummaryPage}>
                 <Dom
                   as="button"
-                  elementRef={(value) => {
+                  elementRef={(value: HTMLButtonElement | null) => {
                     c.statisticsSummaryPageRefs[pageIndex + 1] = value;
                   }}
                   className={[
@@ -600,7 +602,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                     .filter(Boolean)
                     .join(' ')}
                   events={{
-                    click: ({ target }) => {
+                    click: ({ target }: MouseEvent) => {
                       c.setRowInEditMode();
                       c.currentStatisticsSummaryPage = statisticsSummaryPage;
                       target?.dispatchEvent(new CustomEvent(CLOSE_POPOVER, { bubbles: true }));

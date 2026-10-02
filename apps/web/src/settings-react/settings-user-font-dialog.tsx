@@ -48,7 +48,7 @@ export function SettingsUserFontDialog(props: Partial<SettingsUserFontDialogProp
                     {(c.isLoading) ? <><Dom as="p" role={"status"} className={["text-sm text-muted-foreground"].filter(Boolean).join(' ')}>{"Updating fonts…"}</Dom></> : null}</> : <> <SettingsUserFontAdd fontCache={c.fontCache} isLoading={c.isLoading} events={{ "saved": () => {
                             c.controller.changed(c.currentTab = 'Stored');
                             void c.loadCache();
-                        } }} bindings={{ "isLoading": (value) => { c.controller.changed(c.isLoading = value); } }}></SettingsUserFontAdd></>}</>}</>}
+                        } }} bindings={{ "isLoading": (value: typeof c.isLoading) => { c.controller.changed(c.isLoading = value); } }}></SettingsUserFontAdd></>}</>}</>}
     </Dom>
     <Slot name="footer"><Button variant={"ghost"} onClick={() => c.dispatch('close')} className={["min-h-11"].filter(Boolean).join(' ')}>{"Done"}</Button></Slot>
     </DialogTemplate>

@@ -21,13 +21,13 @@ export function SettingsUserFontAdd(props: Partial<SettingsUserFontAddProps> & R
     if (!c)
         return null;
     return <SettingsContext.Provider value={context}><div className="react-settings-settings-user-font-add" style={{ display: 'contents' }}>
-    <Dom as="form" aria-busy={c.isLoading} className={["min-w-0 space-y-4"].filter(Boolean).join(' ')} events={{ "submit": (event) => { event.preventDefault(); Reflect.apply(c.addFont, undefined, [event]); } }}>
-    <Dom as="label" htmlFor={`${c.formId}-name`} className={["block min-w-0 text-sm font-medium"].filter(Boolean).join(' ')}>{" Font name "}<Input id={`${c.formId}-name`} type={"text"} required={true} maxLength={200} disabled={c.isLoading} value={c.fontName} onInput={() => (c.controller.changed(c.currentError = ''))} onKeyDown={(event) => {
-            if (event.key === 'Enter' && (event.isComposing || event.keyCode === 229))
+    <Dom as="form" aria-busy={c.isLoading} className={["min-w-0 space-y-4"].filter(Boolean).join(' ')} events={{ "submit": (event: Event & { currentTarget: HTMLFormElement }) => { event.preventDefault(); Reflect.apply(c.addFont, undefined, [event]); } }}>
+    <Dom as="label" htmlFor={`${c.formId}-name`} className={["block min-w-0 text-sm font-medium"].filter(Boolean).join(' ')}>{" Font name "}<Input id={`${c.formId}-name`} type={"text"} required={true} maxLength={200} disabled={c.isLoading} value={c.fontName} onInput={() => (c.controller.changed(c.currentError = ''))} onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
+            if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.keyCode === 229))
                 event.preventDefault();
-        }} className={["mt-2"].filter(Boolean).join(' ')} bindings={{ "value": (value) => { c.controller.changed(c.fontName = value); } }}></Input>
+        }} className={["mt-2"].filter(Boolean).join(' ')} bindings={{ "value": (value: typeof c.fontName) => { c.controller.changed(c.fontName = value); } }}></Input>
     </Dom>
-    <Dom as="label" htmlFor={`${c.formId}-file`} className={["block min-w-0 text-sm font-medium"].filter(Boolean).join(' ')}>{" Font file "}<Input id={`${c.formId}-file`} type={"file"} required={true} disabled={c.isLoading} accept={".woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf"} ref={c.fileElement} onChange={c.handleFileChange} className={["mt-2"].filter(Boolean).join(' ')} bindings={{ "ref": (value) => { c.controller.changed(c.fileElement = value); } }}></Input>
+    <Dom as="label" htmlFor={`${c.formId}-file`} className={["block min-w-0 text-sm font-medium"].filter(Boolean).join(' ')}>{" Font file "}<Input id={`${c.formId}-file`} type={"file"} required={true} disabled={c.isLoading} accept={".woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf"} ref={c.fileElement} onChange={c.handleFileChange} className={["mt-2"].filter(Boolean).join(' ')} bindings={{ "ref": (value: typeof c.fileElement) => { c.controller.changed(c.fileElement = value); } }}></Input>
     </Dom>
     <Dom as="p" className={["text-sm text-muted-foreground"].filter(Boolean).join(' ')}>{" WOFF2, WOFF, TTF, or OTF. The file is saved only in this browser; it is not uploaded to your account. "}</Dom>
         {(c.currentError) ? <><Dom as="p" role={"alert"} className={["break-words text-sm text-destructive"].filter(Boolean).join(' ')}>

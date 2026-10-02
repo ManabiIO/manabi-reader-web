@@ -24,7 +24,7 @@ export function SettingsHeader(props: Partial<SettingsHeaderProps> & ReaderViewP
     <Dom as="span" className={["back-label"].filter(Boolean).join(' ')}>{"Back"}</Dom>
     </Button>
     <Dom as="h1" className={["settings-title font-semibold"].filter(Boolean).join(' ')}>{"Settings"}</Dom>
-    <Dom as="div" className={["settings-navigation"].filter(Boolean).join(' ')}><AppNav compact={true}></AppNav></Dom>
+    <Dom as="div" className={["settings-navigation"].filter(Boolean).join(' ')}><AppNav></AppNav></Dom>
     </Dom>
     </div></SettingsContext.Provider>;
 }

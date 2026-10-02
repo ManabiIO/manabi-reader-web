@@ -28,9 +28,9 @@ export interface SharedLibraryScreenProps {
 
 export function createSharedLibraryScreen(props: SharedLibraryScreenProps, emit: (name: string, detail?: unknown) => void = () => {}, componentContext: SettingsContextValue) {
 const __readerController = new ReaderController();
-let viewer: any;
-let localBooks: any;
-let source: any;
+let viewer: string | null = null;
+let localBooks: ReturnType<typeof sharedPublishChoices> = [];
+let source: BooksDbStorageSource | undefined;
 let $account: StoreValue<typeof account> = __readerController.read(account);
 let $allLinkedBooks: StoreValue<typeof allLinkedBooks> = __readerController.read(allLinkedBooks);
 let $syncTarget$: StoreValue<typeof syncTarget$> = __readerController.read(syncTarget$);

@@ -24,12 +24,12 @@ export function SettingsWorkspace(props: Partial<SettingsWorkspaceProps> & Reade
     if (!c)
         return null;
     return <SettingsContext.Provider value={context}><div className="react-settings-settings-workspace" style={{ display: 'contents' }}>
-    <Dom as="div" elementRef={(value) => { c.controller.changed(c.root = value); }} className={["settings-workspace grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]"].filter(Boolean).join(' ')}>
+    <Dom as="div" elementRef={(value: typeof c.root) => { c.controller.changed(c.root = value); }} className={["settings-workspace grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]"].filter(Boolean).join(' ')}>
     <Dom as="aside" aria-label={"Settings sections"} className={["min-w-0 self-start lg:sticky lg:top-20"].filter(Boolean).join(' ')}>
     <Dom as="label" htmlFor={"settings-search"} className={["mb-2 block text-sm font-medium"].filter(Boolean).join(' ')}>{"Search settings"}</Dom>
-    <Input id={"settings-search"} aria-describedby={c.$filter.query ? 'settings-search-results' : undefined} type={"search"} placeholder={"Search all settings…"} value={c.$filter.query} onInput={(event) => c.filter.update((value) => ({ ...value, query: event.currentTarget.value }))}></Input>
+    <Input id={"settings-search"} aria-describedby={c.$filter.query ? 'settings-search-results' : undefined} type={"search"} placeholder={"Search all settings…"} value={c.$filter.query} onInput={(event: React.FormEvent<HTMLInputElement>) => c.filter.update((value) => ({ ...value, query: event.currentTarget.value }))}></Input>
     <Dom as="nav" aria-label={"Settings categories"} className={["section-navigation section-navigation-sidebar mt-3"].filter(Boolean).join(' ')}>
-        {(c.categories ?? []).map((category, index0) => <React.Fragment key={category.id}><Button href={`#${category.id}`} variant={"ghost"} shape={"rounded"} data-section-link={true} aria-current={c.$filter.category === category.id && !c.$filter.query ? 'page' : undefined} onClick={(event) => c.handleCategoryClick(event, category.id)} className={["justify-start"].filter(Boolean).join(' ')}>{category.label}</Button></React.Fragment>)}
+        {(c.categories ?? []).map((category, index0) => <React.Fragment key={category.id}><Button href={`#${category.id}`} variant={"ghost"} shape={"rounded"} data-section-link={true} aria-current={c.$filter.category === category.id && !c.$filter.query ? 'page' : undefined} onClick={(event: MouseEvent & { currentTarget: HTMLAnchorElement }) => c.handleCategoryClick(event, category.id)} className={["justify-start"].filter(Boolean).join(' ')}>{category.label}</Button></React.Fragment>)}
     </Dom>
     </Dom>
     <Dom as="main" id={"settings-content"} className={["min-w-0"].filter(Boolean).join(' ')}>

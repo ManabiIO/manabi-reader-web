@@ -1,20 +1,92 @@
 /** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors */
 import { createContext, createElement, forwardRef, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type CSSProperties, type MouseEvent, type KeyboardEvent, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
+import { X } from 'lucide-react';
+import { buttonVariants } from '../snippets-react/button-styles';
+import { cn } from '$lib/utils';
 import { goto } from '$app/navigation';
 type AnyProps = Record<string, any> & {
     children?: ReactNode;
     className?: string;
 };
-export const Button = forwardRef<HTMLElement, AnyProps>(function Button({ href, variant = 'default', size, className = '', children, onClick, ...props }, ref) {
-    const classes = `library-button inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium disabled:opacity-50 ${variant === 'default' ? 'bg-primary text-primary-foreground' : variant === 'outline' ? 'border border-input bg-background' : variant === 'secondary' ? 'bg-secondary text-secondary-foreground' : 'hover:bg-muted'} ${size === 'icon' ? 'min-w-11 px-2' : ''} ${className}`;
-    const click = (event: MouseEvent) => { onClick?.(event); if (href && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.shiftKey && !props.target && new URL(href, location.href).origin === location.origin) {
-        event.preventDefault();
-        void goto(href);
-    } };
-    return createElement(href ? 'a' : 'button', { ...props, ...(!href && { type: props.type ?? 'button' }), href, ref, className: classes, onClick: click }, children);
+export const Button = forwardRef<HTMLElement, AnyProps>(function Button(
+  {
+    href,
+    variant = 'default',
+    size = 'default',
+    shape = 'auto',
+    disabled,
+    tabIndex,
+    tabindex,
+    className = '',
+    children,
+    onClick,
+    ...props
+  },
+  ref
+) {
+  const classes = cn('library-button', buttonVariants({ variant, size, shape }), className);
+  const click = (event: MouseEvent) => {
+    if (disabled) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    onClick?.(event);
+    if (
+      href &&
+      !event.defaultPrevented &&
+      event.button === 0 &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !props.target &&
+      (props.download === undefined || props.download === false) &&
+      !props.rel?.split(/\s+/).includes('external') &&
+      new URL(href, location.href).origin === location.origin
+    ) {
+      event.preventDefault();
+      void goto(href);
+    }
+  };
+  return createElement(
+    href ? 'a' : 'button',
+    {
+      ...props,
+      ...(!href && { type: props.type ?? 'button' }),
+      href: disabled ? undefined : href,
+      disabled: href ? undefined : disabled,
+      'aria-disabled': href ? disabled || props['aria-disabled'] : props['aria-disabled'],
+      role: href && disabled ? 'link' : props.role,
+      tabIndex: href && disabled ? -1 : (tabIndex ?? tabindex ?? 0),
+      'data-slot': 'button',
+      'data-variant': variant,
+      'data-size': size,
+      'data-shape': shape,
+      ref,
+      className: classes,
+      onClick: click
+    },
+    children
+  );
 });
-export const CloseButton = forwardRef<HTMLElement, AnyProps>(function CloseButton(props, ref) { return <Button {...props} ref={ref} variant="ghost" size="icon" aria-label={props['aria-label'] ?? 'Close'}>×</Button>; });
+export const CloseButton = forwardRef<HTMLElement, AnyProps>(function CloseButton(props, ref) {
+  return (
+    <Button
+      {...props}
+      ref={ref}
+      variant="secondary"
+      size="icon-lg"
+      shape="circle"
+      data-modal-dismiss=""
+      className={`size-[44px] min-h-[44px] min-w-[44px] pointer-coarse:min-h-[44px] pointer-coarse:min-w-[44px] text-muted-foreground hover:text-foreground ${props.className ?? ''}`}
+      aria-label={props['aria-label'] ?? 'Close'}
+    >
+      <X className="size-[18px]" strokeWidth={3} aria-hidden="true" />
+    </Button>
+  );
+});
 export function Icon({ className = '', weight: _weight, ...props }: AnyProps) { return <svg {...props} className={`size-5 ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M4 5h6l2 2 2-2h6v15h-6l-2 2-2-2H4zM12 7v15"/></svg>; }
 type ActionResult = {
     update?(options: any): void;

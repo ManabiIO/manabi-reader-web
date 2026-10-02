@@ -24,7 +24,7 @@ import {
   type StatisticsMigrationGuard,
   type StatisticIdentityPlan
 } from '$lib/data/database/books-db/reader-statistics';
-import type { BooksDbStatistic } from '$lib/data/database/books-db/versions/books-db';
+import type { BooksDbContentStatistic } from '$lib/data/database/books-db/versions/books-db';
 import { getDateString, getStartHoursDate } from '$lib/functions/statistic-util';
 import { HeatmapDataAggregration } from '$lib/components/statistics/statistics-heatmap/statistics-heatmap';
 import { createStatisticsHeatmap } from './statistics-heatmap-controller';
@@ -129,7 +129,7 @@ export async function readStatisticsSnapshot(
         `Showing the first ${MAX_BOOKS} available books. Choose individual books to narrow the history.`
       );
     const books: NativeStatisticsSnapshot['books'] = [],
-      rows: BooksDbStatistic[] = [],
+      rows: BooksDbContentStatistic[] = [],
       readKeys = new Set<string>();
     const available = visible.slice(0, MAX_BOOKS);
     const toResolve = [

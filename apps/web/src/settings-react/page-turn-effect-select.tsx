@@ -22,7 +22,7 @@ export function PageTurnEffectSelect(props: Partial<PageTurnEffectSelectProps> &
     return <SettingsContext.Provider value={context}><div className="react-settings-page-turn-effect-select" style={{ display: 'contents' }}>
     <Dom as="label" className={["flex min-w-0 flex-wrap items-center justify-between gap-3 text-sm"].filter(Boolean).join(' ')}>
     <Dom as="span">{"Page turn effect"}</Dom>
-    <Dom as="select" aria-label={"Page turn effect"} value={c.$pageTurnEffect$} onChange={(event) => pageTurnEffect$.next(normalizePageTurnEffect(event.currentTarget.value))} className={["min-h-11 rounded-lg border border-border bg-background px-3 text-foreground"].filter(Boolean).join(' ')}>
+    <Dom as="select" aria-label={"Page turn effect"} value={c.$pageTurnEffect$} onChange={(event: React.ChangeEvent<HTMLSelectElement>) => pageTurnEffect$.next(normalizePageTurnEffect(event.currentTarget.value))} className={["min-h-11 rounded-lg border border-border bg-background px-3 text-foreground"].filter(Boolean).join(' ')}>
     <Dom as="option" value={"slide"}>{"Slide"}</Dom>
     <Dom as="option" value={"none"}>{"None"}</Dom>
     </Dom>

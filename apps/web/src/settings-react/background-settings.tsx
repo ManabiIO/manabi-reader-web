@@ -32,7 +32,7 @@ export function BackgroundSettings(props: Partial<BackgroundSettingsProps> & Rea
                 {(image.url) ? <><Dom as="span" className={[(c.target === 'reader') && "reader-preview"].filter(Boolean).join(' ')}>{"本を読む"}<Dom as="br"/><Dom as="small">{"Read comfortably"}</Dom></Dom></> : <> <Dom as="span">{"No image"}</Dom></>}
                 </Dom>
                 <Button variant={"outline"} onClick={() => document.getElementById(`background-${c.target}-${mode.value}`)?.click()} disabled={image.busy} className={["w-full"].filter(Boolean).join(' ')}>{"Choose "}{mode.label.toLowerCase()}{" image"}</Button>
-                <Dom as="input" id={"background-" + String((c.target) ?? '') + "-" + String((mode.value) ?? '')} type={"file"} aria-label={`Choose ${mode.label.toLowerCase()} ${c.label.toLowerCase()}`} accept={"image/png,image/jpeg,image/webp"} disabled={image.busy} className={["sr-only"].filter(Boolean).join(' ')} events={{ "change": (event) => c.select(mode.value, event) }}/>
+                <Dom as="input" id={"background-" + String((c.target) ?? '') + "-" + String((mode.value) ?? '')} type={"file"} aria-label={`Choose ${mode.label.toLowerCase()} ${c.label.toLowerCase()}`} accept={"image/png,image/jpeg,image/webp"} disabled={image.busy} className={["sr-only"].filter(Boolean).join(' ')} events={{ "change": (event: Event & { currentTarget: HTMLInputElement }) => c.select(mode.value, event) }}/>
                     {(image.url || image.error) ? <><Button variant={"ghost"} disabled={image.busy} onClick={() => removeBackground(c.target, mode.value).catch(() => undefined)} aria-label={"Remove " + String((mode.label.toLowerCase()) ?? '') + " " + String((c.label.toLowerCase()) ?? '')}>{"Remove"}</Button></> : null}
                 {(image.name) ? <><Dom as="p" className={["filename"].filter(Boolean).join(' ')}>{image.name}</Dom></> : null}
                 {(image.busy) ? <><Dom as="p" role={"status"}>{"Preparing image…"}</Dom></> : null}
@@ -46,7 +46,7 @@ export function BackgroundSettings(props: Partial<BackgroundSettingsProps> & Rea
     <Dom as="label" htmlFor={`fade-enabled-${c.target}`}>{"Fade background"}</Dom>
     </Dom>
     <Dom as="label" htmlFor={"fade-" + String((c.target) ?? '')} className={["fade-label"].filter(Boolean).join(' ')}>{"Fade amount "}<Dom as="output" htmlFor={"fade-" + String((c.target) ?? '')}>{c.$options.amount}{"%"}</Dom></Dom>
-    <Dom as="input" id={"fade-" + String((c.target) ?? '')} type={"range"} min={"0"} max={"100"} step={"1"} value={c.$options.amount} disabled={!c.$options.fade} events={{ "input": (event) => c.options.next({ ...c.$options, amount: event.currentTarget.valueAsNumber }) }}/>
+    <Dom as="input" id={"fade-" + String((c.target) ?? '')} type={"range"} min={"0"} max={"100"} step={"1"} value={c.$options.amount} disabled={!c.$options.fade} events={{ "input": (event: Event & { currentTarget: HTMLInputElement }) => c.options.next({ ...c.$options, amount: event.currentTarget.valueAsNumber }) }}/>
     <Dom as="p" className={["fade-note"].filter(Boolean).join(' ')}>{"Light fades toward white; dark fades toward black."}</Dom>
     </Dom>
     </div></SettingsContext.Provider>;

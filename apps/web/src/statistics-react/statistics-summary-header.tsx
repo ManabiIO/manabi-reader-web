@@ -71,7 +71,7 @@ export function StatisticsSummaryHeader(
                         .filter(Boolean)
                         .join(' ')}
                       events={{
-                        click: (event) => {
+                        click: (event: MouseEvent) => {
                           event.stopPropagation();
                           Reflect.apply(
                             () => {

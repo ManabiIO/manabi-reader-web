@@ -36,3 +36,16 @@ Specific tested behavior: exact 65-setting manifest/store bindings; initial cont
 - OAuth popup/PKCE provider flows, stored credentials, directory permission prompts, WebDAV uploads, live cloud sync/conflict resolution, real font caches and real TTU/Yatsu ZIPs require integration runs
 - Settings Back navigation uses the existing route adapter; the parent should verify it records the external entry route before the settings controller subscribes
 - Existing pure TypeScript domain algorithms and account-generation fences were not rewritten
+
+## Strict TypeScript CI integration corrections (2026-10-02)
+
+The 109 `settings-react/**` diagnostics reported by the dependency-resolved CI run on `8b0c0a0` were addressed without turning off strict mode or adding diagnostic suppressions:
+
+- Binding callbacks name the exact existing controller/model type; browser event callbacks use native DOM or React synthetic event types appropriate to the adapter path
+- Derived theme options, import rows, goal-history pages, sync choices, and shared-library choices have domain types rather than erased array types
+- Read-only derived observables (`resolvedMode$`, `storageSources$`) and the read-only field-filter context expose getters only; generated setters no longer pretend to write them
+- Element refs which can be cleared on unmount are nullable and guarded; IME key handling reads React's native keyboard event
+- The obsolete `compact` prop was removed from the React `AppNav` call
+- Settings buttons reuse the original `snippets-react/button-styles.ts` variants via `cn`, preserve their event/binding adapter, prevent disabled activation, omit disabled-link `href`, and retain explicit keyboard tab order
+
+Post-change checks: the 16 existing settings/Rhea controller and source-parity tests pass alongside 20 new native-settings tests (36 total). A dependency-resolved local settings-root strict check has no residual diagnostics from the posted CI failure. Its two remaining settings-file diagnostics are unresolved `showDirectoryPicker` and `PasswordCredential` globals because this partial local dependency installation does not contain `@types/wicg-file-system-access` or `@types/webappsec-credential-management`; both are already declared dependencies and referenced by `manabi-browser-types.d.ts`. Those two errors were absent from the real CI log. A fresh full dependency-installed CI run is still required; a local pass is not being substituted for it.

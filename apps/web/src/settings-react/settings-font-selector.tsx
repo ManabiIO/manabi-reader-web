@@ -21,7 +21,7 @@ export function SettingsFontSelector(props: Partial<SettingsFontSelectorProps> &
     return <SettingsContext.Provider value={context}><div className="react-settings-settings-font-selector" style={{ display: 'contents' }}>
     <ActionMenu label={"Choose font"} title={c.label}>
     <Menu.Label>{"Available fonts"}</Menu.Label>
-    <Menu.RadioGroup value={c.selectedFont ?? c.fontValue} onValueChange={(value) => (c.controller.changed(c.fontValue = value))}>
+    <Menu.RadioGroup value={c.selectedFont ?? c.fontValue} onValueChange={(value: string) => (c.controller.changed(c.fontValue = value))}>
     {(c.availableFonts ?? []).map((font, index0) => <React.Fragment key={font}><Menu.RadioItem value={font}>{font}</Menu.RadioItem></React.Fragment>)}
     </Menu.RadioGroup>
     </ActionMenu></div></SettingsContext.Provider>;

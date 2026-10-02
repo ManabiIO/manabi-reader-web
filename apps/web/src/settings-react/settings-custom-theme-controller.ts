@@ -155,7 +155,7 @@ get nameError() { return nameError; }, set nameError(nextValue: typeof nameError
 get themeNameElm() { return themeNameElm; }, set themeNameElm(nextValue: typeof themeNameElm) { if (Object.is(themeNameElm, nextValue)) return; themeNameElm = nextValue; __readerController.invalidate(); },
 get themeStyle() { return themeStyle; }, set themeStyle(nextValue: typeof themeStyle) { if (Object.is(themeStyle, nextValue)) return; themeStyle = nextValue; __readerController.invalidate(); },
 get $theme$() { return $theme$; }, set $theme$(nextValue: typeof $theme$) { writeStore(theme$, nextValue); },
-get $resolvedMode$() { return $resolvedMode$; }, set $resolvedMode$(nextValue: typeof $resolvedMode$) { writeStore(resolvedMode$, nextValue); },
+get $resolvedMode$() { return $resolvedMode$; },
 get $customThemes$() { return $customThemes$; }, set $customThemes$(nextValue: typeof $customThemes$) { writeStore(customThemes$, nextValue); },
 updateProps(next: Record<string, unknown>) {
 if ('selectedTheme' in next && next.selectedTheme !== undefined) api.selectedTheme = next.selectedTheme as typeof selectedTheme;
