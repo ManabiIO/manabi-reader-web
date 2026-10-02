@@ -5,7 +5,8 @@ import {
   adjacentSelection,
   librarySelectionScopeKey,
   marqueeSelection,
-  reconcileSelectionEligibility
+  reconcileSelectionEligibility,
+  selectableSavedBookIds
 } from '../../apps/web/src/lib/library/selection.ts';
 const items = ['a', 'b', 'c', 'd', 'e'].map((key, i) => ({ key, ids: [i + 1] }));
 const ids = (value) => [...value].sort((a, b) => a - b);
@@ -90,6 +91,12 @@ test('external Select All replaces the old range baseline while equal UI echoes 
   assert.deepEqual(ids(selection.choose('c', items, { shift: true })), [2, 3]);
   selection.sync(new Set([1, 2, 3, 4, 5]), items);
   assert.deepEqual(ids(selection.choose('b', items, { shift: true })), [1, 2, 3, 4, 5]);
+});
+
+test('select all uses rendered provider cards instead of stale Browser eligibility', () => {
+  const providerCards = [{ id: 41 }, { id: 42 }];
+  assert.deepEqual(selectableSavedBookIds(false, [1, 2], providerCards), [41, 42]);
+  assert.deepEqual(selectableSavedBookIds(true, [1, 2], providerCards), [1, 2]);
 });
 
 test('selection scope identity cannot collide across delimiter-shaped values', () => {
