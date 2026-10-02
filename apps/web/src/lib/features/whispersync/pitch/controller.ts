@@ -258,6 +258,11 @@ export class PitchController {
             !result ||
             !Number.isFinite(result.amplitude) ||
             result.amplitude < 0 ||
+            !Number.isFinite(result.rms) ||
+            result.rms < 0 ||
+            !Number.isFinite(result.confidence) ||
+            result.confidence < 0 ||
+            result.confidence > 1 ||
             !Number.isFinite(result.offsetSeconds) ||
             !Number.isFinite(result.windowSeconds) ||
             result.offsetSeconds < 0 ||
