@@ -94,13 +94,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   min-width: 0;
   min-height: 44px;
   padding: 8px 22px;
   border-radius: 20px;
   text-decoration: none;
   text-align: center;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
   color: inherit;
 }
 .media-sections [aria-current] {
@@ -145,7 +146,7 @@
 .caption-controls label {
   font-size: 0.8125rem;
   color: var(--media-secondary);
-  flex: 1;
+  flex: 1 1 220px;
 }
 .caption-controls select {
   width: 100%;
@@ -650,6 +651,13 @@
 @media (max-width: 600px) {
   .manabi-media {
     padding: 16px;
+  }
+  .caption-controls {
+    align-items: stretch;
+  }
+  .caption-controls label {
+    flex-basis: 100%;
+    width: 100%;
   }
   .manabi-media header h1 {
     font-size: 1.875rem;
