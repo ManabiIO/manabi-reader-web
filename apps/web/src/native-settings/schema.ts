@@ -35,15 +35,7 @@ export interface SettingDefinition {
   /** Conditional controls remain searchable, but cannot be changed while inapplicable. */
   when?: readonly { key: string; values: readonly SettingValue[] }[];
 }
-export const settingCategories = [
-  { id: 'appearance', label: 'Appearance' },
-  { id: 'typography', label: 'Fonts & text' },
-  { id: 'layout', label: 'Page layout' },
-  { id: 'reading', label: 'Reading controls' },
-  { id: 'library', label: 'Library & sync' },
-  { id: 'tracking', label: 'Tracking & goals' },
-  { id: 'all', label: 'All settings' }
-] as const;
+export { settingCategories } from '../features/settings/categories';
 const choices = (...entries: readonly (readonly [string, string])[]): SettingChoice[] =>
   entries.map(([value, label]) => ({ value, label }));
 const condition = (key: string, ...values: SettingValue[]) => [{ key, values }];

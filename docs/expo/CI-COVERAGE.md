@@ -92,6 +92,9 @@ no longer select different runtime code:
   cases. `--list --json` exposes the identical default/gated inventory without
   starting a browser; `--validate` resolves exact cases without inherited-suite
   discovery or duplicate whole-reader runs
+- All six original Settings controls and ten Settings editor-usability cases in
+  both engines, covering dimension/font behavior, specialized storage/theme
+  flows, enlarged-text reachability, category navigation and reader return
 - The real reader save/cancel/Back/Forward/fragment lifetime suite in both engines
 - The two corrected offline handoffs in both engines: Library bookmark reconnect
   and owned-book offline/signout. Worker activation and controller acquisition

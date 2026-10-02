@@ -366,6 +366,10 @@ for (const [label, mode] of [
           assert.ok(
             result.stdout.includes(`SELECTED|${engine}|tests/browser/test_web_reader_lifetime.py`)
           );
+          for (const settingsSuite of ['test_settings_controls', 'test_settings_editor_usability'])
+            assert.ok(
+              result.stdout.includes(`SELECTED|${engine}|tests/browser/${settingsSuite}.py`)
+            );
           assert.ok(
             result.stdout.includes(
               `SELECTED|${engine}|-m unittest test_library_sync.LibraryOrganizationSync.test_offline_bookmark_survives_reload_and_syncs_on_reconnect test_offline_account_profile.OfflineAccountProfile.test_owned_book_opens_offline_and_disappears_after_confirmed_signout -v`
@@ -388,7 +392,7 @@ for (const [label, mode] of [
         );
         assert.equal(
           selected.some((line) => line.includes('test_settings_controls.py')),
-          scope === 'full'
+          true
         );
         assert.match(
           readFileSync(summary, 'utf8'),

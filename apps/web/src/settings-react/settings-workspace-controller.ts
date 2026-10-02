@@ -16,6 +16,8 @@ import {
 } from '../reader-react/controller';
 import { type SettingsContextValue } from './context';
 
+import { settingCategories } from '../features/settings/categories';
+
 export type SettingsWorkspaceProps = Record<string, unknown>;
 
 export function createSettingsWorkspace(
@@ -26,43 +28,7 @@ export function createSettingsWorkspace(
   const __readerController = new ReaderController();
   let selected: any;
   let $filter: StoreValue<typeof filter> = undefined as never;
-  const categories = [
-    {
-      id: 'appearance',
-      label: 'Appearance',
-      description: 'Theme, light and dark mode, and background images'
-    },
-    {
-      id: 'typography',
-      label: 'Fonts & text',
-      description: 'Typography, spacing, and Japanese font options'
-    },
-    {
-      id: 'layout',
-      label: 'Page layout',
-      description: 'Writing direction, pagination, and margins'
-    },
-    {
-      id: 'reading',
-      label: 'Reading controls',
-      description: 'Bookmarks, navigation, furigana, and images'
-    },
-    {
-      id: 'library',
-      label: 'Library & sync',
-      description: 'Storage sources, import, export, and backups'
-    },
-    {
-      id: 'tracking',
-      label: 'Tracking & goals',
-      description: 'Reading statistics, session behavior, and goals'
-    },
-    {
-      id: 'all',
-      label: 'All settings',
-      description: 'Every available setting, grouped in one place'
-    }
-  ];
+  const categories = settingCategories;
   const initialCategory = typeof location === 'undefined' ? '' : location.hash.slice(1);
   const filter = writable({
     category: categories.some((item) => item.id === initialCategory)
