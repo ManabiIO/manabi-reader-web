@@ -1,5 +1,11 @@
 import { appendPoint, initialPitchState, type PitchState } from './model';
-import { ANALYSIS_WINDOW_SECONDS, SAMPLE_INTERVAL_MS, type Measurement } from './analysis';
+import {
+  ANALYSIS_WINDOW_SECONDS,
+  MAX_ANALYSER_SAMPLES,
+  SAMPLE_INTERVAL_MS,
+  hasStableSwiftF0Context,
+  type Measurement
+} from './analysis';
 
 export interface PitchEnvironment {
   createContext(): AudioContext;
@@ -189,6 +195,14 @@ export class PitchController {
       const begin = () => {
         if (!current() || !contextReady || !this.workerReady) return;
         try {
+          if (!hasStableSwiftF0Context(context.sampleRate, MAX_ANALYSER_SAMPLES)) {
+            this.fail(
+              `Pitch needs a lower audio output rate. This device is using ${Math.round(
+                context.sampleRate / 1000
+              )} kHz; switch it to 48 kHz and retry.`
+            );
+            return;
+          }
           if (!this.source) {
             this.source = context.createMediaElementSource(audio);
             this.source.connect(context.destination);
