@@ -288,6 +288,11 @@ function fixture(options = {}) {
     {
       createContext() {
         contexts++;
+        if (Array.isArray(options.sampleRates) && options.sampleRates.length) {
+          context.sampleRate =
+            options.sampleRates[Math.min(contexts - 1, options.sampleRates.length - 1)];
+          context.state = 'running';
+        }
         return context;
       },
       createWorker() {
@@ -395,17 +400,24 @@ async function running(f = fixture()) {
   await flush();
   return f;
 }
-test('native 96 kHz fallback fails safely before capturing the media element', async () => {
-  const f = fixture({ sampleRate: 96000 });
+test('native 96 kHz fallback fails before download and Retry can reopen at 48 kHz', async () => {
+  const f = fixture({ sampleRates: [96000, 48000] });
   f.controller.setEnabled(true);
-  f.ready();
   await flush();
   assert.equal(f.state.status, 'error');
   assert.match(f.state.message, /96 kHz/);
   assert.equal(f.workers.length, 0, 'unsupported output rate must not fetch the SwiftF0 worker');
   assert.equal(f.sources.length, 0);
   assert.equal(f.context.resumes, 0);
-  assert.equal(f.context.closes, 0);
+  assert.equal(f.context.closes, 1);
+
+  f.controller.retry();
+  assert.equal(f.contexts, 2);
+  assert.equal(f.workers.length, 1);
+  f.ready();
+  await flush();
+  assert.equal(f.state.status, 'ready');
+  assert.equal(f.sources.length, 1);
   f.controller.dispose();
 });
 
