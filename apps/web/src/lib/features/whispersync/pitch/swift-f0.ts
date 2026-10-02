@@ -8,7 +8,7 @@ import {
   resampleForSwiftF0,
   type Measurement
 } from './analysis';
-import { runSwiftF0Inference } from './swift-f0-runtime';
+import { runSwiftF0Inference, type SwiftF0TensorLike } from './swift-f0-runtime';
 
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
@@ -38,13 +38,20 @@ export async function analyseSwiftF0Window(
     });
 
   const session = await prepareSwiftF0();
+  const modelOutput = (value: unknown): SwiftF0TensorLike | undefined => {
+    if (!(value instanceof ort.Tensor)) return undefined;
+    return {
+      data: value.data as ArrayLike<number>,
+      dispose: () => value.dispose()
+    };
+  };
   const { pitch, confidence } = await runSwiftF0Inference(samples, MIN_HZ, MAX_HZ, {
     createTensor: (type, data, dims) => new ort.Tensor(type, data, dims),
     run: async (feeds) => {
       const result = await session.run(feeds);
       return {
-        pitch: result.pitch as ort.Tensor | undefined,
-        confidence: result.confidence as ort.Tensor | undefined
+        pitch: modelOutput(result.pitch),
+        confidence: modelOutput(result.confidence)
       };
     }
   });
