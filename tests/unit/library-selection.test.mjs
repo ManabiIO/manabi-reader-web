@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   LibrarySelection,
   adjacentSelection,
+  librarySelectionScopeKey,
   marqueeSelection,
   reconcileSelectionEligibility
 } from '../../apps/web/src/lib/library/selection.ts';
@@ -89,6 +90,37 @@ test('external Select All replaces the old range baseline while equal UI echoes 
   assert.deepEqual(ids(selection.choose('c', items, { shift: true })), [2, 3]);
   selection.sync(new Set([1, 2, 3, 4, 5]), items);
   assert.deepEqual(ids(selection.choose('b', items, { shift: true })), [1, 2, 3, 4, 5]);
+});
+
+test('selection scope identity cannot collide across delimiter-shaped values', () => {
+  const a = librarySelectionScopeKey({
+    viewerId: 'user:one',
+    collectionId: 'books',
+    seriesId: 'series',
+    unfinished: false,
+    searchScope: 'everything',
+    search: '猫:books'
+  });
+  const b = librarySelectionScopeKey({
+    viewerId: 'user',
+    collectionId: 'one:books',
+    seriesId: 'series',
+    unfinished: false,
+    searchScope: 'everything',
+    search: '猫:books'
+  });
+  assert.notEqual(a, b);
+  assert.equal(
+    a,
+    librarySelectionScopeKey({
+      viewerId: 'user:one',
+      collectionId: 'books',
+      seriesId: 'series',
+      unfinished: false,
+      searchScope: 'everything',
+      search: '猫:books'
+    })
+  );
 });
 
 test('visible-scope reconciliation clears selection when search scope changes', () => {
