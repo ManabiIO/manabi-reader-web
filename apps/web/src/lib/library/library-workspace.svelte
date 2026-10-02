@@ -2,7 +2,10 @@
   import { foldSearch } from './search-normalization';
   import { bookTitleMatchIndex } from '../search/book-title-match-text';
   import { librarySelection } from './selection-action';
-  import type { LibrarySelectionEligibility } from './selection';
+  import {
+    librarySelectionScopeKey,
+    type LibrarySelectionEligibility
+  } from './selection';
   import BookOrganizationDialog from './book-organization-dialog.svelte';
   import type { BookPresentation, PresentationChange } from './organization';
   import { onMount, createEventDispatcher, tick, type Snippet } from 'svelte';
@@ -437,7 +440,14 @@
   $: currentLayout =
     collectionId === 'finished' && !series ? finishedLayout : series ? seriesLayout : layout;
   function selectionScopeFor(search: string, searchScope: LibrarySearchScope) {
-    return `${viewerId ?? 'local'}:${collectionId}:${series?.id || ''}:${notFinished ? 'unfinished' : 'all'}:${searchScope}:${search}`;
+    return librarySelectionScopeKey({
+      viewerId,
+      collectionId,
+      seriesId: series?.id,
+      unfinished: notFinished,
+      searchScope,
+      search
+    });
   }
   function retireSelectionScope(key: string) {
     if (!selectMode || key === selectionScopeKey) return;
