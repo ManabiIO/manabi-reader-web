@@ -279,6 +279,65 @@ test('transcript search enumerates manifests once and skips videos without capti
   );
 });
 
+test('change-driven transcript publication skips no-op video scans and still completes', async () => {
+  const a = key('a');
+  const b = key('b');
+  const c = key('c');
+  const store = new Store({
+    infos: [
+      replica('video_info', a, info('A', 3)),
+      replica('video_info', b, info('B', 2)),
+      replica('video_info', c, info('C', 1))
+    ],
+    tracks: new Map([
+      [a, [track('00000000-0000-4000-8000-000000000012', a, [cue('a', 1, 'needle')])]],
+      [b, [track('00000000-0000-4000-8000-000000000013', b, [cue('b', 2, 'other')])]],
+      [c, [track('00000000-0000-4000-8000-000000000014', c, [cue('c', 3, 'other')])]]
+    ])
+  });
+  const batches = [];
+  const result = await searchVideoTranscripts(
+    store,
+    'guest',
+    'needle',
+    new AbortController().signal,
+    (batch) => batches.push(batch),
+    { progress: false }
+  );
+  assert.equal(result.hits.length, 1);
+  assert.equal(batches.length, 2);
+  assert.equal(batches[0].hits.length, 1);
+  assert.equal(batches[0].scanned, 1);
+  assert.equal(batches[1].hits.length, 1);
+  assert.equal(batches[1].scanned, 3);
+  assert.equal(batches[1].total, 3);
+});
+
+test('change-driven transcript publication emits one final batch when nothing matches', async () => {
+  const a = key('a');
+  const b = key('b');
+  const store = new Store({
+    infos: [replica('video_info', a, info('A', 2)), replica('video_info', b, info('B', 1))],
+    tracks: new Map([
+      [a, [track('00000000-0000-4000-8000-000000000015', a, [cue('a', 1, 'other')])]],
+      [b, [track('00000000-0000-4000-8000-000000000016', b, [cue('b', 2, 'other')])]]
+    ])
+  });
+  const batches = [];
+  await searchVideoTranscripts(
+    store,
+    'guest',
+    'needle',
+    new AbortController().signal,
+    (batch) => batches.push(batch),
+    { progress: false }
+  );
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0].scanned, 2);
+  assert.equal(batches[0].total, 2);
+  assert.deepEqual(batches[0].hits, []);
+});
+
 test('one corrupt transcript snapshot does not hide other video matches', async () => {
   const a = key('a');
   const b = key('b');

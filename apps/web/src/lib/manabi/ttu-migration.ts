@@ -6,6 +6,7 @@
 
 import { rewriteEpubPublication } from '$lib/foliate-epub/publication-data';
 import { encodeBook } from '$lib/data/database/books-db/book-binary';
+import { requestPersistentStorageOnce } from '$lib/data/window/navigator/persistent-storage';
 
 import { database, lastReadingGoalsModified$, readingGoal$ } from '$lib/data/store';
 import { getCurrentReadingGoal } from '$lib/data/reading-goal';
@@ -471,6 +472,7 @@ export class TtuMigration {
     );
     const newIdentity = crypto.randomUUID();
     const storedContent = content ? await encodeBook(content) : undefined;
+    if (storedContent) void requestPersistentStorageOnce();
     signal?.throwIfAborted();
     assertAccount();
     const core = await exclusive<MigrationResult>('import-library-book', async () => {

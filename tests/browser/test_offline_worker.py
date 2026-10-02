@@ -94,7 +94,13 @@ class FixtureHandler(BaseHTTPRequestHandler):
             assert imports == 1, 'The fixture must inline the real worker dependency exactly once'
             config = {
                 'build': [SCOPE + 'app-' + version + '.js', SCOPE + 'offline-status.mjs'],
-                'files': [SCOPE + 'appearance-init.js', SCOPE + 'app.css', SCOPE + 'font.woff2'],
+                'files': [
+                    SCOPE + 'appearance-init.js',
+                    SCOPE + 'app.css',
+                    SCOPE + 'font.woff2',
+                    SCOPE + 'missing-icon.png',
+                    SCOPE + 'licenses/missing.txt'
+                ],
                 'prerendered': [SCOPE, SCOPE + 'manage', SCOPE + 'b'],
                 'version': version, 'userFontsCacheName': 'fixture-user-fonts'
             }
@@ -302,6 +308,12 @@ class OfflineWorker(unittest.TestCase):
         # Readiness of an active registration does not require force-claiming
         # this first document, installing a PWA, or granting storage persistence.
         self.assertFalse(self.page.evaluate('!!navigator.serviceWorker.controller'))
+        self.assertNotIn(
+            SCOPE + 'missing-icon.png', self.server.requests,
+            'decorative public asset unexpectedly became an install dependency')
+        self.assertNotIn(
+            SCOPE + 'licenses/missing.txt', self.server.requests,
+            'legal text unexpectedly became an install dependency')
         self.stop_origin()
         next_page = self.context.new_page()
         response = next_page.goto(self.origin + SCOPE + 'b?id=42')
