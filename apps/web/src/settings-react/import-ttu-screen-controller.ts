@@ -5,6 +5,7 @@
  */
 
 import { beforeNavigate } from '$app/navigation';
+import { consumeImportBootstrap } from '../runtime/import-bootstrap';
 
 import {
   TtuMigration,
@@ -224,6 +225,7 @@ export function createImportTtuScreen(
     __readerController.changed(
       (yatsu = new URLSearchParams(window.location.search).get('source') === 'yatsu')
     );
+    consumeImportBootstrap(consumeSelection);
     if (filePicker) consumeSelection(filePicker);
     void migratedBookChoices()
       .then((value) => {

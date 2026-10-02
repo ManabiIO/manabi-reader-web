@@ -600,7 +600,7 @@ function ModalContent({
   );
 }
 const div = ({ children, ...props }: ControlProps) => <Dom {...props}>{children}</Dom>;
-const title = ({ children, className = '', ...props }: ControlProps) => {
+const ModalTitle = ({ children, className = '', ...props }: ControlProps) => {
   const modal = useContext(ModalContext);
   return (
     <Dom as="h2" id={modal.titleId} {...props} className={`text-lg font-semibold ${className}`}>
@@ -608,7 +608,7 @@ const title = ({ children, className = '', ...props }: ControlProps) => {
     </Dom>
   );
 };
-const description = ({ children, className = '', ...props }: ControlProps) => {
+const ModalDescription = ({ children, className = '', ...props }: ControlProps) => {
   const modal = useContext(ModalContext);
   return (
     <Dom
@@ -625,11 +625,20 @@ export const Sheet = {
   Root: ModalRoot,
   Content: (props: ControlProps) => <ModalContent side="right" {...props} />,
   Header: div,
-  Title: title,
-  Description: description,
+  Title: (props: ControlProps) => <ModalTitle {...props} data-slot="sheet-title" />,
+  Description: (props: ControlProps) => (
+    <ModalDescription {...props} data-slot="sheet-description" />
+  ),
   Footer: div
 };
-export const Dialog = { ...Sheet, Content: ModalContent };
+export const Dialog = {
+  ...Sheet,
+  Content: ModalContent,
+  Title: (props: ControlProps) => <ModalTitle {...props} data-slot="dialog-title" />,
+  Description: (props: ControlProps) => (
+    <ModalDescription {...props} data-slot="dialog-description" />
+  )
+};
 
 const MenuContext = createContext<{ open: boolean; setOpen(value: boolean): void }>({
   open: false,

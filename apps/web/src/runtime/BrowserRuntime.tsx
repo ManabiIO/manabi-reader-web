@@ -7,6 +7,7 @@
 import { useEffect } from 'react';
 import { useStore } from './use-store';
 import { base } from './paths';
+import { retireImportBootstrapOutsideRoute } from './import-bootstrap';
 import { refreshAccount } from '$lib/manabi/client';
 import { startPreferenceSync } from '$lib/manabi/preferences';
 import { startBookSync, bookSyncStatus } from '$lib/manabi/books';
@@ -53,6 +54,7 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
   const libraryOptions = useStore(libraryBackgroundOptions$);
   const readerOptions = useStore(readerBackgroundOptions$);
   const location = useStore(page);
+  useEffect(retireImportBootstrapOutsideRoute, [location.url.pathname]);
   const personal = useStore(personalSyncStatus);
   const books = useStore(bookSyncStatus);
   useEffect(() => {

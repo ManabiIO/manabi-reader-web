@@ -7,6 +7,8 @@
 import { useLocalSearchParams } from 'expo-router';
 import { ReaderScreen } from '../../reader-react';
 import { base } from '../../runtime/paths';
+import { qualifyWebReaderLifetime } from '../../runtime/web-reader-qualification';
+import { QualifiedWebReader } from '../../reader-react/web-qualified-reader';
 
 export default function ReaderRoute() {
   const params = useLocalSearchParams();
@@ -23,5 +25,9 @@ export default function ReaderRoute() {
       for (const item of Array.isArray(value) ? value : [value])
         url.searchParams.append(name, item);
   }
-  return <ReaderScreen routeUrl={url.href} />;
+  return qualifyWebReaderLifetime ? (
+    <QualifiedWebReader routeUrl={url.href} />
+  ) : (
+    <ReaderScreen routeUrl={url.href} />
+  );
 }

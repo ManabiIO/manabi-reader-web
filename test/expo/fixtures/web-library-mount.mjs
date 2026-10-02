@@ -66,7 +66,14 @@ const { act } = React;
 const { createRoot } = require('react-dom/client');
 // Import only after the browser environment exists: this includes the actual
 // cold DatabaseService, controllers, stores, and runtime subscription owners.
-const { LibraryScreen, BrowserRuntime, database, refreshLocation } = require(process.argv[2]);
+const {
+  LibraryScreen,
+  BrowserRuntime,
+  database,
+  refreshLocation,
+  installRouter,
+  beforeNavigate
+} = require(process.argv[2]);
 
 async function settle(predicate, message) {
   const deadline = Date.now() + 3000;
@@ -100,6 +107,87 @@ for (const strict of [false, true]) {
   assert.match(container.textContent, /Make room for a good book/);
   assert.equal(document.querySelectorAll('#manabi-packaged-fonts').length, 1);
   assert.ok(requests.includes('/api/reader-web/session/'));
+
+  // Anchor destinations must work independently of Expo's primary-click routing:
+  // native gestures and copied links use the DOM href, including its query/hash.
+  const destinations = [
+    ['Import from Ttu Ebook Reader', '/reader-web/import-ttu'],
+    ['Import from Yatsu Reader', '/reader-web/import-ttu?source=yatsu'],
+    ['Local folder', '/reader-web/connections#local-heading'],
+    ['Google Drive', '/reader-web/connections#cloud-heading'],
+    ['Dropbox', '/reader-web/connections#cloud-heading'],
+    ['OneDrive', '/reader-web/connections#cloud-heading']
+  ];
+  const links = [...container.querySelectorAll('[data-slot="library-empty-state"] a')];
+  assert.deepEqual(
+    links.map((link) => [link.textContent.trim(), link.getAttribute('href')]),
+    destinations
+  );
+  assert.deepEqual(
+    links.map((link) => link.href),
+    destinations.map(([, destination]) => new URL(destination, location.origin).href)
+  );
+  const routes = [],
+    intents = [],
+    prevented = [];
+  const stopRouter = installRouter({
+    push: (path) => routes.push(path),
+    replace: (path) => routes.push(path)
+  });
+  const stopNavigation = beforeNavigate((event) => intents.push(event.to.url.href));
+  // Observe the production handler's decision, then suppress JSDOM's unsupported
+  // native navigation. This listener cannot turn a canceled gesture into a pass.
+  const observeDefault = (event) => {
+    prevented.push(event.defaultPrevented);
+    event.preventDefault();
+  };
+  document.addEventListener('click', observeDefault);
+  document.addEventListener('auxclick', observeDefault);
+  try {
+    for (const link of links) {
+      for (const modifier of ['ctrlKey', 'metaKey', 'shiftKey', 'altKey']) {
+        await act(async () => {
+          link.dispatchEvent(
+            new window.MouseEvent('click', {
+              bubbles: true,
+              cancelable: true,
+              [modifier]: true
+            })
+          );
+        });
+        assert.equal(prevented.at(-1), false, `${modifier} retains native link behavior`);
+      }
+      for (const type of ['click', 'auxclick']) {
+        await act(async () => {
+          link.dispatchEvent(
+            new window.MouseEvent(type, { bubbles: true, cancelable: true, button: 1 })
+          );
+        });
+        assert.equal(prevented.at(-1), false, `middle ${type} retains native link behavior`);
+      }
+    }
+    assert.deepEqual(routes, [], 'native gestures do not dispatch an Expo route');
+    assert.deepEqual(intents, [], 'native gestures do not start an in-tab navigation guard');
+    for (const link of links) {
+      await act(async () => {
+        link.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }));
+      });
+      assert.equal(prevented.at(-1), true, 'ordinary clicks use the in-app navigation adapter');
+    }
+    assert.deepEqual(
+      routes,
+      destinations.map(([, destination]) => destination.slice('/reader-web'.length))
+    );
+    assert.deepEqual(
+      intents,
+      destinations.map(([, destination]) => new URL(destination, location.origin).href)
+    );
+  } finally {
+    document.removeEventListener('click', observeDefault);
+    document.removeEventListener('auxclick', observeDefault);
+    stopNavigation();
+    stopRouter();
+  }
 
   // Real async list refreshes and route changes must remain live after startup.
   const db = await database.db;

@@ -52,7 +52,9 @@ export function createGallery(
     }
   );
   __readerController.effect(
-    () => [selectedImage, $hideSpoilerImage$],
+    // The session's debounced spoiler reducer intentionally retains each
+    // picture object, so its primitive visibility can change at the same identity.
+    () => [selectedImage, selectedImage?.unspoilered, $hideSpoilerImage$],
     () => {
       __readerController.changed(
         (selectedIsHidden = !!selectedImage && $hideSpoilerImage$ && !selectedImage.unspoilered)

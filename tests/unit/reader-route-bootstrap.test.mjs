@@ -88,7 +88,9 @@ async function fixture(run) {
       useIsFocused: () => routeState.focused
     },
     '../../reader-react': screen,
-    '../../runtime/paths': paths
+    '../../runtime/paths': paths,
+    '../../runtime/web-reader-qualification': { qualifyWebReaderLifetime: false },
+    '../../reader-react/web-qualified-reader': { QualifiedWebReader: () => null }
   }).default;
   const root = createRoot(dom.window.document.getElementById('root'));
   const render = async (component = route, props = {}) => {

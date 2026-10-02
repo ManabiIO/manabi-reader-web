@@ -4,16 +4,22 @@
  * All rights reserved.
  */
 
-import { Stack } from 'expo-router';
+import { Slot, Stack } from 'expo-router';
+import { Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { RuntimeProvider } from '../platform/RuntimeProvider';
+import { qualifyWebReaderLifetime } from '../runtime/web-reader-qualification';
 import '../app.css';
 import '../app.generated.css';
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <RuntimeProvider>
-        <Stack screenOptions={{ headerShown: false, animation: 'none' }} />
+        {Platform.OS === 'web' && qualifyWebReaderLifetime ? (
+          <Slot />
+        ) : (
+          <Stack screenOptions={{ headerShown: false, animation: 'none' }} />
+        )}
       </RuntimeProvider>
     </SafeAreaProvider>
   );

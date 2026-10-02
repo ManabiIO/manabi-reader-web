@@ -4,4 +4,24 @@
  * All rights reserved.
  */
 
-export { LibraryScreen as default } from '../../library-react';
+import { useLocalSearchParams } from 'expo-router';
+import { LibraryScreen } from '../../library-react';
+import { base } from '../../runtime/paths';
+
+export default function ManageRoute() {
+  const params = useLocalSearchParams();
+  // Incoming and retained Expo screens own their parameters independently of
+  // the browser history update, which can still describe the outgoing screen.
+  const url = new URL(
+    `${base}/manage`,
+    typeof window === 'undefined' ? 'https://reader.invalid' : window.location.origin
+  );
+  for (const [name, value] of Object.entries(params)) {
+    if (value == null) continue;
+    if (name === '#') url.hash = Array.isArray(value) ? (value[0] ?? '') : value;
+    else
+      for (const item of Array.isArray(value) ? value : [value])
+        url.searchParams.append(name, item);
+  }
+  return <LibraryScreen routeUrl={url.href} />;
+}

@@ -193,6 +193,8 @@ test('Custom fonts retains the active dialog content, accessible title, scrollin
         const panel = document.querySelector('[data-slot="dialog-content"]');
         assert.ok(panel, 'an open native dialog retains the existing dialog-content contract');
         assert.equal(panel.tagName, 'DIALOG');
+        assert.equal(panel.getAttribute('role'), 'dialog');
+        assert.equal(panel.getAttribute('aria-modal'), 'true');
         assert.equal(
           document.getElementById(panel.getAttribute('aria-labelledby')).textContent,
           'Custom fonts'
@@ -224,6 +226,7 @@ test('Custom fonts retains the active dialog content, accessible title, scrollin
           null,
           'closed host is not an active dialog'
         );
+        assert.equal(document.querySelector('[role="dialog"][aria-modal="true"]'), null);
         await until(
           () => document.activeElement === trigger(),
           'focus returns to the same font control'

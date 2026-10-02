@@ -232,6 +232,9 @@ test('migration inspection guards busy state synchronously and preserves safe de
       importLabels: { bookData: 'Book data', settings: 'Reader settings' },
       MigrationConflict: class extends Error {}
     },
+    '../runtime/import-bootstrap': load('runtime/import-bootstrap.ts', {
+      './paths': { base: '/reader-web' }
+    }),
     '../reader-react/controller': runtime
   });
   const c = createImportTtuScreen({}, undefined, settingsContext());

@@ -11,8 +11,6 @@ import { Fragment, type ReactNode, type CSSProperties } from 'react';
 
 import { librarySelection } from '$lib/library/selection-action';
 
-import { page } from '$app/stores';
-
 import { resolve } from '$app/paths';
 
 import { requestSeriesWriteAccess } from '$lib/manabi/client';
@@ -703,7 +701,7 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
                 openBook={c.openBook}
                 onquery={c.setQuery}
                 onscope={c.setSearchScope}
-                returnTo={readStore(page).url.pathname + readStore(page).url.search}
+                returnTo={c.url.pathname + c.url.search}
               />
             </>
           ) : (

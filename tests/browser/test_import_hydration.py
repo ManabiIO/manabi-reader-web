@@ -1,6 +1,7 @@
 """Keep a ZIP selected before the actual static importer has hydrated.
 
-The HTTP server holds application JavaScript, not the DOM or file input. No
+The HTTP server holds actual Expo application JavaScript, not the inert bootstrap
+DOM or its native file input. The same real importer claims that FileList once. No
 Playwright routing, substitute importer, or synthetic change event is used.
 """
 import os
@@ -17,7 +18,7 @@ from test_static_reader import StaticHandler, ThreadingHTTPServer
 class DelayedScripts(StaticHandler):
     def do_GET(self):
         path = urlsplit(self.path).path
-        if '/_app/' in path and path.endswith('.js'):
+        if '/_expo/static/js/' in path and path.endswith('.js'):
             self.server.script_requested.set()
             if not self.server.release_scripts.wait(15):
                 self.send_error(503, 'Test did not release hydration scripts')
@@ -43,6 +44,8 @@ class ImportHydrationBrowser(unittest.TestCase):
                     page.goto(f'http://127.0.0.1:{server.server_port}/reader-web/import-ttu', wait_until='commit')
                     chooser = page.get_by_label('Choose Ttu export ZIPs', exact=True)
                     expect(chooser).to_be_attached()
+                    expect(chooser).to_be_enabled()
+                    expect(page.locator('#manabi-import-bootstrap')).to_be_visible()
                     self.assertTrue(server.script_requested.wait(5), 'No app script reached the gate')
                     chooser.set_input_files({
                         'name': 'before-hydration.zip', 'mimeType': 'application/zip',
@@ -55,6 +58,8 @@ class ImportHydrationBrowser(unittest.TestCase):
                     # assertion would miss the lost change event entirely.
                     status = page.get_by_role('status').filter(has_text='before-hydration.zip:')
                     expect(status).to_be_visible(timeout=15000)
+                    expect(page.locator('#manabi-import-bootstrap')).to_have_count(0)
+                    expect(chooser).to_have_count(1)
                     self.assertEqual(status.inner_text().count('before-hydration.zip:'), 1)
                     self.assertEqual(chooser.evaluate('input => input.files.length'), 0)
                     expect(chooser).to_be_enabled()
@@ -64,6 +69,11 @@ class ImportHydrationBrowser(unittest.TestCase):
                     })
                     expect(page.get_by_role('status').filter(has_text='retry.zip:')).to_be_visible()
                     expect(page.get_by_role('status').filter(has_text='before-hydration.zip:')).to_have_count(0)
+                    self.assertEqual(errors, [])
+                    for route in ('manage', 'settings'):
+                        page.goto(f'http://127.0.0.1:{server.server_port}/reader-web/{route}')
+                        expect(page.locator('#manabi-import-bootstrap')).to_have_count(0)
+                        expect(page.locator('#root')).to_be_visible()
                     self.assertEqual(errors, [])
                 finally:
                     server.release_scripts.set()

@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useLayoutEffect, useRef } from 'react';
+import { resolve } from '$app/paths';
 import { useStore } from '$runtime/use-store';
 import { storageSource$ } from '$lib/data/storage/storage-view';
 import { StorageKey } from '$lib/data/storage/storage-types';
@@ -28,20 +29,25 @@ import { EditorsPicks } from './editors-picks';
 import './library.css';
 import '$lib/library/library-menu.css';
 export interface LibraryScreenProps {
+  /** The mounted Expo route's URL, independent of the global browser location. */
+  routeUrl?: string;
   /** Optional host navigation boundary; the default uses the shared route adapter. */
   onOpenBook?: (id: number, searchToken?: string) => Promise<void>;
   onReady?: (library: LibraryController, workspace: WorkspaceController) => void;
 }
-export function LibraryScreen({ onOpenBook, onReady }: LibraryScreenProps = {}) {
+export function LibraryScreen({ routeUrl, onOpenBook, onReady }: LibraryScreenProps = {}) {
   const source = useStore(storageSource$),
     accountState = useStore(account),
     ownership = useStore(allLinkedBooks),
     mobile = useStore(isMobile$);
   const modern = source === StorageKey.BROWSER;
   const m = useController(() => new LibraryController());
-  const w = useController(() => new WorkspaceController(), modern);
+  const w = useController(() => new WorkspaceController(routeUrl), modern);
   const h = useController(() => new HeaderController());
   const toolbar = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    w.setRouteUrl(routeUrl);
+  }, [w, routeUrl]);
   useLayoutEffect(() => {
     m.libraryWorkspace = w;
     m.bookManagerHeader = h;
@@ -199,10 +205,10 @@ export function LibraryScreen({ onOpenBook, onReady }: LibraryScreenProps = {}) 
             <Button variant="outline" onClick={h.openBackupPicker}>
               Import Backup
             </Button>
-            <Button variant="link" href="/import-ttu">
+            <Button variant="link" href={resolve('/import-ttu')}>
               Import from Ttu Ebook Reader
             </Button>
-            <Button variant="link" href="/import-ttu?source=yatsu">
+            <Button variant="link" href={resolve('/import-ttu?source=yatsu')}>
               Import from Yatsu Reader
             </Button>
           </div>
@@ -217,7 +223,7 @@ export function LibraryScreen({ onOpenBook, onReady }: LibraryScreenProps = {}) 
               <Button
                 key={name}
                 variant="secondary"
-                href={`/connections#${index ? 'cloud' : 'local'}-heading`}
+                href={resolve(`/connections#${index ? 'cloud' : 'local'}-heading`)}
               >
                 {name}
               </Button>

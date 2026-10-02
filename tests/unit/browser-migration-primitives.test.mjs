@@ -13,7 +13,7 @@ const { outputFiles } = await build({
     contents: `
       import React, { act, useReducer } from 'react';
       import { createRoot } from 'react-dom/client';
-      import { Dom, useReaderBindings } from './reader-react/dom';
+      import { Dom, useReaderBindings, Dialog as ReaderDialog, Sheet as ReaderSheet } from './reader-react/dom';
       import { HeaderView } from './library-react/header';
       import { ActionMenu, LibraryTabs } from './library-react/navigation';
       import { OrganizationView } from './library-react/organization';
@@ -21,6 +21,10 @@ const { outputFiles } = await build({
       import { Button, Menu } from './library-react/primitives';
       const root = createRoot(document.getElementById('root'));
       const routes = [];
+      function ReaderModalFixture({sheet = false}) {
+        const Modal = sheet ? ReaderSheet : ReaderDialog;
+        return <Modal.Root open><Modal.Content><Modal.Title>Reader fixture</Modal.Title><Modal.Description>Reader description</Modal.Description></Modal.Content></Modal.Root>;
+      }
       installRouter({ push: path => routes.push(path), replace: path => routes.push(path) });
       function MenuFixture() {
         return <Menu.Root>
@@ -64,7 +68,7 @@ const { outputFiles } = await build({
       window.controls = {
         routes,
         act: callback => { act(callback); },
-        render: (kind, props = {}) => { act(() => root.render(<React.StrictMode>{kind === 'nested-menu' ? <NestedMenuFixture /> : kind === 'html' ? <Dom as="main" {...props} /> : kind === 'header' ? <HeaderView {...props} /> : kind === 'binding' ? <BindingFixture {...props} /> : kind === 'action-menu' ? <ActionMenu {...props}><Menu.Item>Batch action</Menu.Item></ActionMenu> : kind === 'organization' ? <OrganizationView {...props} /> : kind === 'tabs' ? <div className="library-react"><LibraryTabs /></div> : <MenuFixture />}</React.StrictMode>)); },
+        render: (kind, props = {}) => { act(() => root.render(<React.StrictMode>{kind === 'reader-dialog' ? <ReaderModalFixture {...props} /> : kind === 'nested-menu' ? <NestedMenuFixture /> : kind === 'html' ? <Dom as="main" {...props} /> : kind === 'header' ? <HeaderView {...props} /> : kind === 'binding' ? <BindingFixture {...props} /> : kind === 'action-menu' ? <ActionMenu {...props}><Menu.Item>Batch action</Menu.Item></ActionMenu> : kind === 'organization' ? <OrganizationView {...props} /> : kind === 'tabs' ? <div className="library-react"><LibraryTabs /></div> : <MenuFixture />}</React.StrictMode>)); },
         unmount: () => { act(() => root.unmount()); }
       };
     `,
@@ -195,6 +199,23 @@ test('Library menu mounts as a fixed layered portal before accepting selection',
     assert.equal(window.document.activeElement, trigger);
   });
 });
+
+for (const sheet of [false, true])
+  test(`mounted reader ${sheet ? 'sheet' : 'dialog'} preserves its title and description hooks and accessible associations`, async () => {
+    await fixture(async ({ window, api }) => {
+      await api.render('reader-dialog', { sheet });
+      const modal = window.document.querySelector('[role=dialog]');
+      const prefix = sheet ? 'sheet' : 'dialog';
+      const title = modal.querySelector(`[data-slot="${prefix}-title"]`);
+      const description = modal.querySelector(`[data-slot="${prefix}-description"]`);
+      assert.ok(title);
+      assert.ok(description);
+      assert.equal(title.textContent, 'Reader fixture');
+      assert.equal(description.textContent, 'Reader description');
+      assert.equal(modal.getAttribute('aria-labelledby'), title.id);
+      assert.equal(modal.getAttribute('aria-describedby'), description.id);
+    });
+  });
 
 for (const compactLibrary of [false, true]) {
   test(`actual ${compactLibrary ? 'compact' : 'desktop'} Library header shares its menu anchor and focus-restoration ref`, async () => {

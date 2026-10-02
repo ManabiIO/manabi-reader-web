@@ -4,22 +4,42 @@
  * All rights reserved.
  */
 
-import { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { router, useGlobalSearchParams, usePathname } from 'expo-router';
 import { installRouter } from './navigation';
 import { refreshLocation } from './stores';
+import { qualifyWebReaderLifetime } from './web-reader-qualification';
+import { installQualifiedWebNavigation } from './web-navigation-qualification';
 export function RouterBinding() {
   const path = usePathname();
   const params = useGlobalSearchParams();
-  useEffect(
-    () =>
-      installRouter({
-        sameDocumentHistory: true,
-        push: (path) => router.push(path as never),
-        replace: (path) => router.replace(path as never)
-      }),
-    []
-  );
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const adapter = {
+      sameDocumentHistory: true,
+      push: (path: string) => router.push(path as never),
+      replace: (path: string) => router.replace(path as never)
+    };
+    return qualifyWebReaderLifetime
+      ? installQualifiedWebNavigation(window, adapter, setError)
+      : installRouter(adapter);
+  }, []);
   useEffect(refreshLocation, [path, params]);
-  return null;
+  return error ? (
+    <div
+      role="alert"
+      className="fixed inset-x-0 top-0 z-[100] flex flex-wrap items-center gap-3 border-b border-border bg-background p-4 text-foreground"
+    >
+      <p className="min-w-0 flex-1">
+        Navigation paused: {error} Keep this reader open until your changes are saved.
+      </p>
+      <button
+        type="button"
+        className="min-h-[44px] rounded-xl border px-3"
+        onClick={() => setError('')}
+      >
+        Dismiss navigation notice
+      </button>
+    </div>
+  ) : null;
 }

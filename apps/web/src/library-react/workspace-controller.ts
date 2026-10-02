@@ -97,6 +97,29 @@ import type { LibraryMenuModel } from '$lib/library/library-menu';
 import { continueBooks, finishedGroups, seriesReadingTarget } from '$lib/library/reading-state';
 import { ObservableController, readStore, tick } from './observable-controller';
 export class WorkspaceController extends ObservableController {
+  private incomingRouteUrl: string | undefined;
+  private routeUrlSnapshot: string | undefined;
+  constructor(routeUrl?: string) {
+    super();
+    this.incomingRouteUrl = routeUrl;
+    this.routeUrlSnapshot = routeUrl;
+  }
+  setRouteUrl(routeUrl: string | undefined) {
+    // Shallow search writes change our live snapshot without changing Expo's
+    // incoming props. Compare against the last incoming prop, not that snapshot,
+    // so an unrelated parent render cannot undo a locally edited query/scope.
+    if (routeUrl === this.incomingRouteUrl) return;
+    this.incomingRouteUrl = routeUrl;
+    this.routeUrlSnapshot = routeUrl;
+    this.pendingQueryURL = undefined;
+    this.pendingLibrarySearchScope = undefined;
+    this.flush();
+  }
+  get url() {
+    return this.routeUrlSnapshot === undefined
+      ? readStore(page).url
+      : new URL(this.routeUrlSnapshot);
+  }
   onRemoveBook: (id: number) => void = () => {};
   onSelectionCancel: () => void = () => {};
   onSelectionChange: (selection: { ids: number[]; previews: string[] }) => void = () => {};
@@ -267,7 +290,7 @@ export class WorkspaceController extends ObservableController {
     return allBooks(this.tree);
   }
   get collectionId() {
-    return readStore(page).url.searchParams.get('collection') || 'books';
+    return this.url.searchParams.get('collection') || 'books';
   }
   get wantToRead() {
     return wantToReadCollection(readStore(organization));
@@ -325,22 +348,22 @@ export class WorkspaceController extends ObservableController {
     return this.collectionId === 'finished' ? 'Finished' : this.selectedCollection?.name || 'Books';
   }
   get trail() {
-    return seriesTrail(this.tree, readStore(page).url.searchParams.get('series') || '');
+    return seriesTrail(this.tree, this.url.searchParams.get('series') || '');
   }
   get series() {
     return this.trail.at(-1);
   }
   get notFinished() {
-    return readStore(page).url.searchParams.get('unfinished') === '1';
+    return this.url.searchParams.get('unfinished') === '1';
   }
   get destinationTitle() {
     return this.series?.name || (this.collectionId === 'books' ? 'Library' : this.collectionTitle);
   }
   get nextQueryURL() {
-    return readStore(page).url.searchParams.get('q') ?? '';
+    return this.url.searchParams.get('q') ?? '';
   }
   get nextLibrarySearchScope() {
-    return parseLibrarySearchScope(readStore(page).url.searchParams.get('scope'));
+    return parseLibrarySearchScope(this.url.searchParams.get('scope'));
   }
   get nextSelectionSearch() {
     return foldSearch(this.nextQueryURL.trim());
@@ -621,7 +644,7 @@ export class WorkspaceController extends ObservableController {
     };
   }
   navigate(seriesId?: string, collection = this.collectionId, unfinished = this.notFinished) {
-    const url = new URL(readStore(page).url);
+    const url = new URL(this.url);
     if (seriesId) url.searchParams.set('series', seriesId);
     else url.searchParams.delete('series');
     if (collection !== 'books') url.searchParams.set('collection', collection);
@@ -638,7 +661,7 @@ export class WorkspaceController extends ObservableController {
     );
   }
   librarySearchURL(queryValue: string, scopeValue: LibrarySearchScope) {
-    const url = new URL(readStore(page).url);
+    const url = new URL(this.url);
     if (queryValue) url.searchParams.set('q', queryValue);
     else url.searchParams.delete('q');
     if (scopeValue === 'everything') url.searchParams.delete('scope');
@@ -648,7 +671,8 @@ export class WorkspaceController extends ObservableController {
   replaceLibrarySearchURL(url: URL) {
     // q/scope are local presentation state for this already-mounted route.
     // Shallow replacement keeps the address bar/shareability in sync without
-    // starting SvelteKit navigation work on each keystroke or filter change.
+    // starting Expo navigation work on each keystroke or filter change.
+    if (this.routeUrlSnapshot !== undefined) this.routeUrlSnapshot = url.href;
     replaceState(`${resolve('/manage')}${url.search}${url.hash}`, readStore(page).state);
   }
   setQuery(value: string) {

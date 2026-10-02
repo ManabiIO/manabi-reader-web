@@ -7,7 +7,13 @@
 import { refreshLocation } from './stores';
 import { base } from './paths';
 let router:
-  | { push(path: string): void; replace(path: string): void; sameDocumentHistory?: boolean }
+  | {
+      push(path: string): void;
+      replace(path: string): void;
+      sameDocumentHistory?: boolean;
+      prepareNavigation?(): Promise<boolean | (() => boolean)>;
+      currentUrl?(): string;
+    }
   | undefined;
 export function installRouter(value: NonNullable<typeof router>) {
   router = value;
@@ -26,6 +32,8 @@ export type Navigation = {
   beforeCommit(action: () => void | Promise<void>): void;
   /** Acknowledge dispatch only after every pre-dispatch cleanup still admits it. */
   afterCommit(action: () => void): void;
+  /** Keep asynchronous browser dispatch bound to this exact outgoing owner. */
+  retainOwner(isCurrent: () => boolean): void;
   /** Retry this exact intent after a synchronous guard has canceled it. */
   retry(): Promise<void>;
 };
@@ -37,6 +45,25 @@ export function readNavigationArrival(routeUrl: string | URL): NavigationArrival
   if (!arrival) return undefined;
   const origin = typeof location === 'undefined' ? arrival.to : location.href;
   return arrival.to === new URL(routeUrl, origin).href ? arrival : undefined;
+}
+/** The qualified browser adapter restores a previously admitted history entry. */
+export function restoreNavigationArrival(value: NavigationArrival | undefined) {
+  arrival = value && Object.freeze({ ...value });
+}
+export interface BrowserNavigation {
+  from: string;
+  to: string;
+  isCurrent(): boolean;
+  sameDocument?: boolean;
+  replay(isCurrent: () => boolean): Promise<boolean>;
+}
+export function navigateBrowserHistory(traversal: BrowserNavigation): Promise<void> {
+  return navigate(
+    traversal.to,
+    { noScroll: true, keepFocus: true },
+    Symbol('browser-history'),
+    traversal
+  );
 }
 const before = new Set<(navigation: Navigation) => void>();
 const after = new Set<(navigation: Navigation) => void>();
@@ -61,43 +88,66 @@ export async function goto(
     state?: Record<string, unknown>;
   } = {}
 ): Promise<void> {
-  const url = new URL(href, location.href).href;
+  const url = new URL(href, router?.currentUrl?.() ?? location.href).href;
   const captured = {
     ...options,
     ...(options.state !== undefined && { state: structuredClone(options.state) })
   };
   const intent = Symbol('navigation');
-  return navigate(url, captured, intent);
+  const prepared = router?.prepareNavigation ? await router.prepareNavigation() : true;
+  // Guards still observe an impossible attempt so an explicit reader close can
+  // settle its save and resume, rather than stranding blockDataUpdates on error.
+  return navigate(url, captured, intent, undefined, prepared);
 }
 async function navigate(
   href: string,
   options: Parameters<typeof goto>[1],
-  intent: symbol
+  intent: symbol,
+  traversal?: BrowserNavigation,
+  prepared: boolean | (() => boolean) = true
 ): Promise<void> {
+  if (traversal && !traversal.isCurrent()) return;
   const url = new URL(href);
   options ??= {};
-  let cancelled = false;
+  const preparedNow = () => (typeof prepared === 'function' ? prepared() : prepared);
+  let cancelled = !preparedNow();
   const commits: Array<() => void | Promise<void>> = [];
   const committed: Array<() => void> = [];
+  const owners: Array<() => boolean> = [];
+  const current = () => {
+    try {
+      return (
+        preparedNow() && (!traversal || traversal.isCurrent()) && owners.every((check) => check())
+      );
+    } catch {
+      return false;
+    }
+  };
+  const from = new URL(traversal?.from ?? location.href);
+  const fragment =
+    traversal &&
+    (traversal.sameDocument ??
+      (from.pathname === url.pathname && from.search === url.search && from.hash !== url.hash));
   const event: Navigation = {
     intent,
-    from: { url: new URL(location.href) },
+    from: { url: from },
     to: { url },
-    type: 'goto',
+    type: fragment ? 'fragment' : traversal ? 'popstate' : 'goto',
     willUnload: url.origin !== location.origin,
     cancel: () => {
       cancelled = true;
     },
     beforeCommit: (action) => commits.push(action),
     afterCommit: (action) => committed.push(action),
-    retry: () => navigate(href, options, intent)
+    retainOwner: (check) => owners.push(check),
+    retry: () => navigate(href, options, intent, traversal, prepared)
   };
   for (const listener of before) listener(event);
-  if (cancelled) return;
+  if (cancelled || !current()) return;
   for (const commit of commits) {
     await commit();
     // An async owner can be superseded while its departure cleanup settles.
-    if (cancelled) return;
+    if (cancelled || !current()) return;
   }
   if (event.willUnload) {
     location.assign(url);
@@ -115,7 +165,12 @@ async function navigate(
   const admitted = Object.freeze({ intent, from: event.from.url.href, to: url.href });
   arrival = admitted;
   try {
-    if (sameDocumentFragment) {
+    if (traversal) {
+      if (!current() || !(await traversal.replay(current))) {
+        if (arrival === admitted) arrival = previousArrival;
+        return;
+      }
+    } else if (sameDocumentFragment) {
       history[options.replaceState ? 'replaceState' : 'pushState'](
         { ...history.state, ...options.state },
         '',
