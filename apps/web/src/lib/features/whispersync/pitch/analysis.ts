@@ -54,7 +54,10 @@ export function resampleForSwiftF0(input: Float32Array, rate: number): Float32Ar
   const length = Math.max(1, Math.floor(input.length / ratio));
   const output = new Float32Array(length);
   const cutoff = 0.47 * Math.min(1, SWIFT_F0_SAMPLE_RATE / rate);
-  const radius = rate > SWIFT_F0_SAMPLE_RATE ? 16 : 8;
+  const radius =
+    rate > SWIFT_F0_SAMPLE_RATE
+      ? Math.min(64, Math.max(16, Math.ceil((rate / 48000) * 16)))
+      : 8;
   for (let index = 0; index < length; index++) {
     const center = (index + 0.5) * ratio - 0.5;
     const first = Math.max(0, Math.ceil(center - radius));
