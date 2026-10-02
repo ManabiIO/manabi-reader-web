@@ -137,4 +137,3 @@ test('status without an active request only inspects persistence and never start
   assert.equal(persistedCalls, 1);
   assert.equal(persistCalls, 0);
 });
-
