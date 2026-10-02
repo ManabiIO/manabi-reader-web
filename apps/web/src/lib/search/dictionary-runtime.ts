@@ -6,6 +6,7 @@
 
 import { base } from '$app/paths';
 import version from './manabitan-version.json';
+import type { DictionaryCountGroup, DictionaryStorageStatus } from './dictionary-status';
 export interface DictionaryPreview {
   id: string;
   term: string;
@@ -30,6 +31,8 @@ export interface DictionaryStatus {
     description?: string;
   }[];
   preferences: { disabled: string[] };
+  counts: { total: DictionaryCountGroup | null; counts: DictionaryCountGroup[] };
+  storage: DictionaryStorageStatus;
 }
 export interface RecommendedDictionary {
   name: string;
