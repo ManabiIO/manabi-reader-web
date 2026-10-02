@@ -75,3 +75,65 @@ test('manual retry joins a pending prompt, then may retry one settled denial', a
   assert.equal(await api.retryPersistentStorage(), true);
   assert.equal(calls, 2, 'a granted persistence request was repeated');
 });
+
+test('status waits for an existing request before reading the authoritative persisted state', async () => {
+  const pending = deferred();
+  let persistedCalls = 0;
+  const { api } = loadOfflineModule(
+    'apps/web/src/lib/data/window/navigator/persistent-storage.ts',
+    {
+      modules: {
+        './storage-access.mjs': {
+          createStorageAccess() {
+            return {
+              persist: () => pending.promise,
+              async persisted() {
+                persistedCalls += 1;
+                return true;
+              }
+            };
+          }
+        }
+      }
+    }
+  );
+
+  api.requestPersistentStorageOnce();
+  const status = api.persistentStorageStatus();
+  await Promise.resolve();
+  assert.equal(persistedCalls, 0, 'status raced the older pre-grant persisted state');
+
+  pending.resolve(true);
+  assert.equal(await status, true);
+  assert.equal(persistedCalls, 1);
+});
+
+test('status without an active request only inspects persistence and never starts permission UI', async () => {
+  let persistCalls = 0;
+  let persistedCalls = 0;
+  const { api } = loadOfflineModule(
+    'apps/web/src/lib/data/window/navigator/persistent-storage.ts',
+    {
+      modules: {
+        './storage-access.mjs': {
+          createStorageAccess() {
+            return {
+              async persist() {
+                persistCalls += 1;
+                return true;
+              },
+              async persisted() {
+                persistedCalls += 1;
+                return false;
+              }
+            };
+          }
+        }
+      }
+    }
+  );
+
+  assert.equal(await api.persistentStorageStatus(), false);
+  assert.equal(persistedCalls, 1);
+  assert.equal(persistCalls, 0);
+});
