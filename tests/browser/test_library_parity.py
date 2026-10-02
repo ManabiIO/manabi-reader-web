@@ -108,7 +108,7 @@ class LibraryParityBrowser(LibraryBase):
         actions.click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
 
-        toolbar = self.page.get_by_label('Book selection', exact=True)
+        toolbar = self.page.get_by_role('toolbar', name='Book selection', exact=True)
         expect(toolbar).to_be_visible()
         self.assertLessEqual(toolbar.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
         self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth-innerWidth'), 1)
@@ -144,7 +144,7 @@ class LibraryParityBrowser(LibraryBase):
         actions = self.page.get_by_role('button', name='Library actions', exact=True)
         actions.press('Enter')
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
-        toolbar = self.page.get_by_label('Book selection', exact=True)
+        toolbar = self.page.get_by_role('toolbar', name='Book selection', exact=True)
         select_all = toolbar.get_by_role('button', name='Select All Visible', exact=True)
         select_all.focus()
         select_all.press('Escape')
