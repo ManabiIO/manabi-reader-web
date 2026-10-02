@@ -3,7 +3,39 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setImmediate as turn } from 'node:timers/promises';
 import { queryTask } from '../../apps/web/src/lib/search/query-task.mjs';
+import {
+  memoizeReferenceProjection,
+  referenceRevision
+} from '../../apps/web/src/lib/search/invalidation.ts';
 const wait = () => new Promise((resolve) => globalThis.setTimeout(resolve, 5));
+test('reference revisions advance only when immutable search snapshots are replaced', () => {
+  const revisionFor = referenceRevision();
+  const first = [];
+  const second = [];
+  assert.equal(revisionFor(first), 1);
+  assert.equal(revisionFor(first), 1);
+  assert.equal(revisionFor(second), 2);
+  assert.equal(revisionFor(second), 2);
+});
+
+test('corpus projections run once per snapshot reference and preserve exact fingerprints', () => {
+  let calls = 0;
+  const fingerprint = memoizeReferenceProjection((items) => {
+    calls++;
+    return JSON.stringify(items.map((item) => [item.id, item.revision]));
+  });
+  const first = [{ id: 'a', revision: 1 }];
+  const equivalent = [{ id: 'a', revision: 1 }];
+  const changed = [{ id: 'a', revision: 2 }];
+  assert.equal(fingerprint(first), '[["a",1]]');
+  assert.equal(fingerprint(first), '[["a",1]]');
+  assert.equal(calls, 1);
+  assert.equal(fingerprint(equivalent), '[["a",1]]');
+  assert.equal(calls, 2);
+  assert.equal(fingerprint(changed), '[["a",2]]');
+  assert.equal(calls, 3);
+});
+
 test('dictionary, titles and content publish independently', async () => {
   const dictionary = [],
     titles = [],
