@@ -29,6 +29,8 @@
   import { queryTask, type SearchState } from './query-task.mjs';
   import {
     advanceMediaSearchRevisions,
+    memoizeReferenceProjection,
+    referenceRevision,
     searchResultPlan,
     type SearchResultFilter
   } from './invalidation';
@@ -78,6 +80,21 @@
   let stopMedia: () => void = () => {};
   let mediaTitleRevision = 0;
   let mediaContentRevision = 0;
+  const titleMatchesRevisionFor = referenceRevision<ShelfBook[]>();
+  const titleMatchTextRevisionFor =
+    referenceRevision<Record<string, readonly BookTitleMatchContext[]>>();
+  const snippetCorpusRevisionFor = referenceRevision<SnippetSummary[]>();
+  const contentBooksFingerprintFor = memoizeReferenceProjection<ShelfBook[], string>((items) =>
+    JSON.stringify(
+      items.map((book) => [
+        book.key,
+        book.bookId,
+        book.title,
+        book.contentHash,
+        book.lastBookModified
+      ])
+    )
+  );
   async function mediaRuntime(): Promise<LazyMediaRuntime> {
     if (!videoLearningEnabled) throw new Error('Video learning is disabled.');
     if (!mediaRuntimePromise) {
@@ -116,6 +133,10 @@
   $: eligible = $snippetItems.filter(
     (item) => !item.trashedAt && (!snippetMembers || snippetMembers.includes(snippetKey(item.id)))
   );
+  $: titleMatchesRevision = titleMatchesRevisionFor(matches);
+  $: titleMatchTextRevision = titleMatchTextRevisionFor(bookMatchText);
+  $: snippetCorpusRevision = snippetCorpusRevisionFor(eligible);
+  $: contentBooksFingerprint = contentBooksFingerprintFor(books);
   $: scopePlan = librarySearchScopePlan(searchScope);
   $: resultPlan = searchResultPlan(filter);
   $: availableFilters = scopePlan.dictionary
@@ -129,17 +150,8 @@
         query,
         owner,
         searchScope,
-        scopePlan.books
-          ? matches.map((book) => [
-              book.key,
-              book.title,
-              book.canonicalTitle,
-              (book.creators ?? []).map((creator) => creator.name),
-              book.series?.name ?? null,
-              bookMatchText[book.key] ?? []
-            ])
-          : [],
-        scopePlan.snippets ? eligible.map((item) => [item.key, item.title]) : [],
+        scopePlan.books ? [titleMatchesRevision, titleMatchTextRevision] : 0,
+        scopePlan.snippets ? snippetCorpusRevision : 0,
         videoLearningEnabled && searchScope === 'everything' ? mediaTitleRevision : 0
       ])
     : 'inactive';
@@ -148,18 +160,8 @@
         query,
         owner,
         searchScope,
-        scopePlan.books
-          ? books.map((book) => [
-              book.key,
-              book.bookId,
-              book.title,
-              book.contentHash,
-              book.lastBookModified
-            ])
-          : [],
-        scopePlan.snippets
-          ? eligible.map((item) => [item.key, item.title, item.revision])
-          : [],
+        scopePlan.books ? contentBooksFingerprint : '',
+        scopePlan.snippets ? snippetCorpusRevision : 0,
         videoLearningEnabled && searchScope === 'everything' ? mediaContentRevision : 0
       ])
     : 'inactive';
