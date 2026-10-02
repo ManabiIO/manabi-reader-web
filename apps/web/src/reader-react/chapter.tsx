@@ -48,7 +48,7 @@ export function BookToc(props: Partial<ChapterProps> & ReaderViewProps) {
             </Dom>
             <Dom
               as="p"
-              className={['mt-1 text-sm text-muted-foreground [overflow-wrap:anywhere]']
+              className={['mt-1 text-sm [overflow-wrap:anywhere] text-muted-foreground']
                 .filter(Boolean)
                 .join(' ')}
             >
@@ -101,7 +101,7 @@ export function BookToc(props: Partial<ChapterProps> & ReaderViewProps) {
               ) : null}
               <Dom
                 as="p"
-                className={['mt-2 text-xs text-muted-foreground [overflow-wrap:anywhere]']
+                className={['mt-2 text-xs [overflow-wrap:anywhere] text-muted-foreground']
                   .filter(Boolean)
                   .join(' ')}
               >

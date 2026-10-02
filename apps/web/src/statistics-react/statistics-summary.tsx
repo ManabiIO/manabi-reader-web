@@ -1,5 +1,9 @@
-/** @license BSD-3-Clause
- * Copyright (c) 2026, ッツ Reader Authors. All rights reserved. */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import React from 'react';
 import { useReaderController, readerTick } from '../reader-react/controller';
 import {
@@ -65,7 +69,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
           c.statisticsSummaryTableContainerElm = value;
         }}
         className={[
-          'grow p-2 overflow-auto',
+          'grow overflow-auto p-2',
           !c.statisticsData.length && 'flex',
           !c.statisticsData.length && 'justify-center',
           !c.statisticsData.length && 'items-center',
@@ -91,7 +95,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                   <Dom
                     as="div"
                     className={[
-                      'grid grid-cols-[0.75fr_1fr] gap-x-8 items-center',
+                      'grid grid-cols-[0.75fr_1fr] items-center gap-x-8',
                       isNoneAggregation && 'md:grid-cols-[0.31fr_0.6fr_0.77fr_0.74fr_0.6fr_0.57fr]',
                       isNoneAggregation &&
                         'lg:grid-cols-[0.14fr_0.26fr_0.85fr_repeat(2,_0.59fr)_0.45fr]',
@@ -176,7 +180,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                       events={{ propertyChange: (detail) => c.handlePropertyChange(detail) }}
                     ></StatisticsSummaryHeader>
                     {(c.currentStatisticsSummaryRows ?? []).map(
-                      (currentStatisticsSummaryRow, index0) => (
+                      (currentStatisticsSummaryRow, _index0) => (
                         <React.Fragment key={currentStatisticsSummaryRow.id}>
                           {(() => {
                             const currentRowInEdit =
@@ -497,7 +501,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                         >
                           <Dom
                             as="button"
-                            className={['flex w-full justify-end absolute top-1 right-2']
+                            className={['absolute top-1 right-2 flex w-full justify-end']
                               .filter(Boolean)
                               .join(' ')}
                             events={{ click: () => (c.statisticsSummaryPopoverDetails = []) }}
@@ -505,7 +509,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                             <AppIcon icon={faClose}></AppIcon>
                           </Dom>
                           {(c.statisticsSummaryPopoverDetails ?? []).map(
-                            (popoverDetail, index1) => (
+                            (popoverDetail, _index1) => (
                               <React.Fragment key={popoverDetail}>
                                 <Dom
                                   as="div"
@@ -585,7 +589,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
             elementRef={(value: HTMLDivElement | null) => {
               c.statisticsSummaryPagesContainer = value;
             }}
-            className={['max-h-32 w-32 p-2 flex flex-col overflow-auto'].filter(Boolean).join(' ')}
+            className={['flex max-h-32 w-32 flex-col overflow-auto p-2'].filter(Boolean).join(' ')}
           >
             {(c.statisticsSummaryPages ?? []).map((statisticsSummaryPage, pageIndex) => (
               <React.Fragment key={statisticsSummaryPage}>
@@ -595,7 +599,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                     c.statisticsSummaryPageRefs[pageIndex + 1] = value;
                   }}
                   className={[
-                    'hover:opacity-50 hover:bg-accent hover:text-foreground',
+                    'hover:bg-accent hover:text-foreground hover:opacity-50',
                     statisticsSummaryPage === c.currentStatisticsSummaryPage && 'bg-accent',
                     statisticsSummaryPage === c.currentStatisticsSummaryPage && 'text-foreground'
                   ]

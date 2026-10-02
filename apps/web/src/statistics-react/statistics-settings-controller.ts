@@ -23,7 +23,7 @@ import {
 } from '$lib/data/store';
 import { ReaderController, writeStore, type StoreValue } from '../reader-react/controller';
 
-export interface StatisticsSettingsProps {}
+export type StatisticsSettingsProps = Record<string, unknown>;
 
 export function createStatisticsSettings(
   props: StatisticsSettingsProps,
@@ -228,7 +228,7 @@ export function createStatisticsSettings(
     set $confirmStatisticsDeletion$(nextValue: typeof $confirmStatisticsDeletion$) {
       writeStore(confirmStatisticsDeletion$, nextValue);
     },
-    updateProps(next: Record<string, unknown>) {}
+    updateProps(_next: Record<string, unknown>) {}
   };
   return api;
 }

@@ -3,11 +3,7 @@
  * Copyright (c) 2026, ッツ Reader Authors
  * All rights reserved.
  */
-/**
- * @license BSD-3-Clause
- * Copyright (c) 2026, ッツ Reader Authors
- * All rights reserved.
- */
+
 import {
   StatisticsSummaryKey,
   type StatisticsDataSourceChange,
@@ -118,7 +114,7 @@ export function createStatisticsSummary(
     () => [statisticsSummaryMaxPages],
     () => {
       __readerController.changed(
-        (statisticsSummaryPages = Array.apply(null, Array(statisticsSummaryMaxPages)).map(
+        (statisticsSummaryPages = [...Array(statisticsSummaryMaxPages)].map(
           (_, index) => index + 1
         ))
       );

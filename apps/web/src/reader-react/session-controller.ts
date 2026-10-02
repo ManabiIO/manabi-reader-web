@@ -206,7 +206,7 @@ export interface SessionProps {
 
 export function createSession(
   props: SessionProps,
-  emit: (name: string, detail?: unknown) => void = () => {}
+  _emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
   const expectedBook = props.expectedBook && snapshotBookAccessIdentity(props.expectedBook);
@@ -1013,7 +1013,7 @@ export function createSession(
         (upSyncEnabled && dataToReplicateQueue.length))
     ) {
       event.preventDefault();
-      // eslint-disable-next-line no-param-reassign
+
       return (event.returnValue = 'Are you sure you want to exit?');
     }
     return event;
@@ -2252,7 +2252,6 @@ export function createSession(
       pointGap
     } = getReferencePoints(window, contentEl, $verticalMode$, firstDimensionMargin);
     merge(fromEvent(document, 'pointerup'), fromEvent(document, 'pointermove'))
-      // eslint-disable-next-line rxjs/no-ignored-takewhile-value
       .pipe(takeWhile(() => isSelectingCustomReadingPoint))
       .subscribe((event: Event) => {
         if (!(event instanceof PointerEvent)) {
@@ -3959,7 +3958,7 @@ export function createSession(
     get $showPercentage$() {
       return $showPercentage$;
     },
-    updateProps(next: Record<string, unknown>) {}
+    updateProps(_next: Record<string, unknown>) {}
   };
   return api;
 }

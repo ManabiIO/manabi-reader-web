@@ -1,4 +1,9 @@
-/** @license BSD-3-Clause */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 /** Immutable admission snapshot. Validate the actual read/write record, never a second preflight lookup. */
 export interface BookAccessIdentity {
   readonly bookId: number;
@@ -22,7 +27,9 @@ export function snapshotBookAccessIdentity(expected: BookAccessIdentity): BookAc
     !Number.isFinite(expected.lastBookModified) ||
     (expected.contentHash !== undefined && typeof expected.contentHash !== 'string')
   )
-    throw new Error('The selected book identity is invalid. Refresh the Library and select it again.');
+    throw new Error(
+      'The selected book identity is invalid. Refresh the Library and select it again.'
+    );
   return Object.freeze({
     bookId: expected.bookId,
     contentHash: expected.contentHash,
@@ -42,5 +49,7 @@ export function assertBookAccessIdentity(
     book.title !== expected.title ||
     book.lastBookModified !== expected.lastBookModified
   )
-    throw new Error('This book changed since it was selected. Refresh the Library and select it again.');
+    throw new Error(
+      'This book changed since it was selected. Refresh the Library and select it again.'
+    );
 }

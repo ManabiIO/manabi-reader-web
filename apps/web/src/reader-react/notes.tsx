@@ -75,7 +75,7 @@ export function ImportedYatsuNotes(props: Partial<NotesProps> & ReaderViewProps)
                     {'Download imported notes'}
                   </Button>
                 </Dom>
-                {(c.visible ?? []).map((row, index0) => (
+                {(c.visible ?? []).map((row, _index0) => (
                   <React.Fragment key={row.id}>
                     <Dom
                       as="article"
@@ -93,7 +93,7 @@ export function ImportedYatsuNotes(props: Partial<NotesProps> & ReaderViewProps)
                       </Dom>
                       <Dom
                         as="h4"
-                        className={['mt-1 break-words text-sm font-medium']
+                        className={['mt-1 text-sm font-medium break-words']
                           .filter(Boolean)
                           .join(' ')}
                       >
@@ -103,7 +103,7 @@ export function ImportedYatsuNotes(props: Partial<NotesProps> & ReaderViewProps)
                         <>
                           <Dom
                             as="blockquote"
-                            className={['mt-2 whitespace-pre-wrap break-words text-sm']
+                            className={['mt-2 text-sm break-words whitespace-pre-wrap']
                               .filter(Boolean)
                               .join(' ')}
                           >
@@ -190,7 +190,7 @@ export function ImportedYatsuNotes(props: Partial<NotesProps> & ReaderViewProps)
                             <>
                               <Dom
                                 as="p"
-                                className={['mt-2 whitespace-pre-wrap break-words text-sm']
+                                className={['mt-2 text-sm break-words whitespace-pre-wrap']
                                   .filter(Boolean)
                                   .join(' ')}
                               >

@@ -1,5 +1,9 @@
-/** @license BSD-3-Clause
- * Copyright (c) 2026, ッツ Reader Authors. All rights reserved. */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import '../reader-react/primitives.css';
 import './snippets.css';
 export { Workspace as SnippetsScreen } from './workspace';

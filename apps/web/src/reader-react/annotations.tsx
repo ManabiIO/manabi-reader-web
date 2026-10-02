@@ -50,7 +50,7 @@ export function ReaderAnnotations(props: Partial<AnnotationsProps> & ReaderViewP
           }}
           aria-busy={c.busy}
           className={[
-            'writing-horizontal-tb overflow-hidden p-[20px] pb-0 data-[side=left]:w-full data-[side=left]:sm:max-w-md'
+            'overflow-hidden p-[20px] pb-0 writing-horizontal-tb data-[side=left]:w-full data-[side=left]:sm:max-w-md'
           ]
             .filter(Boolean)
             .join(' ')}
@@ -131,7 +131,7 @@ export function ReaderAnnotations(props: Partial<AnnotationsProps> & ReaderViewP
                 as="label"
                 aria-label={'Import notes'}
                 className={[
-                  'inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-[10px] px-3 text-sm font-medium hover:bg-muted focus-within:outline-2 focus-within:outline-ring',
+                  'inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-[10px] px-3 text-sm font-medium focus-within:outline-2 focus-within:outline-ring hover:bg-muted',
                   c.busy && 'opacity-50',
                   c.busy && 'pointer-events-none'
                 ]
@@ -229,7 +229,7 @@ export function ReaderAnnotations(props: Partial<AnnotationsProps> & ReaderViewP
                       ' Review saved passages that differ from the archive. Your current copy stays intact until you choose. '
                     }
                   </Dom>
-                  {(c.importConflicts ?? []).map((conflict, index0) => (
+                  {(c.importConflicts ?? []).map((conflict, _index0) => (
                     <React.Fragment key={conflict.id}>
                       <Dom
                         as="div"
@@ -338,7 +338,7 @@ export function ReaderAnnotations(props: Partial<AnnotationsProps> & ReaderViewP
                       </Dom>
                       <Dom
                         as="span"
-                        className={['mt-1 block break-words text-sm'].filter(Boolean).join(' ')}
+                        className={['mt-1 block text-sm break-words'].filter(Boolean).join(' ')}
                       >
                         {annotation.label ||
                           annotation.body ||

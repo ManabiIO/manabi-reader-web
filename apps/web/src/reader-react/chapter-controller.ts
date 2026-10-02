@@ -30,7 +30,7 @@ export interface ChapterProps {
 
 export function createChapter(
   props: ChapterProps,
-  emit: (name: string, detail?: unknown) => void = () => {}
+  _emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
   let previousIndex: ReturnType<typeof adjacentChapterIndex>;

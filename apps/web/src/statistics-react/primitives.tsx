@@ -1,5 +1,9 @@
-/** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors */
-/** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -194,8 +198,10 @@ export function Popover(props: PopoverProps) {
     [id]
   );
   useEffect(() => {
-    if (props.isOpen !== undefined && !!props.isOpen !== openRef.current)
-      props.isOpen ? api.openAt(anchor.current ?? trigger.current!) : api.close(false);
+    if (props.isOpen !== undefined && !!props.isOpen !== openRef.current) {
+      if (props.isOpen) api.openAt(anchor.current ?? trigger.current!);
+      else api.close(false);
+    }
   }, [props.isOpen, api]);
   useLayoutEffect(() => {
     if (!open) return;
@@ -313,7 +319,7 @@ export function Popover(props: PopoverProps) {
               className="z-[70] max-h-[75dvh] max-w-[min(32rem,90vw)] overflow-auto rounded-2xl border border-border bg-popover p-2 text-sm text-popover-foreground shadow-lg outline-none"
             >
               {props.contentText ? (
-                <p className="whitespace-pre-wrap p-2">{props.contentText}</p>
+                <p className="p-2 whitespace-pre-wrap">{props.contentText}</p>
               ) : (
                 slotContent(props.children, 'content')
               )}

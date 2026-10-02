@@ -386,34 +386,74 @@ test('book presentation titles use the 1,000-character presentation limit, not c
 test('optional cancellation aborts collection, membership, and presentation after put before commit', async () => {
   for (const kind of ['collection', 'membership', 'presentation']) {
     const before = { ...empty(), collections: [{ id: 'existing', name: 'Keep', members: [] }] };
-    const h = harness({ initial: before }); const controller = new AbortController();
-    const result = kind === 'collection'
-      ? h.api.createCollection('Cancelled', [], () => true, controller.signal)
-      : kind === 'membership'
-        ? h.api.setMembershipMany('existing', ['book:7'], true, () => true, controller.signal)
-        : h.api.presentBooks(['book:7'], { title: 'Cancelled' }, () => true, undefined, false, controller.signal);
-    const rejected = assert.rejects(result, error => error.name === 'AbortError');
-    h.releaseRead(); await drain(); assert.equal(h.writes.length, 1);
-    controller.abort(); await rejected;
-    assert.ok(h.aborted() > 0); assert.deepEqual(h.records.get(key), before); assert.equal(h.published.length, 1); assert.equal(h.broadcasts.length, 0);
+    const h = harness({ initial: before });
+    const controller = new AbortController();
+    const result =
+      kind === 'collection'
+        ? h.api.createCollection('Cancelled', [], () => true, controller.signal)
+        : kind === 'membership'
+          ? h.api.setMembershipMany('existing', ['book:7'], true, () => true, controller.signal)
+          : h.api.presentBooks(
+              ['book:7'],
+              { title: 'Cancelled' },
+              () => true,
+              undefined,
+              false,
+              controller.signal
+            );
+    const rejected = assert.rejects(result, (error) => error.name === 'AbortError');
+    h.releaseRead();
+    await drain();
+    assert.equal(h.writes.length, 1);
+    controller.abort();
+    await rejected;
+    assert.ok(h.aborted() > 0);
+    assert.deepEqual(h.records.get(key), before);
+    assert.equal(h.published.length, 1);
+    assert.equal(h.broadcasts.length, 0);
   }
 });
 
 test('owner ABA cannot revive a cancelled organization transaction while commit is pending', async () => {
-  const h = harness(); const controller = new AbortController(); let owner = 'A';
-  const result = h.api.presentBooks(['book:7'], { title: 'Old account action' }, () => owner === 'A', undefined, false, controller.signal);
-  const rejected = assert.rejects(result, error => error.name === 'AbortError');
-  h.releaseRead(); await drain(); assert.equal(h.writes.length, 1);
-  owner = 'B'; controller.abort(); owner = 'A'; await rejected;
-  assert.deepEqual(h.records.get(key), empty()); assert.equal(h.published.length, 1);
+  const h = harness();
+  const controller = new AbortController();
+  let owner = 'A';
+  const result = h.api.presentBooks(
+    ['book:7'],
+    { title: 'Old account action' },
+    () => owner === 'A',
+    undefined,
+    false,
+    controller.signal
+  );
+  const rejected = assert.rejects(result, (error) => error.name === 'AbortError');
+  h.releaseRead();
+  await drain();
+  assert.equal(h.writes.length, 1);
+  owner = 'B';
+  controller.abort();
+  owner = 'A';
+  await rejected;
+  assert.deepEqual(h.records.get(key), empty());
+  assert.equal(h.published.length, 1);
 });
 
 test('organization retains both authority and additional cancellation signals', async () => {
   for (const first of [true, false]) {
-    const h = harness(); const authority = new AbortController(); const cancellation = new AbortController();
-    const result = h.api.updateOrganization(value => value.collections.push({ id: 'one', name: 'One', members: [] }), undefined, authority.signal, cancellation.signal);
-    const rejected = assert.rejects(result, error => error.name === 'AbortError');
-    h.releaseRead(); await drain(); (first ? authority : cancellation).abort(); await rejected;
+    const h = harness();
+    const authority = new AbortController();
+    const cancellation = new AbortController();
+    const result = h.api.updateOrganization(
+      (value) => value.collections.push({ id: 'one', name: 'One', members: [] }),
+      undefined,
+      authority.signal,
+      cancellation.signal
+    );
+    const rejected = assert.rejects(result, (error) => error.name === 'AbortError');
+    h.releaseRead();
+    await drain();
+    (first ? authority : cancellation).abort();
+    await rejected;
     assert.deepEqual(h.records.get(key), empty());
   }
 });

@@ -356,7 +356,7 @@ export function CloseButton({ className = '', ...props }: ControlProps) {
       size="icon-lg"
       shape="circle"
       data-modal-dismiss=""
-      className={`size-[44px] min-h-[44px] min-w-[44px] pointer-coarse:min-h-[44px] pointer-coarse:min-w-[44px] text-muted-foreground hover:text-foreground ${className}`}
+      className={`size-[44px] min-h-[44px] min-w-[44px] text-muted-foreground hover:text-foreground pointer-coarse:min-h-[44px] pointer-coarse:min-w-[44px] ${className}`}
     >
       <X className="size-[18px]" strokeWidth={3} aria-hidden="true" />
     </Button>

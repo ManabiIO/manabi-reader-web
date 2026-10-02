@@ -1,5 +1,9 @@
-/** @license BSD-3-Clause
- * Copyright (c) 2026, ッツ Reader Authors. All rights reserved. */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import React from 'react';
 import { useReaderController } from '../reader-react/controller';
 import {
@@ -125,7 +129,7 @@ export function StatisticsHeatmap(props: Partial<StatisticsHeatmapProps> & Reade
             scrollPaddingInlineStart: `${c.dayElementSize * 2 + heatmapGridGapValue * 2 + 4}px`
           }}
         >
-          {(c.monthLabels ?? []).map((label, index0) => (
+          {(c.monthLabels ?? []).map((label, _index0) => (
             <React.Fragment key={label.monthLabel}>
               <Dom
                 as="div"
@@ -166,7 +170,7 @@ export function StatisticsHeatmap(props: Partial<StatisticsHeatmapProps> & Reade
               </Dom>
             </React.Fragment>
           ))}
-          {(c.currentHeatmapDays ?? []).map((heatmapDay, index1) => (
+          {(c.currentHeatmapDays ?? []).map((heatmapDay, _index1) => (
             <React.Fragment key={heatmapDay.dateString}>
               {(() => {
                 const isToday = heatmapDay.dateString === c.todayKey;
@@ -200,7 +204,7 @@ export function StatisticsHeatmap(props: Partial<StatisticsHeatmapProps> & Reade
                       title={`${heatmapDay.isCurrentYear ? `${heatmapDay.dayDetails.join('\n')}` : ''}`}
                       data-date={heatmapDay.dateString}
                       className={[
-                        'heatmap-day justify-self-center fadeIn',
+                        'heatmap-day fadeIn justify-self-center',
                         heatmapDay.isCurrentYear && 'cursor-pointer',
                         heatmapDay.isCurrentYear && 'bg-heatmap-empty',
                         !heatmapDay.isCurrentYear && 'bg-heatmap-outside',
@@ -315,7 +319,7 @@ export function StatisticsHeatmap(props: Partial<StatisticsHeatmapProps> & Reade
               <>
                 <Dom
                   as="div"
-                  className={['hidden grid-cols-3 justify-center mt-4 text-center text-sm sm:grid']
+                  className={['mt-4 hidden grid-cols-3 justify-center text-center text-sm sm:grid']
                     .filter(Boolean)
                     .join(' ')}
                 >
@@ -431,7 +435,7 @@ export function StatisticsHeatmap(props: Partial<StatisticsHeatmapProps> & Reade
                 </Dom>
                 <Dom
                   as="div"
-                  className={['grid grid-cols-[auto_auto] gap-y-2 mt-4 text-xs sm:hidden']
+                  className={['mt-4 grid grid-cols-[auto_auto] gap-y-2 text-xs sm:hidden']
                     .filter(Boolean)
                     .join(' ')}
                 >

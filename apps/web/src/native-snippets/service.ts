@@ -319,7 +319,7 @@ export class NativeSnippetsService {
     this.busy = true;
     this.admissions.delete(token);
     try {
-      let result: NativeSnippetResult = {};
+      const result: NativeSnippetResult = {};
       if (action.type === 'new') {
         const data = await this.repository.load(authority);
         check();

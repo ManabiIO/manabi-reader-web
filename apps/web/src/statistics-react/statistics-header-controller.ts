@@ -19,7 +19,7 @@ export interface StatisticsHeaderProps {
 
 export function createStatisticsHeader(
   props: StatisticsHeaderProps,
-  emit: (name: string, detail?: unknown) => void = () => {}
+  _emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
 

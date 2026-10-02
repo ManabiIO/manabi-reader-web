@@ -1,5 +1,9 @@
-/** @license BSD-3-Clause
- * Copyright (c) 2026, ッツ Reader Authors. All rights reserved. */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import React from 'react';
 import { useReaderController } from '../reader-react/controller';
 import {
@@ -136,7 +140,7 @@ export function StatisticsTitleFilter(
               aria-label={'Book title selection'}
               className={['title-list'].filter(Boolean).join(' ')}
             >
-              {(c.current.rows ?? []).map((item, index0) => (
+              {(c.current.rows ?? []).map((item, _index0) => (
                 <React.Fragment key={item.title}>
                   <Dom as="label" className={['title-row'].filter(Boolean).join(' ')}>
                     <Dom

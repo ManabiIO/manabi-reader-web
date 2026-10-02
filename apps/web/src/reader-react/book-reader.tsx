@@ -36,7 +36,7 @@ export function BookReader(props: Partial<BookReaderProps> & ReaderViewProps) {
         <>
           <Dom
             as="div"
-            className={['fixed top-12 right-4 p-2 border max-w-[90vw] z-[1]']
+            className={['fixed top-12 right-4 z-[1] max-w-[90vw] border p-2']
               .filter(Boolean)
               .join(' ')}
             style={{

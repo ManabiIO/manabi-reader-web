@@ -210,7 +210,7 @@ export async function updateOrganization(
       return value;
     });
   } catch (error) {
-    const cancelled = signals.find(signal => signal.aborted);
+    const cancelled = signals.find((signal) => signal.aborted);
     if (cancelled) throw cancelled.reason;
     // A native abort with an empty message must not look like success in a
     // dialog. Actual scope cancellation retains its reason instead.

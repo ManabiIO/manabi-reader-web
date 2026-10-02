@@ -1,29 +1,32 @@
-/** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Head } from '../reader-react/dom';
-  import { videoLearningEnabled } from '$lib/media/feature';
-  import { assets, base, resolve } from '$app/paths';
-  import { goto } from '$app/navigation';
-  import { combineLatest, Observable } from 'rxjs';
-  import { ReaderAppearance } from '../reader-react/appearance';
-  import {
-    fontFamilyGroupOne$,
-    fontFamilyGroupTwo$,
-    fontWeight$,
-    fontSize$,
-    lineHeight$,
-    yuKyokashoAvailable$
-  } from '$lib/data/store';
-  import { resolveReaderFont, effectivePrimaryReaderFont } from '$lib/data/reader-typography';
-  import { observeReaderFontLayout } from '$lib/functions/reader-font-layout';
-  import { backgrounds, type BackgroundState } from '$lib/appearance/backgrounds';
-  import { resolvedMode$, readerBackgroundOptions$ } from '$lib/appearance/state';
-  import { account, accountScope, currentUser, request } from '$lib/manabi/client';
-  import type { VideoWorkspace, WorkspaceConnection } from '$lib/media/workspace';
-  import { isContentKey, isUUID, LIMITS } from '$lib/media/contracts';
-  import '$lib/media/media.css';
-
+import { videoLearningEnabled } from '$lib/media/feature';
+import { assets, base, resolve } from '$app/paths';
+import { goto } from '$app/navigation';
+import { combineLatest, Observable } from 'rxjs';
+import { ReaderAppearance } from '../reader-react/appearance';
+import {
+  fontFamilyGroupOne$,
+  fontFamilyGroupTwo$,
+  fontWeight$,
+  fontSize$,
+  lineHeight$,
+  yuKyokashoAvailable$
+} from '$lib/data/store';
+import { resolveReaderFont, effectivePrimaryReaderFont } from '$lib/data/reader-typography';
+import { observeReaderFontLayout } from '$lib/functions/reader-font-layout';
+import { backgrounds, type BackgroundState } from '$lib/appearance/backgrounds';
+import { resolvedMode$, readerBackgroundOptions$ } from '$lib/appearance/state';
+import { account, accountScope, currentUser, request } from '$lib/manabi/client';
+import type { VideoWorkspace, WorkspaceConnection } from '$lib/media/workspace';
+import { isContentKey, isUUID, LIMITS } from '$lib/media/contracts';
+import '$lib/media/media.css';
 
 export function VideosScreen() {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -178,5 +181,34 @@ export function VideosScreen() {
     };
   }, []);
 
-return <><Head><title>{videoLearningEnabled ? 'Videos' : 'Page not found'} — Manabi Reader</title></Head>{videoLearningEnabled ? <>{lifetimeError && <p role="alert">{lifetimeError}</p>}<div ref={hostRef}/><ReaderAppearance open={appearanceOpen} bindings={{open:setAppearanceOpen}} showLayout={false} returnFocus={appearanceTrigger} description="Adjust transcript text and appearance. These are the same settings used by your ebooks." events={{settingsClick:()=>{void goto(resolve('/settings'));}}}/></> : <main><h1>Page not found</h1><a href={resolve('/manage')}>Back to library</a></main>}</>;
+  return (
+    <>
+      <Head>
+        <title>{videoLearningEnabled ? 'Videos' : 'Page not found'} — Manabi Reader</title>
+      </Head>
+      {videoLearningEnabled ? (
+        <>
+          {lifetimeError && <p role="alert">{lifetimeError}</p>}
+          <div ref={hostRef} />
+          <ReaderAppearance
+            open={appearanceOpen}
+            bindings={{ open: setAppearanceOpen }}
+            showLayout={false}
+            returnFocus={appearanceTrigger}
+            description="Adjust transcript text and appearance. These are the same settings used by your ebooks."
+            events={{
+              settingsClick: () => {
+                void goto(resolve('/settings'));
+              }
+            }}
+          />
+        </>
+      ) : (
+        <main>
+          <h1>Page not found</h1>
+          <a href={resolve('/manage')}>Back to library</a>
+        </main>
+      )}
+    </>
+  );
 }

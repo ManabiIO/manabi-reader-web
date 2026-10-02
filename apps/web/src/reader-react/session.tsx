@@ -92,7 +92,7 @@ export function ReaderScreen(props: Partial<SessionProps> & ReaderViewProps) {
         data-reader-controls={true}
         className={[
           !c.chromeVisible && 'chrome-hidden',
-          'reader-controls writing-horizontal-tb fixed z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm'
+          'reader-controls fixed z-20 flex size-11 items-center justify-center rounded-full border border-border bg-background text-foreground shadow-sm writing-horizontal-tb'
         ]
           .filter(Boolean)
           .join(' ')}
@@ -127,7 +127,7 @@ export function ReaderScreen(props: Partial<SessionProps> & ReaderViewProps) {
           <Dom
             as="div"
             data-reader-chrome={true}
-            className={['writing-horizontal-tb fixed inset-x-0 top-0 z-20 w-full']
+            className={['fixed inset-x-0 top-0 z-20 w-full writing-horizontal-tb']
               .filter(Boolean)
               .join(' ')}
           >
@@ -534,7 +534,7 @@ export function ReaderScreen(props: Partial<SessionProps> & ReaderViewProps) {
           <Dom
             as="div"
             className={[
-              'writing-horizontal-tb fixed bottom-16 left-4 z-20 flex items-center gap-1 rounded-full border border-border bg-background p-1 shadow-sm'
+              'fixed bottom-16 left-4 z-20 flex items-center gap-1 rounded-full border border-border bg-background p-1 shadow-sm writing-horizontal-tb'
             ]
               .filter(Boolean)
               .join(' ')}
@@ -675,7 +675,7 @@ export function ReaderScreen(props: Partial<SessionProps> & ReaderViewProps) {
         data-reader-controls={true}
         className={[
           !c.chromeVisible && 'chrome-hidden',
-          'reader-footer writing-horizontal-tb fixed bottom-0 left-0 z-10 flex w-full items-center justify-between text-xs leading-none',
+          'reader-footer fixed bottom-0 left-0 z-10 flex w-full items-center justify-between text-xs leading-none writing-horizontal-tb',
           c.showHeader && 'controls-expanded',
           c.foliatePagination && !c.showHeader && 'foliate-chrome-hidden',
           c.showTrackerIcon && !!c.dataToReplicate.length && 'many-controls'
@@ -798,7 +798,7 @@ export function ReaderScreen(props: Partial<SessionProps> & ReaderViewProps) {
                     type={'button'}
                     title={'Copy Progress'}
                     className={[
-                      'reader-progress writing-horizontal-tb absolute z-10 text-xs leading-none select-none',
+                      'reader-progress absolute z-10 text-xs leading-none select-none writing-horizontal-tb',
                       !c.$showCharacterCounter$ &&
                         !c.$showPercentage$ &&
                         !c.$showFooterChapterCharacterCounter$ &&

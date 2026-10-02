@@ -35,7 +35,7 @@ export function BookCompletionConfetti(props: Partial<ConfettiProps> & ReaderVie
         elementRef={(value) => {
           c.confettiCanvasElement = value;
         }}
-        className={[c.reducedMotion && 'hidden', 'flex fixed top-0 right-0 h-full w-full']
+        className={[c.reducedMotion && 'hidden', 'fixed top-0 right-0 flex h-full w-full']
           .filter(Boolean)
           .join(' ')}
       ></Dom>

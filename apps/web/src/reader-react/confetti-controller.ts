@@ -18,7 +18,7 @@ export interface ConfettiProps {
 
 export function createConfetti(
   props: ConfettiProps,
-  emit: (name: string, detail?: unknown) => void = () => {}
+  _emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
 

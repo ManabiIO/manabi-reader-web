@@ -3,11 +3,7 @@
  * Copyright (c) 2026, ッツ Reader Authors
  * All rights reserved.
  */
-/**
- * @license BSD-3-Clause
- * Copyright (c) 2026, ッツ Reader Authors
- * All rights reserved.
- */
+
 import {
   StatisticsRangeTemplate,
   type StatisticsDateChange,
@@ -38,11 +34,11 @@ import {
   type StoreValue
 } from '../reader-react/controller';
 
-export interface StatisticsScreenProps {}
+export type StatisticsScreenProps = Record<string, unknown>;
 
 export function createStatisticsScreen(
   props: StatisticsScreenProps,
-  emit: (name: string, detail?: unknown) => void = () => {}
+  _emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
 
@@ -272,7 +268,7 @@ export function createStatisticsScreen(
     set $statisticsActionInProgress$(nextValue: typeof $statisticsActionInProgress$) {
       writeStore(statisticsActionInProgress$, nextValue);
     },
-    updateProps(next: Record<string, unknown>) {}
+    updateProps(_next: Record<string, unknown>) {}
   };
   return api;
 }

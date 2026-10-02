@@ -50,17 +50,42 @@ choices, and the original heatmap/streak model. Native controls provide date
 presets/custom ranges, book filtering/search, aggregation/sorting, paging, annual
 heatmaps/day details, longest-streak highlighting, and explicitly confirmed
 whole-history deletion for one proven book identity. Deletion revalidates its
-identity and ownership inside the existing committed transaction.
+identity and ownership inside the committed transaction.
 
-Native parity remains incomplete: inline day edits, date-limited deletions,
-TTU/raw exports, all-time heatmap aggregation, per-measurement average/min/max
-choices, and reading-goal management/heatmaps are not exposed by this native
-screen. Account-unassigned global goal/recovery tables must not be exposed merely
-to fill those gaps. Orphaned/unresolved history is excluded with notices rather
-than guessed. Initial native book choices are bounded to 200; explicitly chosen
-IDs remain accepted when visible. The calendar uses native accessible day cells,
-not the original DOM grid. These are explicit remaining tasks, not claimed 1:1
-Android parity.
+Native day entry and editing now use a native modal with whole-second time,
+character count, an optional min/max-speed reset, and confirmation. Existing
+completion payloads are preserved; a new entry cannot replace an existing day.
+Zero-time entries remain visible and editable. Individual-entry deletion retains
+conflicting secondary-identity records, while selected-book/date-range deletion
+is atomic across every selected identity. The all-time date shortcut uses only
+the selected safe histories. Native book filters have private Apply/Cancel drafts,
+matching select/remove, explicit all/empty selection, and a 200-book selection
+limit.
+
+`native-transactions.ts` reuses the domain identity plan, content-hash claimant
+lookup, ownership guards, and `commitTransaction`. Reads capture original records
+under the same transaction as ownership/identity validation. Mutations recheck
+those records, all shared-content claimants, local/content identities, migration
+receipts, and modification markers inside one write transaction. Changed records
+are rejected rather than overwritten. A final-request abort rolls back both data
+and markers. Native reads issue opaque single-use snapshot IDs with a ten-minute
+admission limit; at most four snapshots and 10,000 unique content rows are retained.
+The DOM runtime supplies `{ key, signal, assertCurrent }` authority to both read
+and action methods, including same-user session-generation changes. Old-account,
+old-view, duplicate, and unmounted confirmations are fenced in native and again
+by the service. Snapshot admission failure requires a fresh read; writes are
+never automatically replayed.
+
+Native parity still excludes TTU/raw exports, all-time heatmap aggregation, and
+per-measurement average/min/max display choices. Reading-goal display, editing,
+and goal heatmaps are explicitly gated in the native UI: the current
+`readingGoal` store is keyed only by `goalStartDate`, with no account ownership
+record or guarded account-bound goal API. Global recovery tables and ownerless
+goals must not be exposed to fill these gaps. Orphaned/unresolved/oversized history
+is excluded with notices rather than guessed. Initial native book choices are
+bounded to 200; explicitly selected visible IDs can extend those choices.
+Heatmap detail lines are bounded to keep the bridge projection small. These are
+explicit remaining tasks, not claimed 1:1 Android parity.
 
 ## Validation (2026-10-02)
 
@@ -75,9 +100,19 @@ Passed:
   React controllers/native services and all existing statistics title-filter, deletion-range,
   content-identity, completion, and heatmap-navigation tests without removing
   assertions
-- Six native-service tests use real fake-indexeddb transactions to verify malformed
-  query refusal, foreign/orphan history exclusion, foreign shared-copy refusal,
-  selection retention, stale-identity/whole-history deletion, and account aborts
+- 33 tests in `tests/unit/statistics-react-controller.test.mjs`, including 18
+  native-service tests using real fake-indexeddb transactions: ownership/identity
+  isolation, guarded manual entry/editing, preserved completion records, atomic
+  range deletion, exact entry deletion, optimistic conflicts, bounded/single-use
+  snapshots, empty selection, runtime/account ABA, and abort after the final write
+- Five mounted React Native-control tests in
+  `test/expo/native-statistics-ui.test.mjs`: private-filter cancel/apply, native
+  manual-entry confirmation, duplicate submission, account/refresh/unmount
+  confirmation fencing, and stale asynchronous read retirement
+- Zero scoped statistics TypeScript diagnostics using the production Expo
+  configuration; Node heap bounded to 650 MB for this environment
+- Real esbuild bundle of the final DOM-only native statistics service and mounted
+  native-screen bundle through the React Native-control fixture
 
 Not qualified here:
 

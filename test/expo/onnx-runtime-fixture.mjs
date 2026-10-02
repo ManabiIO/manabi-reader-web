@@ -11,10 +11,14 @@ export const expoRequire = createRequire(appRequire.resolve('expo/package.json')
 const metroRequire = createRequire(expoRequire.resolve('@expo/metro-config/package.json'));
 export const babel = metroRequire('@babel/core');
 export const generate = metroRequire('@babel/generator').default;
-export const collectDependencies = metroRequire('./build/transform-worker/collect-dependencies.js').default;
+export const collectDependencies = metroRequire(
+  './build/transform-worker/collect-dependencies.js'
+).default;
 const transformer = metroRequire('./build/babel-transformer.js');
 export const plugin = appRequire('../../scripts/babel/onnx-runtime-imports.cjs');
-export const ortRoot = path.dirname(path.dirname(appRequire.resolve('onnxruntime-web/ort-wasm-simd-threaded.wasm')));
+export const ortRoot = path.dirname(
+  path.dirname(appRequire.resolve('onnxruntime-web/ort-wasm-simd-threaded.wasm'))
+);
 export const ortPackage = JSON.parse(readFileSync(path.join(ortRoot, 'package.json'), 'utf8'));
 // Match ORT's browser ESM export, rather than Node's require() export.
 export const ortFile = path.resolve(ortRoot, ortPackage.exports['./wasm'].import.default);

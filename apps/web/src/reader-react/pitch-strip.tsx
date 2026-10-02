@@ -108,7 +108,7 @@ export function PitchStrip(props: Partial<PitchStripProps> & ReaderViewProps) {
                             <Dom as="span" className={['unit'].filter(Boolean).join(' ')}>
                               {'Hz'}
                             </Dom>
-                            {(PITCH_GUIDES ?? []).map((guide, index0) => (
+                            {(PITCH_GUIDES ?? []).map((guide, _index0) => (
                               <React.Fragment key={guide.hz}>
                                 <Dom
                                   as="span"
@@ -130,7 +130,7 @@ export function PitchStrip(props: Partial<PitchStripProps> & ReaderViewProps) {
                             }
                             className={['trace'].filter(Boolean).join(' ')}
                           >
-                            {(PITCH_GUIDES ?? []).map((guide, index1) => (
+                            {(PITCH_GUIDES ?? []).map((guide, _index1) => (
                               <React.Fragment key={guide.hz}>
                                 <Dom
                                   as="path"

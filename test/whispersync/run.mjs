@@ -67,7 +67,19 @@ try {
     status = result.status ?? 1;
     if (process.argv.includes('--react')) {
       const { build } = createRequire(join(root, 'package.json'))('esbuild');
-      await build({ entryPoints: [join(root, 'apps/web/src/reader-react/audio-panel.tsx'), join(root, 'apps/web/src/reader-react/pitch-strip.tsx')], bundle: true, outdir: join(output, 'react'), platform: 'browser', format: 'esm', loader: { '.wasm': 'file', '.onnx': 'file', '.woff2': 'file' }, tsconfig: join(root, 'apps/web/tsconfig.json'), define: { 'process.env.NODE_ENV': '"production"' } });
+      await build({
+        entryPoints: [
+          join(root, 'apps/web/src/reader-react/audio-panel.tsx'),
+          join(root, 'apps/web/src/reader-react/pitch-strip.tsx')
+        ],
+        bundle: true,
+        outdir: join(output, 'react'),
+        platform: 'browser',
+        format: 'esm',
+        loader: { '.wasm': 'file', '.onnx': 'file', '.woff2': 'file' },
+        tsconfig: join(root, 'apps/web/tsconfig.json'),
+        define: { 'process.env.NODE_ENV': '"production"' }
+      });
       console.log('Active React audiobook and pitch components compiled');
     }
     const bundleArgument = process.argv.find((arg) => arg.startsWith('--browser-bundle='));

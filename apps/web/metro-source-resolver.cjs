@@ -8,14 +8,17 @@ const path = require('node:path');
 module.exports = function sourceResolver(sourceRoot) {
   const root = path.resolve(sourceRoot) + path.sep;
   return (context, moduleName, platform) => {
-    try { return context.resolveRequest(context, moduleName, platform); }
-    catch (original) {
+    try {
+      return context.resolveRequest(context, moduleName, platform);
+    } catch (original) {
       const origin = context.originModulePath;
-      if (!origin?.startsWith(root) || !/^\.\.?\//.test(moduleName) || !moduleName.endsWith('.js')) throw original;
+      if (!origin?.startsWith(root) || !/^\.\.?\//.test(moduleName) || !moduleName.endsWith('.js'))
+        throw original;
       const base = path.resolve(path.dirname(origin), moduleName.slice(0, -3));
       if (!base.startsWith(root)) throw original;
       for (const extension of ['.ts', '.tsx']) {
-        if (fs.existsSync(base + extension)) return context.resolveRequest(context, moduleName.slice(0, -3), platform);
+        if (fs.existsSync(base + extension))
+          return context.resolveRequest(context, moduleName.slice(0, -3), platform);
       }
       throw original;
     }

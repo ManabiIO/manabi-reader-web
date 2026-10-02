@@ -4,6 +4,7 @@ const headers = require('eslint-plugin-headers');
 const eslintPluginPrettierRecommended = require('eslint-plugin-prettier/recommended');
 const rxjs = require('eslint-plugin-rxjs');
 const tseslint = require('typescript-eslint');
+const path = require('node:path');
 
 let eslintPluginSvelte;
 
@@ -17,6 +18,15 @@ module.exports = (async () => {
     {
       ignores: [
         '**/.cache/**',
+        // Expo copies dependencies/assets into these generated build outputs.
+        'apps/web/.expo/**',
+        'apps/web/expo-env.d.ts',
+        'apps/web/android/**',
+        'apps/web/build/**',
+        'apps/web/dist/**',
+        'apps/web/dist-android/**',
+        'apps/web/public/**',
+        'apps/web/src/runtime/font-assets.ts',
         'apps/web/static/manabitan/**',
         'apps/web/static/dictionary-archives/**',
         'apps/web/static/moss/**',
@@ -45,7 +55,7 @@ module.exports = (async () => {
           extraFileExtensions: ['.svelte'],
           project: './tsconfig.eslint.json',
           sourceType: 'module',
-          tsconfigRootDir: './apps/web/'
+          tsconfigRootDir: path.resolve(__dirname, 'apps/web')
         }
       },
       name: 'root',
@@ -67,7 +77,7 @@ module.exports = (async () => {
       }
     },
     {
-      files: ['**/!(*.d).ts'],
+      files: ['**/!(*.d).{ts,tsx}'],
       rules: {
         '@typescript-eslint/no-unused-vars': [
           'error',
@@ -89,6 +99,81 @@ module.exports = (async () => {
       }
     },
     {
+      files: [
+        'apps/web/{babel,metro}.config.cjs',
+        'apps/web/metro-source-resolver.cjs',
+        'scripts/babel/**/*.cjs'
+      ],
+      languageOptions: {
+        sourceType: 'commonjs',
+        parserOptions: { project: false },
+        globals: { __dirname: 'readonly', module: 'readonly', require: 'readonly' }
+      },
+      rules: { '@typescript-eslint/no-require-imports': 'off' }
+    },
+    {
+      // These modules run in browsers, browser-backed fixtures, or Node 24,
+      // which implements the shared fetch, streams, and abort APIs.
+      files: [
+        'apps/web/src/**/*.mjs',
+        'test/**/*.{mjs,cjs,js}',
+        'tests/unit/**/*.mjs',
+        'patches/reader-dom/**/*.mjs'
+      ],
+      languageOptions: {
+        globals: {
+          AbortController: 'readonly',
+          AbortSignal: 'readonly',
+          Blob: 'readonly',
+          DecompressionStream: 'readonly',
+          DOMException: 'readonly',
+          Element: 'readonly',
+          Event: 'readonly',
+          EventTarget: 'readonly',
+          File: 'readonly',
+          FontFace: 'readonly',
+          Headers: 'readonly',
+          HTMLInputElement: 'readonly',
+          IDBKeyRange: 'readonly',
+          IDBObjectStore: 'readonly',
+          KeyboardEvent: 'readonly',
+          MessageChannel: 'readonly',
+          MouseEvent: 'readonly',
+          NodeFilter: 'readonly',
+          Range: 'readonly',
+          ReadableStream: 'readonly',
+          Request: 'readonly',
+          Response: 'readonly',
+          TextDecoder: 'readonly',
+          TextEncoder: 'readonly',
+          TransformStream: 'readonly',
+          URL: 'readonly',
+          Worker: 'readonly',
+          clearTimeout: 'readonly',
+          console: 'readonly',
+          location: 'readonly',
+          queueMicrotask: 'readonly',
+          setTimeout: 'readonly',
+          structuredClone: 'readonly'
+        }
+      }
+    },
+    {
+      files: [
+        'test/**/*.mjs',
+        'tests/unit/**/*.mjs',
+        'tools/appearance/**/*.mjs',
+        'patches/reader-dom/**/*.mjs'
+      ],
+      languageOptions: {
+        globals: { process: 'readonly', URL: 'readonly' }
+      }
+    },
+    {
+      files: ['patches/reader-dom/**/*.mjs'],
+      languageOptions: { parserOptions: { project: false } }
+    },
+    {
       files: ['scripts/**/*.mjs'],
       languageOptions: {
         parserOptions: { project: false },
@@ -96,6 +181,8 @@ module.exports = (async () => {
           AbortSignal: 'readonly',
           Buffer: 'readonly',
           URL: 'readonly',
+          Request: 'readonly',
+          Response: 'readonly',
           console: 'readonly',
           fetch: 'readonly',
           process: 'readonly'
@@ -126,11 +213,16 @@ module.exports = (async () => {
       }
     },
     {
-      files: ['test/whispersync/**/*.{cjs,js,mjs}', 'test/snippets/**/*.{cjs,js,mjs}'],
+      files: [
+        'test/whispersync/**/*.{cjs,js,mjs}',
+        'test/snippets/**/*.{cjs,js,mjs}',
+        'test/expo/**/*.{cjs,js,mjs}'
+      ],
       languageOptions: {
         globals: {
           CSS: 'readonly',
           TextEncoder: 'readonly',
+          TextDecoder: 'readonly',
           Buffer: 'readonly',
           crypto: 'readonly',
           AbortController: 'readonly',
@@ -145,19 +237,25 @@ module.exports = (async () => {
           HTMLElement: 'readonly',
           MutationObserver: 'readonly',
           URL: 'readonly',
+          URLSearchParams: 'readonly',
+          Response: 'readonly',
           __dirname: 'readonly',
           cancelAnimationFrame: 'readonly',
           clearTimeout: 'readonly',
+          clearInterval: 'readonly',
           console: 'readonly',
           document: 'readonly',
           indexedDB: 'readonly',
           module: 'readonly',
+          navigator: 'readonly',
           performance: 'readonly',
           process: 'readonly',
           queueMicrotask: 'readonly',
           require: 'readonly',
           requestAnimationFrame: 'readonly',
           setTimeout: 'readonly',
+          setInterval: 'readonly',
+          setImmediate: 'readonly',
           structuredClone: 'readonly',
           window: 'readonly'
         },

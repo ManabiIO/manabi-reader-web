@@ -1,6 +1,9 @@
-/** @license BSD-3-Clause
- * Copyright (c) 2026, ッツ Reader Authors. All rights reserved.
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
  */
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { dialogManager } from '$lib/data/dialog-manager';
 import { sanitizeDialogHtml } from '$lib/functions/book-security/dialog-content-security';
@@ -20,7 +23,7 @@ export function DialogTemplate({
   footer?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-0 max-h-[calc(90dvh-3rem)] flex-col">
+    <div className="flex max-h-[calc(90dvh-3rem)] min-h-0 flex-col">
       <header className="shrink-0 px-6 pb-3">
         <h2 id="manabi-dialog-title" className="text-xl font-semibold [overflow-wrap:anywhere]">
           {title}
@@ -481,7 +484,7 @@ export function DialogHost() {
         <>
           {!current.disableCloseOnClick && (
             <button
-              className="absolute right-3 top-3 min-h-11 min-w-11 rounded-full border"
+              className="absolute top-3 right-3 min-h-11 min-w-11 rounded-full border"
               data-modal-dismiss=""
               data-shape="circle"
               aria-label="Close"

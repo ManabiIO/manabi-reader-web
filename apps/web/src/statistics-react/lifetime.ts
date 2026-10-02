@@ -1,5 +1,9 @@
-/** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors */
-/** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 import { dialogManager, type Dialog } from '$lib/data/dialog-manager';
 import { statisticsActionInProgress$ } from '$lib/components/statistics/statistics-types';

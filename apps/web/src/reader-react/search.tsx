@@ -54,7 +54,7 @@ export function ReaderSearch(props: Partial<SearchProps> & ReaderViewProps) {
             }
           }}
           className={[
-            'writing-horizontal-tb overflow-hidden p-0 data-[side=left]:w-full data-[side=left]:sm:max-w-md'
+            'overflow-hidden p-0 writing-horizontal-tb data-[side=left]:w-full data-[side=left]:sm:max-w-md'
           ]
             .filter(Boolean)
             .join(' ')}

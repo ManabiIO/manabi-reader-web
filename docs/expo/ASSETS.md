@@ -33,11 +33,11 @@ The reviewed installation is Expo **57.0.26**, whose nested `@expo/cli` resolves
 to **57.0.27**. The executable exporter is under
 `node_modules/expo/node_modules/@expo/cli`, not an unrelated hoisted CLI.
 
-| Stage | HTML and generated JS/CSS | Imported fonts/model/WASM | Public assets |
-| --- | --- | --- | --- |
-| Web export + postbuild | `index.html`, route aliases, `_expo/static/**` | Path-preserving `assets/**` | Export root |
-| Android `expo export` | `www.bundle/<content-md5>.html/js/css`, native `.hbc` bundle, `metadata.json` | Extensionless `assets/<hash>` entries in metadata | Export root |
-| Android Gradle release (`export:embed`) | APK `assets/www.bundle/<component-path-md5>.html`, `assets/www.bundle/_expo/static/**` | APK `assets/www.bundle/assets/**` | APK `assets/www.bundle/**` |
+| Stage                                   | HTML and generated JS/CSS                                                              | Imported fonts/model/WASM                         | Public assets              |
+| --------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------- | -------------------------- |
+| Web export + postbuild                  | `index.html`, route aliases, `_expo/static/**`                                         | Path-preserving `assets/**`                       | Export root                |
+| Android `expo export`                   | `www.bundle/<content-md5>.html/js/css`, native `.hbc` bundle, `metadata.json`          | Extensionless `assets/<hash>` entries in metadata | Export root                |
+| Android Gradle release (`export:embed`) | APK `assets/www.bundle/<component-path-md5>.html`, `assets/www.bundle/_expo/static/**` | APK `assets/www.bundle/assets/**`                 | APK `assets/www.bundle/**` |
 
 These are deliberately different formats. `exportDomComponentAsync` receives
 `baseUrl: './'`. Update exports additionally use `useMd5Filename: true`, rename
@@ -57,21 +57,30 @@ separate review.
 Focused fixtures call the actual installed `exportDomComponentAsync` and
 `createMetadataJson` with a stub Metro producer. They exercise the exporter, HTML
 serialization, MD5 renaming, metadata, and the verifier; they do not run or claim a
-production application export. The embedded public-copy/path contract is also
-checked against the installed exporter source.
+production application export. Worker inspection additionally runs the installed
+Expo dependency collector, Metro module wrapper, production minifier, and chunk
+serializer on focused inputs. The serializer emits JSON-quoted numeric dependency
+keys, not the unquoted keys used by an earlier fixture. Chunk names use the
+installed SDK naming function: `voice-pitch.worker.ts` becomes `voice-pitch-<hash>.js`
+because two filename stages strip an extension. Matching worker-entry module IDs
+and reachable worker construction remain mandatory. The embedded public-copy/path
+contract is also checked against the installed exporter source.
 
 ## What is checked
 
 - Generated HTML entry scripts, CSS, every compatibility route alias and `404.html`
 - Web prefix and Android document-relative references, with generated Metro
   dependency maps followed from HTML entries to reachable chunks/workers
-- Reader, library-content, snippet-search and voice-pitch module-worker calls and
-  local bundle targets and matching Metro worker-entry module IDs (including MD5
-  update artifacts); enabled media adds the MOSS worker
+- Reader, snippet-search and voice-pitch module-worker calls, local bundle targets,
+  and matching Metro worker-entry module IDs (including MD5 update artifacts).
+  Web additionally requires library-content search; enabled media adds MOSS
+- Android reports Library content/passage search as an explicit unimplemented
+  feature. Its DOM entry uses the metadata-only native Library service and has no
+  content-search worker callsite. This parity gap is not APK asset readiness
 - Every prepared font import, SwiftF0 `swift-f0-0.3.0.onnx`, and the installed ORT
   `ort-wasm-simd-threaded.wasm`: actual exported bytes must match their inputs, and
   web/APK builds must contain reachable generated runtime URLs for them
-- Public-copy byte identity, including icons, web manifest, legal notices, and
+- Public-copy byte identity for retained `static/` payloads, including icons, web manifest, legal notices, and
   pinned Manabitan content. No fallback to source files can satisfy a missing
   output
 - The pinned Manabitan revision/API/search contract, every declared asset's size
@@ -98,7 +107,11 @@ checked against the installed exporter source.
 Run `prepare-dictionary.mjs` before `prepare-expo.mjs`; the latter replaces `public`
 from `static`, including the pinned runtime. Run `expo-postbuild.mjs` **only after
 web export** and before the web gate. It adds route aliases/CSP and generates the
-service worker. A public-directory copy alone is not an application build.
+service worker. `expo-index.html` is a source template: preparation expands it to
+`public/index.html`, and Expo generates the final document. The template is outside
+the retained `static/` byte-copy inventory; final HTML scripts, links, CSS, aliases
+and CSP are validated independently. A public-directory copy alone is not an
+application build.
 
 Public dictionary ESM imports must survive Metro (`@metro-ignore`, not the old
 Vite-only directive). Dictionary archive/recommendation URLs on Android must
@@ -109,6 +122,30 @@ particular, relative model/WASM URLs used inside a module worker resolve from th
 worker’s URL unless explicitly anchored by the runtime. The static gate inventories
 Metro asset literals against the document root; it does not execute ORT or prove
 that a worker passes the correctly anchored URL to fetch.
+
+### Zstd's overridden Emscripten fallback
+
+The pinned Manabitan build packages `lib/zstd.wasm`. Its bundled Emscripten loader
+also contains a `new URL('zstd-simd-module.wasm', import.meta.url)` fallback, but
+Manabitan's `init` provides a `locateFile` callback that selects the caller's
+explicit WASM URL. The missing fallback is not waived just because it has that
+filename or because a callback exists in source.
+
+The gate examines the emitted, reachable ESM modules. Every imported use of this
+loader's `init` must be a direct call with the explicit module-relative
+`lib/zstd.wasm` URL. Namespace imports, re-exports, dynamic imports, escaped
+bindings, default arguments, and other targets prevent qualification. It then
+runs the actual emitted self-contained loader in a bounded VM, preserves its
+`import.meta.url`, invokes the exported `init`, and captures the first fetch with
+network and WASM execution mocked. Only a fetch to the required real local WASM
+path qualifies that loader's fallback reference. The real file must still exist
+and pass the manifest size/hash checks. Failures continue to report the unresolved
+fallback URL.
+
+The report records the caller URLs and `emitted-init-first-fetch-only` evidence.
+This probe checks URL selection only. It does not load or initialize Zstd, test
+compression, or certify browser/device execution. The other public-module URLs
+remain strict, and runtime acceptance below is still required.
 
 The service worker derives a separate scope-specific shell. Public dictionary and
 model payloads must never become required install requests. Changing filenames or
@@ -136,3 +173,6 @@ source inspection substitutes for those gates.
 - [Android local-content loading](https://developer.android.com/develop/ui/views/layout/webapps/load-local-content)
 - [Pinned Manabitan build contract](https://github.com/ManabiIO/manabitan/blob/4db879b7b5bcb749f90042a313669526ef2f57f4/web/build.mjs)
 - [Pinned Manabitan module-worker client](https://github.com/ManabiIO/manabitan/blob/4db879b7b5bcb749f90042a313669526ef2f57f4/ext/web/client.ts)
+
+- [Pinned Zstd initializer and locateFile override](https://github.com/ManabiIO/manabitan/blob/4db879b7b5bcb749f90042a313669526ef2f57f4/dev/lib/zstd-wasm.js)
+- [Pinned Zstd caller URL](https://github.com/ManabiIO/manabitan/blob/4db879b7b5bcb749f90042a313669526ef2f57f4/ext/js/dictionary/zstd-term-content.js)

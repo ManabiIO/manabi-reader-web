@@ -53,7 +53,7 @@ export function BookReaderImageGallery(props: Partial<GalleryProps> & ReaderView
               ?.focus({ preventScroll: true });
           }}
           className={[
-            'top-0 left-0 h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 rounded-none p-0 sm:max-w-none writing-horizontal-tb'
+            'top-0 left-0 h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 rounded-none p-0 writing-horizontal-tb sm:max-w-none'
           ]
             .filter(Boolean)
             .join(' ')}

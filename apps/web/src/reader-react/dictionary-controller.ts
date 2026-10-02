@@ -11,7 +11,7 @@ export interface DictionaryProps {
 
 export function createDictionary(
   props: DictionaryProps,
-  emit: (name: string, detail?: unknown) => void = () => {}
+  _emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
 

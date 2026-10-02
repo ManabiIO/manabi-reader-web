@@ -56,7 +56,8 @@ export class ReaderController {
     const subscription = store.subscribe((next) => {
       value = next;
     });
-    typeof subscription === 'function' ? subscription() : subscription.unsubscribe();
+    if (typeof subscription === 'function') subscription();
+    else subscription.unsubscribe();
     return value;
   };
   observe = <T>(store: Subscribable<T>, callback: (value: T) => void) => {

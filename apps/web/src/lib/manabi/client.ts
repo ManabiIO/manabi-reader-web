@@ -58,7 +58,9 @@ const ROOT = '/api/reader-web/';
 let generation = 0;
 /** Non-credential generation fence for persistent local/native runtime owners.
  * Unlike accountScope(), this is valid for offline and anonymous profiles. */
-export function accountGeneration(): number { return generation; }
+export function accountGeneration(): number {
+  return generation;
+}
 let refreshSerial = 0;
 interface AccountRefreshFlight {
   generation: number;

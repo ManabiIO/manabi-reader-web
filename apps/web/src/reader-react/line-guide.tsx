@@ -78,7 +78,7 @@ export function ReaderLineGuide(props: Partial<LineGuideProps> & ReaderViewProps
           <Dom
             as="div"
             className={[
-              'guide-controls writing-horizontal-tb fixed bottom-4 left-4 z-20 flex items-center gap-1 rounded-full border border-border bg-background p-1 shadow-sm'
+              'guide-controls fixed bottom-4 left-4 z-20 flex items-center gap-1 rounded-full border border-border bg-background p-1 shadow-sm writing-horizontal-tb'
             ]
               .filter(Boolean)
               .join(' ')}

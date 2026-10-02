@@ -65,7 +65,7 @@ export function ReaderAppearance(props: Partial<AppearanceProps> & ReaderViewPro
             trigger?.focus();
           }}
           className={[
-            'reader-appearance writing-horizontal-tb mx-auto max-h-[min(90dvh,48rem)] max-w-md gap-[20px] overflow-y-auto rounded-t-[24px] p-[20px] pb-[max(20px,env(safe-area-inset-bottom))] sm:mb-5 sm:mr-5 sm:rounded-[24px]'
+            'reader-appearance mx-auto max-h-[min(90dvh,48rem)] max-w-md gap-[20px] overflow-y-auto rounded-t-[24px] p-[20px] pb-[max(20px,env(safe-area-inset-bottom))] writing-horizontal-tb sm:mr-5 sm:mb-5 sm:rounded-[24px]'
           ]
             .filter(Boolean)
             .join(' ')}
@@ -125,7 +125,7 @@ export function ReaderAppearance(props: Partial<AppearanceProps> & ReaderViewPro
             aria-label={'Reading appearance mode'}
             className={['modes'].filter(Boolean).join(' ')}
           >
-            {(c.modes ?? []).map((mode, index0) => (
+            {(c.modes ?? []).map((mode, _index0) => (
               <React.Fragment key={mode}>
                 <Button
                   variant={c.$appearance$ === mode ? 'secondary' : 'ghost'}
@@ -145,7 +145,7 @@ export function ReaderAppearance(props: Partial<AppearanceProps> & ReaderViewPro
             aria-label={'Reading theme'}
             className={['theme-grid'].filter(Boolean).join(' ')}
           >
-            {(c.themes ?? []).map((id, index1) => (
+            {(c.themes ?? []).map((id, _index1) => (
               <React.Fragment key={id}>
                 {(() => {
                   const palette = themeForMode(id, c.$resolvedMode$ ?? 'light');
@@ -171,7 +171,7 @@ export function ReaderAppearance(props: Partial<AppearanceProps> & ReaderViewPro
                             <Icon
                               name="Check"
                               aria-hidden={'true'}
-                              className={['absolute right-2 top-2 size-3']
+                              className={['absolute top-2 right-2 size-3']
                                 .filter(Boolean)
                                 .join(' ')}
                             ></Icon>
@@ -195,7 +195,7 @@ export function ReaderAppearance(props: Partial<AppearanceProps> & ReaderViewPro
               value={c.currentFont}
               onChange={(event) => fontFamilyGroupOne$.next(event.currentTarget.value)}
             >
-              {(c.availableFonts ?? []).map((font, index2) => (
+              {(c.availableFonts ?? []).map((font, _index2) => (
                 <React.Fragment key={font}>
                   <Dom as="option" value={font}>
                     {font}
@@ -214,7 +214,7 @@ export function ReaderAppearance(props: Partial<AppearanceProps> & ReaderViewPro
             >
               {(
                 [...new Set([1.4, 1.65, 1.9, 2.2, c.$lineHeight$])].sort((a, b) => a - b) ?? []
-              ).map((value, index3) => (
+              ).map((value, _index3) => (
                 <React.Fragment key={value}>
                   <Dom as="option" value={value}>
                     {value}

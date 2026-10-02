@@ -1,4 +1,9 @@
-/** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,

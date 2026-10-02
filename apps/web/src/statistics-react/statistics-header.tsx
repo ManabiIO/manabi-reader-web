@@ -1,5 +1,9 @@
-/** @license BSD-3-Clause
- * Copyright (c) 2026, ッツ Reader Authors. All rights reserved. */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import React from 'react';
 import { useReaderController } from '../reader-react/controller';
 import {
@@ -40,7 +44,7 @@ export function StatisticsHeader(props: Partial<StatisticsHeaderProps> & ReaderV
         <Dom
           as="div"
           className={[
-            'mx-auto flex min-h-12 flex-wrap max-w-7xl items-center justify-between gap-2 px-3 py-2 sm:px-6'
+            'mx-auto flex min-h-12 max-w-7xl flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-6'
           ]
             .filter(Boolean)
             .join(' ')}
@@ -106,7 +110,7 @@ export function StatisticsHeader(props: Partial<StatisticsHeaderProps> & ReaderV
             </Menu.Item>
             <Menu.Separator></Menu.Separator>
             <Menu.Label>{'Copy TMW log data'}</Menu.Label>
-            {(c.copyItems ?? []).map((item, index0) => (
+            {(c.copyItems ?? []).map((item, _index0) => (
               <React.Fragment key={item.key}>
                 <Menu.Item onSelect={() => copyStatisticsData$.next(item.key)}>
                   {'Copy '}

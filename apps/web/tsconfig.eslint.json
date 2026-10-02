@@ -7,14 +7,18 @@
     "../../scripts/build-slide-demo.mjs",
     "src/**/*.mjs",
     "src/**/*.ts",
+    "src/**/*.tsx",
     "src/**/*.svelte",
     "tests/**/*.ts",
     "../../test/**/*.mjs",
     "../../test/**/*.ts",
+    "../../test/**/*.tsx",
     "../../tests/unit/**/*.mjs",
+    "app.config.ts",
     "playwright.config.js",
     "svelte.config.js",
     "vite.config.js",
     "tailwind.config.cjs"
-  ]
+  ],
+  "exclude": ["node_modules", "src/service-worker.ts"]
 }

@@ -3,11 +3,7 @@
  * Copyright (c) 2026, ッツ Reader Authors
  * All rights reserved.
  */
-/**
- * @license BSD-3-Clause
- * Copyright (c) 2026, ッツ Reader Authors
- * All rights reserved.
- */
+
 import { onKeyUpStatisticsTab } from '../routes/b/on-keydown-reader';
 import { getDefaultStatistic } from '$lib/components/book-reader/book-reading-tracker/book-reading-tracker';
 
@@ -75,11 +71,11 @@ import { ReaderController, writeStore, type StoreValue } from '../reader-react/c
 import { ConfirmDialog, MessageDialog } from '../ui/dialogs';
 import { statisticsLifetime } from './lifetime';
 
-export interface StatisticsContentProps {}
+export type StatisticsContentProps = Record<string, unknown>;
 
 export function createStatisticsContent(
   props: StatisticsContentProps,
-  emit: (name: string, detail?: unknown) => void = () => {}
+  _emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
   const lifetime = statisticsLifetime(__readerController);
@@ -543,7 +539,7 @@ export function createStatisticsContent(
         }
       }
       if ($preFilteredTitlesForStatistics$.size) {
-        __readerController.changed((statisticsTitleFilters = statisticsTitleFilters));
+        __readerController.changed(statisticsTitleFilters);
         writeStore(preFilteredTitlesForStatistics$, $preFilteredTitlesForStatistics$);
       } else {
         const filteredEntries = [...filterMap.entries()];
@@ -731,6 +727,8 @@ export function createStatisticsContent(
         }
       ]);
     } finally {
+      // A retired owner must discard both completion and stale failures.
+      // eslint-disable-next-line no-unsafe-finally -- intentional stale-owner cancellation
       if (!isCurrent()) return;
       __readerController.changed((isLoading = false));
       writeStore(statisticsTitleFilterEnabled$, true);
@@ -1202,7 +1200,7 @@ export function createStatisticsContent(
     set $statisticsTitleFilterIsOpen$(nextValue: typeof $statisticsTitleFilterIsOpen$) {
       writeStore(statisticsTitleFilterIsOpen$, nextValue);
     },
-    updateProps(next: Record<string, unknown>) {}
+    updateProps(_next: Record<string, unknown>) {}
   };
   return api;
 }

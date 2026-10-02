@@ -1,4 +1,9 @@
-/** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import './settings.css';
 export { SettingsScreen } from './settings-screen';
 export { ConnectionsScreen } from './connections-screen';

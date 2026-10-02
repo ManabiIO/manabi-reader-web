@@ -23,10 +23,9 @@ import { caluclatePercentage } from '$lib/functions/utils';
 
 const faChevronLeft = 'faChevronLeft';
 const faChevronRight = 'faChevronRight';
-const faClockRotateLeft = 'faClockRotateLeft';
+
 const faFloppyDisk = 'faFloppyDisk';
-const faPlay = 'faPlay';
-const faRepeat = 'faRepeat';
+
 const faSpinner = 'faSpinner';
 const faTrash = 'faTrash';
 export function BookTimerMenu(props: Partial<TrackerMenuProps> & ReaderViewProps) {
@@ -114,7 +113,7 @@ export function BookTimerMenu(props: Partial<TrackerMenuProps> & ReaderViewProps
 
                           <Dom
                             as="div"
-                            className={['w-full rounded-full h-2.5'].filter(Boolean).join(' ')}
+                            className={['h-2.5 w-full rounded-full'].filter(Boolean).join(' ')}
                             style={{ 'background-Color': c.fontColor }}
                           >
                             <Dom
@@ -153,7 +152,7 @@ export function BookTimerMenu(props: Partial<TrackerMenuProps> & ReaderViewProps
 
                           <Dom
                             as="div"
-                            className={['w-full rounded-full h-2.5'].filter(Boolean).join(' ')}
+                            className={['h-2.5 w-full rounded-full'].filter(Boolean).join(' ')}
                             style={{ 'background-Color': c.fontColor }}
                           >
                             <Dom
@@ -203,7 +202,7 @@ export function BookTimerMenu(props: Partial<TrackerMenuProps> & ReaderViewProps
               </Dom>
             </>
           ) : null}
-          {(c.allStatistics ?? []).map((statistic, index0) => (
+          {(c.allStatistics ?? []).map((statistic, _index0) => (
             <React.Fragment key={statistic.id}>
               <Dom as="div" className={['mb-7 last:mb-4'].filter(Boolean).join(' ')}>
                 <Dom
@@ -213,7 +212,7 @@ export function BookTimerMenu(props: Partial<TrackerMenuProps> & ReaderViewProps
                   <Dom as="div">{statistic.id}</Dom>
                   {statistic.id === 'Current Session' ? (
                     <>
-                      {(c.actions ?? []).map((action, index1) => (
+                      {(c.actions ?? []).map((action, _index1) => (
                         <React.Fragment key={action.event}>
                           <Button
                             variant={'ghost'}
@@ -521,7 +520,7 @@ export function BookTimerMenu(props: Partial<TrackerMenuProps> & ReaderViewProps
                         {'Recent History'}
                       </Dom>
                       <Dom as="div" className={['grid min-w-0 gap-2'].filter(Boolean).join(' ')}>
-                        {(c.trackingHistoryItems ?? []).map((trackingHistoryItem, index2) => (
+                        {(c.trackingHistoryItems ?? []).map((trackingHistoryItem, _index2) => (
                           <React.Fragment key={trackingHistoryItem.id}>
                             <Dom
                               as="div"
@@ -684,7 +683,7 @@ export function BookTimerMenu(props: Partial<TrackerMenuProps> & ReaderViewProps
             <Dom
               as="div"
               aria-hidden={'true'}
-              className={['tap-highlight-transparent absolute inset-0 bg-black/[.2]']
+              className={['absolute inset-0 bg-black/[.2] tap-highlight-transparent']
                 .filter(Boolean)
                 .join(' ')}
             ></Dom>

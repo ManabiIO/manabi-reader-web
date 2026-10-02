@@ -1,5 +1,9 @@
-/** @license BSD-3-Clause
- * Copyright (c) 2026, ッツ Reader Authors. All rights reserved. */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import React from 'react';
 import { useReaderController } from '../reader-react/controller';
 import {
@@ -54,7 +58,7 @@ export function StatisticsSettings(props: Partial<StatisticsSettingsProps> & Rea
             .join(' ')}
         >
           <Sheet.Title
-            className={['min-w-min flex-auto break-normal text-xl font-semibold']
+            className={['min-w-min flex-auto text-xl font-semibold break-normal']
               .filter(Boolean)
               .join(' ')}
           >
@@ -91,7 +95,7 @@ export function StatisticsSettings(props: Partial<StatisticsSettingsProps> & Rea
                   }
                 }}
               >
-                {(statisticsRangeTemplates ?? []).map((template, index0) => (
+                {(statisticsRangeTemplates ?? []).map((template, _index0) => (
                   <React.Fragment key={template}>
                     <Dom as="option" value={template}>
                       {template}
@@ -114,7 +118,7 @@ export function StatisticsSettings(props: Partial<StatisticsSettingsProps> & Rea
                   }
                 }}
               >
-                {(c.weekDays ?? []).map((weekDay, index1) => (
+                {(c.weekDays ?? []).map((weekDay, _index1) => (
                   <React.Fragment key={weekDay.day}>
                     <Dom as="option" value={weekDay.index}>
                       {weekDay.day}
@@ -225,7 +229,7 @@ export function StatisticsSettings(props: Partial<StatisticsSettingsProps> & Rea
                   }
                 }}
               >
-                {(readingTimeDataSources ?? []).map((source, index2) => (
+                {(readingTimeDataSources ?? []).map((source, _index2) => (
                   <React.Fragment key={source.key}>
                     <Dom as="option" value={source.key}>
                       {source.label}
@@ -249,7 +253,7 @@ export function StatisticsSettings(props: Partial<StatisticsSettingsProps> & Rea
                   }
                 }}
               >
-                {(charactersDataSources ?? []).map((source, index3) => (
+                {(charactersDataSources ?? []).map((source, _index3) => (
                   <React.Fragment key={source.key}>
                     <Dom as="option" value={source.key}>
                       {source.label}
@@ -273,7 +277,7 @@ export function StatisticsSettings(props: Partial<StatisticsSettingsProps> & Rea
                   }
                 }}
               >
-                {(readingSpeedDataSources ?? []).map((source, index4) => (
+                {(readingSpeedDataSources ?? []).map((source, _index4) => (
                   <React.Fragment key={source.key}>
                     <Dom as="option" value={source.key}>
                       {source.label}
@@ -297,7 +301,7 @@ export function StatisticsSettings(props: Partial<StatisticsSettingsProps> & Rea
                   }
                 }}
               >
-                {(statisticsDataAggregrationModes ?? []).map((mode, index5) => (
+                {(statisticsDataAggregrationModes ?? []).map((mode, _index5) => (
                   <React.Fragment key={mode}>
                     <Dom as="option" value={mode}>
                       {mode}

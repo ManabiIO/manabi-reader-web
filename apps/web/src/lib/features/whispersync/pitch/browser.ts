@@ -19,7 +19,9 @@ export function createPitchController(changed: (state: PitchState) => void) {
       createContext: createAudioContext,
       // The estimator is a separate same-origin chunk fetched ONLY on enable.
       createWorker: () => {
-        const worker = new Worker(new URL('./voice-pitch.worker.ts', import.meta.url), { type: 'module' });
+        const worker = new Worker(new URL('./voice-pitch.worker.ts', import.meta.url), {
+          type: 'module'
+        });
         // DOM exports use document-relative asset paths. A worker's own location
         // points at a chunk/blob, so send the trusted owning document explicitly.
         worker.postMessage({ type: 'init', assetBaseURL: document.baseURI });

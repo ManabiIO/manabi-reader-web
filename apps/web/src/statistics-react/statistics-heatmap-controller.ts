@@ -3,11 +3,7 @@
  * Copyright (c) 2026, ッツ Reader Authors
  * All rights reserved.
  */
-/**
- * @license BSD-3-Clause
- * Copyright (c) 2026, ッツ Reader Authors
- * All rights reserved.
- */
+
 import { ReadingGoalFrequency } from '$lib/components/book-reader/book-reading-tracker/book-reading-tracker';
 import { observeElementWidth } from '$lib/hooks/observe-element-width';
 import {
@@ -72,7 +68,7 @@ export interface StatisticsHeatmapProps {
 
 export function createStatisticsHeatmap(
   props: StatisticsHeatmapProps,
-  emit: (name: string, detail?: unknown) => void = () => {}
+  _emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
   let activeDay: any;
@@ -755,7 +751,7 @@ export function createStatisticsHeatmap(
   }
   function colorByRating(
     colorStart: string,
-    colorEnd: String,
+    colorEnd: string,
     minValue: number,
     maxValue: number,
     value: number

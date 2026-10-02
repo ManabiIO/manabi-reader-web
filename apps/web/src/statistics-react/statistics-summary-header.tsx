@@ -1,5 +1,9 @@
-/** @license BSD-3-Clause
- * Copyright (c) 2026, ッツ Reader Authors. All rights reserved. */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import React from 'react';
 import { useReaderController } from '../reader-react/controller';
 import {
@@ -59,14 +63,14 @@ export function StatisticsSummaryHeader(
               <Dom
                 as="div"
                 slot={'content'}
-                className={['flex flex-col overflow-auto w-46 p-2'].filter(Boolean).join(' ')}
+                className={['flex w-46 flex-col overflow-auto p-2'].filter(Boolean).join(' ')}
               >
-                {(c.options ?? []).map((option, index0) => (
+                {(c.options ?? []).map((option, _index0) => (
                   <React.Fragment key={option.key}>
                     <Dom
                       as="button"
                       className={[
-                        'flex flex-1 my-2 hover:opacity-50 hover:bg-accent hover:text-foreground'
+                        'my-2 flex flex-1 hover:bg-accent hover:text-foreground hover:opacity-50'
                       ]
                         .filter(Boolean)
                         .join(' ')}

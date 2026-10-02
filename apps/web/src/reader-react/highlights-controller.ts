@@ -19,7 +19,7 @@ export interface HighlightsProps {
 
 export function createHighlights(
   props: HighlightsProps,
-  emit: (name: string, detail?: unknown) => void = () => {}
+  _emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
 
@@ -63,8 +63,8 @@ export function createHighlights(
     () => [contentEl, bookKey, epoch, annotations, active],
     () => {
       if (contentEl && bookKey && epoch >= 0) {
-        annotations;
-        active;
+        void annotations;
+        void active;
         void resolveVisible();
       }
     }

@@ -51,7 +51,7 @@ export interface AudioPanelProps {
 
 export function createAudioPanel(
   props: AudioPanelProps,
-  emit: (name: string, detail?: unknown) => void = () => {}
+  _emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
   let pageCount: number;

@@ -1,4 +1,9 @@
-/** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
@@ -162,7 +167,8 @@ function fixture() {
         },
         require(name) {
           if (name in mock) return mock[name];
-          if (name.startsWith('$lib/')) return load(`lib/${name.slice(5)}.ts`);
+          if (name.startsWith('$lib/'))
+            return load(`lib/${name.slice(5)}${/\.[cm]?[jt]s$/.test(name) ? '' : '.ts'}`);
           if (name.startsWith('.'))
             return load(
               resolve(dirname(filename), name + (/\.[cm]?[jt]s$/.test(name) ? '' : '.ts'))
@@ -708,6 +714,7 @@ test('native whole-history deletion reuses the live identity transaction and kee
   await f.history(second, '2024-02-29', 120);
   const action = {
     type: 'delete-book-history',
+    snapshotId: (await f.service.readStatisticsSnapshot()).snapshotId,
     bookId: 1,
     title: first.title,
     bookKey: `content:${first.contentHash}`
@@ -717,7 +724,10 @@ test('native whole-history deletion reuses the live identity transaction and kee
     /history changed/
   );
   assert.equal((await f.nativeDb.getAll('readerStatistic')).length, 2);
-  await f.service.dispatchStatisticsAction(action);
+  await f.service.dispatchStatisticsAction({
+    ...action,
+    snapshotId: (await f.service.readStatisticsSnapshot()).snapshotId
+  });
   const remaining = await f.nativeDb.getAll('readerStatistic');
   assert.equal(remaining.length, 1);
   assert.equal(remaining[0].bookKey, `content:${second.contentHash}`);
@@ -729,16 +739,316 @@ test('native action rejects a switched profile before any database mutation', as
   const f = await nativeFixture(),
     book = await f.book(1, 'One', 'a');
   await f.history(book, '2024-02-28');
+  const snapshot = await f.service.readStatisticsSnapshot();
   f.scopeAbort.abort();
   await assert.rejects(
     f.service.dispatchStatisticsAction({
       type: 'delete-book-history',
+      snapshotId: snapshot.snapshotId,
       bookId: 1,
       title: book.title,
       bookKey: `content:${book.contentHash}`
     }),
-    /account_changed/
+    /account_changed|changed accounts/
   );
   assert.equal((await f.nativeDb.getAll('readerStatistic')).length, 1);
+  f.nativeDb.close();
+});
+
+async function nativeAction(f, book, values = {}, authority) {
+  const snapshot = await f.service.readStatisticsSnapshot({ aggregation: 'none' }, authority);
+  return {
+    type: 'save-day',
+    snapshotId: snapshot.snapshotId,
+    bookId: book.id,
+    bookKey: `content:${book.contentHash}`,
+    title: book.title,
+    date: '2024-02-28',
+    mode: 'edit',
+    time: 120,
+    characters: 500,
+    resetMinMax: false,
+    ...values
+  };
+}
+function runtimeAuthority(key = 'account-a:1') {
+  const controller = new AbortController();
+  return {
+    controller,
+    key,
+    signal: controller.signal,
+    assertCurrent() {
+      controller.signal.throwIfAborted();
+    }
+  };
+}
+
+test('native manual entry creates only a proven book/day and never overwrites existing history', async () => {
+  const f = await nativeFixture(),
+    book = await f.book(1, 'New day', 'a');
+  const action = await nativeAction(f, book, { mode: 'create', time: 0, characters: 0 });
+  assert.equal((await f.service.dispatchStatisticsAction(action)).saved, true);
+  const stored = await f.nativeDb.get('readerStatistic', [action.bookKey, action.date]);
+  assert.equal(stored.readingTime, 0);
+  assert.equal(stored.charactersRead, 0);
+  assert.equal(
+    (await f.nativeDb.get('lastModified', [action.bookKey, 'statistic'])).lastModifiedValue,
+    stored.lastStatisticModified
+  );
+  const snapshot = await f.service.readStatisticsSnapshot({ aggregation: 'none' });
+  assert.equal(snapshot.rows.length, 1, 'zero-time entries remain editable');
+  assert.equal(snapshot.rows[0].entry.bookId, 1);
+  assert.equal(snapshot.totals.days, 0);
+  await assert.rejects(
+    f.service.dispatchStatisticsAction({ ...action, snapshotId: snapshot.snapshotId }),
+    /already has history/
+  );
+  assert.deepEqual(await f.nativeDb.get('readerStatistic', [action.bookKey, action.date]), stored);
+  f.nativeDb.close();
+});
+
+test('native day editing preserves completion data, updates speed bounds, and supports explicit reset', async () => {
+  const f = await nativeFixture(),
+    book = await f.book(1, 'Finished', 'a');
+  const row = await f.history(book, '2024-02-28', 60);
+  row.completedBook = 1;
+  row.completedData = { dateKey: '2024-02-28', charactersRead: 999 };
+  row.minReadingSpeed = 100;
+  row.altMinReadingSpeed = 120;
+  row.maxReadingSpeed = 100000;
+  await f.nativeDb.put('readerStatistic', row);
+  const action = await nativeAction(f, book);
+  await f.service.dispatchStatisticsAction(action);
+  let saved = await f.nativeDb.get('readerStatistic', [action.bookKey, action.date]);
+  assert.equal(saved.readingTime, 120);
+  assert.equal(saved.charactersRead, 500);
+  assert.equal(saved.lastReadingSpeed, 15000);
+  assert.equal(saved.minReadingSpeed, 100);
+  assert.equal(saved.maxReadingSpeed, 100000);
+  assert.equal(saved.completedBook, 1);
+  assert.deepEqual(saved.completedData, row.completedData);
+  const reset = await nativeAction(f, book, { resetMinMax: true });
+  await f.service.dispatchStatisticsAction(reset);
+  saved = await f.nativeDb.get('readerStatistic', [action.bookKey, action.date]);
+  assert.equal(saved.minReadingSpeed, 15000);
+  assert.equal(saved.altMinReadingSpeed, 15000);
+  assert.equal(saved.maxReadingSpeed, 15000);
+  assert.deepEqual(saved.completedData, row.completedData);
+  f.nativeDb.close();
+});
+
+test('native stale edits and duplicate submissions never overwrite a tracker update', async () => {
+  const f = await nativeFixture(),
+    book = await f.book(1, 'Concurrent', 'a');
+  const row = await f.history(book, '2024-02-28');
+  const action = await nativeAction(f, book);
+  const newer = { ...row, completedBook: 1, lastStatisticModified: row.lastStatisticModified + 1 };
+  await f.nativeDb.put('readerStatistic', newer);
+  await assert.rejects(f.service.dispatchStatisticsAction(action), /history changed/);
+  await assert.rejects(f.service.dispatchStatisticsAction(action), /expired/);
+  assert.deepEqual(await f.nativeDb.get('readerStatistic', [action.bookKey, action.date]), newer);
+  f.nativeDb.close();
+});
+
+test('native range deletion is inclusive, atomic across selected books, and retains other dates and same-title siblings', async () => {
+  const f = await nativeFixture(),
+    first = await f.book(1, 'Same', 'a'),
+    second = await f.book(2, 'Same', 'b'),
+    sibling = await f.book(3, 'Same', 'c');
+  for (const book of [first, second, sibling]) {
+    for (const date of ['2024-02-27', '2024-02-28', '2024-02-29']) await f.history(book, date);
+  }
+  const snapshot = await f.service.readStatisticsSnapshot();
+  await f.service.dispatchStatisticsAction({
+    type: 'delete-range',
+    snapshotId: snapshot.snapshotId,
+    bookIds: [1, 2],
+    startDate: '2024-02-28',
+    endDate: '2024-02-29'
+  });
+  const rows = await f.nativeDb.getAll('readerStatistic');
+  assert.equal(rows.length, 5);
+  assert.equal(rows.filter((row) => row.bookKey === `content:${sibling.contentHash}`).length, 3);
+  assert.ok(
+    rows
+      .filter((row) => row.bookKey !== `content:${sibling.contentHash}`)
+      .every((row) => row.dateKey === '2024-02-27')
+  );
+  f.nativeDb.close();
+});
+
+test('native range deletion refuses new rows and rolls back every selected identity', async () => {
+  const f = await nativeFixture(),
+    first = await f.book(1, 'One', 'a'),
+    second = await f.book(2, 'Two', 'b');
+  await f.history(first, '2024-02-28');
+  await f.history(second, '2024-02-28');
+  const snapshot = await f.service.readStatisticsSnapshot();
+  await f.history(second, '2024-02-29');
+  await assert.rejects(
+    f.service.dispatchStatisticsAction({
+      type: 'delete-range',
+      snapshotId: snapshot.snapshotId,
+      bookIds: [1, 2],
+      startDate: '2024-02-28',
+      endDate: '2024-02-29'
+    }),
+    /history changed/
+  );
+  assert.equal((await f.nativeDb.getAll('readerStatistic')).length, 3);
+  assert.equal((await f.nativeDb.getAll('lastModified')).length, 0);
+  f.nativeDb.close();
+});
+
+test('native same-ID title, identity, and ownership swaps reject a previously displayed edit', async () => {
+  for (const change of [
+    { title: 'Renamed' },
+    { contentHash: 'b'.repeat(64) },
+    { libraryOwner: 'other' }
+  ]) {
+    const f = await nativeFixture(),
+      book = await f.book(1, 'Original', 'a');
+    const row = await f.history(book, '2024-02-28');
+    const action = await nativeAction(f, book);
+    await f.nativeDb.put('data', { ...book, ...change });
+    await assert.rejects(
+      f.service.dispatchStatisticsAction(action),
+      /changed|account|profile|ownership/
+    );
+    assert.deepEqual(await f.nativeDb.get('readerStatistic', [action.bookKey, action.date]), row);
+    f.nativeDb.close();
+  }
+});
+
+test('native mutation refuses a foreign shared-copy claimant added after the snapshot', async () => {
+  const f = await nativeFixture(),
+    book = await f.book(1, 'Original', 'a');
+  const row = await f.history(book, '2024-02-28');
+  const action = await nativeAction(f, book);
+  await f.book(2, 'Other copy', 'a', 'other', 'other');
+  await assert.rejects(f.service.dispatchStatisticsAction(action), /account|profile|ownership/);
+  assert.deepEqual(await f.nativeDb.get('readerStatistic', [action.bookKey, action.date]), row);
+  f.nativeDb.close();
+});
+
+test('native snapshot capabilities reject runtime account ABA and same-user generation replacement', async () => {
+  const f = await nativeFixture(),
+    book = await f.book(1, 'One', 'a');
+  const row = await f.history(book, '2024-02-28');
+  const old = runtimeAuthority();
+  const action = await nativeAction(f, book, {}, old);
+  old.controller.abort();
+  const returned = runtimeAuthority('account-a:3');
+  await assert.rejects(
+    f.service.dispatchStatisticsAction(action, returned),
+    /expired|changed accounts/
+  );
+  const fresh = await nativeAction(f, book, {}, returned);
+  await assert.rejects(
+    f.service.dispatchStatisticsAction(fresh, runtimeAuthority('account-a:4')),
+    /changed accounts/
+  );
+  assert.deepEqual(await f.nativeDb.get('readerStatistic', [action.bookKey, action.date]), row);
+  f.nativeDb.close();
+});
+
+test('native runtime abort after the final write request rolls back row and modification marker', async () => {
+  const f = await nativeFixture(),
+    book = await f.book(1, 'Rollback', 'a');
+  const row = await f.history(book, '2024-02-28');
+  const authority = runtimeAuthority();
+  const action = await nativeAction(f, book, {}, authority);
+  // Abort on the final lastModified request success, before IndexedDB commits.
+  const originalPut = IDBObjectStore.prototype.put;
+  IDBObjectStore.prototype.put = function (...args) {
+    const request = originalPut.apply(this, args);
+    if (this.name === 'lastModified')
+      request.addEventListener('success', () => authority.controller.abort(), { once: true });
+    return request;
+  };
+  try {
+    await assert.rejects(f.service.dispatchStatisticsAction(action, authority));
+  } finally {
+    IDBObjectStore.prototype.put = originalPut;
+  }
+  assert.deepEqual(await f.nativeDb.get('readerStatistic', [action.bookKey, action.date]), row);
+  assert.equal((await f.nativeDb.getAll('lastModified')).length, 0);
+  f.nativeDb.close();
+});
+
+test('native mutations bound payloads and snapshots; global ownerless goals stay explicitly gated', async () => {
+  const f = await nativeFixture(),
+    book = await f.book(1, 'Bounded', 'a');
+  await f.history(book, '2024-02-28');
+  const action = await nativeAction(f, book);
+  for (const value of [
+    { time: -1 },
+    { time: 86401 },
+    { time: 1.5 },
+    { characters: Infinity },
+    { characters: 100000001 },
+    { date: '2024-02-30' }
+  ]) {
+    await assert.rejects(
+      f.service.dispatchStatisticsAction({ ...action, ...value }),
+      /Invalid statistics action/
+    );
+  }
+  for (let i = 0; i < 4; i++) {
+    const snapshot = await f.service.readStatisticsSnapshot();
+    assert.equal(snapshot.goals.available, false);
+    assert.match(snapshot.goals.reason, /without account ownership/);
+  }
+  await assert.rejects(f.service.dispatchStatisticsAction(action), /expired/);
+  f.nativeDb.close();
+});
+
+test('native filters distinguish all books from an explicitly empty private selection', async () => {
+  const f = await nativeFixture(),
+    book = await f.book(1, 'Visible choice', 'a');
+  await f.history(book, '2024-02-28');
+  const empty = await f.service.readStatisticsSnapshot({ bookSelection: 'selected', bookIds: [] });
+  assert.equal(empty.books.length, 1);
+  assert.equal(empty.rows.length, 0);
+  assert.equal(empty.totals.time, 0);
+  assert.equal(empty.allTime, null);
+  assert.equal(empty.query.bookSelection, 'selected');
+  const all = await f.service.readStatisticsSnapshot({ bookSelection: 'all' });
+  assert.equal(all.rows.length, 1);
+  assert.equal(all.allTime.startDate, '2024-02-28');
+  f.nativeDb.close();
+});
+
+test('native single-entry deletion retains a conflicting secondary-identity row on the same date', async () => {
+  const f = await nativeFixture(),
+    book = await f.book(1, 'Two histories', 'a');
+  const primary = await f.history(book, '2024-02-28', 60);
+  const secondary = { ...primary, bookKey: 'local:retained-copy', readingTime: 90 };
+  await f.nativeDb.put('readerLocalIdentity', { bookId: 1, uuid: 'retained-copy' });
+  await f.nativeDb.put('readerStatistic', secondary);
+  await f.nativeDb.put('readerStatisticMigration', {
+    title: book.title,
+    state: 'assigned',
+    bookKey: primary.bookKey
+  });
+  const snapshot = await f.service.readStatisticsSnapshot({ aggregation: 'none' });
+  assert.equal(snapshot.rows.length, 2);
+  assert.ok(snapshot.rows.every((row) => row.entry));
+  await f.service.dispatchStatisticsAction({
+    type: 'delete-day',
+    snapshotId: snapshot.snapshotId,
+    bookId: 1,
+    title: book.title,
+    bookKey: primary.bookKey,
+    date: primary.dateKey
+  });
+  assert.equal(
+    await f.nativeDb.get('readerStatistic', [primary.bookKey, primary.dateKey]),
+    undefined
+  );
+  assert.deepEqual(
+    await f.nativeDb.get('readerStatistic', [secondary.bookKey, secondary.dateKey]),
+    secondary
+  );
   f.nativeDb.close();
 });

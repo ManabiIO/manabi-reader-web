@@ -1,9 +1,14 @@
-/** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors */
-/** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,6 +21,8 @@ import { useReaderRuntime } from '../platform/RuntimeProvider.native';
 import type {
   NativeStatisticsQuery,
   NativeStatisticsSnapshot,
+  NativeStatisticsAction,
+  NativeStatisticsRow,
   NativeStatisticsBook
 } from './native-contract';
 const minutes = (seconds: number) => `${Math.round((seconds / 60) * 100) / 100} min`;
@@ -35,8 +42,20 @@ export function NativeStatisticsScreen() {
     [to, setTo] = useState('');
   const [search, setSearch] = useState(''),
     [filters, setFilters] = useState(false);
+  const [filterDraft, setFilterDraft] = useState<number[]>([]);
+  const [filterAll, setFilterAll] = useState(true);
   const [selectedDay, setSelectedDay] = useState<string>(),
     [highlight, setHighlight] = useState(false);
+  const [editor, setEditor] = useState<{
+    book: NativeStatisticsBook;
+    entry?: NativeStatisticsRow['entry'];
+    snapshotId: string;
+    owner: string;
+    date: string;
+    time: string;
+    characters: string;
+    resetMinMax: boolean;
+  }>();
   const generation = useRef(0),
     mutation = useRef(false);
   const mounted = useRef(false);
@@ -48,8 +67,11 @@ export function NativeStatisticsScreen() {
   }, []);
   const latestScope = useRef('');
   latestScope.current = `${runtime.session}:${runtime.epoch}`;
+  const latestSnapshot = useRef<string | undefined>(undefined);
+  latestSnapshot.current = data?.snapshotId;
   const refresh = useCallback(async () => {
     const current = ++generation.current;
+    const owner = latestScope.current;
     setBusy(true);
     setError('');
     try {
@@ -57,22 +79,30 @@ export function NativeStatisticsScreen() {
         'statistics.read',
         query as Record<string, unknown>
       )) as NativeStatisticsSnapshot;
-      if (current !== generation.current) return;
+      if (!mounted.current || owner !== latestScope.current || current !== generation.current)
+        return;
       setData(next);
       setFrom(next.query.startDate);
       setTo(next.query.endDate);
     } catch (cause) {
-      if (current === generation.current)
+      if (mounted.current && owner === latestScope.current && current === generation.current)
         setError(cause instanceof Error ? cause.message : 'Statistics could not be loaded.');
     } finally {
-      if (current === generation.current) setBusy(false);
+      if (mounted.current && owner === latestScope.current && current === generation.current)
+        setBusy(false);
     }
   }, [command, query]);
   useEffect(() => {
     setData(undefined);
     setSelectedDay(undefined);
+    setEditor(undefined);
+    setBusy(false);
+    setError('');
     setFilters(false);
-    setQuery({});
+    setFilterDraft([]);
+    setFilterAll(true);
+    setSearch('');
+    setQuery((previous) => (Object.keys(previous).length ? {} : previous));
   }, [runtime.session, runtime.epoch]);
   useEffect(() => {
     if (runtime.session) void refresh();
@@ -102,8 +132,38 @@ export function NativeStatisticsScreen() {
     }
     update({ startDate: dateString(start), endDate: dateString(end) });
   }
+  async function mutate(action: NativeStatisticsAction, owner: string) {
+    if (
+      !mounted.current ||
+      mutation.current ||
+      owner !== latestScope.current ||
+      action.snapshotId !== latestSnapshot.current
+    )
+      return;
+    mutation.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      await command('statistics.action', action as unknown as Record<string, unknown>);
+      if (!mounted.current || owner !== latestScope.current) return;
+      setEditor(undefined);
+      await refresh();
+    } catch (cause) {
+      if (mounted.current && owner === latestScope.current)
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : 'The change was not confirmed. Refresh saved history before trying again.'
+        );
+    } finally {
+      mutation.current = false;
+      if (mounted.current && owner === latestScope.current) setBusy(false);
+    }
+  }
   function remove(book: NativeStatisticsBook) {
-    const owner = `${runtime.session}:${runtime.epoch}`;
+    if (!data) return;
+    const owner = latestScope.current,
+      snapshotId = data.snapshotId;
     Alert.alert(
       'Delete reading history?',
       `Delete all reading history for “${book.title}” on this device? This includes all dates and any completion records. The book itself will remain. This cannot be undone.`,
@@ -113,31 +173,125 @@ export function NativeStatisticsScreen() {
           text: 'Delete history',
           style: 'destructive',
           onPress: () => {
-            if (!mounted.current || mutation.current || owner !== latestScope.current) return;
-            mutation.current = true;
-            setBusy(true);
-            void command('statistics.action', {
-              type: 'delete-book-history',
-              bookId: book.id,
-              title: book.title,
-              bookKey: book.bookKey
-            })
-              .then(() => {
-                if (owner === latestScope.current) return refresh();
-                return undefined;
-              })
-              .catch((cause) => {
-                if (owner === latestScope.current)
-                  setError(
-                    cause instanceof Error
-                      ? cause.message
-                      : 'Deletion was not confirmed. Refresh saved history before trying again.'
-                  );
-              })
-              .finally(() => {
-                mutation.current = false;
-                if (owner === latestScope.current) setBusy(false);
-              });
+            void mutate(
+              {
+                type: 'delete-book-history',
+                snapshotId,
+                bookId: book.id,
+                title: book.title,
+                bookKey: book.bookKey
+              },
+              owner
+            );
+          }
+        }
+      ]
+    );
+  }
+  function removeRange(bookIds: number[], startDate: string, endDate: string) {
+    if (!data || !bookIds.length) return;
+    const owner = latestScope.current,
+      snapshotId = data.snapshotId;
+    Alert.alert(
+      'Delete selected reading history?',
+      `Delete history for ${bookIds.length} selected book(s) from ${startDate} through ${endDate}, including completion records on those dates? Other dates remain. This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete selected dates',
+          style: 'destructive',
+          onPress: () => {
+            void mutate({ type: 'delete-range', snapshotId, bookIds, startDate, endDate }, owner);
+          }
+        }
+      ]
+    );
+  }
+  function removeDay(row: NativeStatisticsRow) {
+    const entry = row.entry;
+    if (!data || !entry) return;
+    const book = data.books.find((item) => item.id === entry.bookId);
+    if (!book) return;
+    const owner = latestScope.current,
+      snapshotId = data.snapshotId;
+    Alert.alert(
+      'Delete this reading entry?',
+      `${book.title} · ${row.date}\nDelete this individual entry, including its completion record? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete entry',
+          style: 'destructive',
+          onPress: () => {
+            void mutate(
+              {
+                type: 'delete-day',
+                snapshotId,
+                bookId: book.id,
+                title: book.title,
+                bookKey: entry.bookKey,
+                date: row.date
+              },
+              owner
+            );
+          }
+        }
+      ]
+    );
+  }
+  function edit(book: NativeStatisticsBook, row?: NativeStatisticsRow) {
+    if (!data) return;
+    setEditor({
+      book,
+      entry: row?.entry,
+      snapshotId: data.snapshotId,
+      owner: latestScope.current,
+      date: row?.date ?? data.today,
+      time: String(row?.time ?? 0),
+      characters: String(row?.characters ?? 0),
+      resetMinMax: false
+    });
+  }
+  function saveDay() {
+    if (!editor || !/^\d+$/.test(editor.time) || !/^\d+$/.test(editor.characters)) {
+      setError('Time and characters must be whole, non-negative numbers.');
+      return;
+    }
+    const time = Number(editor.time),
+      characters = Number(editor.characters);
+    if (
+      !Number.isSafeInteger(time) ||
+      time > 86400 ||
+      !Number.isSafeInteger(characters) ||
+      characters > 100000000
+    ) {
+      setError('Enter at most 86,400 seconds and 100,000,000 characters for one day.');
+      return;
+    }
+    const value = editor;
+    Alert.alert(
+      value.entry ? 'Save reading day?' : 'Add reading day?',
+      `${value.book.title} · ${value.date}\n${time} seconds · ${characters} characters${value.resetMinMax ? '\nReset minimum/maximum reading speeds' : ''}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Save',
+          onPress: () => {
+            void mutate(
+              {
+                type: 'save-day',
+                snapshotId: value.snapshotId,
+                bookId: value.book.id,
+                bookKey: value.entry?.bookKey ?? value.book.bookKey,
+                title: value.book.title,
+                date: value.date,
+                mode: value.entry ? 'edit' : 'create',
+                time,
+                characters,
+                resetMinMax: value.resetMinMax
+              },
+              value.owner
+            );
           }
         }
       ]
@@ -145,6 +299,10 @@ export function NativeStatisticsScreen() {
   }
   const chosen = query.bookIds ?? [],
     detail = data?.days.find((day) => day.date === selectedDay);
+  const rangeBooks =
+    data?.books.filter(
+      (book) => book.deletable && (data.query.bookSelection === 'all' || chosen.includes(book.id))
+    ) ?? [];
   const matchedBooks =
     data?.books.filter((book) =>
       book.title.normalize('NFKC').toLowerCase().includes(search.normalize('NFKC').toLowerCase())
@@ -179,7 +337,21 @@ export function NativeStatisticsScreen() {
             variant={view === 'heatmap' ? 'filled' : 'outlined'}
             onPress={() => setView('heatmap')}
           />
-          <Action label="Filter books" onPress={() => setFilters(!filters)} />
+          <Action
+            label="Filter books"
+            disabled={busy || !data}
+            onPress={() => {
+              if (!filters && data) {
+                setFilterAll(data.query.bookSelection === 'all');
+                setFilterDraft(
+                  data.query.bookSelection === 'all'
+                    ? data.books.map((book) => book.id)
+                    : [...data.query.bookIds]
+                );
+              }
+              setFilters(!filters);
+            }}
+          />
         </View>
         <View style={styles.card}>
           <Text accessibilityRole="header" style={styles.heading}>
@@ -218,6 +390,23 @@ export function NativeStatisticsScreen() {
             </View>
           </View>
           <Action
+            label="All time for selected books"
+            disabled={busy || !data?.allTime}
+            onPress={() => data?.allTime && update(data.allTime)}
+          />
+          <Action
+            label="Delete selected dates and books"
+            disabled={busy || !rangeBooks.length || !data?.rows.length}
+            onPress={() =>
+              data &&
+              removeRange(
+                rangeBooks.map((book) => book.id),
+                data.query.startDate,
+                data.query.endDate
+              )
+            }
+          />
+          <Action
             label="Apply dates"
             disabled={busy || !from || !to}
             onPress={() =>
@@ -240,29 +429,81 @@ export function NativeStatisticsScreen() {
             <Action
               label="All available books"
               disabled={busy}
-              onPress={() => update({ bookIds: [] })}
+              onPress={() => {
+                setFilterAll(true);
+                setFilterDraft(data?.books.map((book) => book.id) ?? []);
+              }}
             />
+            <View style={styles.row}>
+              <Action
+                label="Clear book selection"
+                onPress={() => {
+                  setFilterAll(false);
+                  setFilterDraft([]);
+                }}
+              />
+              <Action
+                label="Select matching books"
+                onPress={() => {
+                  setFilterAll(false);
+                  setFilterDraft([
+                    ...new Set([...filterDraft, ...matchedBooks.map((book) => book.id)])
+                  ]);
+                }}
+              />
+              <Action
+                label="Remove matching books"
+                onPress={() => {
+                  setFilterAll(false);
+                  setFilterDraft(
+                    filterDraft.filter((id) => !matchedBooks.some((book) => book.id === id))
+                  );
+                }}
+              />
+              <Action label="Cancel book filters" onPress={() => setFilters(false)} />
+              <Action
+                label="Apply book filters"
+                disabled={busy || (!filterAll && filterDraft.length > 200)}
+                onPress={() => {
+                  update({
+                    bookSelection: filterAll ? 'all' : 'selected',
+                    bookIds: filterAll ? [] : filterDraft
+                  });
+                  setFilters(false);
+                }}
+              />
+            </View>
+            <Text>
+              {filterAll ? 'All available books' : `${filterDraft.length} selected books`}. Choose
+              at most 200 individual books. Changes apply when you choose Apply book filters.
+            </Text>
             {matchedBooks.map((book) => (
               <View key={book.id} style={styles.book}>
                 <Pressable
                   accessibilityRole="checkbox"
                   accessibilityLabel={book.title}
-                  accessibilityState={{ checked: chosen.includes(book.id) }}
+                  accessibilityState={{ checked: filterAll || filterDraft.includes(book.id) }}
                   disabled={busy}
-                  onPress={() =>
-                    update({
-                      bookIds: chosen.includes(book.id)
-                        ? chosen.filter((id) => id !== book.id)
-                        : [...chosen, book.id]
-                    })
-                  }
+                  onPress={() => {
+                    setFilterAll(false);
+                    setFilterDraft(
+                      filterDraft.includes(book.id)
+                        ? filterDraft.filter((id) => id !== book.id)
+                        : [...filterDraft, book.id]
+                    );
+                  }}
                   style={styles.bookTitle}
                 >
                   <Text>
-                    {chosen.includes(book.id) ? '☑ ' : '☐ '}
+                    {filterAll || filterDraft.includes(book.id) ? '☑ ' : '☐ '}
                     {book.title}
                   </Text>
                 </Pressable>
+                <Action
+                  label={`Add reading day for ${book.title}`}
+                  disabled={busy || !book.deletable}
+                  onPress={() => edit(book)}
+                />
                 <Action
                   label={`Delete ${book.title} history`}
                   disabled={busy || !book.deletable}
@@ -328,6 +569,23 @@ export function NativeStatisticsScreen() {
                       {minutes(row.time)} · {row.characters.toLocaleString()} characters
                     </Text>
                     <Text>{row.speed.toLocaleString()} characters/hour</Text>
+                    {row.entry && (
+                      <View style={styles.row}>
+                        <Action
+                          label={`Edit ${row.title} on ${row.date}`}
+                          disabled={busy}
+                          onPress={() => {
+                            const book = data.books.find((item) => item.id === row.entry?.bookId);
+                            if (book) edit(book, row);
+                          }}
+                        />
+                        <Action
+                          label={`Delete ${row.title} on ${row.date}`}
+                          disabled={busy}
+                          onPress={() => removeDay(row)}
+                        />
+                      </View>
+                    )}
                   </View>
                 ))}
                 {!data.rows.length && <Text>No data found for the selected dates and books</Text>}
@@ -424,6 +682,12 @@ export function NativeStatisticsScreen() {
                 )}
               </>
             )}
+            <View style={styles.notice}>
+              <Text accessibilityRole="header" style={styles.heading}>
+                Reading goals
+              </Text>
+              <Text>{data.goals.reason}</Text>
+            </View>
             {data.notices.map((notice) => (
               <Text key={notice} style={styles.notice}>
                 {notice}
@@ -432,6 +696,75 @@ export function NativeStatisticsScreen() {
           </>
         )}
       </ScrollView>
+      <Modal
+        visible={Boolean(editor)}
+        animationType="slide"
+        onRequestClose={() => {
+          if (!busy) setEditor(undefined);
+        }}
+      >
+        {editor && (
+          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <Text accessibilityRole="header" style={styles.heading}>
+              {editor.entry ? 'Edit reading day' : 'Add reading day'}
+            </Text>
+            <Text>{editor.book.title}</Text>
+            {error ? (
+              <Text accessibilityRole="alert" style={styles.notice}>
+                {error}
+              </Text>
+            ) : null}
+            <Text>Date</Text>
+            <TextInput
+              accessibilityLabel="Reading day date"
+              value={editor.date}
+              editable={!busy && !editor.entry}
+              placeholder="YYYY-MM-DD"
+              style={styles.input}
+              onChangeText={(date) => setEditor({ ...editor, date })}
+            />
+            <Text>Reading time (seconds)</Text>
+            <TextInput
+              accessibilityLabel="Reading time in seconds"
+              value={editor.time}
+              keyboardType="number-pad"
+              editable={!busy}
+              style={styles.input}
+              onChangeText={(time) => setEditor({ ...editor, time })}
+            />
+            <Text>Characters</Text>
+            <TextInput
+              accessibilityLabel="Characters read"
+              value={editor.characters}
+              keyboardType="number-pad"
+              editable={!busy}
+              style={styles.input}
+              onChangeText={(characters) => setEditor({ ...editor, characters })}
+            />
+            {editor.entry && (
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityLabel="Reset minimum and maximum reading speeds"
+                accessibilityState={{ checked: editor.resetMinMax }}
+                disabled={busy}
+                style={styles.bookTitle}
+                onPress={() => setEditor({ ...editor, resetMinMax: !editor.resetMinMax })}
+              >
+                <Text>
+                  {editor.resetMinMax ? '☑ ' : '☐ '}Reset minimum and maximum reading speeds
+                </Text>
+              </Pressable>
+            )}
+            <Text>
+              Existing completion records are preserved. A new day cannot replace existing history.
+            </Text>
+            <View style={styles.row}>
+              <Action label="Cancel edit" disabled={busy} onPress={() => setEditor(undefined)} />
+              <Action label="Save reading day" disabled={busy} onPress={saveDay} />
+            </View>
+          </ScrollView>
+        )}
+      </Modal>
     </Screen>
   );
 }

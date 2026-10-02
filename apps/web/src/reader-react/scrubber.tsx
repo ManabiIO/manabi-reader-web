@@ -35,7 +35,7 @@ export function ReaderScrubber(props: Partial<ScrubberProps> & ReaderViewProps) 
             }
           }}
           className={[
-            'writing-horizontal-tb mx-auto max-w-3xl rounded-t-3xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]'
+            'mx-auto max-w-3xl rounded-t-3xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] writing-horizontal-tb'
           ]
             .filter(Boolean)
             .join(' ')}

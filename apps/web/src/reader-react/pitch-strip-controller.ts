@@ -17,7 +17,7 @@ export interface PitchStripProps {
 
 export function createPitchStrip(
   props: PitchStripProps,
-  emit: (name: string, detail?: unknown) => void = () => {}
+  _emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
   let paths: ReturnType<typeof pitchPaths>;

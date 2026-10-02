@@ -1,5 +1,8 @@
-/** @license BSD-3-Clause
- * Copyright (c) 2026, ッツ Reader Authors. All rights reserved. */
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
 
 import { useReaderController } from '../reader-react/controller';
 import {
@@ -49,7 +52,7 @@ export function StatisticsContent(props: Partial<StatisticsContentProps> & Reade
         <>
           <Dom
             as="div"
-            className={['flex fixed items-center justify-center inset-0 h-full w-full text-7xl']
+            className={['fixed inset-0 flex h-full w-full items-center justify-center text-7xl']
               .filter(Boolean)
               .join(' ')}
           >
@@ -140,13 +143,13 @@ export function StatisticsContent(props: Partial<StatisticsContentProps> & Reade
         <>
           <Dom
             as="div"
-            className={['tap-highlight-transparent fixed inset-0 bg-black/[.2] z-[70]']
+            className={['fixed inset-0 z-[70] bg-black/[.2] tap-highlight-transparent']
               .filter(Boolean)
               .join(' ')}
           ></Dom>
           <Dom
             as="div"
-            className={['flex fixed items-center justify-center inset-0 h-full w-full text-7xl']
+            className={['fixed inset-0 flex h-full w-full items-center justify-center text-7xl']
               .filter(Boolean)
               .join(' ')}
           >

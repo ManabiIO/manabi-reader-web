@@ -17,7 +17,7 @@ export interface NotesProps {
 
 export function createNotes(
   props: NotesProps,
-  emit: (name: string, detail?: unknown) => void = () => {}
+  _emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
   let nextSignature: string;

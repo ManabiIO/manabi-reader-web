@@ -1,34 +1,91 @@
-/** @license BSD-3-Clause
- * Copyright (c) 2026, ッツ Reader Authors. All rights reserved.
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
  */
+
 import type { BookMetadata, BookSeries } from '../lib/library/book-presentation';
 export const LIBRARY_PAGE_LIMIT = 60;
 export const LIBRARY_ACTION_LIMIT = 60;
-export const LIBRARY_SORTS = ['lastBookOpen', 'title', 'author', 'id', 'progress', 'characters', 'lastBookModified', 'lastBookmarkModified'] as const;
-export type LibrarySort = typeof LIBRARY_SORTS[number];
+export const LIBRARY_SORTS = [
+  'lastBookOpen',
+  'title',
+  'author',
+  'id',
+  'progress',
+  'characters',
+  'lastBookModified',
+  'lastBookmarkModified'
+] as const;
+export type LibrarySort = (typeof LIBRARY_SORTS)[number];
 export interface LibraryQuery {
-  query?: string; collection?: string; series?: string; source?: string; unfinished?: boolean;
-  sort?: LibrarySort; direction?: 'asc' | 'desc'; offset?: number; limit?: number;
+  query?: string;
+  collection?: string;
+  series?: string;
+  source?: string;
+  unfinished?: boolean;
+  sort?: LibrarySort;
+  direction?: 'asc' | 'desc';
+  offset?: number;
+  limit?: number;
   detail?: string;
 }
 export interface NativeLibraryBook {
-  kind: 'book'; key: string; title: string; creators: string; bookId?: number;
-  characters: number; progress: number; finished: boolean; finishedOn?: string;
-  wantToRead: boolean; coverBlur: boolean; series?: BookSeries | null;
-  source: string; available: boolean; unavailableReason?: string;
+  kind: 'book';
+  key: string;
+  title: string;
+  creators: string;
+  bookId?: number;
+  characters: number;
+  progress: number;
+  finished: boolean;
+  finishedOn?: string;
+  wantToRead: boolean;
+  coverBlur: boolean;
+  series?: BookSeries | null;
+  source: string;
+  available: boolean;
+  unavailableReason?: string;
 }
-export interface NativeLibrarySeries { kind: 'series'; key: string; title: string; count: number; personal: boolean }
+export interface NativeLibrarySeries {
+  kind: 'series';
+  key: string;
+  title: string;
+  count: number;
+  personal: boolean;
+}
 export interface NativeLibraryState {
-  token: string; items: (NativeLibraryBook | NativeLibrarySeries)[];
-  total: number; offset: number; limit: number; totalBooks: number;
+  token: string;
+  items: (NativeLibraryBook | NativeLibrarySeries)[];
+  total: number;
+  offset: number;
+  limit: number;
+  totalBooks: number;
   collections: { id: string; name: string; count: number; builtIn: boolean }[];
-  sources: { id: string; name: string; provider: string; physicalActionsAvailable: false; reason: string }[];
+  sources: {
+    id: string;
+    name: string;
+    provider: string;
+    physicalActionsAvailable: false;
+    reason: string;
+  }[];
   trail: { id: string; name: string }[];
   counts: { finished: number; wantToRead: number };
   detail?: NativeLibraryBook & { metadata: BookMetadata; direction: string };
 }
 export type LibraryAction =
-  | { type: 'presentation'; keys: string[]; change: { title?: string; metadata?: BookMetadata; series?: BookSeries | null; direction?: 'ltr' | 'rtl' | 'unknown'; coverBlur?: boolean }; preserveSeriesIndex?: boolean }
+  | {
+      type: 'presentation';
+      keys: string[];
+      change: {
+        title?: string;
+        metadata?: BookMetadata;
+        series?: BookSeries | null;
+        direction?: 'ltr' | 'rtl' | 'unknown';
+        coverBlur?: boolean;
+      };
+      preserveSeriesIndex?: boolean;
+    }
   | { type: 'membership'; keys: string[]; collection: string; included: boolean }
   | { type: 'collection.create'; name: string; keys?: string[] }
   | { type: 'collection.rename'; collection: string; name: string }
@@ -36,8 +93,21 @@ export type LibraryAction =
   | { type: 'completion'; keys: string[]; state: 'finished' | 'reading'; day?: string };
 export type LibraryActionRequest = { token: string } & LibraryAction;
 /** Supplied by the existing trusted bridge; never accepted from its payload. */
-export interface LibraryAuthority { key: string; signal: AbortSignal; assertCurrent(): void }
+export interface LibraryAuthority {
+  key: string;
+  signal: AbortSignal;
+  assertCurrent(): void;
+}
 
-export interface LibraryAccessRequest { token: string; keys: string[]; operation: 'open' | 'delete' }
+export interface LibraryAccessRequest {
+  token: string;
+  keys: string[];
+  operation: 'open' | 'delete';
+}
 /** DOM-only authority: validate these again in the actual read/write transaction. */
-export interface LibraryAccessIdentity { bookId: number; contentHash?: string; title: string; lastBookModified: number }
+export interface LibraryAccessIdentity {
+  bookId: number;
+  contentHash?: string;
+  title: string;
+  lastBookModified: number;
+}

@@ -20,7 +20,7 @@ import {
   skipKeyDownListener$
 } from '$lib/data/store';
 import { ReaderController, readerTick, writeStore, type StoreValue } from './controller';
-export interface GalleryProps {}
+export type GalleryProps = Record<string, unknown>;
 
 export function createGallery(
   props: GalleryProps,
@@ -274,7 +274,7 @@ export function createGallery(
     get $skipKeyDownListener$() {
       return $skipKeyDownListener$;
     },
-    updateProps(next: Record<string, unknown>) {}
+    updateProps(_next: Record<string, unknown>) {}
   };
   return api;
 }
