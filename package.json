@@ -47,7 +47,9 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "rxjs": "7.8.2",
-    "fake-indexeddb": "6.2.5"
+    "fake-indexeddb": "6.2.5",
+    "idb": "8.0.3",
+    "p-limit": "7.3.2"
   },
   "lint-staged": {
     "*.{js,cjs,mjs,ts,svelte}": [

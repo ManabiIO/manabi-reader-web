@@ -1,2 +1,2 @@
 /** @license BSD-3-Clause */
-export { NativeSettingsScreen as default } from '../native-settings';
+export { default } from '../screens/routes/settings';

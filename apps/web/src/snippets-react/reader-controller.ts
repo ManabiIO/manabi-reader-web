@@ -110,6 +110,8 @@ function position() {
         revision: document.revision
     });
 }
+let positionWrite: Promise<void> | undefined;
+let failedPosition: SnippetLocator | undefined;
 function commitPosition() {
     const value = pendingPosition;
     __readerController.changed(pendingPosition = undefined);
@@ -119,8 +121,22 @@ function commitPosition() {
         // Keep the old parent locator acknowledged until the local write reaches
         // the summary. Otherwise it can be restored between commit and that write.
         __readerController.changed(committedLocator = locatorSignature(value));
-        void saveProgress(document.id, value, selectedScope).catch(() => undefined);
+        // Serialize durable cursor writes. Native Back waits for the same promise.
+        const write = () => saveProgress(document.id, value, selectedScope);
+        const current = positionWrite ? positionWrite.catch(() => undefined).then(write) : write();
+        positionWrite = current;
+        void current.then(() => { if (positionWrite === current) { positionWrite = undefined; failedPosition = undefined; } }, () => {
+            if (positionWrite === current) { positionWrite = undefined; failedPosition = value; }
+            if (mountedAlive) __readerController.changed(notice = 'Reading position could not be saved. Keep this reader open and try again.');
+        });
     }
+    return positionWrite;
+}
+async function flushPosition() {
+    clearTimeout(timer);
+    if (!pendingPosition && failedPosition) __readerController.changed(pendingPosition = failedPosition);
+    await commitPosition();
+    selectedScope.guard();
 }
 function schedule() {
     // Programmatic scrollIntoView, layout changes and resize restoration are not
@@ -225,7 +241,7 @@ __readerController.onMount(() => {
     };
 });
 
-const api = { controller: __readerController, restore, capture, position, commitPosition, schedule, markUserScrollIntent, hydrateRemotePosition,
+const api = { controller: __readerController, restore, capture, position, commitPosition, flushPosition, schedule, markUserScrollIntent, hydrateRemotePosition,
 get document() { return document; }, set document(nextValue: typeof document) { if (Object.is(document, nextValue)) return; document = nextValue; __readerController.invalidate(); },
 get selectedScope() { return selectedScope; }, set selectedScope(nextValue: typeof selectedScope) { if (Object.is(selectedScope, nextValue)) return; selectedScope = nextValue; __readerController.invalidate(); },
 get locator() { return locator; }, set locator(nextValue: typeof locator) { if (Object.is(locator, nextValue)) return; locator = nextValue; __readerController.invalidate(); },

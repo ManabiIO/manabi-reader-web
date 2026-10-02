@@ -6,7 +6,7 @@ export const BRIDGE_VERSION = 1 as const;
 export const MAX_BRIDGE_BYTES = 768 * 1024;
 export const MAX_IMPORT_BYTES = 256 * 1024 * 1024;
 export const IMPORT_CHUNK_BYTES = 256 * 1024;
-export const bridgeMethods = ['snapshot', 'library.query', 'library.state', 'library.action', 'settings.state', 'settings.action', 'open', 'close', 'settings', 'import.begin', 'import.chunk', 'import.commit', 'import.cancel', 'delete', 'account.refresh', 'account.logout', 'statistics.read', 'statistics.action'] as const;
+export const bridgeMethods = ['snapshot', 'route', 'library.query', 'library.state', 'library.action', 'settings.state', 'settings.action', 'snippets.state', 'snippets.action', 'open', 'close', 'settings', 'import.begin', 'import.chunk', 'import.commit', 'import.cancel', 'delete', 'account.refresh', 'account.logout', 'statistics.read', 'statistics.action'] as const;
 export type BridgeMethod = typeof bridgeMethods[number];
 export interface BridgeScope { session: string; epoch: number }
 export interface BridgeRequest extends BridgeScope { version: typeof BRIDGE_VERSION; id: string; method: BridgeMethod; payload: Record<string, unknown> }

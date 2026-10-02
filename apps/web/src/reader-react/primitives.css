@@ -1,4 +1,6 @@
 /* @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors. All rights reserved. */
+/* Component defaults must not override exact size/shape utility tokens. */
+@layer components {
 .reader-icon {
   display: inline-flex;
   align-items: center;
@@ -24,6 +26,8 @@
 .reader-button:focus-visible {
   outline: 2px solid var(--ring, currentColor);
   outline-offset: 2px;
+}
+
 }
 
 .reader-modal-backdrop {

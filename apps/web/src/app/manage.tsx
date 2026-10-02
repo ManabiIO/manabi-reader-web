@@ -1,2 +1,2 @@
 /** @license BSD-3-Clause */
-export { NativeLibraryScreen as default } from '../native-library';
+export { default } from '../screens/routes/manage';

@@ -217,3 +217,20 @@ test('workspace navigation keeps the unsaved draft and owns its before-navigatio
   c.controller.destroy();
   await goto('/reader-web/snippets'); assert.equal(location.pathname, '/reader-web/snippets'); assert.equal(c.leaveOpen, false);
 });
+
+
+test('native reader close waits for durable progress and permits explicit retry after failure', async () => {
+  const doc = documentAPI.createSnippet(documentAPI.plainContent('保存する位置'));
+  const c = createReader({ document: doc, selectedScope: fixture.scope() });
+  const locator = { blockId: documentAPI.passages(doc.content)[0].blockId, quote: '保存', before: '', offset: 0, revision: doc.revision };
+  let release; fixture.memory.beforeProgress = () => new Promise(resolve => release = resolve);
+  c.pendingPosition = locator; let closed = false;
+  const closing = c.flushPosition().then(() => closed = true);
+  await pause(); assert.equal(closed, false); release(); await closing; assert.equal(closed, true);
+  fixture.memory.beforeProgress = async () => { throw new Error('storage unavailable'); };
+  c.pendingPosition = locator; await assert.rejects(c.flushPosition(), /storage unavailable/);
+  fixture.memory.beforeProgress = undefined;
+  const before = fixture.memory.progress.length;
+  await c.flushPosition(); assert.equal(fixture.memory.progress.length, before + 1); assert.deepEqual(fixture.memory.progress.at(-1)[1], locator);
+  c.controller.destroy();
+});

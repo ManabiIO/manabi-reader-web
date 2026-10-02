@@ -4,10 +4,13 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
+const { createRequire } = require('node:module');
+// Resolve through the app's declared dependencies under strict pnpm layouts.
+const appRequire = createRequire(path.resolve(__dirname, '../../apps/web/package.json'));
 let lucide;
 function lucideModules() {
   if (lucide) return lucide;
-  const root = path.dirname(require.resolve('lucide-react/package.json'));
+  const root = path.dirname(appRequire.resolve('lucide-react/package.json'));
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   const source = fs.readFileSync(path.join(root, packageJson.module), 'utf8');
   const mappings = new Map();
@@ -32,7 +35,7 @@ module.exports = ({ types: t }) => ({ name: 'manabi-modular-icons', visitor: { I
     } else {
       const file = name.replace(/Icon$/, '');
       const target = `@phosphor-icons/react/dist/csr/${file}`;
-      try { const root = path.dirname(require.resolve('@phosphor-icons/react')); if (!fs.existsSync(path.join(root, 'csr', file + '.es.js'))) { kept.push(specifier); continue; } next.push(t.importDeclaration([t.importSpecifier(specifier.local, specifier.imported)], t.stringLiteral(target))); } catch { kept.push(specifier); }
+      try { const root = path.dirname(appRequire.resolve('@phosphor-icons/react')); if (!fs.existsSync(path.join(root, 'csr', file + '.es.js'))) { kept.push(specifier); continue; } next.push(t.importDeclaration([t.importSpecifier(specifier.local, specifier.imported)], t.stringLiteral(target))); } catch { kept.push(specifier); }
     }
   }
   if (!next.length) return;
