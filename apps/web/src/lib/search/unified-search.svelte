@@ -83,7 +83,12 @@
   const titleMatchesRevisionFor = referenceRevision<ShelfBook[]>();
   const titleMatchTextRevisionFor =
     referenceRevision<Record<string, readonly BookTitleMatchContext[]>>();
-  const snippetCorpusRevisionFor = referenceRevision<SnippetSummary[]>();
+  const snippetTitleRevisionFor = projectedReferenceRevision<SnippetSummary[], string>((items) =>
+    JSON.stringify(items.map((item) => [item.key, item.title]))
+  );
+  const snippetContentRevisionFor = projectedReferenceRevision<SnippetSummary[], string>((items) =>
+    JSON.stringify(items.map((item) => [item.key, item.title, item.revision]))
+  );
   const contentBooksRevisionFor = projectedReferenceRevision<ShelfBook[], string>((items) =>
     JSON.stringify(
       items.map((book) => [
@@ -135,7 +140,8 @@
   );
   $: titleMatchesRevision = titleMatchesRevisionFor(matches);
   $: titleMatchTextRevision = titleMatchTextRevisionFor(bookMatchText);
-  $: snippetCorpusRevision = snippetCorpusRevisionFor(eligible);
+  $: snippetTitleRevision = snippetTitleRevisionFor(eligible);
+  $: snippetContentRevision = snippetContentRevisionFor(eligible);
   $: contentBooksRevision = contentBooksRevisionFor(books);
   $: scopePlan = librarySearchScopePlan(searchScope);
   $: resultPlan = searchResultPlan(filter);
@@ -151,7 +157,7 @@
         owner,
         searchScope,
         scopePlan.books ? [titleMatchesRevision, titleMatchTextRevision] : 0,
-        scopePlan.snippets ? snippetCorpusRevision : 0,
+        scopePlan.snippets ? snippetTitleRevision : 0,
         videoLearningEnabled && searchScope === 'everything' ? mediaTitleRevision : 0
       ])
     : 'inactive';
@@ -161,7 +167,7 @@
         owner,
         searchScope,
         scopePlan.books ? contentBooksRevision : 0,
-        scopePlan.snippets ? snippetCorpusRevision : 0,
+        scopePlan.snippets ? snippetContentRevision : 0,
         videoLearningEnabled && searchScope === 'everything' ? mediaContentRevision : 0
       ])
     : 'inactive';
