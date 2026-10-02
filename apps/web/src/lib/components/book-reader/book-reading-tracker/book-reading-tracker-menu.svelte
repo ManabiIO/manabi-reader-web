@@ -450,17 +450,22 @@
                       title="Revert Item"
                       onclick={() => dispatch('revertStatistic', trackingHistoryItem)}
                     >
-                      <AppIcon icon={faTrash} /> <span>Revert Item</span>
+                      <AppIcon icon={faTrash} class="size-[18px]" /> <span>Revert</span>
                     </Button>
                     <span
+                      data-tracker-save-state
                       title={trackingHistoryItem.saved
                         ? 'Item saved to database'
                         : 'Item not saved yet'}
+                      class="inline-flex min-h-11 items-center gap-1.5 text-sm text-muted-foreground"
                       class:text-green-500={trackingHistoryItem.saved}
                     >
-                      <AppIcon icon={faFloppyDisk} />
+                      <AppIcon icon={faFloppyDisk} class="size-[18px]" />
+                      <span class="sm:sr-only"
+                        >{trackingHistoryItem.saved ? 'Saved' : 'Not saved yet'}</span
+                      >
                       <span class="sr-only"
-                        >{trackingHistoryItem.saved ? 'Saved to database' : 'Not saved yet'}</span
+                        >{trackingHistoryItem.saved ? ' to database' : ''}</span
                       >
                     </span>
                   </div>
