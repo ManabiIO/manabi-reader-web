@@ -1056,10 +1056,9 @@ def main():
             assert card_key
             card.get_by_text('Actions',exact=True).click()
             card.get_by_role('button',name='Generate missing transcript',exact=True).click()
-            page.wait_for_function("""() =>
-                document.querySelector('[role=status]')?.textContent?.includes(
-                  'Reopen this video to reconnect its local file'
-                )""")
+            expect(page.get_by_role('status').filter(
+                has_text='Reopen this video to reconnect its local file'
+            )).to_be_visible()
             assert page.evaluate('workspace.selected.size')==0
             assert not page.get_by_label('Select Watching',exact=True).is_checked()
 
