@@ -1239,3 +1239,45 @@
   height: 20px;
   accent-color: var(--primary);
 }
+
+/* Retained Library section navigation wraps at narrow widths and enlarged text.
+   Fixed-pixel gutters do not grow with the reading-size preference. */
+.library-react .media-library-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  pointer-events: auto;
+  gap: 6px;
+  width: max-content;
+  max-width: calc(100% - 48px);
+  margin: 8px 24px 12px;
+  padding: 4px;
+  border-radius: 24px;
+  background: var(--muted);
+  font: 0.9375rem/1.4 system-ui, sans-serif;
+}
+
+.library-react .media-library-tabs a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1 0 auto;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px clamp(10px, 3vw, 22px);
+  overflow-wrap: anywhere;
+  text-align: center;
+  border-radius: 20px;
+  color: var(--foreground);
+  text-decoration: none;
+}
+
+.library-react .media-library-tabs a[aria-current] {
+  background: var(--card);
+  font-weight: 650;
+}
+
+.library-react .media-library-tabs a:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}

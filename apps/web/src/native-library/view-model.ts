@@ -18,6 +18,7 @@ import {
 } from '../lib/library/want-to-read';
 import { isFinished, progressFraction } from '../lib/library/completion';
 import { foldSearch } from '../lib/library/search-normalization';
+import { decodeBookBinary } from '../lib/data/database/books-db/book-binary';
 import { SortDirection } from '../lib/data/sort-types';
 import { visibleLibraryEntries } from '../lib/library/account-visibility';
 import type { BookSummary } from '../lib/data/database/books-db/book-records';
@@ -165,6 +166,7 @@ export function nativeBook(
     finishedOn: book.completion?.finishedOn,
     wantToRead: collectionContains(wantToReadCollection(organization), book),
     coverBlur: !!book.coverBlur,
+    hasCover: false,
     series: book.series,
     source: book.source?.name.slice(0, 512) || 'On this device',
     available,
@@ -202,7 +204,7 @@ export function nativeOwnedCards(
       const bookmark = ownReading ? marks.get(book.id) : undefined;
       return {
         ...book,
-        imagePath: '',
+        imagePath: nativeCoverPath(book.coverImage),
         progress: progressFraction(bookmark?.progress),
         lastBookOpen: ownReading ? book.lastBookOpen : 0,
         lastBookmarkModified: bookmark?.lastBookmarkModified ?? 0,
@@ -210,4 +212,13 @@ export function nativeOwnedCards(
       };
     })
   };
+}
+
+/** A damaged restored cover must not prevent the whole Library from loading. */
+function nativeCoverPath(value: BookSummary['coverImage']): string | Blob {
+  try {
+    return typeof value === 'string' || !value ? value || '' : decodeBookBinary(value);
+  } catch {
+    return '';
+  }
 }

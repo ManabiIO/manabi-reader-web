@@ -659,3 +659,28 @@ test('native passage commands share reader account authority and retire on gener
     assert.throws(call.authority.assertCurrent);
   }
 });
+
+test('native cover reads and cancellation use the trusted runtime authority without exposing it as payload', async (t) => {
+  const f = await runtimeOwner(t),
+    calls = [];
+  f.coverRead = (payload, authority) => {
+    calls.push({ payload, authority });
+    return { data: 'data:image/webp;base64,YQ==' };
+  };
+  f.coverCancel = (payload, authority) => {
+    calls.push({ payload, authority });
+    return { cancelled: true };
+  };
+  success(
+    await f.command('library.cover.read', { token: 'view-1', key: 'book-1', request: 'cover-1' })
+  );
+  success(await f.command('library.cover.cancel', { token: 'view-1', requests: ['cover-1'] }));
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].authority.key, `${f.scope.session}:${f.scope.epoch}`);
+  assert.equal('authority' in calls[0].payload, false);
+  await f.refreshGeneration();
+  for (const call of calls) {
+    assert.equal(call.authority.signal.aborted, true);
+    assert.throws(call.authority.assertCurrent);
+  }
+});

@@ -239,6 +239,10 @@ export default function ReaderRuntime({
                 return library.state(payload, libraryAuthority);
               case 'library.action':
                 return library.action(payload, libraryAuthority);
+              case 'library.cover.read':
+                return library.readCover(payload, libraryAuthority);
+              case 'library.cover.cancel':
+                return library.cancelCover(payload, libraryAuthority);
               case 'library.content.start':
                 return contentSearch.start(payload, libraryAuthority);
               case 'library.content.read':

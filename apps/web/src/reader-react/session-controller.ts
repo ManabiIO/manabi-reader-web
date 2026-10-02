@@ -199,6 +199,7 @@ import {
 import { ReaderController, readerTick, writeStore, type StoreValue } from './controller';
 import { LogReportDialog, MessageDialog, ConfirmDialog, NumberDialog } from '../ui/dialogs';
 export interface SessionProps {
+  routeUrl?: string;
   expectedBook?: BookAccessIdentity;
   bookAuthority?: BookAccessAuthority;
 }
@@ -210,6 +211,7 @@ export function createSession(
   const __readerController = new ReaderController();
   const expectedBook = props.expectedBook && snapshotBookAccessIdentity(props.expectedBook);
   const bookAuthority = props.bookAuthority;
+  const readerRouteUrl = props.routeUrl ? new URL(props.routeUrl) : undefined;
   let isPaginated: boolean;
   let firstDimensionMargin: number;
   let tapButtonHeight: string;
@@ -553,7 +555,9 @@ export function createSession(
     .filter((f) => !!f && $verticalMode$)
     .join(', ');
   const verticalTextOrientation = $verticalMode$ ? $verticalTextOrientation$ : '';
-  const bookId$ = iffBrowser(() => readableToObservable(page)).pipe(
+  const bookId$ = (
+    readerRouteUrl ? of({ url: readerRouteUrl }) : iffBrowser(() => readableToObservable(page))
+  ).pipe(
     map((pageObj) => Number(pageObj.url.searchParams.get('id'))),
     distinctUntilChanged(),
     shareReplay({ refCount: true, bufferSize: 1 })
@@ -730,7 +734,7 @@ export function createSession(
       const incomingLocation = takeLibraryLocation(
         rawBookData.id,
         localProfileUser()?.id ?? null,
-        $page.url.searchParams.get('library-search')
+        (readerRouteUrl ?? $page.url).searchParams.get('library-search')
       );
       if (incomingLocation) {
         __readerController.changed((libraryTarget = incomingLocation));

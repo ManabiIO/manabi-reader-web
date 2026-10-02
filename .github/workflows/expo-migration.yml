@@ -65,9 +65,10 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
         run: |
           node scripts/verify-reader-dom-autolinking.mjs
+          node scripts/prepare-android-qualification.mjs
           node --test patches/reader-dom/contract.test.mjs
           cd apps/web/android
-          ./gradlew :expo-dom-webview:testDebugUnitTest :app:assembleRelease --no-daemon --max-workers=2
+          ./gradlew :expo-dom-webview:testDebugUnitTest :app:assembleRelease :app:assembleReleaseAndroidTest --no-daemon --max-workers=2
           cd ../../..
           node scripts/verify-expo-export.mjs --platform apk --output apps/web/android/app/build/outputs/apk/release/app-release.apk --report apps/web/dist-android/apk-qualification.json
 
@@ -100,6 +101,7 @@ jobs:
             apps/web/build
             apps/web/dist-android
             apps/web/android/app/build/outputs/apk/release
+            apps/web/android/app/build/outputs/apk/androidTest/release
             pnpm-lock.yaml
           retention-days: 7
   regression:
@@ -131,6 +133,9 @@ jobs:
       - name: Migration contract tests
         if: success() || failure()
         run: pnpm test:expo
+      - name: Android instrumentation harness contracts
+        if: success() || failure()
+        run: node --test tests/android/harness.test.mjs
       - name: Existing reader regressions
         if: success() || failure()
         run: pnpm test:reader
@@ -146,6 +151,7 @@ jobs:
         run: |
           pnpm exec playwright install --with-deps chromium
           node test/expo/onnx-runtime-browser.mjs
+          node test/expo/native-library-cover-browser.mjs
       - name: Existing Whispersync core coverage
         if: success() || failure()
         run: pnpm test:whispersync
@@ -185,4 +191,58 @@ jobs:
         with:
           name: expo-browser-${{ matrix.suite }}
           path: test-results/
+          retention-days: 7
+
+  android-runtime:
+    name: Packaged Android host runtime
+    needs: export
+    if: ${{ success() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - uses: actions/download-artifact@v4
+        with:
+          name: expo-android-evidence
+          path: evidence
+      - name: Require qualified release and test APKs from this exact run
+        run: |
+          mkdir -p apps/web/android/app/build/outputs/apk
+          cp -a evidence/apps/web/android/app/build/outputs/apk/. apps/web/android/app/build/outputs/apk/
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('evidence/apps/web/dist-android/apk-qualification.json'));if(p.passed!==true)throw Error('APK assets did not qualify');"
+          test -f apps/web/android/app/build/outputs/apk/release/app-release.apk
+          test -f apps/web/android/app/build/outputs/apk/androidTest/release/app-release-androidTest.apk
+      - name: Boot a fresh disposable emulator using official Android SDK tools
+        env:
+          ANDROID_SERIAL: emulator-5554
+        run: |
+          set -euo pipefail
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+          if adb -s "$ANDROID_SERIAL" get-state >/dev/null 2>&1; then
+            echo 'Refusing an existing emulator' >&2
+            exit 1
+          fi
+          sdkmanager --install 'system-images;android-35;google_apis;x86_64' emulator platform-tools
+          export ANDROID_AVD_HOME="$(mktemp -d "$RUNNER_TEMP/manabi-reader-avd.XXXXXX")"
+          printf 'no\n' | avdmanager create avd --name manabi-reader-qualification --package 'system-images;android-35;google_apis;x86_64'
+          acceleration=off
+          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then acceleration=auto; fi
+          mkdir -p test-results/android
+          echo "Emulator acceleration: $acceleration (no host permission changes)"
+          emulator -avd manabi-reader-qualification -port 5554 -accel "$acceleration" -memory 2048 -no-window -no-audio -no-snapshot -gpu swiftshader -no-boot-anim > test-results/android/emulator.log 2>&1 &
+          emulator_pid=$!
+          trap 'adb -s "$ANDROID_SERIAL" emu kill >/dev/null 2>&1 || kill "$emulator_pid" 2>/dev/null || true' EXIT
+          timeout 600 bash -c 'until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = 1 ]; do sleep 2; done'
+          adb shell input keyevent 82
+          bash tests/android/run-qualification.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: expo-packaged-android-runtime
+          path: test-results/android/
           retention-days: 7

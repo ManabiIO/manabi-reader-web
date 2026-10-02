@@ -20,6 +20,8 @@ export interface ReaderScreenHandle {
 }
 export interface ReaderScreenProps {
   bookId?: number;
+  /** Web route authority, available before Expo commits window.location. */
+  routeUrl?: string;
   expectedBook?: BookAccessIdentity;
   libraryLocationToken?: string;
   bookAuthority?: BookAccessAuthority;
@@ -30,12 +32,14 @@ export interface ReaderScreenProps {
  * component on Android. Book/database identities remain stable across shells. */
 export function ReaderScreen({
   bookId,
+  routeUrl,
   expectedBook,
   libraryLocationToken,
   bookAuthority,
   onExit,
   registerHandle
 }: ReaderScreenProps) {
+  const webRouteUrl = bookId === undefined ? routeUrl : undefined;
   const session = useRef<ReturnType<typeof createSession> | undefined>(undefined);
   const latestExit = useRef(onExit);
   latestExit.current = onExit;
@@ -52,11 +56,12 @@ export function ReaderScreen({
   }, [registerHandle]);
   const [ready, setReady] = useState<{
     bookId: number | undefined;
+    routeUrl: string | undefined;
     expectedBook: BookAccessIdentity | undefined;
     bookAuthority: BookAccessAuthority | undefined;
   }>();
   useEffect(() => {
-    const url = new URL(window.location.href);
+    const url = new URL(webRouteUrl ?? window.location.href);
     if (bookId !== undefined) {
       url.pathname = `${base}/b`;
       url.search = '';
@@ -64,8 +69,8 @@ export function ReaderScreen({
       if (libraryLocationToken) url.searchParams.set('library-search', libraryLocationToken);
     }
     page.set({ url, params: {}, state: history.state ?? {}, data: {} });
-    setReady({ bookId, expectedBook, bookAuthority });
-  }, [bookId, expectedBook, bookAuthority, libraryLocationToken]);
+    setReady({ bookId, routeUrl: webRouteUrl, expectedBook, bookAuthority });
+  }, [bookId, webRouteUrl, expectedBook, bookAuthority, libraryLocationToken]);
   useEffect(() => {
     session.current?.setExitHandler(onExit ? () => latestExit.current?.() : undefined);
   }, [onExit]);
@@ -73,10 +78,12 @@ export function ReaderScreen({
   // The previous controller owns its original authority and immutable identity.
   return ready &&
     ready.bookId === bookId &&
+    ready.routeUrl === webRouteUrl &&
     ready.expectedBook === expectedBook &&
     ready.bookAuthority === bookAuthority ? (
     <ReaderSession
-      key={bookId ?? 'url'}
+      key={webRouteUrl ?? bookId ?? 'url'}
+      routeUrl={webRouteUrl}
       expectedBook={expectedBook}
       bookAuthority={bookAuthority}
       bindings={{ this: bindSession }}

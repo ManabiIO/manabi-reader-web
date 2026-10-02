@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, useId, type ReactNode } from 'react';
 /**
  * React/controller port of lib/library/book-organization-dialog.svelte; transactions retain their original guards.
  */
@@ -20,6 +20,7 @@ export function OrganizationView({
   c: OrganizationController;
   children?: ReactNode;
 }) {
+  const labels = useId();
   return (
     <>
       <Dialog.Root
@@ -147,8 +148,9 @@ export function OrganizationView({
                         />
                       </label>
                       <label className={['grid gap-2'].filter(Boolean).join(' ')}>
-                        {'Authors (one per line)'}
+                        <span id={`${labels}-authors`}>{'Authors (one per line)'}</span>
                         <textarea
+                          aria-labelledby={`${labels}-authors`}
                           rows={3}
                           maxLength={16415}
                           value={c.authors}
@@ -159,8 +161,11 @@ export function OrganizationView({
                         />
                       </label>
                       <label className={['grid gap-2'].filter(Boolean).join(' ')}>
-                        {'Author sort names (matching lines, optional)'}
+                        <span id={`${labels}-author-sort`}>
+                          {'Author sort names (matching lines, optional)'}
+                        </span>
                         <textarea
+                          aria-labelledby={`${labels}-author-sort`}
                           rows={2}
                           maxLength={16415}
                           value={c.authorSort}
@@ -209,8 +214,9 @@ export function OrganizationView({
                         />
                       </label>
                       <label className={['grid gap-2'].filter(Boolean).join(' ')}>
-                        {'Tags (one per line)'}
+                        <span id={`${labels}-subjects`}>{'Tags (one per line)'}</span>
                         <textarea
+                          aria-labelledby={`${labels}-subjects`}
                           rows={2}
                           maxLength={15423}
                           value={c.subjects}
@@ -221,8 +227,9 @@ export function OrganizationView({
                         />
                       </label>
                       <label className={['grid gap-2'].filter(Boolean).join(' ')}>
-                        {'Description'}
+                        <span id={`${labels}-description`}>{'Description'}</span>
                         <textarea
+                          aria-labelledby={`${labels}-description`}
                           rows={5}
                           maxLength={16000}
                           value={c.description}

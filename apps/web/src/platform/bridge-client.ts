@@ -7,6 +7,8 @@
 import {
   BRIDGE_VERSION,
   MAX_BRIDGE_BYTES,
+  bridgeMessageBytes,
+  readOnlyBridgeMethods,
   parseBridgeRequest,
   sameScope,
   type BridgeMethod,
@@ -55,7 +57,7 @@ export class BridgeClient {
     const request = parseBridgeRequest({
       version: BRIDGE_VERSION,
       ...scope,
-      id: `command_${Date.now()}_${++this.serial}`,
+      id: `${readOnlyBridgeMethods.includes(method) ? 'read_' : ''}command_${Date.now()}_${++this.serial}`,
       method,
       payload
     });
@@ -96,7 +98,7 @@ export class BridgeClient {
     if (!pending || !sameScope(reply, pending.request)) return false;
     let size: number;
     try {
-      size = JSON.stringify(value).length;
+      size = bridgeMessageBytes(JSON.stringify(value));
     } catch {
       return false;
     }

@@ -5,7 +5,8 @@ import {
   ImportTransfer,
   parseBridgeRequest,
   safeExternalLink,
-  IMPORT_CHUNK_BYTES
+  IMPORT_CHUNK_BYTES,
+  bridgeMessageBytes
 } from '../../apps/web/src/platform/bridge-contract.ts';
 const scope = { session: 'session_123', epoch: 0 };
 const request = (extra = {}) => ({
@@ -118,4 +119,104 @@ test('a duplicate acknowledged mutation preserves its completed outcome after ac
   assert.equal(duplicate.outcome, 'completed');
   assert.equal(duplicate.stale, true);
   assert.equal(count, 1);
+});
+
+test('bounded readonly polling does not consume mutation receipts or permit read IDs to mutate', async () => {
+  let count = 0;
+  const authority = new BridgeAuthority(
+    () => scope,
+    async () => ++count,
+    new AbortController().signal
+  );
+  for (let index = 0; index < 2200; index++)
+    assert.equal((await authority.request(request({ id: `read_poll_${index}` }))).ok, true);
+  assert.equal(authority.reads.size, 16);
+  assert.equal(authority.outcomes.size, 0);
+  const fresh = request({ id: 'read_poll_2200' });
+  const a = await authority.request(fresh),
+    b = await authority.request(fresh);
+  assert.equal(a.value, b.value);
+  assert.throws(
+    () => parseBridgeRequest(request({ id: 'read_poll_1', method: 'delete' })),
+    /cannot authorize/
+  );
+  assert.equal((await authority.request(request({ method: 'delete' }))).ok, true);
+  assert.equal(authority.outcomes.size, 1);
+});
+
+test('large completed mutation receipts discard raw payloads while preserving exact duplicate outcomes', async () => {
+  let count = 0;
+  const authority = new BridgeAuthority(
+    () => scope,
+    async () => ++count,
+    new AbortController().signal
+  );
+  const input = request({ method: 'import.chunk', payload: { data: 'x'.repeat(100000) } });
+  const first = await authority.request(input);
+  const receipt = authority.outcomes.get(input.id);
+  assert.equal(receipt.hashed, true);
+  assert.equal((await receipt.fingerprint).length, 64);
+  assert.equal((await authority.request(input)).value, first.value);
+  assert.equal(
+    (await authority.request({ ...input, payload: { data: 'y'.repeat(100000) } })).outcome,
+    'not-started'
+  );
+  assert.equal(count, 1);
+});
+
+test('bridge bounds encoded Unicode bytes rather than UTF-16 characters', () => {
+  for (const value of ['ASCII', '日本語', '😀の本', '\ud800'])
+    assert.equal(bridgeMessageBytes(value), new TextEncoder().encode(value).length);
+  assert.throws(
+    () => parseBridgeRequest(request({ payload: { query: '本'.repeat(300000) } })),
+    /size limit/
+  );
+});
+
+test('read cache keeps pending work coalesced and refuses an unbounded pending queue', async () => {
+  let resolve;
+  const gate = new Promise((done) => {
+    resolve = done;
+  });
+  let count = 0;
+  const authority = new BridgeAuthority(
+    () => scope,
+    async () => {
+      count++;
+      await gate;
+      return 'ready';
+    },
+    new AbortController().signal
+  );
+  const pending = Array.from({ length: 32 }, (_, index) =>
+    authority.request(request({ id: `read_pending_${index}` }))
+  );
+  const duplicate = authority.request(request({ id: 'read_pending_0' }));
+  assert.equal(
+    (await authority.request(request({ id: 'read_pending_33' }))).outcome,
+    'not-started'
+  );
+  assert.equal(count, 32);
+  resolve();
+  assert.equal((await duplicate).value, 'ready');
+  await Promise.all(pending);
+  assert.equal(authority.reads.size, 16);
+});
+
+test('evicted readonly requests may refresh state but never discard retained mutation outcomes', async () => {
+  let count = 0;
+  const authority = new BridgeAuthority(
+    () => scope,
+    async () => ++count,
+    new AbortController().signal
+  );
+  const mutation = request({ id: 'mutation_1', method: 'delete' });
+  const saved = await authority.request(mutation);
+  const read = request({ id: 'read_state_0' });
+  const prior = await authority.request(read);
+  for (let index = 1; index <= 20; index++)
+    await authority.request(request({ id: `read_state_${index}` }));
+  assert.ok((await authority.request(read)).value > prior.value);
+  assert.equal((await authority.request(mutation)).value, saved.value);
+  assert.equal(authority.outcomes.size, 1);
 });

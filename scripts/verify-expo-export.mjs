@@ -487,7 +487,14 @@ export async function verifyExport({
     const publicFiles = await inventory(path.join(app, 'static'));
     for (const [name, expected] of publicFiles) {
       if (name.startsWith('moss/') && !media) continue;
-      const emitted = files.get(publicRoot + name);
+      // Android's packaged assets did not retain the .tar.gz URL in the real APK.
+      // The exact corresponding-source .tgz alias must have the original gzip bytes;
+      // this is not an exemption from shipping and inspecting the source archive.
+      const packagedName =
+        platform === 'apk' && /^manabitan\/[a-f0-9]{40}\/corresponding-source\.tar\.gz$/.test(name)
+          ? name.replace(/\.tar\.gz$/, '.tgz')
+          : name;
+      const emitted = files.get(publicRoot + packagedName);
       if (check(!!emitted, `Public file was not exported: ${publicRoot}${name}`))
         check(
           (await hashFile(expected.path)) === (await hashFile(emitted.path)),
@@ -560,16 +567,19 @@ export async function verifyExport({
       'data/recommended-dictionaries.json',
       'LICENSE',
       'SOURCE.txt',
-      'corresponding-source.tar.gz'
+      platform === 'apk' ? 'corresponding-source.tgz' : 'corresponding-source.tar.gz'
     ])
       await read(dictionaryRoot + name);
-    if (files.has(dictionaryRoot + 'corresponding-source.tar.gz')) {
+    const sourceArchive =
+      dictionaryRoot +
+      (platform === 'apk' ? 'corresponding-source.tgz' : 'corresponding-source.tar.gz');
+    evidence.correspondingSourceArchive = sourceArchive;
+    if (files.has(sourceArchive)) {
       try {
-        const names = execFileSync(
-          'tar',
-          ['-tzf', files.get(dictionaryRoot + 'corresponding-source.tar.gz').path],
-          { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }
-        ).split('\n');
+        const names = execFileSync('tar', ['-tzf', files.get(sourceArchive).path], {
+          encoding: 'utf8',
+          maxBuffer: 16 * 1024 * 1024
+        }).split('\n');
         check(
           ['web/build.mjs', 'package.json', 'LICENSE'].every((name) => names.includes(name)),
           'Manabitan corresponding source archive lacks build inputs/license'
@@ -653,7 +663,8 @@ export async function verifyExport({
         ? ['index.html', '404.html', ...ROUTES.filter(Boolean).map((route) => `${route}.html`)]
         : [...files.keys()].filter(
             (name) =>
-              name.startsWith(browserRoot) && /^\w+\.html$/.test(name.slice(browserRoot.length))
+              name.startsWith(browserRoot) &&
+              /^[a-f0-9]{32}\.html$/.test(name.slice(browserRoot.length))
           );
     check(htmlFiles.length > 0, 'No DOM HTML entry was exported');
     if (platform === 'apk' && files.has('assets/index.android.bundle')) {

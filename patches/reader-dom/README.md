@@ -1,6 +1,6 @@
 # Android reader DOM secure-origin adapter
 
-Status: **source/JVM contract verified; Android Kotlin build and device/runtime qualification still required**. This adapter is not an Android acceptance result.
+Status: **patched Android Kotlin/Java debug and release builds plus JVM tests pass on `a0988605`; complete APK asset and device/runtime qualification still required**. This adapter is not an Android acceptance result.
 
 ## Why an exact dependency patch
 

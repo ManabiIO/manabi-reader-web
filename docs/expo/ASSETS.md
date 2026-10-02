@@ -176,3 +176,9 @@ source inspection substitutes for those gates.
 
 - [Pinned Zstd initializer and locateFile override](https://github.com/ManabiIO/manabitan/blob/4db879b7b5bcb749f90042a313669526ef2f57f4/dev/lib/zstd-wasm.js)
 - [Pinned Zstd caller URL](https://github.com/ManabiIO/manabitan/blob/4db879b7b5bcb749f90042a313669526ef2f57f4/ext/js/dictionary/zstd-term-content.js)
+
+## APK archive and entry qualification
+
+The first real release APK (`a0988605`) compiled successfully, including the patched Kotlin host and its JVM tests. Its asset gate rejected the unavailable `.tar.gz` corresponding-source URL and treated Expo's copied web input template as a DOM entry. The preparation now retains the original web archive URL and writes a byte-identical `corresponding-source.tgz`, advertised in `SOURCE.txt`. APK qualification requires those actual gzip bytes and verifies the archive's build inputs/license; missing, substituted or corrupt source fails. No source payload is waived.
+
+Native DOM entries must be the SDK's 32-hex hashed HTML files referenced by the native bundle. A copied `index.html` template cannot satisfy that requirement and is not falsely required to reference native worker/CSS output. The real hashed entries and their complete reachable assets still have to pass. The next exact-head APK run must qualify these changes before runtime acceptance.

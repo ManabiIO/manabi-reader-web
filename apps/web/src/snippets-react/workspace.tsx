@@ -205,6 +205,7 @@ export function Workspace(props: WorkspaceProps & ReaderViewProps) {
                 {c.EditorView ? (
                   <>
                     <DynamicComponent
+                      this={c.EditorView}
                       content={c.content}
                       disabled={c.busy}
                       onchange={c.changedContent}

@@ -11,6 +11,27 @@ export const BRIDGE_VERSION = 1 as const;
 export const MAX_BRIDGE_BYTES = 768 * 1024;
 export const MAX_IMPORT_BYTES = 256 * 1024 * 1024;
 export const IMPORT_CHUNK_BYTES = 256 * 1024;
+/** UTF-8 length without allocating another copy of chunked transfer payloads. */
+export function bridgeMessageBytes(value: string): number {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code < 0x80) bytes++;
+    else if (code < 0x800) bytes += 2;
+    else if (
+      code >= 0xd800 &&
+      code <= 0xdbff &&
+      index + 1 < value.length &&
+      value.charCodeAt(index + 1) >= 0xdc00 &&
+      value.charCodeAt(index + 1) <= 0xdfff
+    ) {
+      bytes += 4;
+      index++;
+    } else bytes += 3;
+  }
+  return bytes;
+}
+
 export const bridgeMethods = [
   'snapshot',
   'route',
@@ -20,6 +41,8 @@ export const bridgeMethods = [
   'library.content.start',
   'library.content.read',
   'library.content.cancel',
+  'library.cover.read',
+  'library.cover.cancel',
   'settings.state',
   'settings.action',
   'snippets.state',
@@ -38,6 +61,20 @@ export const bridgeMethods = [
   'statistics.action'
 ] as const;
 export type BridgeMethod = (typeof bridgeMethods)[number];
+/** Reserved read_ identities can only query state. They can never become mutations,
+ * even after their bounded reply cache expires. A later query may observe newer state.
+ */
+export const readOnlyBridgeMethods: readonly BridgeMethod[] = [
+  'snapshot',
+  'library.query',
+  'library.state',
+  'library.content.read',
+  'library.cover.read',
+  'settings.state',
+  'snippets.state',
+  'statistics.read'
+];
+
 export interface BridgeScope {
   session: string;
   epoch: number;
@@ -74,7 +111,9 @@ export function parseBridgeRequest(value: unknown): BridgeRequest {
     !record(value.payload)
   )
     throw new Error('Invalid reader bridge request.');
-  if (JSON.stringify(value).length > MAX_BRIDGE_BYTES)
+  if (value.id.startsWith('read_') && !readOnlyBridgeMethods.includes(value.method as BridgeMethod))
+    throw new Error('Read-only request identity cannot authorize a mutation.');
+  if (bridgeMessageBytes(JSON.stringify(value)) > MAX_BRIDGE_BYTES)
     throw new Error('Reader bridge message exceeds the size limit.');
   return value as unknown as BridgeRequest;
 }
@@ -92,8 +131,23 @@ export function safeExternalLink(value: string): string | undefined {
   }
 }
 /** A request is never automatically replayed after a host/account change. */
+type Receipt = {
+  fingerprint: string | Promise<string>;
+  hashed: boolean;
+  settled: boolean;
+  reply: Promise<BridgeReply>;
+};
+const fingerprintHash = async (value: string): Promise<string> =>
+  Array.from(
+    new Uint8Array(
+      await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
+    )
+  )
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
 export class BridgeAuthority {
-  private outcomes = new Map<string, { fingerprint: string; reply: Promise<BridgeReply> }>();
+  private outcomes = new Map<string, Receipt>();
+  private reads = new Map<string, Receipt>();
   private scope: () => BridgeScope;
   private execute: (request: BridgeRequest, signal: AbortSignal) => Promise<unknown>;
   private lifetime: AbortSignal;
@@ -115,9 +169,26 @@ export class BridgeAuthority {
       epoch: request.epoch
     };
     const fingerprint = JSON.stringify(request);
-    const previous = this.outcomes.get(request.id);
+    const readOnly = request.id.startsWith('read_');
+    const receipts = readOnly ? this.reads : this.outcomes;
+    const previous = receipts.get(request.id);
     if (previous) {
-      if (previous.fingerprint !== fingerprint)
+      let matches: boolean;
+      try {
+        const hashed = previous.hashed;
+        matches =
+          (await previous.fingerprint) ===
+          (hashed ? await fingerprintHash(fingerprint) : fingerprint);
+      } catch {
+        return {
+          ...common,
+          ok: false,
+          outcome: 'unknown',
+          error:
+            'A previous command receipt could not be verified. Reconcile saved state before retrying.'
+        };
+      }
+      if (!matches)
         return {
           ...common,
           ok: false,
@@ -138,12 +209,18 @@ export class BridgeAuthority {
         error: 'The reader or account changed. Refresh before trying again.'
       };
     // Refuse admission rather than dropping mutation outcomes and allowing a retry.
-    if (this.outcomes.size >= 2048)
+    if (
+      readOnly
+        ? [...this.reads.values()].filter((receipt) => !receipt.settled).length >= 32
+        : this.outcomes.size >= 2048
+    )
       return {
         ...common,
         ok: false,
         outcome: 'not-started',
-        error: 'Reader command history is full. Restart the app to reconcile saved state.'
+        error: readOnly
+          ? 'Too many state queries are pending. Wait before refreshing.'
+          : 'Reader command history is full. Restart the app to reconcile saved state.'
       };
     const reply = (async (): Promise<BridgeReply> => {
       try {
@@ -168,7 +245,32 @@ export class BridgeAuthority {
         };
       }
     })();
-    this.outcomes.set(request.id, { fingerprint, reply });
+    const receipt: Receipt = { fingerprint, reply, hashed: false, settled: false };
+    receipts.set(request.id, receipt);
+    void reply.then(() => {
+      receipt.settled = true;
+      // Chunk transfer receipts must not retain an entire second base64 copy of
+      // every imported book. Preserve cryptographic payload-reuse detection.
+      if (!readOnly && fingerprint.length > 1024 && globalThis.crypto?.subtle) {
+        const digest = fingerprintHash(fingerprint);
+        receipt.fingerprint = digest;
+        receipt.hashed = true;
+        void digest.catch(() => {
+          receipt.fingerprint = fingerprint;
+          receipt.hashed = false;
+        });
+      }
+      if (readOnly) {
+        let settled = [...this.reads.values()].filter((entry) => entry.settled).length;
+        for (const [id, entry] of this.reads) {
+          if (settled <= 16) break;
+          if (entry.settled) {
+            this.reads.delete(id);
+            settled--;
+          }
+        }
+      }
+    });
     return reply;
   }
 }

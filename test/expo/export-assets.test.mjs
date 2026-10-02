@@ -240,6 +240,10 @@ async function fixture(t, platform = 'web', media = false) {
     'package.json',
     'LICENSE'
   ]);
+  await fs.copyFile(
+    path.join(publicDir, dict, 'corresponding-source.tar.gz'),
+    path.join(publicDir, dict, 'corresponding-source.tgz')
+  );
   const archive = 'dictionary bytes';
   await put(publicDir, 'dictionary-archives/default.zip', archive);
   await put(
@@ -690,4 +694,37 @@ test('web still requires its Library content-search worker', async (t) => {
     )
   );
   assert.ok(report.evidence.requiredModuleWorkers.includes('library-content-search-worker'));
+});
+
+test('APK source alias must retain the exact gzip archive and the copied web template is not a DOM entry', async (t) => {
+  const options = await fixture(t, 'apk');
+  const version = JSON.parse(
+    await fs.readFile(path.join(options.app, 'src/lib/search/manabitan-version.json'), 'utf8')
+  );
+  const prefix = `assets/www.bundle/manabitan/${version.revision}/`;
+  await fs.unlink(path.join(options.output, prefix, 'corresponding-source.tar.gz'));
+  await put(
+    options.output,
+    'assets/www.bundle/index.html',
+    '<html><head><script src="/reader-web/appearance-init.js"></script></head></html>'
+  );
+  const report = await verifyExport(options);
+  assert.equal(report.passed, true, report.errors.join('\n'));
+  assert.equal(report.evidence.correspondingSourceArchive, prefix + 'corresponding-source.tgz');
+  await put(options.output, prefix + 'corresponding-source.tgz', 'wrong source bytes');
+  const corrupted = await verifyExport(options);
+  assert.equal(corrupted.passed, false);
+  assert.ok(corrupted.errors.some((error) => /Public file bytes differ/.test(error)));
+  assert.ok(corrupted.errors.some((error) => /source is not a readable/.test(error)));
+});
+
+test('APK cannot substitute a copied index template for its hashed native DOM entry', async (t) => {
+  const options = await fixture(t, 'apk');
+  const bundle = path.join(options.output, 'assets/www.bundle');
+  for (const name of await fs.readdir(bundle))
+    if (/^[a-f0-9]{32}\.html$/.test(name)) await fs.unlink(path.join(bundle, name));
+  await put(options.output, 'assets/www.bundle/index.html', '<html><body>template</body></html>');
+  const report = await verifyExport(options);
+  assert.equal(report.passed, false);
+  assert.ok(report.errors.includes('No DOM HTML entry was exported'));
 });

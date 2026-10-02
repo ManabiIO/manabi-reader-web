@@ -430,6 +430,25 @@ test('workspace retains search, recovered drafts and guarded editor navigation s
   assert(button('Import text or backup…', ui.host));
 });
 
+test('workspace New snippet mounts the actual dynamically loaded Tiptap editor', async () => {
+  const ui = await mount(Workspace, {}, true);
+  await act(async () => pause(10));
+  await click(button('New snippet', ui.host));
+  const deadline = Date.now() + 2000;
+  while (!ui.host.querySelector('.editor-host [contenteditable="true"]') && Date.now() < deadline)
+    await act(async () => pause(10));
+  const editable = ui.host.querySelector('.editor-host [contenteditable="true"]');
+  assert.ok(editable, 'the real editor component must be passed through DynamicComponent');
+  assert.ok(button('Bold', ui.host), 'the actual editor toolbar is mounted');
+  assert.equal(button('Save snippet', ui.host).disabled, false);
+  await click(button('Keep draft', ui.host));
+  assert.equal(ui.host.querySelector('.editor-host [contenteditable="true"]'), null);
+  const returnDeadline = Date.now() + 2000;
+  while (!button('New snippet', ui.host) && Date.now() < returnDeadline)
+    await act(async () => pause(10));
+  assert.ok(button('New snippet', ui.host));
+});
+
 test('capture mounts once under StrictMode, saves before prompting, and keeps drafts when dismissed', async () => {
   const before = (await database.drafts('local')).length;
   await mount(SnippetCapture, {}, true);

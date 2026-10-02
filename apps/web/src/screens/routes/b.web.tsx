@@ -4,4 +4,24 @@
  * All rights reserved.
  */
 
-export { ReaderScreen as default } from '../../reader-react';
+import { useLocalSearchParams } from 'expo-router';
+import { ReaderScreen } from '../../reader-react';
+import { base } from '../../runtime/paths';
+
+export default function ReaderRoute() {
+  const params = useLocalSearchParams();
+  // Route-local params are ready during the new screen's first render. The
+  // browser address bar can still describe the outgoing screen at this point.
+  const url = new URL(
+    `${base}/b`,
+    typeof window === 'undefined' ? 'https://reader.invalid' : window.location.origin
+  );
+  for (const [name, value] of Object.entries(params)) {
+    if (value == null) continue;
+    if (name === '#') url.hash = Array.isArray(value) ? (value[0] ?? '') : value;
+    else
+      for (const item of Array.isArray(value) ? value : [value])
+        url.searchParams.append(name, item);
+  }
+  return <ReaderScreen routeUrl={url.href} />;
+}

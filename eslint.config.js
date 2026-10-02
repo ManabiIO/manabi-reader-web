@@ -118,6 +118,7 @@ module.exports = (async () => {
         'apps/web/src/**/*.mjs',
         'test/**/*.{mjs,cjs,js}',
         'tests/unit/**/*.mjs',
+        'tests/android/**/*.mjs',
         'patches/reader-dom/**/*.mjs'
       ],
       languageOptions: {
@@ -162,11 +163,36 @@ module.exports = (async () => {
       files: [
         'test/**/*.mjs',
         'tests/unit/**/*.mjs',
+        'tests/android/**/*.mjs',
         'tools/appearance/**/*.mjs',
         'patches/reader-dom/**/*.mjs'
       ],
       languageOptions: {
         globals: { process: 'readonly', URL: 'readonly' }
+      }
+    },
+    {
+      files: ['tests/android/**/*.mjs'],
+      languageOptions: { globals: { Buffer: 'readonly', WebAssembly: 'readonly' } }
+    },
+    {
+      // This standalone expression is evaluated by the test APK in its actual WebView.
+      files: ['tests/android/probe.js'],
+      languageOptions: {
+        globals: {
+          location: 'readonly',
+          indexedDB: 'readonly',
+          navigator: 'readonly',
+          window: 'readonly',
+          isSecureContext: 'readonly',
+          URL: 'readonly',
+          Worker: 'readonly',
+          WebAssembly: 'readonly',
+          crypto: 'readonly',
+          fetch: 'readonly',
+          setTimeout: 'readonly',
+          clearTimeout: 'readonly'
+        }
       }
     },
     {

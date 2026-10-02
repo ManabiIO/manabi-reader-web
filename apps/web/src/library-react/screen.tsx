@@ -19,6 +19,7 @@ import { LibraryController } from './library-controller';
 import { WorkspaceController } from './workspace-controller';
 import { HeaderController } from './header-controller';
 import { HeaderView } from './header';
+import { LibraryTabs } from './navigation';
 import { WorkspaceView } from './workspace';
 import { useController } from './use-controller';
 import { LegacyBookList } from './legacy-book-list';
@@ -247,14 +248,9 @@ export function LibraryScreen({ onOpenBook, onReady }: LibraryScreenProps = {}) 
       >
         <HeaderView c={h} />
         {videoLearningEnabled && modern && (
-          <nav className="library-section-switcher flex gap-4 p-3" aria-label="Library types">
-            <Button href="/manage" variant="ghost" aria-current="page">
-              Books
-            </Button>
-            <Button href="/videos" variant="ghost">
-              Videos
-            </Button>
-          </nav>
+          <div className="library-section-switcher">
+            <LibraryTabs />
+          </div>
         )}
       </div>
       <div

@@ -105,6 +105,16 @@ if (!manifest) {
   manifest = await valid();
   if (!manifest) throw new Error('Dictionary output failed integrity verification.');
 }
+// Keep the released web archive URL and provide a byte-identical suffix which
+// Android asset packaging preserves. APK qualification requires this actual file.
+await fs.copyFile(
+  path.join(destination, 'corresponding-source.tar.gz'),
+  path.join(destination, 'corresponding-source.tgz')
+);
+await fs.writeFile(
+  path.join(destination, 'SOURCE.txt'),
+  `Manabitan ${version.revision}\nhttps://github.com/ManabiIO/manabitan/tree/${version.revision}\nGPL-3.0-or-later; retain LICENSE and per-file notices.\nCorresponding source: corresponding-source.tgz\nWeb compatibility URL: corresponding-source.tar.gz (identical gzip bytes)\nBuild: npm ci; npm run build:libs; node web/build.mjs\n`
+);
 // A static archive is available for explicit user setup. It is NOT fetched by
 // opening Reader/search and is excluded from shell service-worker caching.
 const dictionary = manifest.defaultDictionary;

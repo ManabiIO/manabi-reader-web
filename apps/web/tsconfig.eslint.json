@@ -14,6 +14,8 @@
     "../../test/**/*.ts",
     "../../test/**/*.tsx",
     "../../tests/unit/**/*.mjs",
+    "../../tests/android/**/*.mjs",
+    "../../tests/android/probe.js",
     "app.config.ts",
     "playwright.config.js",
     "svelte.config.js",

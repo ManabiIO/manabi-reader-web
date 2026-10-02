@@ -10,7 +10,6 @@
 
 import { database } from '$lib/data/store';
 import { get } from '$lib/state/store';
-import { readBookSummaries } from '$lib/data/database/books-db/book-records';
 import { integrationDB, metadata } from '$lib/manabi/persistence';
 import { davSources } from '$lib/webdav/source';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
@@ -28,6 +27,8 @@ import { previews } from '$lib/library/previews';
 import { sourceKey } from '$lib/library/organization-keys';
 import { nativeOwnedCards } from './view-model';
 import { NativeLibraryService, type LibraryRepository } from './service';
+import { readNativeLibrarySummaries } from './cover-records';
+import { renderNativeLibraryCover } from './cover-dom';
 import { commitNativeCompletion } from './completion';
 import type { LibraryAuthority } from './contract';
 
@@ -60,13 +61,23 @@ async function owned<T>(
 }
 export function createNativeLibraryService() {
   const repository: LibraryRepository = {
+    cover: (target, authority) =>
+      owned(authority, async (profile, guard) => {
+        const db = await database.db;
+        guard.assertCurrent();
+        return renderNativeLibraryCover(db, target, profile, guard, async () => {
+          await reloadOrganization();
+          guard.assertCurrent();
+          return get(organization);
+        });
+      }),
     load: (authority) =>
       owned(authority, async (profile, guard) => {
         await reloadOrganization();
         guard.assertCurrent();
         const db = await database.db;
         guard.assertCurrent();
-        const summaries = await readBookSummaries(db);
+        const { summaries, coverIdentities } = await readNativeLibrarySummaries(db, guard);
         guard.assertCurrent();
         const integration = await integrationDB();
         guard.assertCurrent();
@@ -111,6 +122,7 @@ export function createNativeLibraryService() {
         return {
           tree: buildShelf(visible.cards, visible.links, catalogs, sources, value, get(previews)),
           organization: value,
+          coverIdentities,
           sources
         };
       }),

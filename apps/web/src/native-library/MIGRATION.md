@@ -4,9 +4,19 @@ The Android Library uses React Native layout, `FlatList`, native modal sheets, a
 
 ## Integration
 
-Retain `createNativeLibraryService()` from `dom-service.ts` once in `reader-runtime.dom.tsx`. Admit `library.state`, `library.action`, and the bounded `library.content.start/read/cancel` methods through the existing versioned bridge. Call the corresponding service method with request payload and a trusted authority containing a session/epoch key, runtime abort signal, and a live account/session assertion. Call `admitAccess({ token: payload.libraryToken, keys: payload.libraryKeys, operation: "open" | "delete" }, authority)` inside existing open/delete dispatch. It returns DOM-only expected identities; validate those again in the actual read/write transaction. The native UI captures `libraryToken` and `libraryKeys` before removal confirmation. Call `dispose()` on runtime teardown. The route exports `NativeLibraryScreen` from `index.tsx`.
+Retain `createNativeLibraryService()` from `dom-service.ts` once in `reader-runtime.dom.tsx`. Admit `library.state`, `library.action`, `library.cover.read/cancel`, and the bounded `library.content.start/read/cancel` methods through the existing versioned bridge. Call the corresponding service method with request payload and a trusted authority containing a session/epoch key, runtime abort signal, and a live account/session assertion. Call `admitAccess({ token: payload.libraryToken, keys: payload.libraryKeys, operation: "open" | "delete" }, authority)` inside existing open/delete dispatch. It returns DOM-only expected identities; validate those again in the actual read/write transaction. The native UI captures `libraryToken` and `libraryKeys` before removal confirmation. Call `dispose()` on runtime teardown. The route exports `NativeLibraryScreen` from `index.tsx`.
 
 State is limited to 60 visible rows, one optional detail record, and a 640 KiB encoded response. Native receives opaque source/series/book handles, not filesystem handles, provider URLs, organization aliases, content bytes, or authentication material. Selected actions are capped at 60 targets. A maximum of eight single-use edit admissions is retained, with ten-minute expiry and only the selected presentation baselines. Tokens are revoked by bridge account generation changes. Existing shared domain code retains all its licenses.
+
+## Existing saved-book covers
+
+`library.state` includes a separate opaque `coverToken` and per-row `hasCover` flag. `readCover({ token, key, request }, authority)` returns one thumbnail with only these opaque echo fields, a JPEG data URI and its dimensions, or a null fallback. `cancelCover({ token, requests? }, authority)` cancels at most two named requests; omitting `requests` retires only the matching cover view. Cover reads neither consume nor renew single-use edit/open/delete admissions. Starting a refreshed view retires the previous cover admission immediately; teardown and account epochs also revoke it.
+
+The existing DOM database owner captures cover metadata and a content-hash or existing legacy-UUID identity in one readonly transaction. No UUID is minted by thumbnail loading. The raster path checks the actual stored copy, profile authority, current cover bytes and saved blur preference both before and after decoding. Existing imported covers and personal cover overrides are resolved through the same `ShelfBook.imagePath` and `createLocalCoverUrl` path as the web Library. Provider URLs, relative/file URLs, stale object URLs, source HTML, SVG source, credentials and canonical book keys never cross the bridge. The original local image is decoded only in an inert DOM image element, then re-encoded to JPEG; the saved blur preference is applied before its bytes leave DOM.
+
+Native `FlatList` viewability drives loading, with at most 12 visible candidates, two in-flight requests and 24 cached thumbnails per view (under 1.6 MiB of encoded image text). There is no cover polling or bulk 60-image state response. Responses are capped at 48 KiB of JPEG bytes and 240 × 360 pixels; input is capped at 8 MiB, decoded dimensions at 8192 per edge and 16 megapixels, and decoding at six seconds. Cancellation retains occupied slots until work actually settles. Refresh, route departure, account changes and disposal clear native images; stale responses cannot populate a newer view. Missing, invalid, unsupported or oversized covers retain title/author fallbacks, and native decode errors do the same.
+
+Provider-only rows, cached provider-preview-only covers and legacy hashless copies without an existing local identity retain the fallback. Series/folder tiles remain text-labelled; native cover stacks are not implemented. These controls do not add cover picking, provider downloads, file permissions, another database owner or a web Library change.
 
 ## Saved-book passage search
 
@@ -24,6 +34,7 @@ Native controls explicitly submit Search/IME search actions rather than searchin
 
 - Search by title, canonical title, author, or matching series; eight sort fields; ascending/descending order; unfinished filter; list/grid layout and bounded pagination
 - Native saved-book passage search, highlighted original-text excerpts, bounded paging and canonical passage opening
+- Existing saved-book covers in native list/grid rows, lazily rasterized with saved blur preferences and text fallback
 - Cached source and folder navigation, personal-series breadcrumbs and volume ordering
 - All Books, Finished, Want to Read and custom collection navigation/counts
 - Single-page selection, metadata/author sort/language/publisher/date/description/subject/direction editing, cover blur preferences
@@ -35,13 +46,15 @@ Native controls explicitly submit Search/IME search actions rather than searchin
 
 This is source implementation, not a complete native parity or release claim. First-party native authentication/session transport and persistent Android folder handles are unavailable. Cached provider rows can be browsed; the UI explains why provider refresh/import/move/rename/group/reconnect actions cannot be performed. No invented endpoint or filesystem bridge is exposed. Unverified unsaved previews cannot be organized until imported.
 
-Editors' picks downloading, custom cover image picking, mixed snippet counts, physical local/cloud series operations and repair plans, backup/export/share, per-book statistics navigation/deletion, and finished timeline presentation are not implemented by these native controls. Existing web implementations remain intact. Native covers currently use text cards; blur preferences are editable but no new image-loading capability is exposed. Layout/sort/filter state is currently screen-local.
+Editors' picks downloading, custom cover image picking, mixed snippet counts, physical local/cloud series operations and repair plans, backup/export/share, per-book statistics navigation/deletion, and finished timeline presentation are not implemented by these native controls. Existing web implementations remain intact. Layout/sort/filter state is currently screen-local.
 
 Open/remove admission returns expected content identity from the single-use Library token. The integrated host validates the expectation at its final read/write boundary; preflight visibility alone cannot authorize a replaced numeric ID. The guarded database read checks the existing canonical key and ownership in the same readonly transaction as the record bytes, and never creates a replacement UUID during admission.
 
 ## Validation
 
 - `node --test test/expo/native-library.test.mjs`: 15 service/view-model tests plus real fake-indexeddb transactions for ownership, content replacement, atomic completion rollback, and cancellation
+- `node --test test/expo/native-library-cover*.test.mjs`: 15 cover service/DTO/viewport/cache/native component tests, real fake-indexeddb guarded reads and DOM-element raster lifecycle tests (image/canvas decoding is mocked in that suite)
+- `node test/expo/native-library-cover-browser.mjs`: real Chromium raster, blur, SVG-image isolation and cancellation smoke; requires installed Playwright Chromium or `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` (local launch was blocked by process sandbox `socket()` restrictions)
 - `node --test test/expo/native-library-content*.test.mjs`: service/DTO/lifecycle tests and real existing worker + fake-indexeddb tests for profile ownership, replaced hash/UUID identity, cancellation, projection integrity, normalization and exclusion parity
 - `node test/expo/native-library-typecheck.mjs`: strict scoped diagnostics using the production Expo configuration and resolved dependency types
 - `node --test tests/unit/library-organization-lifetime.test.mjs`: delayed commit/cancellation, owner ABA, existing web callers and organization publication

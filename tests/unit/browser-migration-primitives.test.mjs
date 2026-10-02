@@ -1,6 +1,7 @@
 /** @license BSD-3-Clause */
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -14,8 +15,13 @@ const { outputFiles } = await build({
       import { createRoot } from 'react-dom/client';
       import { Dom, useReaderBindings } from './reader-react/dom';
       import { HeaderView } from './library-react/header';
+      import { ActionMenu, LibraryTabs } from './library-react/navigation';
+      import { OrganizationView } from './library-react/organization';
+      import { installRouter } from './runtime/navigation';
       import { Button, Menu } from './library-react/primitives';
       const root = createRoot(document.getElementById('root'));
+      const routes = [];
+      installRouter({ push: path => routes.push(path), replace: path => routes.push(path) });
       function MenuFixture() {
         return <Menu.Root>
           <Menu.Trigger child={({ props }) => <Button {...props}>Library actions</Button>} />
@@ -31,8 +37,9 @@ const { outputFiles } = await build({
         }}>Edit bound value</button>;
       }
       window.controls = {
+        routes,
         act: callback => { act(callback); },
-        render: (kind, props = {}) => { act(() => root.render(<React.StrictMode>{kind === 'html' ? <Dom as="main" {...props} /> : kind === 'header' ? <HeaderView {...props} /> : kind === 'binding' ? <BindingFixture {...props} /> : <MenuFixture />}</React.StrictMode>)); },
+        render: (kind, props = {}) => { act(() => root.render(<React.StrictMode>{kind === 'html' ? <Dom as="main" {...props} /> : kind === 'header' ? <HeaderView {...props} /> : kind === 'binding' ? <BindingFixture {...props} /> : kind === 'action-menu' ? <ActionMenu {...props}><Menu.Item>Batch action</Menu.Item></ActionMenu> : kind === 'organization' ? <OrganizationView {...props} /> : kind === 'tabs' ? <div className="library-react"><LibraryTabs /></div> : <MenuFixture />}</React.StrictMode>)); },
         unmount: () => { act(() => root.unmount()); }
       };
     `,
@@ -85,6 +92,13 @@ async function fixture(run) {
   const { window } = dom;
   window.IS_REACT_ACT_ENVIRONMENT = true;
   window.selections = 0;
+  window.scrollTo = () => {};
+  window.HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  window.HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
   // Like both real browser engines, animation-frame APIs require a Window
   // receiver. JSDOM's permissive built-ins otherwise miss this integration bug.
   const frames = new Map();
@@ -276,5 +290,137 @@ test('mounted bindings still publish derived initial output and explicit undefin
     assert.equal(refs.at(-1), replacement);
     await api.unmount();
     assert.equal(refs.at(-1), undefined);
+  });
+});
+
+test('action menus retain their descriptive title as the accessible name', async () => {
+  await fixture(async ({ window, api }) => {
+    for (const [props, expected] of [
+      [{ label: 'Actions', title: 'Selected book actions' }, 'Selected book actions'],
+      [{ label: 'Add books' }, 'Add books'],
+      [{ label: 'Actions', title: '', iconOnly: true }, 'Actions']
+    ]) {
+      await api.render('action-menu', props);
+      const button = window.document.querySelector('button');
+      assert.equal(button.getAttribute('aria-label'), expected);
+      assert.equal(button.getAttribute('title'), expected);
+      const icon = button.querySelector('svg');
+      assert.equal(icon.getAttribute('aria-hidden'), 'true');
+      if (props.iconOnly) {
+        for (const token of ['size-[44px]', 'min-h-[44px]', 'rounded-full', 'p-0'])
+          assert.ok(button.classList.contains(token), token);
+        assert.equal(
+          button.classList.contains('px-4'),
+          false,
+          'default padding cannot overflow a 44px grid column'
+        );
+        assert.ok(icon.classList.contains('size-[24px]'));
+      } else {
+        assert.ok(button.classList.contains('min-h-9'));
+        assert.ok(icon.classList.contains('size-3.5'));
+      }
+      await api.act(() => button.click());
+      assert.equal(window.document.querySelector('[role=menu]').style.position, 'fixed');
+      await api.act(() => window.document.querySelector('[role=menuitem]').click());
+    }
+  });
+});
+
+test('metadata textarea labels stay exact when imported values become React text nodes', async () => {
+  await fixture(async ({ window, api }) => {
+    const c = {
+      open: true,
+      busy: false,
+      mode: 'metadata',
+      title: 'Imported book',
+      authors: '著者\nSecond author',
+      authorSort: 'Sort, Author',
+      subjects: '日本語\nHistory',
+      description: 'A plain description',
+      language: 'ja',
+      published: '2024-03-01',
+      publisher: '出版社',
+      seriesName: '',
+      seriesIndex: '',
+      coverBlur: false,
+      seriesNames: [],
+      error: ''
+    };
+    const expected = [
+      'Authors (one per line)',
+      'Author sort names (matching lines, optional)',
+      'Tags (one per line)',
+      'Description'
+    ];
+    for (const authors of ['著者\nSecond author', 'Changed author']) {
+      c.authors = authors;
+      await api.render('organization', { c });
+      const fields = [...window.document.querySelectorAll('[data-slot="dialog-content"] textarea')];
+      assert.equal(fields.length, 4);
+      const labels = fields.map((field) => {
+        const id = field.getAttribute('aria-labelledby');
+        assert.ok(id, 'the imported value cannot become part of the field label');
+        const label = window.document.getElementById(id);
+        assert.ok(label);
+        assert.equal(label.closest('label'), field.closest('label'));
+        return label.textContent;
+      });
+      assert.deepEqual(labels, expected);
+      assert.equal(new Set(fields.map((field) => field.getAttribute('aria-labelledby'))).size, 4);
+      assert.equal(fields[0].value, authors);
+    }
+  });
+});
+
+test('Library section tabs preserve wrapping, text-zoom-safe spacing and subpath links', async () => {
+  await fixture(async ({ window, api }) => {
+    const css = readFileSync(path.join(root, 'apps/web/src/library-react/library.css'), 'utf8');
+    const retainedRules = css.match(/\.library-react \.media-library-tabs[^{}]*\{[^{}]*\}/g);
+    assert.equal(retainedRules?.length, 4);
+    const style = window.document.createElement('style');
+    style.textContent = retainedRules.join('\n');
+    window.document.head.append(style);
+    await api.render('tabs');
+    const nav = window.document.querySelector('nav');
+    assert.equal(nav.getAttribute('aria-label'), 'Library sections');
+    const links = [...nav.querySelectorAll('a')];
+    assert.deepEqual(
+      links.map((link) => link.getAttribute('href')),
+      ['/reader-web/manage', '/reader-web/videos']
+    );
+    for (const fontSize of ['100%', '200%']) {
+      window.document.documentElement.style.fontSize = fontSize;
+      const layout = window.getComputedStyle(nav);
+      assert.equal(layout.flexWrap, 'wrap');
+      assert.equal(layout.maxWidth, 'calc(100% - 48px)');
+      assert.equal(layout.gap, '6px');
+      assert.equal(layout.marginLeft, '24px');
+      for (const link of links) {
+        const style = window.getComputedStyle(link);
+        assert.equal(style.minHeight, '44px');
+        assert.equal(style.maxWidth, '100%');
+        assert.equal(style.minWidth, '0');
+        assert.equal(style.overflowWrap, 'anywhere');
+      }
+    }
+    let result;
+    window.document.addEventListener('click', (event) => {
+      result = event.defaultPrevented;
+      event.preventDefault();
+    });
+    await api.act(() =>
+      links[1].dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true }))
+    );
+    assert.equal(result, true);
+    assert.deepEqual(Array.from(api.routes), ['/videos']);
+    for (const modifier of ['ctrlKey', 'metaKey', 'shiftKey', 'altKey']) {
+      await api.act(() =>
+        links[1].dispatchEvent(
+          new window.MouseEvent('click', { bubbles: true, cancelable: true, [modifier]: true })
+        )
+      );
+      assert.equal(result, false, modifier + ' retains native link behavior');
+    }
+    assert.equal(api.routes.length, 1);
   });
 });

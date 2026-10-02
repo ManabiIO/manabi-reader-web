@@ -42,6 +42,7 @@ export interface NativeLibraryBook {
   finishedOn?: string;
   wantToRead: boolean;
   coverBlur: boolean;
+  hasCover: boolean;
   series?: BookSeries | null;
   source: string;
   available: boolean;
@@ -56,6 +57,7 @@ export interface NativeLibrarySeries {
 }
 export interface NativeLibraryState {
   token: string;
+  coverToken: string;
   items: (NativeLibraryBook | NativeLibrarySeries)[];
   total: number;
   offset: number;

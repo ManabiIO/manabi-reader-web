@@ -14,11 +14,12 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  View
+  View,
+  type ViewToken
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Host, Switch, TextInput, useNativeState } from '@expo/ui';
-import { router } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
 import { Screen, Action } from '../screens/NativeScreens';
 import {
@@ -30,6 +31,8 @@ import {
 } from './contract';
 import { reconcileNativeSelection } from './view-model';
 import { NativeLibraryContentSearch } from './content-search';
+import { NativeBookCover } from './cover';
+import { NativeLibraryCoverController, type NativeCoverState } from './cover-controller';
 
 function Field({
   label,
@@ -100,6 +103,22 @@ export function NativeLibraryScreen() {
 }
 function Library() {
   const { snapshot, command, importBooks, busy: importing } = useReaderRuntime();
+  const focused = usePathname() === '/manage';
+  const [covers, setCovers] = useState<NativeCoverState>({ token: '', images: new Map() });
+  const coverController = useRef<NativeLibraryCoverController | null>(null);
+  if (!coverController.current)
+    coverController.current = new NativeLibraryCoverController(command, setCovers);
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    coverController.current?.viewport(
+      viewableItems
+        .filter(({ item }) => item.kind === 'book' && item.hasCover)
+        .map(({ item }) => item.key)
+    );
+  }).current;
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 15,
+    minimumViewTime: 80
+  }).current;
   const [query, setQuery] = useState<LibraryQuery>({
     query: '',
     collection: 'books',
@@ -128,7 +147,9 @@ function Library() {
   const mutationActive = useRef(false);
   useEffect(() => {
     mounted.current = true;
+    coverController.current?.activate();
     return () => {
+      coverController.current?.dispose();
       mounted.current = false;
       serial.current++;
     };
@@ -137,6 +158,7 @@ function Library() {
     async (view = query) => {
       const request = ++serial.current;
       setLoading(true);
+      coverController.current?.setView();
       try {
         const next = (await command(
           'library.state',
@@ -144,6 +166,12 @@ function Library() {
         )) as NativeLibraryState;
         if (mounted.current && request === serial.current) {
           setState(next);
+          coverController.current?.setView(
+            next.coverToken,
+            next.items
+              .filter((item) => item.kind === 'book' && item.hasCover)
+              .map((item) => item.key)
+          );
           setSelected((previous) => reconcileNativeSelection(previous, next.items));
         }
       } catch (cause) {
@@ -170,6 +198,9 @@ function Library() {
     );
     return () => clearTimeout(timer);
   }, [search]);
+  useEffect(() => {
+    coverController.current?.setActive(focused && searchMode === 'metadata' && !loading);
+  }, [focused, searchMode, loading]);
   function view(change: LibraryQuery) {
     setError('');
     setSelected([]);
@@ -488,6 +519,11 @@ function Library() {
           <FlatList
             key={grid ? 'grid' : 'list'}
             numColumns={grid ? 2 : 1}
+            initialNumToRender={6}
+            maxToRenderPerBatch={6}
+            windowSize={3}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
             data={state?.items ?? []}
             keyExtractor={(item) => item.key}
             contentContainerStyle={styles.list}
@@ -542,19 +578,34 @@ function Library() {
                       else setError(item.unavailableReason ?? 'This book is unavailable.');
                     }}
                   >
-                    <Text style={styles.title}>{item.title}</Text>
-                    {!!item.creators && <Text>{item.creators}</Text>}
-                    <Text>
-                      {item.finished
-                        ? `Finished${item.finishedOn ? ` · ${item.finishedOn}` : ''}`
-                        : `${Math.round(item.progress * 100)}% read`}
-                      {item.wantToRead ? ' · Want to Read' : ''}
-                    </Text>
-                    <Text>
-                      {item.source}
-                      {item.coverBlur ? ' · Cover blurred' : ''}
-                    </Text>
-                    {!item.available && <Text>Import required</Text>}
+                    <View style={grid ? styles.gridBook : styles.listBook}>
+                      <NativeBookCover
+                        image={
+                          covers.token === state?.coverToken && !loading
+                            ? covers.images.get(item.key)
+                            : undefined
+                        }
+                        title={item.title}
+                        creators={item.creators}
+                        blurred={item.coverBlur}
+                        grid={grid}
+                      />
+                      <View style={styles.bookText}>
+                        <Text style={styles.title}>{item.title}</Text>
+                        {!!item.creators && <Text>{item.creators}</Text>}
+                        <Text>
+                          {item.finished
+                            ? `Finished${item.finishedOn ? ` · ${item.finishedOn}` : ''}`
+                            : `${Math.round(item.progress * 100)}% read`}
+                          {item.wantToRead ? ' · Want to Read' : ''}
+                        </Text>
+                        <Text>
+                          {item.source}
+                          {item.coverBlur ? ' · Cover blurred' : ''}
+                        </Text>
+                        {!item.available && <Text>Import required</Text>}
+                      </View>
+                    </View>
                   </Pressable>
                   <Action
                     label={`Details: ${item.title.slice(0, 40)}`}
@@ -1018,6 +1069,9 @@ const styles = StyleSheet.create({
     borderColor: '#dce2db'
   },
   grid: { flex: 1, margin: 4 },
+  listBook: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  gridBook: { gap: 5 },
+  bookText: { flexShrink: 1, minWidth: 0 },
   selected: { borderColor: '#387147', borderWidth: 2, backgroundColor: '#eef5ea' },
   selection: { paddingVertical: 7, gap: 6 },
   pagination: {

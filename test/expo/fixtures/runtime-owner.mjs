@@ -201,6 +201,14 @@ export async function runtimeOwner(t, { strict = false } = {}) {
       authority.assertCurrent();
       return f.libraryAction?.(payload, authority) ?? {};
     },
+    readCover(payload, authority) {
+      authority.assertCurrent();
+      return f.coverRead?.(payload, authority) ?? {};
+    },
+    cancelCover(payload, authority) {
+      authority.assertCurrent();
+      return f.coverCancel?.(payload, authority) ?? {};
+    },
     async admitAccess(payload, authority) {
       authority.assertCurrent();
       authority.signal.throwIfAborted();

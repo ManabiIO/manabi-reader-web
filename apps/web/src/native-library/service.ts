@@ -30,14 +30,22 @@ import {
   type LibraryAuthority,
   type NativeLibraryState
 } from './contract';
+import {
+  NativeLibraryCoverService,
+  type RenderLibraryCover,
+  type LibraryCoverTarget
+} from './cover-service';
 import { libraryNodes, nativeBook, parseLibraryQuery } from './view-model';
 
 export interface LibraryData {
   tree: ShelfNode[];
   organization: Organization;
   sources: SourceDescriptor[];
+  /** DOM-only canonical identities, captured with saved covers. */
+  coverIdentities?: Record<number, string>;
 }
 export interface LibraryRepository {
+  cover?: RenderLibraryCover;
   load(authority: LibraryAuthority): Promise<LibraryData>;
   write(
     action: LibraryActionRequest,
@@ -159,11 +167,15 @@ export class NativeLibraryService {
   private handles = new Map<string, string>();
   private scope = '';
   private busy = false;
+  private covers: NativeLibraryCoverService;
+  private coverGeneration = 0;
   constructor(
     private repository: LibraryRepository,
     private token: () => string = () => crypto.randomUUID(),
     private now = () => Date.now()
-  ) {}
+  ) {
+    this.covers = new NativeLibraryCoverService(repository.cover, now);
+  }
   private assert(authority: LibraryAuthority) {
     authority.signal.throwIfAborted();
     authority.assertCurrent();
@@ -172,6 +184,7 @@ export class NativeLibraryService {
     this.assert(authority);
     if (authority.key !== this.scope) {
       this.admissions.clear();
+      this.covers.dispose();
       this.handles.clear();
       this.scope = authority.key;
     }
@@ -186,6 +199,8 @@ export class NativeLibraryService {
   }
   async state(payload: unknown, authority: LibraryAuthority): Promise<NativeLibraryState> {
     this.bind(authority);
+    this.covers.dispose();
+    const coverGeneration = ++this.coverGeneration;
     const query = parseLibraryQuery(payload);
     const seriesId = query.series ? this.handles.get(query.series) : '';
     const sourceId = query.source ? this.handles.get(query.source) : '';
@@ -209,7 +224,15 @@ export class NativeLibraryService {
     const bookRow = (book: ShelfBook) => {
       const key = this.handle(libraryBookLocator(book));
       targets.set(key, structuredClone(book));
-      return nativeBook(book, key, data.organization);
+      return {
+        ...nativeBook(book, key, data.organization),
+        hasCover: !!(
+          book.bookId &&
+          data.coverIdentities?.[book.bookId] &&
+          !book.isPlaceholder &&
+          book.imagePath
+        )
+      };
     };
     const items = nodes.slice(offset, offset + query.limit).map((node) =>
       node.kind === 'book'
@@ -234,8 +257,10 @@ export class NativeLibraryService {
       ...data.organization.collections.filter((item) => item.id !== WANT_TO_READ_ID)
     ];
     const token = this.token();
+    const coverToken = this.token();
     const response: NativeLibraryState = {
       token,
+      coverToken,
       items,
       total: nodes.length,
       offset,
@@ -297,7 +322,22 @@ export class NativeLibraryService {
       collections: new Map(collections.map((item) => [item.id, item.name]))
     });
     while (this.admissions.size > 8) this.admissions.delete(this.admissions.keys().next().value!);
+    const coverTargets = new Map<string, LibraryCoverTarget>();
+    for (const [key, book] of targets) {
+      const readerBookKey = book.bookId && data.coverIdentities?.[book.bookId];
+      if (readerBookKey && !book.isPlaceholder) coverTargets.set(key, { book, readerBookKey });
+    }
+    if (coverGeneration === this.coverGeneration)
+      this.covers.install(coverToken, authority.key, coverTargets);
     return response;
+  }
+  readCover(payload: unknown, authority: LibraryAuthority) {
+    this.bind(authority);
+    return this.covers.read(payload, authority);
+  }
+  cancelCover(payload: unknown, authority: LibraryAuthority) {
+    this.bind(authority);
+    return this.covers.cancel(payload, authority);
   }
   /** DOM-only search scope. Native handles are resolved before reading any saved content. */
   async searchBooks(payload: unknown, authority: LibraryAuthority): Promise<ShelfBook[]> {
@@ -471,6 +511,8 @@ export class NativeLibraryService {
     }
   }
   dispose() {
+    this.coverGeneration++;
+    this.covers.dispose();
     this.admissions.clear();
     this.handles.clear();
     this.scope = '';
