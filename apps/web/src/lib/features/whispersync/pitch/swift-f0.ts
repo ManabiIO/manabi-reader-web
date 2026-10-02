@@ -1,6 +1,6 @@
 import * as ort from 'onnxruntime-web/wasm';
-import wasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
-import modelUrl from './swift-f0-0.3.0.onnx?url';
+import wasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm';
+import modelUrl from './swift-f0-0.3.0.onnx';
 import {
   MAX_HZ,
   MIN_HZ,

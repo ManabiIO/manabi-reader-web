@@ -1,0 +1,774 @@
+@charset "UTF-8";
+/* @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors. All rights reserved. */
+/* capture: original component-local selector boundaries, no framework runtime. */
+.choices.snippet-scope-capture {
+  display: grid;
+  max-height: 18rem;
+  overflow-y: auto;
+  gap: 0.3rem;
+}
+
+.capture-error.snippet-scope-capture {
+  position: fixed;
+  inset-inline: 1rem;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  max-width: 40rem;
+  margin-inline: auto;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--card);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1333333333);
+}
+
+/* destination-picker: original component-local selector boundaries, no framework runtime. */
+.destination-picker.snippet-scope-destination-picker {
+  display: grid;
+  gap: 1rem;
+}
+
+label.snippet-scope-destination-picker {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.control-select.snippet-scope-destination-picker {
+  min-height: 44px;
+  height: max(44px, 2.75em);
+  width: 100%;
+  border: 1px solid var(--input);
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0.6rem 0.75rem;
+}
+
+.control-select.snippet-scope-destination-picker:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.breadcrumbs.snippet-scope-destination-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.folder-list.snippet-scope-destination-picker {
+  max-height: 14rem;
+  overflow-y: auto;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.folder-list.snippet-scope-destination-picker p:where(.snippet-scope-destination-picker) {
+  padding: 0.7rem 0;
+}
+
+.remember.snippet-scope-destination-picker {
+  display: flex;
+  min-height: 44px;
+  gap: 0.5rem;
+  align-items: center;
+  cursor: pointer;
+}
+
+form.snippet-scope-destination-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+form.snippet-scope-destination-picker input {
+  min-width: min(100%, 12rem);
+  flex: 1 1 12rem;
+}
+
+p.snippet-scope-destination-picker {
+  color: var(--muted-foreground);
+}
+
+[role=alert].snippet-scope-destination-picker {
+  color: var(--destructive);
+}
+
+/* editor: original component-local selector boundaries, no framework runtime. */
+.editor-toolbar.snippet-scope-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  padding: 0.4rem 0;
+  border-block: 1px solid var(--border);
+}
+
+.annotation-note.snippet-scope-editor {
+  color: var(--muted-foreground);
+  margin-block: 0.6rem 0;
+}
+
+.editor-toolbar.snippet-scope-editor button[aria-pressed=true] {
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+}
+
+.annotation.snippet-scope-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.6rem;
+  padding: 0.6rem 0;
+}
+
+label.snippet-scope-editor {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.editor-host.snippet-scope-editor {
+  min-height: 18rem;
+}
+
+.snippet-editable {
+  min-height: 18rem;
+  outline: none;
+  padding: 1.2rem 0.25rem;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+
+.snippet-editable p {
+  margin-block: 0.65em;
+}
+
+.snippet-editable ul,
+.snippet-editable ol {
+  padding-inline-start: 1.6em;
+}
+
+.snippet-editable ul {
+  list-style: disc;
+}
+
+.snippet-editable ol {
+  list-style: decimal;
+}
+
+.snippet-editable blockquote {
+  border-inline-start: 3px solid var(--border);
+  padding-inline-start: 1em;
+}
+
+.snippet-editable h2 {
+  font-size: 1.4em;
+  font-weight: 650;
+}
+
+.snippet-editable ruby rt {
+  font-size: 0.55em;
+}
+
+.snippet-editable a {
+  text-decoration: underline;
+}
+
+/* reader: original component-local selector boundaries, no framework runtime. */
+.reading-tools.snippet-scope-reader {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding-block: 0.6rem;
+  border-block: 1px solid var(--border);
+}
+
+.snippet-reading.snippet-scope-reader {
+  max-width: 38em;
+  margin: 1.5rem auto;
+  line-height: 2.05;
+  overflow-wrap: anywhere;
+  font-family: var(--reader-font-family, serif);
+}
+
+.snippet-reading.vertical.snippet-scope-reader {
+  writing-mode: vertical-rl;
+  height: min(68vh, 40rem);
+  max-width: 100%;
+  overflow: auto;
+  margin-inline: auto;
+}
+
+.snippet-reading.snippet-scope-reader p {
+  margin-block: 0.8em;
+}
+
+.snippet-reading.snippet-scope-reader h1,
+.snippet-reading.snippet-scope-reader h2,
+.snippet-reading.snippet-scope-reader h3 {
+  font-size: 1.4em;
+  font-weight: 650;
+  margin-block: 1em 0.5em;
+}
+
+.snippet-reading.snippet-scope-reader ul,
+.snippet-reading.snippet-scope-reader ol {
+  padding-inline-start: 1.5em;
+}
+
+.snippet-reading.snippet-scope-reader ul {
+  list-style: disc;
+}
+
+.snippet-reading.snippet-scope-reader ol {
+  list-style: decimal;
+}
+
+.snippet-reading.snippet-scope-reader blockquote {
+  padding-inline-start: 1em;
+  border-inline-start: 3px solid var(--border);
+}
+
+.snippet-reading.snippet-scope-reader rt {
+  font-size: 0.5em;
+}
+
+.snippet-reading.snippet-scope-reader pre {
+  white-space: pre-wrap;
+  padding: 1em;
+  background: var(--muted);
+  border-radius: 0.5rem;
+}
+
+.snippet-reading.snippet-scope-reader a {
+  text-decoration: underline;
+}
+
+.snippet-reading.snippet-scope-reader .snippet-match {
+  background: var(--muted);
+  outline: 1px solid var(--border);
+  border-radius: 0.35em;
+}
+
+.snippet-reading.snippet-scope-reader hr {
+  border-color: var(--border);
+  margin-block: 1em;
+}
+
+@media (max-width: 640px) {
+  .reading-tools.snippet-scope-reader {
+    gap: 6px;
+    padding-block: 8px;
+  }
+  .reading-tools.snippet-scope-reader button {
+    padding-inline: 10px;
+  }
+  .snippet-reading.snippet-scope-reader {
+    margin-block: 20px;
+  }
+}
+/* shelf: original component-local selector boundaries, no framework runtime. */
+.snippet-shelf.snippet-scope-shelf {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.snippet-shelf.grid.snippet-scope-shelf {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
+}
+
+.snippet-card.snippet-scope-shelf {
+  display: flex;
+  gap: 0.8rem;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--card);
+  min-width: 0;
+}
+
+.snippet-card.selected.snippet-scope-shelf {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+  background: var(--muted);
+}
+
+.content.snippet-scope-shelf {
+  min-width: 0;
+  flex: 1;
+}
+
+.title.snippet-scope-shelf {
+  display: block;
+  min-height: 44px;
+  font-size: 1.15rem;
+  font-weight: 650;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.title.snippet-scope-shelf:hover {
+  text-decoration: underline;
+}
+
+.title.snippet-scope-shelf:focus-visible,
+.passage.snippet-scope-shelf:focus-visible {
+  border-radius: 0.5rem;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.excerpt.snippet-scope-shelf {
+  margin-top: 0.4rem;
+  line-height: 1.8;
+  color: var(--muted-foreground);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.metadata.snippet-scope-shelf {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.7rem;
+  margin-top: 0.7rem;
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+}
+
+.passage.snippet-scope-shelf {
+  display: block;
+  min-height: 44px;
+  padding: 0.5rem 0.7rem;
+  margin-top: 0.5rem;
+  border-inline-start: 2px solid var(--border);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.passage.snippet-scope-shelf:hover {
+  background: var(--muted);
+}
+
+.reading-label.snippet-scope-shelf {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.issue.snippet-scope-shelf {
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+  color: var(--muted-foreground);
+}
+
+.empty.snippet-scope-shelf,
+.search-note.snippet-scope-shelf {
+  padding: 0.65rem;
+  color: var(--muted-foreground);
+}
+
+.select.snippet-scope-shelf {
+  display: grid;
+  place-items: center;
+  align-self: flex-start;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  cursor: pointer;
+}
+
+.select.snippet-scope-shelf input:where(.snippet-scope-shelf) {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--primary);
+}
+
+/* workspace: original component-local selector boundaries, no framework runtime. */
+.snippet-workspace.snippet-scope-workspace {
+  max-width: 88rem;
+  margin: auto;
+  padding: 1rem clamp(1rem, 3vw, 3rem) 5rem;
+  color: var(--foreground);
+}
+
+.top.snippet-scope-workspace {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 0 2rem;
+}
+
+.brand.snippet-scope-workspace {
+  min-width: 0;
+  font-weight: 700;
+  font-size: 1.1rem;
+  overflow-wrap: anywhere;
+}
+
+.heading.snippet-scope-workspace {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.5rem;
+  align-items: center;
+  margin: 1.5rem 0;
+}
+
+h1.snippet-scope-workspace {
+  font-size: clamp(1.7rem, 3vw, 2.5rem);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+h2.snippet-scope-workspace {
+  font-size: 1.15rem;
+  font-weight: 650;
+}
+
+.eyebrow.snippet-scope-workspace {
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  color: var(--muted-foreground);
+  margin-bottom: 0.45rem;
+}
+
+.muted.snippet-scope-workspace {
+  color: var(--muted-foreground);
+  font-size: 0.88rem;
+  line-height: 1.7;
+}
+
+.actions.snippet-scope-workspace {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.secondary.snippet-scope-workspace {
+  padding: 0.6rem 0;
+}
+
+.secondary-actions-menu.snippet-scope-workspace {
+  display: none;
+  padding-block: 0.35rem 0.6rem;
+}
+
+.reading.snippet-scope-workspace,
+.editing.snippet-scope-workspace {
+  max-width: 62rem;
+  margin: auto;
+}
+
+.search-row.snippet-scope-workspace {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin: 1.5rem 0;
+}
+
+.search-label.snippet-scope-workspace {
+  flex: 1;
+}
+
+.filters.snippet-scope-workspace {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: end;
+  margin-bottom: 1.2rem;
+}
+
+.filters.snippet-scope-workspace label:where(.snippet-scope-workspace) {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+}
+
+select.snippet-scope-workspace {
+  min-height: 44px;
+  border: 1px solid var(--input);
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0.55rem 0.7rem;
+  min-width: 0;
+}
+
+select.snippet-scope-workspace:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.message.snippet-scope-workspace {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  margin: 0.8rem 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.error.snippet-scope-workspace {
+  border-inline-start: 3px solid var(--destructive);
+}
+
+.snippet-workspace.snippet-scope-workspace .back {
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+}
+
+.title-label.snippet-scope-workspace {
+  display: grid;
+  gap: 0.4rem;
+  font-weight: 600;
+  margin: 1rem 0;
+}
+
+.title-label.snippet-scope-workspace span:where(.snippet-scope-workspace) {
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--muted-foreground);
+}
+
+.snippet-workspace.snippet-scope-workspace .title-input {
+  font-size: 1.3rem;
+  font-weight: 500;
+  width: 100%;
+}
+
+.draft-footer.snippet-scope-workspace {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+  border-top: 1px solid var(--border);
+  padding-top: 0.7rem;
+}
+
+.drafts.snippet-scope-workspace {
+  margin-top: 2rem;
+  padding-top: 1.3rem;
+  border-top: 1px solid var(--border);
+}
+
+.draft.snippet-scope-workspace {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0;
+}
+
+.draft.snippet-scope-workspace span:where(.snippet-scope-workspace) {
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+
+.batch.snippet-scope-workspace {
+  position: sticky;
+  top: 0.4rem;
+  max-height: min(50dvh, 24rem);
+  overflow-y: auto;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.7rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  margin-bottom: 0.9rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.0666666667);
+}
+
+.batch.snippet-scope-workspace strong:where(.snippet-scope-workspace) {
+  font-size: 0.85rem;
+  margin-inline-end: 0.5rem;
+}
+
+.library-footer.snippet-scope-workspace {
+  margin-top: 2rem;
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+}
+
+.locations.snippet-scope-workspace {
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+  padding: 0.7rem 0;
+  overflow-wrap: anywhere;
+}
+
+.locations.snippet-scope-workspace p:where(.snippet-scope-workspace) {
+  margin: 0.4rem 0;
+}
+
+.source.snippet-scope-workspace {
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+  border-top: 1px solid var(--border);
+  padding: 1rem 0;
+}
+
+.conflicts.snippet-scope-workspace {
+  padding: 1rem;
+  background: var(--muted);
+  border-radius: 0.8rem;
+}
+
+.conflicts.snippet-scope-workspace details:where(.snippet-scope-workspace) {
+  padding: 0.7rem 0;
+}
+
+.conflicts.snippet-scope-workspace details:where(.snippet-scope-workspace) p:where(.snippet-scope-workspace) {
+  white-space: pre-wrap;
+  max-height: 12rem;
+  overflow: auto;
+  line-height: 1.8;
+  margin: 0.5rem 0;
+}
+
+.membership.snippet-scope-workspace {
+  display: flex;
+  min-height: 44px;
+  gap: 0.6rem;
+  align-items: center;
+  cursor: pointer;
+}
+
+form.snippet-scope-workspace {
+  display: grid;
+  gap: 0.6rem;
+}
+
+form.snippet-scope-workspace label:where(.snippet-scope-workspace) {
+  display: grid;
+  gap: 0.4rem;
+}
+
+@media (max-width: 640px) {
+  .secondary-actions-wide.snippet-scope-workspace,
+  .reader-add-wide {
+    display: none;
+  }
+  .secondary-actions-menu.snippet-scope-workspace {
+    display: block;
+    padding-block: 4px 8px;
+  }
+  .reading.snippet-scope-workspace > .heading:where(.snippet-scope-workspace) {
+    gap: 8px;
+    margin-block: 12px;
+  }
+  .heading.snippet-scope-workspace {
+    align-items: start;
+    flex-direction: column;
+    gap: 12px;
+    margin-block: 20px;
+  }
+  .heading.snippet-scope-workspace > .actions:where(.snippet-scope-workspace) {
+    gap: 8px;
+  }
+  .heading.snippet-scope-workspace > .actions:where(.snippet-scope-workspace) button {
+    padding-inline: 16px;
+  }
+  .search-row.snippet-scope-workspace {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .snippet-workspace.snippet-scope-workspace {
+    padding-block-start: 16px;
+    padding-inline: 16px;
+  }
+  .top.snippet-scope-workspace {
+    gap: 12px;
+    padding-block: 8px;
+  }
+  .brand.snippet-scope-workspace {
+    white-space: nowrap;
+  }
+  .draft.snippet-scope-workspace {
+    align-items: start;
+    flex-direction: column;
+  }
+  .filters.snippet-scope-workspace {
+    gap: 0.5rem;
+  }
+  .filters.snippet-scope-workspace label:where(.snippet-scope-workspace) {
+    flex: 1 1 10rem;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .filters.snippet-scope-workspace select:where(.snippet-scope-workspace) {
+    width: 100%;
+    max-width: 100%;
+  }
+}
+.reader-modal-backdrop.react-snippets-workspace,
+.reader-modal-backdrop.react-snippets-capture {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(4px);
+}
+
+.snippet-dialog.reader-modal {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  width: 100%;
+  max-width: calc(100% - 32px);
+  max-height: calc(100dvh - max(16px, env(safe-area-inset-top)) - max(16px, env(safe-area-inset-bottom)));
+  padding: 24px;
+  color: var(--popover-foreground);
+  background: var(--popover);
+  border-radius: min(var(--radius-4xl, 24px), 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: 0.875rem;
+  writing-mode: horizontal-tb;
+}
+
+.snippet-dialog.reader-modal.p-0 {
+  padding: 0;
+}
+
+.snippet-dialog.reader-modal.overflow-hidden {
+  overflow: hidden;
+}
+
+.snippet-dialog > [data-modal-dismiss] {
+  position: absolute;
+  top: 16px;
+  inset-inline-end: 16px;
+  transform: translateY(var(--dialog-close-scroll-offset, 0px));
+}
+
+@media (min-width: 640px) {
+  .snippet-dialog.reader-modal {
+    max-width: 28rem;
+  }
+}

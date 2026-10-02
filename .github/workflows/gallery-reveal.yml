@@ -39,7 +39,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: node scripts/prepare-expo.mjs
       - run: pnpm --dir apps/web check
       - run: node --experimental-strip-types --test tests/unit/gallery-reveal*.test.mjs tests/unit/html-renderer-readiness.test.mjs tests/unit/reader-font-layout-late-error.test.mjs
       - name: Build the real subpath application

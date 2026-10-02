@@ -28,7 +28,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Postinstall steps
-        run: pnpm svelte-kit sync
+        run: node ../../scripts/prepare-expo.mjs
         working-directory: apps/web
 
       - name: Lint

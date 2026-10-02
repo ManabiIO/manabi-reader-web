@@ -41,7 +41,7 @@ jobs:
       - name: Require the real dependency lockfile
         # Do not auto-repair an absent Mediabunny lock entry on a qualification run.
         run: pnpm install --frozen-lockfile
-      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: node scripts/prepare-expo.mjs
       - name: Typecheck the actual application and installed media adapter
         run: |
           mkdir -p .cache/media-qualification

@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { writable } from 'svelte/store';
+import { writable } from '$lib/state/store';
 import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { organizationIdentityReplacements, type BookIdentityRecord } from './book-identity.ts';
 import { equal, integrationDB, type BookLink } from '$lib/manabi/persistence';

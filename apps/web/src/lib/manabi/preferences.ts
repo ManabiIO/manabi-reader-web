@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { get, writable } from 'svelte/store';
+import { get, writable } from '$lib/state/store';
 import * as reader from '$lib/data/store';
 import { appearance$ } from '$lib/appearance/state';
 import { availableThemes, portableThemeName } from '$lib/data/theme-option';

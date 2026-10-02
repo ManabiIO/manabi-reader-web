@@ -34,7 +34,7 @@ jobs:
           node-version: '24.21.0'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: node scripts/prepare-expo.mjs
       - run: node tools/appearance/lint.mjs
   appearance:
     runs-on: ubuntu-24.04
@@ -73,7 +73,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: node scripts/prepare-expo.mjs
       - run: node --experimental-strip-types tools/appearance/generate-css.mjs --check
       - run: |
           set -o pipefail

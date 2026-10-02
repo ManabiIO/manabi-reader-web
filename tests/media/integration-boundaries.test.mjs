@@ -577,7 +577,7 @@ test('cloud source validates owner, revision, exact endpoint and immutable metad
 import { readFileSync } from 'node:fs';
 const sourceText = (path) => readFileSync(new URL('../../' + path, import.meta.url), 'utf8');
 test('Reader CSP permits only WASM compilation, not JavaScript eval', () => {
-  const source = sourceText('apps/web/svelte.config.js');
+  const source = sourceText('apps/web/src/platform/content-security-policy.mjs');
   const script = source.match(/'script-src': \[([^\]]+)\]/)?.[1];
   assert.ok(script);
   assert.match(script, /'wasm-unsafe-eval'/);

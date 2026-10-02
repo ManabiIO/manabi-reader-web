@@ -32,7 +32,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: node scripts/prepare-expo.mjs
       - name: Verify committed source
         run: pnpm eslint .
       - run: pnpm --dir apps/web check

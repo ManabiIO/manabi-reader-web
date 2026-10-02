@@ -52,9 +52,9 @@ import type { BaseStorageHandler } from '$lib/data/storage/handler/base-handler'
 import type { BookStatistic } from '$lib/components/statistics/statistics-types';
 import type BooksDb from '$lib/data/database/books-db/versions/books-db';
 import type { IDBPDatabase } from 'idb';
-import LogReportDialog from '$lib/components/log-report-dialog.svelte';
+import { LogReportDialog } from '$runtime/../ui/dialogs';
 import { MergeMode } from '$lib/data/merge-mode';
-import MessageDialog from '$lib/components/message-dialog.svelte';
+import { MessageDialog } from '$runtime/../ui/dialogs';
 import { ReplicationSaveBehavior } from '$lib/functions/replication/replication-options';
 import { dialogManager } from '$lib/data/dialog-manager';
 import { getDefaultStatistic } from '$lib/components/book-reader/book-reading-tracker/book-reading-tracker';

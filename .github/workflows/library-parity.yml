@@ -45,7 +45,7 @@ jobs:
           git rev-parse HEAD > artifacts/parity/commit.txt
           git rev-parse HEAD^{tree} > artifacts/parity/tree.txt
           set -o pipefail
-          pnpm --dir apps/web exec svelte-kit sync
+          node scripts/prepare-expo.mjs
           node --test --test-concurrency=4 tests/unit/*.test.mjs 2>&1 | tee artifacts/parity/units.log
           pnpm --dir apps/web check 2>&1 | tee artifacts/parity/types.log
           node tools/appearance/lint.mjs 2>&1 | tee artifacts/parity/components.log

@@ -30,7 +30,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: node scripts/prepare-expo.mjs
       - run: pnpm --dir apps/web check
       - name: Build real subpath app
         env:

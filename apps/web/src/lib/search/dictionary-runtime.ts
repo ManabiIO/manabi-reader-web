@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { base } from '$app/paths';
+import { assets as base } from '$app/paths';
 import version from './manabitan-version.json';
 export interface DictionaryPreview {
   id: string;

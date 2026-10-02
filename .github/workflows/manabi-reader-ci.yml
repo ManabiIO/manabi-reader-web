@@ -27,12 +27,12 @@ jobs:
         with:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: node scripts/prepare-expo.mjs
       - run: node --experimental-strip-types --test tests/unit/*.test.mjs
       - name: Reader archive, typography and service-worker regressions
         run: pnpm test:reader
-      - name: Whispersync core and Svelte compilation
-        run: node test/whispersync/run.mjs --coverage --svelte --browser-bundle=test-results/whispersync-bundle.js
+      - name: Whispersync core and React compilation
+        run: node test/whispersync/run.mjs --coverage --react --browser-bundle=test-results/whispersync-bundle.js
       - name: Type-check committed application source
         run: pnpm --dir apps/web check
       - name: Compile production static artifact
@@ -138,7 +138,7 @@ jobs:
         env:
           BASE_PATH: /reader-web
         run: |
-          pnpm --dir apps/web exec svelte-kit sync
+          node scripts/prepare-expo.mjs
           pnpm build
       - name: Accepted preference application recovers locally in WebKit
         if: matrix.browser == 'webkit'

@@ -8,15 +8,15 @@ const read = (path) => readFileSync(new URL('../../' + path, import.meta.url), '
 
 test('all 65 pre-modernization setting groups retain their exact value bindings', () => {
   const manifest = JSON.parse(read('tests/fixtures/settings-manifest.json'));
-  const content = read('apps/web/src/lib/components/settings/settings-content.svelte');
+  const content = read('apps/web/src/settings-react/settings-content.tsx');
   assert.equal(manifest.length, 65);
   assert.equal(new Set(manifest.map((field) => field.id)).size, 65);
   for (const field of manifest) {
-    assert.ok(content.includes(`settingId="${field.id}"`), field.id);
+    assert.ok(content.includes(`settingId={"${field.id}"}`), field.id);
     if (field.binding)
-      assert.ok(content.includes(`{${field.binding}}`), `${field.id} preserves its value`);
+      assert.ok(content.includes(`c.${field.binding}`), `${field.id} preserves its value`);
   }
-  const route = read('apps/web/src/routes/settings/+page.svelte');
+  const route = read('apps/web/src/settings-react/settings-screen.tsx');
   for (const key of [
     'fontFamilyGroupOne',
     'fontFamilyGroupTwo',
@@ -27,7 +27,7 @@ test('all 65 pre-modernization setting groups retain their exact value bindings'
     'pageColumns',
     'replicationSaveBehavior'
   ])
-    assert.ok(route.includes(`bind:${key}={$${key}$}`), key);
+    assert.ok(route.includes(`${key}={c.$${key}$}`) && route.includes(`c.$${key}$ = value`), key);
 });
 
 test('settings search is global, case-insensitive and requires every word', () => {
@@ -51,8 +51,8 @@ test('settings search is global, case-insensitive and requires every word', () =
 });
 
 test('every reader toolbar command retains the original event contract', () => {
-  const header = read('apps/web/src/lib/components/book-reader/book-reader-header.svelte');
-  const route = read('apps/web/src/routes/b/+page.svelte');
+  const header = read('apps/web/src/reader-react/header.tsx');
+  const route = read('apps/web/src/reader-react/session.tsx');
   const commands = [
     'tocClick',
     'bookmarkClick',
@@ -71,7 +71,7 @@ test('every reader toolbar command retains the original event contract', () => {
   ];
   for (const command of commands) {
     assert.ok(header.includes(`dispatch('${command}'`), command);
-    assert.ok(route.includes(`on:${command}=`), command);
+    assert.match(route, new RegExp(`["']?${command}["']?\\s*:`), command);
   }
 });
 
@@ -106,10 +106,13 @@ test('reader controls and overlays own keyboard and wheel events', () => {
   }
 });
 
-test('Rhea is native Svelte with Lucide and no Font Awesome or Popper imports', () => {
+test('Rhea styling is retained by Expo React without Font Awesome or Popper imports', () => {
   const config = JSON.parse(read('apps/web/components.json'));
   assert.equal(config.style, 'rhea');
   const pkg = JSON.parse(read('apps/web/package.json'));
+  assert.ok(pkg.dependencies.react);
+  assert.ok(pkg.dependencies.expo);
+  assert.equal(pkg.dependencies.svelte, undefined);
   for (const name of [
     '@fortawesome/free-solid-svg-icons',
     '@fortawesome/fontawesome-svg-core',
@@ -123,7 +126,7 @@ test('Rhea is native Svelte with Lucide and no Font Awesome or Popper imports', 
     })) {
       const path = dir + '/' + entry.name;
       if (entry.isDirectory()) visit(path);
-      else if (/\.(svelte|ts|js)$/.test(entry.name))
+      else if (/\.(svelte|tsx?|js)$/.test(entry.name))
         assert.doesNotMatch(read(path), /from ['"](?:svelte-fa|@fortawesome\/|@popperjs\/)/, path);
     }
   }
@@ -197,17 +200,17 @@ test('outside dismissal uses original pointer ownership, never retargeted clicks
 });
 
 test('persistent storage is automatic infrastructure with status-only settings', () => {
-  const content = read('apps/web/src/lib/components/settings/settings-content.svelte');
-  const route = read('apps/web/src/routes/settings/+page.svelte');
+  const content = read('apps/web/src/settings-react/settings-content.tsx');
+  const route = read('apps/web/src/settings-react/settings-screen.tsx');
   const replicator = read('apps/web/src/lib/functions/replication/replicator.ts');
   assert.ok(content.includes('Protected from automatic browser eviction'));
   assert.ok(content.includes('Using best-effort browser storage'));
   assert.equal(
-    content.includes('bind:selectedOptionId={persistentStorage}'),
+    content.includes('selectedOptionId={c.persistentStorage}'),
     false,
     'persistent storage must not look like an offline opt-in toggle'
   );
-  assert.ok(route.includes('{requestPersistentStorage}'));
+  assert.ok(route.includes('requestPersistentStorage={c.requestPersistentStorage}'));
   assert.equal(route.includes('setPersistentStorage$'), false);
   assert.equal(replicator.includes('requestPersistentStorage$.getValue()'), false);
 });

@@ -28,7 +28,7 @@ test('publication path checker rejects case variants without rejecting the canon
 });
 
 test('all composed browser fixtures and build workflows use the deployed case-sensitive app path', () => {
-  const config = readFileSync(path.join(root, 'apps/web/svelte.config.js'), 'utf8');
+  const config = readFileSync(path.join(root, 'apps/web/app.config.ts'), 'utf8');
   assert.match(config, /process\.env\.BASE_PATH\s*\?\?\s*['"]\/reader-web['"]/);
   const failures = ['tests/browser', 'tests/media', 'test/reader', '.github/workflows'].flatMap(
     (directory) =>
