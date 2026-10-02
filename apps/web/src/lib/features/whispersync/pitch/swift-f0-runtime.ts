@@ -9,9 +9,9 @@ export interface SwiftF0TensorLike {
   dispose?(): void;
 }
 
-export interface SwiftF0RuntimeLike {
-  createTensor(type: 'float32', data: Float32Array, dims: number[]): SwiftF0TensorLike;
-  run(feeds: Record<string, SwiftF0TensorLike>): Promise<Record<string, SwiftF0TensorLike>>;
+export interface SwiftF0RuntimeLike<T extends SwiftF0TensorLike> {
+  createTensor(type: 'float32', data: Float32Array, dims: number[]): T;
+  run(feeds: Record<string, T>): Promise<Record<string, T>>;
 }
 
 export function swiftF0ModelGain(samples: Float32Array): number {
@@ -22,11 +22,11 @@ export function swiftF0ModelGain(samples: Float32Array): number {
   return peak >= SILENCE_PEAK && peak < QUIET_PEAK ? QUIET_TARGET_PEAK / peak : 1;
 }
 
-export async function runSwiftF0Inference(
+export async function runSwiftF0Inference<T extends SwiftF0TensorLike>(
   samples: Float32Array,
   minimum: number,
   maximum: number,
-  runtime: SwiftF0RuntimeLike
+  runtime: SwiftF0RuntimeLike<T>
 ): Promise<{ pitch: Float64Array; confidence: Float32Array }> {
   if (!(samples instanceof Float32Array) || samples.length === 0)
     throw new TypeError('SwiftF0 requires non-empty Float32 audio');
@@ -36,8 +36,8 @@ export async function runSwiftF0Inference(
   const gain = swiftF0ModelGain(samples);
   const audio =
     gain === 1 ? samples : Float32Array.from(samples, (value) => (Number.isFinite(value) ? value * gain : 0));
-  const ownedFeeds: SwiftF0TensorLike[] = [];
-  let result: Record<string, SwiftF0TensorLike> | undefined;
+  const ownedFeeds: T[] = [];
+  let result: Record<string, T> | undefined;
 
   const tensor = (data: Float32Array, dims: number[]) => {
     const created = runtime.createTensor('float32', data, dims);
@@ -76,7 +76,7 @@ export async function runSwiftF0Inference(
     }
     return { pitch, confidence };
   } finally {
-    const disposable = new Set<SwiftF0TensorLike>([
+    const disposable = new Set<T>([
       ...Object.values(result ?? {}),
       ...ownedFeeds
     ]);
