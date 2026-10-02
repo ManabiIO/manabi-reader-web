@@ -195,3 +195,19 @@ test('outside dismissal uses original pointer ownership, never retargeted clicks
     else globalThis.Element = originalElement;
   }
 });
+
+test('persistent storage is automatic infrastructure with status-only settings', () => {
+  const content = read('apps/web/src/lib/components/settings/settings-content.svelte');
+  const route = read('apps/web/src/routes/settings/+page.svelte');
+  const replicator = read('apps/web/src/lib/functions/replication/replicator.ts');
+  assert.ok(content.includes('Protected from automatic browser eviction'));
+  assert.ok(content.includes('Using best-effort browser storage'));
+  assert.equal(
+    content.includes('bind:selectedOptionId={persistentStorage}'),
+    false,
+    'persistent storage must not look like an offline opt-in toggle'
+  );
+  assert.ok(route.includes('{requestPersistentStorage}'));
+  assert.equal(route.includes('setPersistentStorage$'), false);
+  assert.equal(replicator.includes('requestPersistentStorage$.getValue()'), false);
+});

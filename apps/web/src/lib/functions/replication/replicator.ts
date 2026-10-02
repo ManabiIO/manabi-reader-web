@@ -6,9 +6,9 @@
 
 import { BackupStorageHandler } from '$lib/data/storage/handler/backup-handler';
 import { BaseStorageHandler, FilePrefix } from '$lib/data/storage/handler/base-handler';
-import { storage } from '$lib/data/window/navigator/storage';
+import { requestPersistentStorageOnce } from '$lib/data/window/navigator/persistent-storage';
 import { StorageDataType, StorageKey } from '$lib/data/storage/storage-types';
-import { database, requestPersistentStorage$ } from '$lib/data/store';
+import { database } from '$lib/data/store';
 import loadEpub from '$lib/functions/file-loaders/epub/load-epub';
 import loadHtmlz from '$lib/functions/file-loaders/htmlz/load-htmlz';
 import loadTxt from '$lib/functions/file-loaders/txt/load-txt';
@@ -38,8 +38,6 @@ export async function importData(
   let errorMessage = '';
 
   replicationProgress$.next({ progressBase, maxProgress });
-
-  await persistStorage(targetHandler.storageType);
 
   if (targetHandler.isCacheDisabled()) {
     targetHandler.clearData(false);
@@ -112,6 +110,7 @@ export async function importData(
         cancelSignal
       );
 
+      void persistStorage(targetHandler.storageType);
       dataIds.push(await targetHandler.saveBook(bookContent, false));
 
       checkCancelAndProgress(cancelSignal, false);
@@ -207,8 +206,6 @@ export async function replicateData(
 
   replicationProgress$.next({ maxProgress });
 
-  await persistStorage(targetHandler.storageType).catch(() => {});
-
   [sourceHandler, targetHandler].forEach((handler) => {
     if (handler.isCacheDisabled()) {
       handler.clearData(false);
@@ -239,6 +236,7 @@ export async function replicateData(
             checkCancelAndProgress(cancelSignal);
 
             if (bookData) {
+              void persistStorage(targetHandler.storageType);
               const savedId = await targetHandler.saveBook(bookData);
               // A verified backup may create a second copy with the same title.
               // Subsequent progress must target the ID actually written, not
@@ -431,14 +429,8 @@ export async function replicateData(
   return errorMessage;
 }
 
-async function persistStorage(target: StorageKey) {
-  if (target === StorageKey.BROWSER && requestPersistentStorage$.getValue()) {
-    try {
-      await storage.persist();
-    } catch (_) {
-      // no-op
-    }
-  }
+function persistStorage(target: StorageKey) {
+  if (target === StorageKey.BROWSER) void requestPersistentStorageOnce();
 }
 
 function checkCancelAndProgress(

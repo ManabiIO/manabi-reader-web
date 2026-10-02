@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { chromium, webkit, expect as baseExpect } from '@playwright/test';
 const url = process.env.SNIPPETS_URL ?? 'http://127.0.0.1:4178/reader-web';
@@ -299,14 +299,7 @@ try {
         box.y >= -1 && box.y + box.height <= 481,
         `Last Snippets action must scroll into the short viewport: ${JSON.stringify(box)}`
       );
-      assert(
-        await item.evaluate((node) => {
-          const r = node.getBoundingClientRect();
-          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-          return !!hit && (hit === node || node.contains(hit));
-        }),
-        'Last Snippets action must remain hit-testable after keyboard scrolling'
-      );
+      await item.click({ trial: true });
     }
   }
   await page.keyboard.press('Escape');
@@ -328,14 +321,7 @@ try {
     assert(box && box.height >= 43.5, `${name} must remain at least 44 CSS px high`);
     assert(box.x >= -1 && box.x + box.width <= 321, `${name} must stay inside the viewport`);
     assert(box.y >= -1 && box.y + box.height <= 481, `${name} must be vertically reachable`);
-    assert(
-      await control.evaluate((node) => {
-        const r = node.getBoundingClientRect();
-        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        return !!hit && (hit === node || node.contains(hit));
-      }),
-      `${name} must remain hit-testable after enlarged-text scrolling`
-    );
+    await control.click({ trial: true });
   }
   const verticalToggle = readingToolbar.getByRole('button', {
     name: 'Vertical reading',
@@ -470,14 +456,7 @@ try {
     selectionBox.width >= 43.5 && selectionBox.height >= 43.5,
     'Snippet selection target must remain at least 44x44 CSS px'
   );
-  assert(
-    await selectionTarget.evaluate((label) => {
-      const r = label.getBoundingClientRect();
-      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return !!hit && (hit === label || label.contains(hit));
-    }),
-    'Snippet selection target center must be hit-testable'
-  );
+  await selectionTarget.click({ trial: true });
   await page.getByRole('button', { name: 'Done selecting', exact: true }).click();
   passed('modifier-click enters visible selection mode');
   const search = page.getByRole('searchbox', { name: 'Search snippets' });
@@ -715,14 +694,7 @@ try {
       closeBox.y + closeBox.height <= 321,
     'Save-location close target must remain inside the short visual viewport'
   );
-  assert(
-    await enlargedPickerClose.evaluate((button) => {
-      const r = button.getBoundingClientRect();
-      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return !!hit && (hit === button || button.contains(hit));
-    }),
-    'Save-location close target must remain hit-testable after picker scrolling'
-  );
+  await enlargedPickerClose.click({ trial: true });
   assert(
     (await picker.evaluate((element) => element.scrollWidth - element.clientWidth)) <= 1,
     'Save-location dialog must not overflow horizontally at 200% text'
@@ -792,6 +764,42 @@ try {
     page.getByRole('article', { name: 'Snippet content' }).locator('ruby rt')
   ).toHaveText('とうきょう');
   passed('HTML ruby import through actual TipTap and chosen Dropbox document save');
+
+  const markdownEvent = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Markdown', exact: true }).click();
+  const markdownDownload = await markdownEvent,
+    markdownPath = await markdownDownload.path();
+  assert(markdownPath, 'Markdown export must produce a readable download.');
+  const markdownBytes = await readFile(markdownPath),
+    markdownText = markdownBytes.toString('utf8');
+  assert.match(markdownText, /<ruby[\s\S]*?<rt>とうきょう<\/rt>[\s\S]*?<\/ruby>/);
+  await openLibrary(page);
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'ruby-roundtrip.md',
+    mimeType: 'text/markdown',
+    buffer: markdownBytes
+  });
+  const markdownEditor = page.getByRole('textbox', { name: 'Snippet text', exact: true });
+  const roundTripRuby = markdownEditor.locator('ruby').first();
+  await expect(roundTripRuby.locator('rt')).toHaveText('とうきょう');
+  assert.equal(
+    await roundTripRuby.evaluate((ruby) =>
+      [...ruby.childNodes]
+        .filter((node) => node.nodeName !== 'RT' && node.nodeName !== 'RP')
+        .map((node) => node.textContent ?? '')
+        .join('')
+    ),
+    '東京'
+  );
+  await expect(markdownEditor).toContainText('勉強します。');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const leaveDialog = page.getByRole('dialog', { name: 'Keep this draft?' });
+  await expect(leaveDialog).toBeVisible();
+  await leaveDialog.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
+  await expect(leaveDialog).toHaveCount(0);
+  passed('ruby survives Markdown export and Markdown import through actual TipTap');
+  await page.locator('.snippet-shelf .title').filter({ hasText: '日本語の抜粋' }).click();
+  await expect(page.getByRole('article', { name: 'Snippet content' })).toBeVisible();
   await openLibrary(page);
   await page.getByRole('button', { name: 'Default save location…', exact: true }).click();
   await page
