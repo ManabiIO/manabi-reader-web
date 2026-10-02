@@ -553,16 +553,41 @@ test('load and result timeouts expose retry without closing the output route', a
   f.controller.dispose();
 });
 test('bad worker measurements fail safely, and a retry can recover', async () => {
-  const f = await running();
-  f.frame();
-  f.result(undefined, { hz: NaN, amplitude: 1 });
-  assert.equal(f.state.status, 'error');
-  assert.equal(f.state.points.length, 0);
-  f.controller.retry();
-  f.ready();
+  for (const result of [
+    { hz: NaN, amplitude: 1 },
+    {
+      hz: 220,
+      amplitude: 1,
+      rms: NaN,
+      confidence: 1,
+      offsetSeconds: 0.32,
+      windowSeconds: ANALYSIS_WINDOW_SECONDS
+    },
+    {
+      hz: 220,
+      amplitude: 1,
+      rms: 0.5,
+      confidence: 1.1,
+      offsetSeconds: 0.32,
+      windowSeconds: ANALYSIS_WINDOW_SECONDS
+    }
+  ]) {
+    const f = await running();
+    f.frame();
+    f.result(undefined, result);
+    assert.equal(f.state.status, 'error');
+    assert.equal(f.state.points.length, 0);
+    f.controller.dispose();
+  }
+
+  const recovered = await running();
+  recovered.frame();
+  recovered.result(undefined, { hz: NaN, amplitude: 1 });
+  recovered.controller.retry();
+  recovered.ready();
   await flush();
-  assert.equal(f.state.status, 'ready');
-  f.controller.dispose();
+  assert.equal(recovered.state.status, 'ready');
+  recovered.controller.dispose();
 });
 test('worker construction failure also handles a rejected resume promise', async () => {
   const f = fixture({ workerThrows: true, resume: () => Promise.reject(Error('not allowed')) });
