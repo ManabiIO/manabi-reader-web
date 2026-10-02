@@ -958,11 +958,12 @@ export class VideoPlayer {
       job.status === 'running' &&
       !!this.sparsePlayback &&
       this.sparsePlayback.inputSeconds === 0;
-    if (awaitingFirstSpeechTiming && (stage === 'decoding' || stage === 'transcribing')) {
+    if (awaitingFirstSpeechTiming) {
       const completed = this.sparsePlayback!.count;
       // A completed exact-silent core is coverage, not an ASR timing sample.
       // Retire its elapsed clock; the next decoding notification starts a fresh
-      // clock for the next candidate speech window.
+      // clock for the next candidate speech window. Preparation/download stages
+      // belong to the current attempt and must not clear its elapsed time.
       if (this.firstWindowStartedAt !== undefined && completed > this.firstWindowCompleted) {
         clearInterval(this.firstWindowClock);
         this.firstWindowClock = undefined;
@@ -970,7 +971,7 @@ export class VideoPlayer {
       }
       if (
         this.firstWindowStartedAt === undefined &&
-        (stage === 'decoding' || completed === 0)
+        (stage === 'decoding' || (stage === 'transcribing' && completed === 0))
       ) {
         this.firstWindowCompleted = completed;
         this.firstWindowStartedAt = Date.now();
