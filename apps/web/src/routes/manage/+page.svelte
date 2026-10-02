@@ -9,6 +9,7 @@
   import type { BookCardProps } from '$lib/components/book-card/book-card-props';
   import {
     reconcileSelectionEligibility,
+    selectableSavedBookIds,
     type LibrarySelectionEligibility
   } from '$lib/library/selection';
   import BookManagerHeader from '$lib/components/book-card/book-manager-header.svelte';
@@ -643,8 +644,13 @@
       libraryWorkspace.selectAllVisible();
       return;
     }
+    const ids = selectableSavedBookIds(
+      $storageSource$ === StorageKey.BROWSER,
+      selectableBookIds,
+      $bookCards$ ?? []
+    );
     selectedBookIds = cloneMutateSet(selectedBookIds, (set) => {
-      selectableBookIds.forEach((id) => set.add(id));
+      ids.forEach((id) => set.add(id));
     });
   }
 
