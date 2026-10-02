@@ -279,6 +279,12 @@ export class PitchController {
           });
           this.breakBefore = false;
         } else if (event.data?.type === 'error') {
+          if (event.data.phase === 'analysis') {
+            if (!this.pending || event.data.id !== this.pending.id) return;
+            this.pending = undefined;
+            if (this.replyTimer !== undefined) this.environment.clearTimer(this.replyTimer);
+            this.replyTimer = undefined;
+          }
           this.fail('Pitch analysis could not load or run. Check your connection and retry.');
         }
       };
