@@ -36,7 +36,8 @@ scope.onmessage = ({ data }) => {
   )
     return;
   const request = data as AnalysisRequest;
-  if (request.epoch !== levelEpoch) {
+  if (request.epoch < levelEpoch) return;
+  if (request.epoch > levelEpoch) {
     levelEpoch = request.epoch;
     levels = [];
   }
