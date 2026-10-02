@@ -1325,6 +1325,7 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.get_by_role(
             'menuitem', name='Statistics for Selected Books', exact=True).click()
         expect(self.page).to_have_url(re.compile(r'/reader-web/statistics(?:[/?#]|$)'), timeout=30000)
+        expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         toolbar = self.page.get_by_role('banner', name='Statistics toolbar')
         toolbar.get_by_role('button', name='Summary', exact=True).click()
         rows = self.page.get_by_role(

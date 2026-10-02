@@ -63,16 +63,63 @@ Native controls explicitly submit Search/IME search actions rather than searchin
 - Atomic selected completion/reading changes and finished dates, preserving position and statistics
 - Public Editor’s Picks browsing, cancellable download/import and canonical guarded opening
 - Existing native document import and guarded runtime open/remove commands
+- Single-book Statistics navigation and explicitly confirmed whole-history deletion from Book details
+
+## Per-book Statistics
+
+Book details now opens **Book Statistics** or **Delete reading history** through
+the existing `statistics.read`/`statistics.action` bridge. The first read submits
+only the current Library token and opaque row key. The DOM owner consumes the
+ordinary single-book Library admission, retaining the canonical content hash or
+already-existing legacy UUID captured by the Library repository. It compares
+that key against the live Library copy before handing the original identity to
+the Statistics domain. Ordinary open/delete admissions retain this same stronger
+canonical-key check. No new UUID, database, storage owner or native file access is
+introduced by the handoff.
+
+The Statistics read verifies the original title, modification identity, canonical
+key and ownership inside its existing final snapshot transaction. Its optional
+migration guard also validates the captured canonical key against the live local
+identity inside the existing migration write transaction, before any UUID or
+legacy-history assignment is written. Missing/replaced UUIDs therefore cannot
+cause side effects before a stale selection is rejected. Existing hash casing
+normalization is retained. Its route
+contains only an opaque selection token, never a book ID or title. Every later
+date/filter/refresh read remains bound to that one admitted identity; explicit
+empty selection stays empty. Unknown, malformed, expired, reimported or
+old-account selections display a recoverable error instead of opening all books
+or substituting another copy. Returning to all Statistics is an explicit native
+action. Existing hashless copies are supported when the DOM repository already
+has their canonical local UUID; copies without that evidence require re-import.
+
+Library history deletion keeps the Statistics confirmation wording and uses
+only the newly returned single-use Statistics snapshot for the write. Cancel,
+native alert dismissal, closing/replacing the details sheet, departure, newer
+reads and account-generation changes retire pending callbacks. Unknown mutation
+outcomes are reported and refreshed without replay. The transaction still rejects
+changed records, unresolved legacy ownership and foreign shared-content claimants;
+it preserves the book itself and same-title sibling histories. This is single-book
+parity; multi-book Library Statistics shortcuts remain unimplemented.
+
+Local qualification uses mounted production React controls, production Library
+and Statistics services with real fake-indexeddb transactions, and the actual DOM
+runtime dispatch fixture. Platform controls, the Library storage adapter in the
+mounted UI, and the heavyweight runtime services at that fixture boundary are
+substituted. These checks do not claim Android device rendering, accessibility,
+end-to-end bridge execution or release qualification.
 
 ## Explicit gaps
 
 This is source implementation, not a complete native parity or release claim. First-party native authentication/session transport and persistent Android folder handles are unavailable. Cached provider rows can be browsed; the UI explains why provider refresh/import/move/rename/group/reconnect actions cannot be performed. No invented endpoint or filesystem bridge is exposed. Unverified unsaved previews cannot be organized until imported.
 
-Editor’s Picks cover thumbnails, custom covers for provider-only/hashless copies, mixed snippet counts, physical local/cloud series operations and repair plans, backup/export/share, per-book statistics navigation/deletion, and finished timeline presentation are not implemented by these native controls. Existing web implementations remain intact. Layout/sort/filter state is currently screen-local.
+Editor’s Picks cover thumbnails, custom covers for provider-only/hashless copies, mixed snippet counts, physical local/cloud series operations and repair plans, backup/export/share, multi-book statistics shortcuts, and finished timeline presentation are not implemented by these native controls. Existing web implementations remain intact. Layout/sort/filter state is currently screen-local.
 
 Open/remove admission returns expected content identity from the single-use Library token. The integrated host validates the expectation at its final read/write boundary; preflight visibility alone cannot authorize a replaced numeric ID. The guarded database read checks the existing canonical key and ownership in the same readonly transaction as the record bytes, and never creates a replacement UUID during admission.
 
 ## Validation
+
+- `node --test test/expo/native-library-statistics-ui.test.mjs test/expo/native-statistics-ui.test.mjs tests/unit/statistics-react-controller.test.mjs`: native single-book handoff, confirmed deletion/cancel, route/sheet/account retirement, proof expiry/eviction, missing/legacy UUIDs, ambiguous history and final-transaction replacement guards
+- `node --test test/expo/runtime-owner.test.mjs`: actual DOM dispatch and account ABA during pending Statistics admission, preserving existing reader/catalog lifetime checks
 
 - `node --test test/expo/native-library-catalog*.test.mjs`: bounded public catalog service, native controls/navigation, existing fetch/ownership guards and canonical IndexedDB reads; importer/base-storage adapters are explicit in the DOM test
 

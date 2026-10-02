@@ -30,7 +30,16 @@ export type NativeStatisticsMeasurements = Record<
   number
 >;
 
+/** Bounded Library Open response. This token is not a mutation snapshot. */
+export interface NativeStatisticsSelectionAdmission {
+  admissionVersion: 1;
+  selectionToken: string;
+  bookId: number;
+}
+
 export interface NativeStatisticsQuery {
+  /** Opaque, account-bound Library selection. Never a numeric-ID route hint. */
+  selectionToken?: string;
   startDate?: string;
   endDate?: string;
   year?: number;
@@ -52,7 +61,13 @@ export interface NativeStatisticsBook {
   bookKey: string;
   deletable: boolean;
 }
+export interface NativeStatisticsMutationTargets {
+  bookIds: number[];
+  bookKeys: string[];
+}
 export interface NativeStatisticsRow {
+  /** DOM-only projection admission metadata; stripped before bridge serialization. */
+  sharedMutationTargets?: NativeStatisticsMutationTargets;
   id: string;
   title: string;
   date: string;
@@ -61,10 +76,13 @@ export interface NativeStatisticsRow {
   speed: number;
   /** Bounded display-only measurements; raw totals above remain edit values. */
   measurements: NativeStatisticsMeasurements;
+  affectedTitles?: string[];
   /** Only individual, proven identity/day rows can be edited. */
   entry?: { bookId: number; bookKey: string; date: string };
 }
 export interface NativeStatisticsSnapshot {
+  /** DOM-only projection admission metadata; stripped before bridge serialization. */
+  sharedMutationTargets?: NativeStatisticsMutationTargets;
   snapshotId: string;
   query: Required<NativeStatisticsQuery>;
   today: string;
@@ -72,12 +90,19 @@ export interface NativeStatisticsSnapshot {
   books: NativeStatisticsBook[];
   rows: NativeStatisticsRow[];
   totalRows: number;
+  selectionTitles?: string[];
+  allTitles?: string[];
   pages: number;
   totals: { time: number; characters: number; speed: number; days: number };
   days: { date: string; color: string; details: string[]; time: number }[];
   daysRead: string;
   currentStreak: number;
+  currentStreakDates?: string[];
+  titleChoices?: { title: string; inDateRange: boolean }[];
   longestStreak: number;
+  longestStreakCount?: number;
+  longestStreaks?: { startDate: string; endDate: string; duration: number }[];
+  currentStreakRange?: { startDate: string; endDate: string; duration: number };
   /** Allows an all-time highlight to navigate without transferring other years. */
   longestStreakStartDate: string | null;
   longestStreakDates: string[];

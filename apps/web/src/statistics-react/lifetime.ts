@@ -4,6 +4,11 @@
  * All rights reserved.
  */
 
+import {
+  acquireStatisticsActionLease,
+  releaseStatisticsActionLease,
+  hasStatisticsActionLease
+} from '../features/statistics/action-lease';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 import { dialogManager, type Dialog } from '$lib/data/dialog-manager';
 import { statisticsActionInProgress$ } from '$lib/components/statistics/statistics-types';
@@ -11,7 +16,6 @@ import type { ReaderController } from '../reader-react/controller';
 
 // A global button/action lease prevents a late result from an old route from
 // releasing a newer route's progress overlay or admitting a duplicate mutation.
-let activeAction: symbol | undefined;
 export function statisticsLifetime(controller: ReaderController) {
   const scope = captureLibraryOperation();
   const ownedDialogs = new Set<Dialog>();
@@ -56,8 +60,7 @@ export function statisticsLifetime(controller: ReaderController) {
     dialogManager.dialogs$.next(next);
   };
   const release = () => {
-    if (ownedAction && activeAction === ownedAction) {
-      activeAction = undefined;
+    if (ownedAction && releaseStatisticsActionLease(ownedAction)) {
       statisticsActionInProgress$.next(false);
     }
     ownedAction = undefined;
@@ -71,12 +74,12 @@ export function statisticsLifetime(controller: ReaderController) {
   });
   async function run(work: () => Promise<void>) {
     if (!current()) {
-      if (!activeAction) statisticsActionInProgress$.next(false);
+      if (!hasStatisticsActionLease()) statisticsActionInProgress$.next(false);
       return;
     }
-    if (activeAction) return;
-    const owner = Symbol('statistics-action');
-    activeAction = ownedAction = owner;
+    const owner = acquireStatisticsActionLease();
+    if (!owner) return;
+    ownedAction = owner;
     statisticsActionInProgress$.next(true);
     try {
       await work();

@@ -34,6 +34,10 @@ import { NativeLibraryContentSearch } from './content-search';
 import { NativeBookCover } from './cover';
 import { NativeEditorsPicks } from './catalog';
 import { NativeLibraryCoverController, type NativeCoverState } from './cover-controller';
+import type {
+  NativeStatisticsSelectionAdmission,
+  NativeStatisticsSnapshot
+} from '../statistics-react/native-contract';
 
 function Field({
   label,
@@ -105,6 +109,8 @@ export function NativeLibraryScreen() {
 function Library() {
   const { snapshot, command, importBooks, changeCover, busy: importing } = useReaderRuntime();
   const focused = usePathname() === '/manage';
+  const activeRoute = useRef(focused);
+  activeRoute.current = focused;
   const [covers, setCovers] = useState<NativeCoverState>({ token: '', images: new Map() });
   const coverController = useRef<NativeLibraryCoverController | null>(null);
   if (!coverController.current)
@@ -140,6 +146,8 @@ function Library() {
   const [sheet, setSheet] = useState<
     'filters' | 'collections' | 'membership' | 'series' | 'completion' | 'metadata'
   >();
+  const activeSheet = useRef(sheet);
+  activeSheet.current = sheet;
   const [name, setName] = useState('');
   const [collectionTarget, setCollectionTarget] = useState<string>();
   const [seriesIndex, setSeriesIndex] = useState('');
@@ -148,6 +156,9 @@ function Library() {
   const mounted = useRef(true);
   const mutationActive = useRef(false);
   const coverOperation = useRef<AbortController | null>(null);
+  const statisticsIntent = useRef(0);
+  const statisticsPending = useRef(false);
+  const statisticsWriting = useRef(false);
   useEffect(() => {
     mounted.current = true;
     coverController.current?.activate();
@@ -188,8 +199,8 @@ function Library() {
     [command, query]
   );
   useEffect(() => {
-    if (snapshot.session) void refresh();
-  }, [refresh, snapshot.session]);
+    if (snapshot.session && focused) void refresh();
+  }, [refresh, snapshot.session, focused]);
   useEffect(() => {
     const timer = setTimeout(
       () =>
@@ -205,8 +216,16 @@ function Library() {
   useEffect(() => {
     coverController.current?.setActive(focused && searchMode === 'metadata' && !loading);
     if (!focused) {
+      statisticsIntent.current++;
+      if (statisticsPending.current) {
+        statisticsPending.current = false;
+        statisticsWriting.current = false;
+        mutationActive.current = false;
+        setBusy(false);
+      }
       coverOperation.current?.abort();
       setCatalogVisible(false);
+      setSheet(undefined);
     }
   }, [focused, searchMode, loading]);
   function view(change: LibraryQuery) {
@@ -280,6 +299,128 @@ function Library() {
       previous.includes(key) ? previous.filter((item) => item !== key) : [...previous, key]
     );
   }
+  async function statistics(removeHistory: boolean) {
+    const detail = state?.detail;
+    if (!state || !detail?.available || !detail.bookId || mutationActive.current || loading) return;
+    const intent = ++statisticsIntent.current;
+    const viewSerial = serial.current;
+    const current = () =>
+      mounted.current &&
+      activeRoute.current &&
+      activeSheet.current === 'metadata' &&
+      statisticsIntent.current === intent &&
+      serial.current === viewSerial;
+    mutationActive.current = true;
+    statisticsPending.current = true;
+    setBusy(true);
+    setError('');
+    const finish = () => {
+      if (statisticsIntent.current !== intent) return;
+      statisticsIntent.current++;
+      statisticsPending.current = false;
+      statisticsWriting.current = false;
+      mutationActive.current = false;
+      if (mounted.current) {
+        setBusy(false);
+        if (activeRoute.current) void refresh();
+      }
+    };
+    try {
+      if (!removeHistory) {
+        // Navigation needs only an identity-bound hint. Do not read a legacy
+        // capped history projection or create mutation authority just to open.
+        const admission = (await command('statistics.read', {
+          admissionVersion: 1,
+          librarySelection: { token: state.token, key: detail.key }
+        })) as NativeStatisticsSelectionAdmission;
+        if (!current()) {
+          finish();
+          return;
+        }
+        if (
+          !admission ||
+          admission.admissionVersion !== 1 ||
+          admission.bookId !== detail.bookId ||
+          typeof admission.selectionToken !== 'string' ||
+          !/^[A-Za-z0-9-]{1,64}$/.test(admission.selectionToken)
+        )
+          throw new Error(
+            'The book Statistics selection changed. Refresh the Library and try again.'
+          );
+        setSheet(undefined);
+        router.push({ pathname: '/statistics', params: { selection: admission.selectionToken } });
+        finish();
+        return;
+      }
+      const proof = (await command('statistics.read', {
+        librarySelection: { token: state.token, key: detail.key }
+      })) as NativeStatisticsSnapshot;
+      if (!current()) {
+        finish();
+        return;
+      }
+      const book = proof.books[0];
+      if (
+        !proof.query.selectionToken ||
+        proof.books.length !== 1 ||
+        book.id !== detail.bookId ||
+        proof.query.bookSelection !== 'selected' ||
+        proof.query.bookIds.length !== 1 ||
+        proof.query.bookIds[0] !== book.id
+      )
+        throw new Error(
+          'The book Statistics selection changed. Refresh the Library and try again.'
+        );
+      if (!book.deletable)
+        throw new Error(
+          'Older history could not be safely assigned to this copy. Open Statistics to review it.'
+        );
+      let confirmed = false;
+      Alert.alert(
+        'Delete reading history?',
+        `Delete all reading history for “${book.title}” on this device? This includes all dates and any completion records. The book itself will remain. This cannot be undone.`,
+        [
+          { text: 'Cancel', style: 'cancel', onPress: finish },
+          {
+            text: 'Delete history',
+            style: 'destructive',
+            onPress: () => {
+              if (!current() || confirmed) return;
+              confirmed = true;
+              statisticsWriting.current = true;
+              // Only the newly admitted Statistics snapshot authorizes the write.
+              void command('statistics.action', {
+                type: 'delete-book-history',
+                snapshotId: proof.snapshotId,
+                bookId: book.id,
+                bookKey: book.bookKey,
+                title: book.title
+              })
+                .catch((cause) => {
+                  if (current())
+                    setError(
+                      cause instanceof Error
+                        ? cause.message
+                        : 'The deletion was not confirmed. Refresh before trying again.'
+                    );
+                })
+                .finally(finish);
+            }
+          }
+        ],
+        {
+          cancelable: true,
+          onDismiss: () => {
+            if (!confirmed) finish();
+          }
+        }
+      );
+    } catch (cause) {
+      if (current())
+        setError(cause instanceof Error ? cause.message : 'Statistics could not be loaded.');
+      finish();
+    }
+  }
   function remove() {
     if (!state || mutationActive.current) return;
     const books = state.items.filter(
@@ -324,7 +465,15 @@ function Library() {
   }
   const actionKeys = selected.length ? selected : state?.detail ? [state.detail.key] : [];
   const close = () => {
-    if (!busy) {
+    const canClose = !busy || (statisticsPending.current && !statisticsWriting.current);
+    if (statisticsPending.current && !statisticsWriting.current) {
+      statisticsIntent.current++;
+      statisticsPending.current = false;
+      mutationActive.current = false;
+      setBusy(false);
+      void refresh({ ...query, detail: undefined });
+    }
+    if (canClose) {
       setSheet(undefined);
       setCollectionTarget(undefined);
       setQuery((previous) => (previous.detail ? { ...previous, detail: undefined } : previous));
@@ -963,6 +1112,20 @@ function Library() {
                     : 'Re-import this book to choose a cover for a verified copy on this device.'}
                 </Text>
                 <View style={styles.row}>
+                  <Action
+                    label="Book Statistics"
+                    disabled={busy || loading || !state.detail.available}
+                    onPress={() => {
+                      void statistics(false);
+                    }}
+                  />
+                  <Action
+                    label="Delete reading history"
+                    disabled={busy || loading || !state.detail.available}
+                    onPress={() => {
+                      void statistics(true);
+                    }}
+                  />
                   <Action
                     label="Collections"
                     onPress={() => {

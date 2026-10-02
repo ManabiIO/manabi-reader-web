@@ -32,6 +32,7 @@ writeFileSync(
   fixture,
   `import React from 'react';
 let runtime; export function setRuntime(value) { runtime=value; } export function useReaderRuntime(){ return runtime; }
+let params={}, pathname='/statistics'; export function setRoute(value={}, path='/statistics'){params=value;pathname=path;} export function useLocalSearchParams(){return params;} export function usePathname(){return pathname;} export const router={replace(){}};
 export const confirmations=[]; export const Alert={alert(...args){confirmations.push(args)}};
 export const View=({children})=><div>{children}</div>;export const ScrollView=View;
 export const Text=({children})=><span>{children}</span>;
@@ -66,7 +67,7 @@ await build({
         b.onResolve(
           {
             filter:
-              /^react-native$|^native-statistics-fixture$|\/NativeScreens$|\/RuntimeProvider.native$/
+              /^expo-router$|^react-native$|^native-statistics-fixture$|\/NativeScreens$|\/RuntimeProvider.native$/
           },
           () => ({ path: fixture })
         );
@@ -74,7 +75,7 @@ await build({
     }
   ]
 });
-const { NativeStatisticsScreen, setRuntime, confirmations } = require(outfile);
+const { NativeStatisticsScreen, setRuntime, setRoute, confirmations } = require(outfile);
 function snapshot(id = 'snapshot-1') {
   return {
     snapshotId: id,
@@ -152,7 +153,8 @@ function setup(override) {
   return {
     container,
     calls,
-    async render(epoch = 1) {
+    async render(epoch = 1, params = {}, pathname = '/statistics') {
+      setRoute(params, pathname);
       setRuntime({ command, snapshot: { session: 'session-a', epoch } });
       await act(async () => {
         root.render(React.createElement(NativeStatisticsScreen));
@@ -469,4 +471,89 @@ test('native measurement reload retires an old confirmation before its replaceme
 test.after(() => {
   rmSync(output, { recursive: true, force: true });
   dom.window.close();
+});
+
+test('Statistics route accepts only an opaque selection and never falls back from invalid ID hints', async () => {
+  for (const params of [
+    { bookId: '1' },
+    { selection: ['first', 'second'] },
+    { selection: '' },
+    { selection: 'ok', bookIds: '1' }
+  ]) {
+    const f = setup();
+    await f.render(1, params);
+    assert.equal(f.calls.length, 0);
+    assert.match(f.container.textContent, /invalid or expired/);
+    assert.match(f.container.textContent, /Return to Library/);
+    await f.dispose();
+  }
+  const f = setup();
+  await f.render(1, { selection: 'opaque-selection' });
+  assert.deepEqual(f.calls[0].payload, { selectionToken: 'opaque-selection' });
+  await click(f, 'Today');
+  assert.equal(f.calls.at(-1).payload.selectionToken, 'opaque-selection');
+  await f.dispose();
+});
+
+test('Statistics route changes and departure retire stale confirmations and late reads', async () => {
+  let release;
+  const f = setup((method, payload) =>
+    method === 'statistics.read' && payload.selectionToken === 'slow-selection'
+      ? new Promise((resolve) => {
+          release = resolve;
+        })
+      : undefined
+  );
+  await f.render(1, { selection: 'old-selection' });
+  await click(f, 'Delete My book on 2024-02-28');
+  const old = confirm();
+  await f.render(1, { selection: 'slow-selection' });
+  await act(async () => old());
+  assert.equal(f.calls.filter((call) => call.method === 'statistics.action').length, 0);
+  await f.render(1, { selection: 'new-selection' });
+  await act(async () => {
+    const stale = snapshot('old');
+    stale.query.selectionToken = 'slow-selection';
+    stale.rows[0].title = 'Stale route book';
+    release(stale);
+  });
+  assert.doesNotMatch(f.container.textContent, /Stale route book/);
+  await click(f, 'Delete My book on 2024-02-28');
+  const departed = confirm();
+  await f.render(1, { selection: 'new-selection' }, '/manage');
+  await act(async () => departed());
+  assert.equal(f.calls.filter((call) => call.method === 'statistics.action').length, 0);
+  assert.equal(f.container.textContent, '');
+  await f.dispose();
+});
+
+test('Statistics rejects a lost selection proof and clears stale data on a failed refresh', async () => {
+  let fail = false;
+  const f = setup((method) => {
+    if (method === 'statistics.read' && fail)
+      throw new Error('Selection expired; return to Library.');
+  });
+  await f.render(1, { selection: 'selection' });
+  fail = true;
+  await click(f, 'Refresh');
+  assert.match(f.container.textContent, /Selection expired/);
+  assert.doesNotMatch(f.container.textContent, /Reading totals/);
+  await f.dispose();
+  const wrong = setup((method) => (method === 'statistics.read' ? snapshot() : undefined));
+  await wrong.render(1, { selection: 'requested-selection' });
+  assert.match(wrong.container.textContent, /invalid or expired/);
+  assert.doesNotMatch(wrong.container.textContent, /Reading totals/);
+  await wrong.dispose();
+});
+
+test('closing a reading editor retires its already-open Save confirmation', async () => {
+  const f = setup();
+  await f.render();
+  await click(f, 'Edit My book on 2024-02-28');
+  await click(f, 'Save reading day');
+  const old = confirm();
+  await click(f, 'Cancel edit');
+  await act(async () => old());
+  assert.equal(f.calls.filter((call) => call.method === 'statistics.action').length, 0);
+  await f.dispose();
 });

@@ -529,3 +529,39 @@ test('two physical copies of one saved book have distinct opaque row handles', a
   );
   assert.equal(f.writes[0][1][0].file.id, 'two');
 });
+
+test('Library access retains the original canonical key for ordinary open and delete', async () => {
+  for (const operation of ['open', 'delete']) {
+    const f = setup([book(1, { contentHash: undefined })]);
+    f.data.coverIdentities = { 1: 'local:11111111-1111-4111-8111-111111111111' };
+    const state = await f.service.state({}, f.authority);
+    const result = await f.service.admitAccess(
+      { token: state.token, keys: [state.items[0].key], operation },
+      f.authority
+    );
+    assert.equal(result[0].readerBookKey, f.data.coverIdentities[1]);
+    assert.equal(f.writes.length, 0);
+  }
+});
+
+test('Library canonical admissions reject identical hashless reimports, missing proof and ABA', async () => {
+  for (const change of ['uuid', 'missing', 'aba']) {
+    const f = setup([book(1, { contentHash: undefined })]);
+    f.data.coverIdentities = { 1: 'local:11111111-1111-4111-8111-111111111111' };
+    const state = await f.service.state({}, f.authority);
+    if (change === 'uuid') f.data.coverIdentities[1] = 'local:22222222-2222-4222-8222-222222222222';
+    if (change === 'missing') f.data.coverIdentities = {};
+    if (change === 'aba') {
+      f.authority.key = 'session:2';
+      f.changeScope('session:2');
+    }
+    await assert.rejects(
+      f.service.admitAccess(
+        { token: state.token, keys: [state.items[0].key], operation: 'open' },
+        f.authority
+      ),
+      /changed|expired/
+    );
+    assert.equal(f.writes.length, 0);
+  }
+});

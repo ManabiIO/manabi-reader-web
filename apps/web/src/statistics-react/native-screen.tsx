@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { router, useLocalSearchParams, usePathname } from 'expo-router';
 import {
   ActivityIndicator,
   Alert,
@@ -29,6 +30,7 @@ import {
   type NativeStatisticsRow,
   type NativeStatisticsBook
 } from './native-contract';
+import { nativeStatisticsRoute, statisticsRouteError } from './native-route';
 const minutes = (seconds: number) => `${secondsToMinutes(seconds)} min`;
 const dateString = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -69,9 +71,31 @@ function MeasurementChoices<T extends string>({
 /** Native Android screen. Database ownership and identity remain inside the
  * bounded trusted DOM bridge; this component receives display projections only. */
 export function NativeStatisticsScreen() {
+  const { snapshot } = useReaderRuntime();
+  const pathname = usePathname();
+  const route = nativeStatisticsRoute(useLocalSearchParams());
+  if (pathname !== '/statistics') return null;
+  if (route.kind === 'invalid')
+    return (
+      <Screen title="Statistics">
+        <Text accessibilityRole="alert">{statisticsRouteError}</Text>
+        <Action label="Return to Library" onPress={() => router.replace('/manage')} />
+      </Screen>
+    );
+  const selectionToken = route.kind === 'selection' ? route.token : undefined;
+  return (
+    <Statistics
+      key={`${snapshot.session}:${snapshot.epoch}:${selectionToken ?? 'all'}`}
+      selectionToken={selectionToken}
+    />
+  );
+}
+function Statistics({ selectionToken }: { selectionToken?: string }) {
   const { command, snapshot: runtime } = useReaderRuntime();
   const [data, setData] = useState<NativeStatisticsSnapshot>();
-  const [query, setQuery] = useState<NativeStatisticsQuery>({});
+  const [query, setQuery] = useState<NativeStatisticsQuery>(
+    selectionToken ? { selectionToken } : {}
+  );
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('');
   const [view, setView] = useState<'summary' | 'heatmap'>('summary');
@@ -93,6 +117,8 @@ export function NativeStatisticsScreen() {
     characters: string;
     resetMinMax: boolean;
   }>();
+  const latestEditor = useRef(editor);
+  latestEditor.current = editor;
   const generation = useRef(0),
     snapshotGeneration = useRef(0),
     mutation = useRef(false);
@@ -110,6 +136,8 @@ export function NativeStatisticsScreen() {
   const refresh = useCallback(async () => {
     const current = ++generation.current;
     const owner = latestScope.current;
+    latestSnapshot.current = undefined;
+    setEditor(undefined);
     setBusy(true);
     setError('');
     try {
@@ -119,30 +147,22 @@ export function NativeStatisticsScreen() {
       )) as NativeStatisticsSnapshot;
       if (!mounted.current || owner !== latestScope.current || current !== generation.current)
         return;
+      if (selectionToken && next.query.selectionToken !== selectionToken)
+        throw new Error(statisticsRouteError);
       snapshotGeneration.current = current;
       setData(next);
       setFrom(next.query.startDate);
       setTo(next.query.endDate);
     } catch (cause) {
-      if (mounted.current && owner === latestScope.current && current === generation.current)
+      if (mounted.current && owner === latestScope.current && current === generation.current) {
+        setData(undefined);
         setError(cause instanceof Error ? cause.message : 'Statistics could not be loaded.');
+      }
     } finally {
       if (mounted.current && owner === latestScope.current && current === generation.current)
         setBusy(false);
     }
-  }, [command, query]);
-  useEffect(() => {
-    setData(undefined);
-    setSelectedDay(undefined);
-    setEditor(undefined);
-    setBusy(false);
-    setError('');
-    setFilters(false);
-    setFilterDraft([]);
-    setFilterAll(true);
-    setSearch('');
-    setQuery((previous) => (Object.keys(previous).length ? {} : previous));
-  }, [runtime.session, runtime.epoch]);
+  }, [command, query, selectionToken]);
   useEffect(() => {
     if (runtime.session) void refresh();
     return () => {
@@ -183,6 +203,8 @@ export function NativeStatisticsScreen() {
     )
       return;
     mutation.current = true;
+    latestSnapshot.current = undefined;
+    setData(undefined);
     setBusy(true);
     setError('');
     try {
@@ -319,6 +341,7 @@ export function NativeStatisticsScreen() {
         {
           text: 'Save',
           onPress: () => {
+            if (latestEditor.current !== value) return;
             void mutate(
               {
                 type: 'save-day',
@@ -339,7 +362,7 @@ export function NativeStatisticsScreen() {
       ]
     );
   }
-  const chosen = query.bookIds ?? [],
+  const chosen = data?.query.bookIds ?? [],
     detail = data?.days.find((day) => day.date === selectedDay);
   const rangeBooks =
     data?.books.filter(
@@ -384,6 +407,13 @@ export function NativeStatisticsScreen() {
             <Text>{error}</Text>
           </View>
         ) : null}
+        {selectionToken && (
+          <View style={styles.card}>
+            <Text>Statistics for the book selected in your Library</Text>
+            <Action label="Return to Library" onPress={() => router.replace('/manage')} />
+            <Action label="Open all Statistics" onPress={() => router.replace('/statistics')} />
+          </View>
+        )}
         <View style={styles.row}>
           <Action
             label="Summary"
@@ -485,7 +515,7 @@ export function NativeStatisticsScreen() {
               style={styles.input}
             />
             <Action
-              label="All available books"
+              label={selectionToken ? 'This Library book' : 'All available books'}
               disabled={busy}
               onPress={() => {
                 setFilterAll(true);

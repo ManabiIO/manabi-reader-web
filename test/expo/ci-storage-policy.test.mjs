@@ -2,7 +2,7 @@
 // Wiring-policy tests. Original application suites/assertions remain unchanged.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -142,6 +142,26 @@ test('only three stock, read-only jobs; no duplicate push or matrix allocation',
   }
 });
 
+test('affected qualification is explicit and the complete final gate remains selectable', () => {
+  const input = migration.on.workflow_dispatch.inputs.qualification_scope;
+  assert.equal(input.type, 'choice');
+  assert.equal(input.required, true);
+  assert.equal(input.default, 'affected');
+  assert.deepEqual(input.options, ['affected', 'full']);
+  assert.equal(
+    migration.env.QUALIFICATION_SCOPE,
+    "${{ github.event_name == 'workflow_dispatch' && inputs.qualification_scope || 'affected' }}"
+  );
+  for (const job of Object.values(migration.jobs)) {
+    const evidence = job.steps.find(
+      (step) => step.name === 'Record exact source and qualification limits'
+    );
+    assert.match(evidence.run, /case "\$QUALIFICATION_SCOPE" in[\s\S]*affected\|full/);
+    assert.match(evidence.run, /Unknown qualification scope[\s\S]*exit 1/);
+    assert.match(evidence.run, /Affected checks are not the final full-parity gate/);
+  }
+});
+
 test('executing jobs cannot upload artifacts, save remote caches or hide composite actions', () => {
   const allowed = new Set([
     'actions/checkout@v4',
@@ -199,14 +219,35 @@ test('publication and manual MOSS workflows stay byte-for-byte unchanged', () =>
 });
 
 const webSteps = migration.jobs.web.steps;
+const defaultSteps = migration.jobs.regression.steps;
+const allBrowserSteps = [...defaultSteps, ...webSteps];
 const stepNamed = (part) => {
-  const matches = webSteps.filter((step) => step.name?.includes(part));
+  const matches = allBrowserSteps.filter((step) => step.name?.includes(part));
   assert.equal(matches.length, 1, part);
   return matches[0];
 };
 
 test('two purposeful exports keep the source flag off and do not mask default-route failures', () => {
-  const exports = webSteps.filter((step) => step.run?.includes('expo export --platform web'));
+  const exports = allBrowserSteps.filter((step) =>
+    step.run?.includes('expo export --platform web')
+  );
+  assert.equal(
+    defaultSteps.filter((step) => step.run?.includes('expo export --platform web')).length,
+    1
+  );
+  assert.equal(
+    webSteps.filter((step) => step.run?.includes('expo export --platform web')).length,
+    1
+  );
+  const setup = defaultSteps.find((step) => step.id === 'browser-python');
+  assert.match(setup.if, /!cancelled\(\)/);
+  assert.match(setup.if, /steps\.dependencies\.outcome == 'success'/);
+  assert.ok(
+    defaultSteps.indexOf(setup) >
+      defaultSteps.findIndex(
+        (step) => step.name === 'Existing library dispatcher and diagnostic contracts'
+      )
+  );
   assert.equal(exports.length, 2);
   assert.deepEqual(
     exports.map((step) => step.env.EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME),
@@ -225,7 +266,8 @@ test('two purposeful exports keep the source flag off and do not mask default-ro
     'test_static_reader',
     'test_settings_controls',
     'test_product_journeys',
-    'test_library_parity'
+    'test_library_parity',
+    'test_statistics_shared_route'
   ]) {
     assert.ok(normal.includes(suite), `default ${suite}`);
     assert.ok(gated.includes(suite), `gated ${suite}`);
@@ -252,7 +294,8 @@ test('required original browser and runtime assertions remain selected', () => {
     'test_reading_recovery',
     'test_ttu_migration',
     'test_ttu_migration_edges',
-    'test_completed_reading'
+    'test_completed_reading',
+    'test_statistics_shared_route'
   ]) {
     assert.ok(gated.includes(suite), suite);
   }
@@ -264,6 +307,8 @@ test('required original browser and runtime assertions remain selected', () => {
   );
   assert.match(stepNamed('Assembled snippets').run, /for engine in chromium webkit/);
   assert.match(stepNamed('Assembled snippets').run, /node test\/snippets\/browser\.mjs/);
+  for (const name of ['Required shared and local data safety', 'Assembled snippets'])
+    assert.match(stepNamed(name).if, /env\.QUALIFICATION_SCOPE == 'full'/);
   for (const script of ['onnx-runtime-browser.mjs', 'native-library-cover-browser.mjs']) {
     assert.ok(
       webSteps.some((step) => step.run?.includes(script)),
@@ -271,6 +316,86 @@ test('required original browser and runtime assertions remain selected', () => {
     );
   }
 });
+
+for (const [label, mode] of [
+  ['Core default-route acceptance', 'default'],
+  ['Retained actual-app assertions', 'gated']
+]) {
+  test(`${label}: real shell selects equal affected coverage and retains full inventory without hiding failures`, () => {
+    const commands = stepNamed(label).run;
+    for (const scope of ['affected', 'full']) {
+      const temporary = mkdtempSync(path.join(tmpdir(), 'expo-ci-scope-'));
+      try {
+        const summary = path.join(temporary, 'summary.md');
+        // A PATH executable also intercepts `env NAME=value python ...`; a
+        // shell function alone would accidentally launch those real suites.
+        writeFileSync(
+          path.join(temporary, 'python'),
+          '#!/usr/bin/env bash\n' +
+            'printf "SELECTED|%s|%s\\n" "${LIBRARY_BROWSER:-chromium}" "$*"\n' +
+            'case "$*" in *statistics_acceptance_cases.py*) exit 7;; *) exit 0;; esac\n',
+          { mode: 0o755 }
+        );
+        const result = spawnSync(
+          'bash',
+          ['-e', '-o', 'pipefail', '-c', 'timeout() { shift 2; "$@"; }\n' + commands],
+          {
+            encoding: 'utf8',
+            env: {
+              PATH: `${temporary}${path.delimiter}${process.env.PATH}`,
+              GITHUB_STEP_SUMMARY: summary,
+              QUALIFICATION_SCOPE: scope
+            }
+          }
+        );
+        assert.equal(
+          result.status,
+          1,
+          'An affected failure must remain a job failure in either scope'
+        );
+        for (const engine of ['chromium', 'webkit']) {
+          assert.ok(
+            result.stdout.includes(
+              `SELECTED|${engine}|tests/browser/statistics_acceptance_cases.py --export-mode ${mode}`
+            )
+          );
+          assert.ok(
+            result.stdout.includes(`SELECTED|${engine}|tests/browser/test_web_reader_lifetime.py`)
+          );
+          assert.ok(
+            result.stdout.includes(
+              `SELECTED|${engine}|-m unittest test_library_sync.LibraryOrganizationSync.test_offline_bookmark_survives_reload_and_syncs_on_reconnect test_offline_account_profile.OfflineAccountProfile.test_owned_book_opens_offline_and_disappears_after_confirmed_signout -v`
+            )
+          );
+        }
+        const selected = result.stdout.split('\n').filter((line) => line.startsWith('SELECTED|'));
+        if (scope === 'full' && mode === 'gated') {
+          for (const engine of ['chromium', 'webkit'])
+            assert.ok(
+              selected.includes(
+                `SELECTED|${engine}|-m unittest test_gallery_reveal_lifetime test_gallery_continuity -v`
+              )
+            );
+        }
+        assert.doesNotMatch(result.stdout + result.stderr, /Traceback|playwright\._impl/);
+        assert.equal(
+          selected.some((line) => line.includes('test_library_parity.py')),
+          scope === 'full'
+        );
+        assert.equal(
+          selected.some((line) => line.includes('test_settings_controls.py')),
+          scope === 'full'
+        );
+        assert.match(
+          readFileSync(summary, 'utf8'),
+          /FAIL \(exit 7\): .*shared-statistics-chromium[\s\S]*PASS: .*offline-handoff-webkit/
+        );
+      } finally {
+        rmSync(temporary, { recursive: true, force: true });
+      }
+    }
+  });
+}
 
 for (const label of ['Core default-route acceptance', 'Retained actual-app assertions']) {
   test(`${label}: actual shell dispatcher preserves all failures and later results`, () => {
@@ -320,6 +445,14 @@ test('only the Android job contains the approved KVM setup and existing fresh-AV
   const runtime = android.steps.find((step) => step.id === 'runtime');
   assert.match(runtime.if, /steps\.kvm\.outcome == 'success'/);
   assert.match(runtime.run, /Refusing an existing emulator/);
+  assert.ok(
+    runtime.run.indexOf(
+      "sdkmanager --install 'system-images;android-35;google_apis;x86_64' emulator platform-tools"
+    ) < runtime.run.indexOf('emulator -accel-check'),
+    'A stock runner may lack the emulator binary: install it before probing acceleration'
+  );
+  assert.match(runtime.run, /command -v emulator; emulator -accel-check/);
+  assert.match(runtime.run, /tee -a test-results\/android\/acceleration\.log/);
   assert.match(runtime.run, /mktemp -d "\$RUNNER_TEMP\/manabi-reader-avd/);
   assert.match(runtime.run, /bash tests\/android\/run-qualification\.sh/);
   assert.doesNotMatch(runtime.run, /chmod|chown|usermod|udevadm|sudo/);

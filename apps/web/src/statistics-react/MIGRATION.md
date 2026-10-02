@@ -1,156 +1,189 @@
 # Statistics React / Expo migration
 
-## Active web route
+## Current shared route
 
-`index.tsx` exports `StatisticsScreen`. The route, toolbar, options sheet,
-private title-filter sheet, responsive summary, summary column controls, and
-statistics/reading-goal heatmaps are React components. The original computation,
-identity selection, aggregation, goal-window, streak, export, and edit/delete
-functions were retained in ordinary TypeScript controllers. The active graph
-contains no Svelte components, compiler, or runtime.
+Both `screens/routes/statistics.tsx` and `statistics.web.tsx` resolve the same
+`features/statistics/StatisticsScreen.tsx` composition and the same
+`createStatisticsController` / `useStatisticsController` interaction model.
+See the [shared feature documentation](../features/statistics/README.md).
 
-Preserved web interactions include:
+`statistics-react/index.tsx`, `statistics-screen.tsx`, and `native-screen.tsx`
+are retained legacy reference/compatibility modules, **not the current Expo
+Statistics route entries**. Their controllers and scenarios remain regression
+coverage. `statistics-aggregation.ts` and the original heatmap model remain the
+production domain computation used by the new ports.
 
-- Summary/heatmap navigation, resume-reading and application navigation
-- Today/week/month/year/custom date templates, start-of-week selection, reversed
-  date normalization, equal-bound shortcuts, selected-books all-time dates
-- Data-source/aggregation choices, measurement sorting, responsive pagination,
-  row details, inline time/character edits, min/max reset and confirmations
-- Book-title search, private selection drafts, matching select/remove, selected
-  dates/titles filters, bounded pages, apply/cancel and identity prefilter reset
-- Statistics and reading-goal heatmaps, leap years, year/period navigation,
-  keyboard day/week movement, externally anchored day details, streak highlighting
-- TTU export ambiguity refusal, scoped-selection and explicit-all exports,
-  raw recovery JSON, scoped-selection and explicit-all history deletion
-- Existing selectors, labels, original component CSS and DOM structure, with
-  React scope wrappers using `display: contents`
+The shared screen uses owned React Native / React Native Web layout and bounded
+platform control/semantic leaves. The web port calls the existing DOM data owner
+in-process. The native port uses the existing trusted `statistics.read` and
+`statistics.action` bridge methods. Data ports return typed data/effect results,
+not alternate screen trees. IndexedDB, account scope, identity migration, archive
+creation, and persistence remain inside the existing DOM owner.
 
-The lifecycle adaption additionally prevents Strict Mode probes from clearing
-book prefilters, unrelated renders from resetting title drafts or summary edits,
-fresh equivalent props from resetting heatmap year/streak state, duplicate
-mutations, stale dialog confirmations, and old-route progress cleanup from
-releasing a newer route's action lease. Account changes cancel owned dialogs and
-retire the visible projection. Shared IndexedDB transaction/identity algorithms
-were not replaced or weakened.
+### Preserved web interaction inventory
 
-## Android boundary
+- Summary/heatmap, resume-reading, application navigation, and the existing User
+  guide link
+- Today/week/month/year/custom ranges, tracked-day boundaries, week-start,
+  reversed custom bounds, equal-bound shortcuts and selected-books all-time dates
+- All ten measurement sources and three aggregation modes, measurement-aware
+  sorting, responsive paging, row details, exact seconds/character editing,
+  speed-bound reset and destructive-action confirmation preference
+- Private title drafts, search, matching select/remove, stored selected-date and
+  selected-title visibility filters, paging, apply/cancel, legacy-title and
+  logical-identity prefilters
+- Reading and goal calendars with independent years and highlights; no goal
+  calendar when no goals exist; leap years, day/week/Home/End keyboard movement,
+  configured Statistics shortcuts, current/longest/completed streaks, tied
+  longest-streak counts and all-time cross-year navigation
+- Clipboard TMW time/character logs; selected/all TTU ZIP exports with identity
+  ambiguity and unresolved migration refusal; complete raw recovery JSON
+- Exact selected identity/date deletion and explicit all-history deletion. An
+  individual legacy row's absent identity is not a same-title wildcard
+- Account/route revocation, StrictMode remount, private-draft preservation,
+  single-action leases, stale confirmation/result rejection, and protection from
+  an old route releasing another route's progress state
 
-`NativeStatisticsScreen` in `native-screen.tsx` uses React Native views and Expo UI
-buttons, through the existing trusted DOM bridge. `native-service.ts` must be
-imported only by the DOM owner. It exports:
+Web selection and exports retain complete existing domain reads. Native legacy
+snapshot ceilings do not cap the web port or the shared-v1 route projection.
 
-- `readStatisticsSnapshot(query)` for `statistics.read`
-- `dispatchStatisticsAction(action)` for `statistics.action`
+## Native admission, transport and mutation boundary
 
-`native-contract.ts` is data-only and safe for the native bundle. Reads resolve
-visible per-book identities with the existing `statisticIdentityPlan` and
-ownership guards, including every shared-content claimant. They do not return
-raw global tables. The response includes bounded summary pages, totals, book
-choices, and the original heatmap/streak model. Native controls provide date
-presets/custom ranges, book filtering/search, aggregation/sorting, paging, annual
-and all-time heatmap metrics/day details, longest-streak highlighting, and explicitly confirmed
-whole-history deletion for one proven book identity. Deletion revalidates its
-identity and ownership inside the committed transaction.
+### Library Open versus Delete History
 
-Native day entry and editing now use a native modal with whole-second time,
-character count, an optional min/max-speed reset, and confirmation. Existing
-completion payloads are preserved; a new entry cannot replace an existing day.
-Zero-time entries remain visible and editable. Individual-entry deletion retains
-conflicting secondary-identity records, while selected-book/date-range deletion
-is atomic across every selected identity. The all-time date shortcut uses only
-the selected safe histories. Native book filters have private Apply/Cancel drafts,
-matching select/remove, explicit all/empty selection, and a 200-book selection
-limit.
+Library **Open Statistics** requests the explicit admission-only envelope:
 
-`native-transactions.ts` reuses the domain identity plan, content-hash claimant
-lookup, ownership guards, and `commitTransaction`. Reads capture original records
-under the same transaction as ownership/identity validation. Mutations recheck
-those records, all shared-content claimants, local/content identities, migration
-receipts, and modification markers inside one write transaction. Changed records
-are rejected rather than overwritten. A final-request abort rolls back both data
-and markers. Native reads issue opaque single-use snapshot IDs with a ten-minute
-admission limit; at most four snapshots and 10,000 unique content rows are retained.
-The DOM runtime supplies `{ key, signal, assertCurrent }` authority to both read
-and action methods, including same-user session-generation changes. Old-account,
-old-view, duplicate, and unmounted confirmations are fenced in native and again
-by the service. Snapshot admission failure requires a fresh read; writes are
-never automatically replayed.
+`{ admissionVersion: 1, librarySelection: { token, key } }`
 
-Native summary columns now expose the same ten choices as web: total, average,
-and weighted time; total, average, and weighted characters; and speed, minimum,
-alternate minimum, and maximum speed. Sorting uses the selected measurement
-before bounded pagination, with the original numeric-title tie-break. The native
-response explicitly projects those ten numeric fields; stored completion data
-and other raw history are not serialized. Editing continues to use raw time and
-character totals regardless of the selected display measurement.
+The bounded result contains only the version, an opaque selection token and the
+admitted book ID. The owner rechecks the original canonical book identity,
+profile ownership, existing local UUID and same-content claimants in a readonly
+transaction. It reads no statistics/migration stores, mints no UUID and creates
+no history snapshot or mutation proof. Consequently a book above the old
+10,000-row limit can enter the shared route without an oversized initial reply.
+The token is a scope hint; a subsequent full shared read must still revalidate
+its original identity and ownership inside the established transaction boundary.
 
-`statistics-aggregation.ts` is an extraction of the original content-controller
-algorithm, and both web and native delegate to it. A frozen test oracle from
-`727b360` verifies unchanged rounding, entry counting, weighted calculations,
-date gaps, and speed-bound semantics across all three aggregation modes. This
-port deliberately does not repair inherited edge semantics: grouped alternate
-minimum starts at zero, grouped maximum uses daily final speeds, and a zero-time
-entry following accumulated reading time participates in the original average
-denominator. Native individual zero-time entries remain visible and editable;
-web's existing positive-time selection filter is unchanged.
+Library **Delete History** deliberately retains the existing full-proof
+`{ librarySelection: { token, key } }` path and its confirmation/transaction
+semantics. That legacy path retains its original resource limits. No route
+parameter or admission-only token authorizes a mutation.
 
-All-time heatmap mode reuses the retained controller's all-history streaks,
-reading-day counts, and color scale. Calendar output remains one selected year
-(maximum 366 days) rather than serializing the full history. A longest-streak
-highlight can load its starting year via one date of metadata. Year navigation
-is bounded to the service's supported 1000–9999 range. Book/account filters and
-ownership checks remain in force; summary date bounds do not restrict heatmaps,
-matching the original model.
+Selections remain account/runtime-bound, limited to four retained scopes with a
+ten-minute lifetime. Unknown/expired tokens, account ABA, title/modification
+replacement, content-hash replacement, missing/replaced legacy UUIDs and foreign
+shared-content claimants fail closed. Valid hash casing is normalized by the
+existing identity helper. Neither admission nor a rejected route mints a missing
+legacy UUID to satisfy the original Library identity.
 
-Native parity still excludes TTU/raw exports. Reading-goal display, editing,
-and goal heatmaps are explicitly gated in the native UI: the current
-`readingGoal` store is keyed only by `goalStartDate`, with no account ownership
-record or guarded account-bound goal API. Global recovery tables and ownerless
-goals must not be exposed to fill these gaps. Orphaned/unresolved/oversized history
-is excluded with notices rather than guessed. Initial native book choices are
-bounded to 200; explicitly selected visible IDs can extend those choices.
-Heatmap detail lines are bounded to keep the bridge projection small. These are
-explicit remaining tasks, not claimed 1:1 Android parity.
+### Shared-v1 complete projection
 
-## Validation (2026-10-02)
+The shared native port uses `{ sharedVersion: 1, query, requestId, ... }` on
+`statistics.read`. Its first load requests an owner preference bootstrap for
+tracked-day dates, saved week-start and measurement preferences. Bootstrap is
+committed only after a current, complete response; later explicit dates and
+calendar navigation are unchanged. Runtime reply revisions do not recreate the
+port/controller; session, account epoch and original route selection define
+ownership.
 
-Passed:
+The owner resolves the full accessible history and projects it into immutable
+JSON chunks. Unlike the retained legacy protocol, shared-v1 does not silently
+stop at 200 choices or 10,000 rows. Replies carry at most 8,000 UTF-16 code units
+and remain below 64 KiB serialized UTF-8. An assembly must receive every ordered
+chunk before any model is displayed. Empty/non-progress chunks, changed IDs,
+missing/repeated/out-of-order chunks and mismatched query/owner/request scope are
+rejected.
 
-- Real esbuild browser bundle of `statistics-react/index.tsx` (approximately
-  1.6 MB unminified after explicit icon imports)
-- Build metadata check: zero `.svelte` files or Svelte runtime/compiler inputs
-- Real esbuild browser bundle of the DOM-only native service
-- Focused esbuild native-screen bundle with platform/UI imports externalized
-- 109 statistics-focused Node tests across the controller, mounted native UI,
-  title-filter, deletion-range, content-identity, and completion suites, without
-  removing existing assertions
-- 39 tests in `tests/unit/statistics-react-controller.test.mjs`, including 23
-  native-service tests using real fake-indexeddb transactions: ownership/identity
-  isolation, guarded manual entry/editing, preserved completion records, atomic
-  range deletion, exact entry deletion, optimistic conflicts, bounded/single-use
-  snapshots, empty selection, runtime/account ABA, and abort after the final write
-- Twelve mounted React Native-control tests in
-  `test/expo/native-statistics-ui.test.mjs`: private-filter cancel/apply, native
-  manual-entry confirmation, duplicate submission, account/refresh/unmount
-  confirmation fencing, stale asynchronous read retirement, measurement display/sort
-  choices, zero values, raw edit-value retention, in-flight read confirmation
-  retirement, and bounded all-time heatmap navigation
-- Scoped ESLint rule/syntax check: zero errors or warnings on all changed
-  TypeScript/TSX and test files (full-project parsing disabled)
-- Zero scoped statistics TypeScript diagnostics using the production Expo
-  configuration; Node heap bounded to 650 MB for this environment
-- Real esbuild bundle of the final DOM-only native statistics service and mounted
-  native-screen bundle through the React Native-control fixture
+At most two transfers are retained, with a 120-second lifetime. A projection has
+an explicit 8 Mi-character admission ceiling (at most 16 MiB of UTF-16 string
+storage); exceeding it produces an error rather than a truncated model.
+Intermediate chunks recheck canonical ownership/identity. The final chunk
+revalidates original source rows under a readonly lock. Continuations do not
+rerun legacy migration.
 
-Not qualified here:
+Cancellation is request-specific, including cancel-before-begin. A bounded
+128-entry owner/request tombstone ledger retains cancellation for the transfer
+lifetime. Saturation fails closed for one lifetime instead of reopening an
+evicted live cancellation. Closing a screen suppresses stale UI; it is not a
+claim that a previously committed write can be undone.
 
-- Live browser visual/interaction checks: the task's verified browser/socket
-  restriction prevents them; no repeated browser workaround was attempted
-- Android emulator/device rendering and screen-reader testing
-- Full production Metro export: parent owns integration/CI qualification; local
-  production exports exceeded the execution memory limit
-- Full-project TypeScript/lint: focused source/bundle checks are not a substitute
-  (project-backed ESLint exceeded the local 650 MB heap limit; scoped rule/syntax
-  lint uses the same rule set without constructing the full project)
+### Exact destructive scope
 
-No deployment, merge, or source deletion is part of this change.
+A shared snapshot is not usable through the legacy mutation protocol, even
+when its transfer has finished. Shared mutations require a non-serializable,
+process-local admission bound to the exact fully verified proof. The runtime
+never accepts this admission from a bridge payload.
+
+The owner retains private selected book IDs and logical keys for the full
+positive-time selection and each displayed aggregate row. Those targets are not
+serialized. Shared bulk mutations copy the captured key subset before awaiting
+transaction work. The original atomic transaction still checks book identity,
+profile ownership, every shared-content claimant, migration receipts, original
+rows and final abort state; it writes only the captured keys. A legacy title
+range is included only when its receipt assigns it to a targeted key. Zero-only
+same-title siblings and zero-only secondary identities are not broadened into a
+visible selection's deletion. Ordinary legacy Delete Book History semantics are
+unchanged.
+
+Direct native logical-key-subset bulk deletion remains explicitly refused;
+individual proven-day deletion and normal opaque Library-scoped selection
+operations remain available. This conservative capability is not replaced by a
+broader book-plan delete.
+
+## Legacy native baseline
+
+The ordinary native snapshot protocol remains for retained compatibility and
+explicit Library Delete History. Its 25-row pages, 200-book admission ceiling,
+10,000-row original-proof bound, four retained snapshots and ten-minute lifetime
+are **legacy protocol limits**, not shared-v1 projection limits.
+
+The original aggregation oracle remains unchanged, including inherited
+rounding, weighted averages, zero-entry counting and speed-bound semantics.
+Legacy native individual zero-time rows remain covered by its existing tests;
+the shared route uses the established web positive-time selection semantics.
+The canonical identity, migration `validateIdentity` hook, optimistic mutation
+checks and final-transaction rollback tests are retained.
+
+## Validation and honest limits (2026-10-02)
+
+Controller/port qualification includes the unchanged 49 existing scenarios,
+split into `statistics-react-controller.test.mjs` (15),
+`statistics-native-controller.test.mjs` (24), and
+`statistics-library-route-controller.test.mjs` (10). The split preserves the
+49 test names and assertion bodies. The new
+`statistics-shared-controller.test.mjs` has 30 production controller/port cases,
+including 205 choices and 10,005 rows, bounded Unicode transport, source changes,
+exact destructive scope, complete-proof admission, cancellation, bootstrap,
+clipboard/TTU/raw recovery and independent goal state. The mounted production
+port lifecycle suite has three React cases for stable runtime revisions,
+StrictMode and retired responses. Admission-only Library tests cover the bounded
+hint, over-10,000-row Open, canonical/account/UUID changes, malformed envelopes
+and refusal to treat a hint as mutation authority.
+
+The retained 15/24/10 suites, new 30-case suite, five admission-only cases and
+three mounted port-lifecycle cases passed separately with pinned Node and a
+768 MiB heap setting. Independent corrected-case and admission-only reruns also
+passed. Earlier monolithic attempts received SIGKILL
+without assertion failures; no specific resource diagnosis is claimed. Public
+route graph, shared-view/primitive checks and final integrated qualification are
+tracked separately; a fixture pass does not prove device rendering.
+
+Remaining constraints:
+
+- Bridge transport is chunked, but the trusted owner still reads a complete
+  original proof and computes full aggregation/heatmap in memory. This is not a
+  fully streaming IndexedDB implementation; maximum dataset/device performance
+  is unqualified
+- Native day writes retain the established integer bounds of 86,400 seconds and
+  100,000,000 characters. Web finite nonnegative editing remains available
+- Native ownerless goals, global recovery, global deletion, clipboard and TTU
+  file destinations remain explicit unavailable capabilities. The corresponding
+  established web flows remain available
+- Web initial appearance is synchronous. Native uses a scoped theme cache or a
+  neutral loading surface until the first full projection; exact first-entry
+  custom-theme transition is not claimed
+- Mounted React/RNW and mocked native-control tests do not establish actual
+  Android rendering, TalkBack, IME, platform download/share or browser geometry
+  qualification
+- Scoped source/type/lint checks are not full-project production build or device
+  qualification. No backend, release, merge or deployment is implied

@@ -409,9 +409,25 @@ export async function runtimeOwner(t, { strict = false } = {}) {
       }
     },
     '../statistics-react/native-service': {
-      readStatisticsSnapshot: async () => ({}),
-      dispatchStatisticsAction: async () => ({})
+      dispatchStatisticsAction: (...args) => f.statisticsAction?.(...args) ?? {}
     },
+    '../features/statistics/native-owner.dom': {
+      dispatchSharedStatisticsAction: (...args) => {
+        if (!f.sharedStatisticsAction) throw new Error('Unexpected shared Statistics mutation');
+        return f.sharedStatisticsAction(...args);
+      }
+    },
+    '../statistics-react/native-route-dom': production('statistics-react/native-route-dom.ts', {
+      '../features/statistics/native-owner.dom': {
+        readSharedStatisticsRequest: (...args) => {
+          if (!f.sharedStatisticsRead) throw new Error('Unexpected shared Statistics read');
+          return f.sharedStatisticsRead(...args);
+        }
+      },
+      './native-service': {
+        readStatisticsSnapshot: (...args) => f.statisticsRead?.(...args) ?? {}
+      }
+    }),
     '../native-snippets/service': snippetService,
     '../native-snippets/dom-repository': {
       createNativeSnippetsRepository: () => snippetsRepository

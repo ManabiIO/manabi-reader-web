@@ -69,6 +69,8 @@ interface Admission {
   key: string;
   created: number;
   targets: Map<string, ShelfBook>;
+  /** Existing canonical keys captured by the DOM repository, never native hints. */
+  identities: Map<string, string>;
   expected: Record<string, BookPresentation | undefined>;
   collections: Map<string, string>;
 }
@@ -318,6 +320,12 @@ export class NativeLibraryService {
       key: authority.key,
       created: this.now(),
       targets,
+      identities: new Map(
+        [...targets].flatMap(([key, book]) => {
+          const identity = book.bookId && data.coverIdentities?.[book.bookId];
+          return identity ? [[key, identity] as const] : [];
+        })
+      ),
       expected: structuredClone(
         Object.fromEntries(
           [
@@ -553,13 +561,19 @@ export class NativeLibraryService {
       const byKey = new Map(
         physicalBooks(live.tree).map((book) => [libraryBookLocator(book), book])
       );
-      for (const book of targets) {
+      for (const [index, book] of targets.entries()) {
         const current = byKey.get(libraryBookLocator(book));
         if (!current || libraryBookIdentity(current) !== libraryBookIdentity(book))
           throw new Error('A selected book changed. Refresh before continuing.');
+        const expectedKey = admitted.identities.get(keys[index]);
+        if (expectedKey && live.coverIdentities?.[book.bookId!] !== expectedKey)
+          throw new Error('A selected book changed. Refresh before continuing.');
       }
-      return targets.map((book) => ({
+      return targets.map((book, index) => ({
         bookId: book.bookId!,
+        ...(admitted.identities.has(keys[index])
+          ? { readerBookKey: admitted.identities.get(keys[index]) }
+          : {}),
         contentHash: book.contentHash,
         title: book.canonicalTitle,
         lastBookModified: book.lastBookModified

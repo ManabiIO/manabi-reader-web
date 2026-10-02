@@ -937,3 +937,156 @@ test('a newer ordinary book admission fences a late catalog import without relea
   assert.equal(replacement.bookAuthority.signal.aborted, false);
   assert.equal(f.operations.filter((entry) => !entry.stopped).length, 1);
 });
+
+test('Statistics dispatch preserves ordinary reads and resolves Library keys only through current DOM admission', async (t) => {
+  const f = await runtimeOwner(t),
+    reads = [],
+    admissions = [];
+  f.statisticsRead = (...args) => {
+    args[1].assertCurrent();
+    reads.push(args);
+    return { snapshotId: 'proof' };
+  };
+  success(await f.command('statistics.read', { bookIds: [1] }));
+  assert.deepEqual(reads[0][0], { bookIds: [1] });
+  assert.equal(reads[0][2], undefined);
+  f.admit = (payload, authority) => {
+    admissions.push({ payload, authority });
+    return [
+      {
+        bookId: 1,
+        title: 'Original',
+        lastBookModified: 10,
+        readerBookKey: 'local:11111111-1111-4111-8111-111111111111'
+      }
+    ];
+  };
+  success(
+    await f.command('statistics.read', {
+      librarySelection: { token: 'library-proof', key: 'opaque-row' }
+    })
+  );
+  assert.deepEqual(admissions[0].payload, {
+    token: 'library-proof',
+    keys: ['opaque-row'],
+    operation: 'open'
+  });
+  assert.equal(reads[1][1], admissions[0].authority);
+  assert.equal(reads[1][1].key, `${f.scope.session}:${f.scope.epoch}`);
+  assert.equal(reads[1][2].readerBookKey, 'local:11111111-1111-4111-8111-111111111111');
+  assert.equal(f.sessions.length, 0, 'statistics navigation never opens a hidden book reader');
+  const denied = await f.command('statistics.read', {
+    librarySelection: { token: 'library-proof', key: 'opaque-row' },
+    bookIds: [2]
+  });
+  assert.equal(denied.ok, false);
+  assert.equal(admissions.length, 1);
+  assert.equal(reads.length, 2);
+});
+
+test('Statistics Library handoff cannot survive account ABA while its admission is pending', async (t) => {
+  const f = await runtimeOwner(t),
+    gate = deferred();
+  let reads = 0;
+  f.admit = () => gate.promise;
+  f.statisticsRead = () => {
+    reads++;
+    return {};
+  };
+  const pending = await f.start('statistics.read', {
+    librarySelection: { token: 'old', key: 'row' }
+  });
+  await f.changeAccount('bob');
+  await f.changeAccount('alice');
+  await f.settle(() =>
+    gate.resolve([
+      {
+        bookId: 1,
+        title: 'Original',
+        lastBookModified: 10,
+        readerBookKey: 'content:' + 'a'.repeat(64)
+      }
+    ])
+  );
+  const reply = await f.finish(pending);
+  assert.equal(reply.ok, false);
+  assert.equal(reply.stale, true);
+  assert.equal(reads, 0);
+});
+
+test('actual DOM dispatch routes shared Statistics reads and mutations through trusted owner authority', async (t) => {
+  const f = await runtimeOwner(t),
+    calls = [];
+  f.sharedStatisticsRead = (payload, authority) => {
+    authority.assertCurrent();
+    calls.push({ method: 'read', payload, authority });
+    return {
+      sharedVersion: 1,
+      snapshotId: 'shared-proof',
+      sequence: 0,
+      chunk: '{}',
+      totalCharacters: 2,
+      complete: true
+    };
+  };
+  f.sharedStatisticsAction = (payload, authority) => {
+    authority.assertCurrent();
+    calls.push({ method: 'action', payload, authority });
+    return { saved: true };
+  };
+  const read = { sharedVersion: 1, query: { year: 2026 } };
+  const reply = success(await f.command('statistics.read', read));
+  assert.equal(reply.snapshotId, 'shared-proof');
+  const mutation = {
+    sharedVersion: 1,
+    mutation: { snapshotId: 'shared-proof', type: 'delete', scope: 'selection' }
+  };
+  const pending = await f.start('statistics.action', mutation);
+  assert.deepEqual(success(await f.finish(pending)), { saved: true });
+  assert.deepEqual(success(await f.command('statistics.action', mutation, pending.request)), {
+    saved: true
+  });
+  assert.deepEqual(
+    calls.map((call) => call.method),
+    ['read', 'action']
+  );
+  assert.deepEqual(calls[0].payload, read);
+  assert.deepEqual(calls[1].payload, mutation);
+  for (const call of calls) {
+    assert.equal(call.authority.key, `${f.scope.session}:${f.scope.epoch}`);
+    assert.equal('authority' in call.payload, false);
+  }
+  assert.equal(f.sessions.length, 0, 'Statistics must not mount a hidden reader');
+  await f.refreshGeneration();
+  for (const call of calls) assert.throws(call.authority.assertCurrent);
+});
+
+for (const method of ['statistics.read', 'statistics.action'])
+  test(`actual DOM shared ${method} cannot settle under a replacement account generation`, async (t) => {
+    const f = await runtimeOwner(t),
+      gate = deferred();
+    let operations = 0,
+      effects = 0,
+      captured;
+    const action = async (_payload, authority) => {
+      captured = authority;
+      operations++;
+      await gate.promise;
+      authority.assertCurrent();
+      effects++;
+      return {};
+    };
+    if (method === 'statistics.read') f.sharedStatisticsRead = action;
+    else f.sharedStatisticsAction = action;
+    const pending = await f.start(method, { sharedVersion: 1 });
+    await f.changeAccount('bob');
+    await f.changeAccount('alice');
+    await f.settle(() => gate.resolve());
+    const reply = await f.finish(pending);
+    assert.equal(reply.ok, false);
+    assert.equal(reply.stale, true);
+    assert.equal(captured.signal.aborted, true);
+    assert.equal(operations, 1);
+    assert.equal(effects, 0);
+    assert.equal(f.sessions.length, 0);
+  });

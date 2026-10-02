@@ -4,4 +4,4 @@
  * All rights reserved.
  */
 
-export { NativeStatisticsScreen as default } from '../../statistics-react/native-screen';
+export { StatisticsScreen as default } from '../../features/statistics/StatisticsScreen';

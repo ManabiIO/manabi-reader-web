@@ -40,10 +40,9 @@ import { nativeNavigationPath } from './native-navigation';
 import { base } from '../runtime/paths';
 import { page } from '../runtime/stores';
 import { installRouter } from '../runtime/navigation';
-import {
-  readStatisticsSnapshot,
-  dispatchStatisticsAction
-} from '../statistics-react/native-service';
+import { dispatchStatisticsAction } from '../statistics-react/native-service';
+import { dispatchSharedStatisticsAction } from '../features/statistics/native-owner.dom';
+import { readNativeStatisticsRequest } from '../statistics-react/native-route-dom';
 import { NativeSnippetsService } from '../native-snippets/service';
 import { createNativeSnippetsRepository } from '../native-snippets/dom-repository';
 import { EmbeddedSnippetReader } from './snippet-reader';
@@ -330,8 +329,10 @@ export default function ReaderRuntime({
                 return result;
               }
               case 'statistics.read':
-                return readStatisticsSnapshot(payload, libraryAuthority);
+                return readNativeStatisticsRequest(payload, libraryAuthority, library);
               case 'statistics.action':
+                if (Object.hasOwn(payload, 'sharedVersion'))
+                  return dispatchSharedStatisticsAction(payload, libraryAuthority);
                 return dispatchStatisticsAction(
                   payload as unknown as NativeStatisticsAction,
                   libraryAuthority

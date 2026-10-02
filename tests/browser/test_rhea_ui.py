@@ -815,6 +815,7 @@ class RheaReader(previous.RefinedAppearance):
     def test_statistics_filter_is_one_focus_managed_sheet(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
         self.page.goto(self.origin + '/reader-web/statistics')
+        expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         trigger = self.page.get_by_role('button', name='Filter books', exact=True)
         trigger.click()
         sheet = self.page.get_by_role('dialog', name='Filter books', exact=True)
@@ -1032,18 +1033,20 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_statistics_navigation_and_options_sheet(self):
         self.page.goto(self.origin + '/reader-web/statistics')
+        expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         self.page.get_by_role('button', name='Heatmap', exact=True).click()
         expect(self.page.get_by_role('button', name='Heatmap', exact=True)).to_have_attribute('aria-pressed','true')
         self.page.get_by_role('button', name='Summary', exact=True).click()
         self.page.get_by_role('button', name='Statistics options', exact=True).click()
         self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()
-        panel = self.page.locator('[data-slot="sheet-content"]')
+        panel = self.page.get_by_role('dialog', name='Statistics options', exact=True)
         expect(panel).to_be_visible()
         self.page.keyboard.press('Escape')
         expect(panel).to_have_count(0)
 
     def test_statistics_raw_recovery_download_preserves_ambiguous_days(self):
         self.page.goto(self.origin + '/reader-web/statistics')
+        expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         expect(self.page.get_by_role('button', name='Statistics options', exact=True)).to_be_visible()
         # The header can render before the application's database upgrade. A
         # bare open here would create an empty v1 database if it wins that race.
@@ -1089,7 +1092,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.reload()
         self.page.get_by_role('button', name='Statistics options', exact=True).click()
         self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()
-        panel = self.page.locator('[data-slot="sheet-content"]')
+        panel = self.page.get_by_role('dialog', name='Statistics options', exact=True)
         expect(panel.get_by_role('button', name='Download raw history (JSON)')).to_be_visible()
         self.page.evaluate('''() => {
           const original = URL.createObjectURL.bind(URL);

@@ -12,7 +12,7 @@ results from an older commit do not qualify this revision.
   explicitly identify public visibility and a boolean `private: false`.
 - The migration workflow runs for matching pull requests and manual dispatches,
   not duplicate push events. Three stock `ubuntu-24.04` jobs run independently:
-  regression, web, and Android. No larger, paid or self-hosted class is selected.
+  regression plus default web, gated web, and Android. No larger, paid or self-hosted class is selected.
 - Legacy automatic workflows suppress this exact repository/head combination at
   **job admission**, including direct branch pushes, before allocating runners.
   Their existing definitions still apply to other branches and external
@@ -45,7 +45,7 @@ artifact/cache API calls and external publishing; none was found. This audit is
 of the reviewed configuration, not a claim to have sandboxed every dependency's
 possible behavior or frozen mutable upstream action tags.
 
-## Retained regression job
+## Retained regression and default web job
 
 - Existing typed ESLint/component rules, appearance CSS generation check, and
   strict application TypeScript
@@ -60,23 +60,57 @@ possible behavior or frozen mutable upstream action tags.
 A failure in one test step does not hide later independent test-step evidence;
 no test is made non-blocking and no application assertion is weakened.
 
-## Colocated web qualification
+## Two web modes with colocated qualification
 
-Both production exports use the exact same checkout, dependency graph, base path
-and browser installations. Both the output directory and local Metro transform
-cache are cleared before each export;
-there is no cross-job transfer or test-only runtime flag injection. The source
-flag stays default-disabled.
+The regression job builds the default route after its independent unit/domain
+steps. The web job independently builds the gated route. They check out the
+exact same recorded commit and frozen dependency graph, base path and pinned
+browser versions. Each job owns its build and tests; there are still exactly two
+web exports, no duplicated matrix and no cross-job transfer. Both output and
+local Metro transform cache are cleared before export. There is no test-only
+runtime flag injection and the source flag stays default-disabled.
 
-1. Export with `EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME=0`, then run the original
-   static-reader suite (its unchanged launcher is Chromium-only) and Settings
-   controls, Product journeys and Library parity in Chromium and WebKit
-2. Export with `EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME=1`, even if a default-route
-   assertion failed, then repeat those same assertions and run the broader set
-   below. Both export modes receive actual asset qualification. The job retains
-   any earlier failure; a gated-path pass cannot mask a default-route failure
+A unit failure remains a job failure, but cannot suppress the default browser
+setup when dependency installation succeeded. A default-route failure cannot
+suppress gated-route evidence because the jobs have no dependency on each other.
+This separation exposes completed default-route logs earlier while the broader
+qualification runs; it does not turn any failure into success.
 
-Broader gated-export coverage:
+The PR's automatic runs use **affected** qualification. Manual dispatch offers
+`qualification_scope: affected | full`; unknown scope values fail closed. Every
+job summary records the scope with its exact source commit. An affected pass is
+never a complete-parity or merge-readiness result.
+
+Both `EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME=0` and `=1` exports receive the same
+intermediate affected checks:
+
+- The original static-reader launcher in Chromium
+- All 20 canonical cases from `tests/browser/statistics_acceptance_cases.py` in
+  Chromium and WebKit: original Statistics geometry, keyboard/focus, title-filter,
+  appearance, identity-safe deletion, raw recovery and the two new complete-route
+  cases. `--list --json` exposes the identical default/gated inventory without
+  starting a browser; `--validate` resolves exact cases without inherited-suite
+  discovery or duplicate whole-reader runs
+- The real reader save/cancel/Back/Forward/fragment lifetime suite in both engines
+- The two corrected offline handoffs in both engines: Library bookmark reconnect
+  and owned-book offline/signout. Worker activation and controller acquisition
+  are bounded; a previously uncontrolled page gets at most one ordinary online
+  reload. The production worker deliberately still does not call `clients.claim()`
+
+The **full** scope retains every original default core group and the complete
+gated inventory below, including all shared/local data safety, open-lifetime and
+snippets cases. It is the explicit final web-parity gate on the final source.
+Intermediate scope avoids re-running known superseded duplicate presentations
+while shared routes converge; those unselected cases remain **unrun**, never
+silently passed or deleted. The Slot source flag remains disabled until the
+relevant normal and gated qualification establishes their behavior.
+
+Actual emitted-worker/genuine SwiftF0/cover checks and Android qualification are
+still separate, always-selected job steps. No scope changes runner classes,
+number of exports/jobs, artifacts, caches, assertions, failure aggregation or
+existing whole-job timeouts.
+
+Full-scope gated-export coverage:
 
 - Both Chromium and WebKit: web reader lifetime; Books Library UI; Library parity,
   Editor's Picks, want-to-read, organization sync, cloud-series replay and
@@ -84,7 +118,7 @@ Broader gated-export coverage:
   Settings controls/editor usability; annotations, scrubber, grid labels;
   appearance, connection panels, panel/gallery usability, modal keyboard/large
   text/fallback, gallery reveal/continuity, unified search, product journeys,
-  search quality/focus; actual-app offline reading and Whispersync
+  search quality/focus; complete shared Statistics controls/exports/keyboard/zoom; actual-app offline reading and Whispersync
 - Chromium additionally: Books Library filesystem cases, original static Reader,
   local Library, local move recovery, preview-cache handling, reading recovery,
   TTU migration/edges, and completed reading
@@ -113,7 +147,8 @@ its emitted pitch worker in Chromium. The latter is asset execution only.
 The explicitly approved temporary-runner KVM setup uses exactly the three
 commands in [GitHub's hardware-acceleration guidance](https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/).
 It is scoped to this public-repository stock Android job, with no other permission
-changes. A fresh disposable API 35 emulator consumes the APKs already built on
+changes. The SDK emulator package is installed before invoking its acceleration
+probe; KVM device permission is checked first, with no software-emulation retry. A fresh disposable API 35 emulator consumes the APKs already built on
 that runner. The unchanged `tests/android/run-qualification.sh` rejects existing
 apps/non-emulator devices, uses synthetic randomly named records, verifies native
 replies, force-stops between phases and requires both instrumentation evidence

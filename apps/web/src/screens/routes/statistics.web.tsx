@@ -4,4 +4,4 @@
  * All rights reserved.
  */
 
-export { StatisticsScreen as default } from '../../statistics-react';
+export { StatisticsScreen as default } from '../../features/statistics/StatisticsScreen';

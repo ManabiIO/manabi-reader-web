@@ -62,6 +62,7 @@ async function validateIdentity(
   guard.validate(book, owner);
   if (!book || book.title !== plan.title) throw changed();
   const local = await tx.objectStore('readerLocalIdentity').get(id);
+  guard.validateIdentity?.(book, local);
   const key = contentStatisticKey(book) ?? (local ? `local:${local.uuid}` : undefined);
   const keys = new Set(key ? [key] : []);
   if (local) keys.add(`local:${local.uuid}`);
@@ -102,7 +103,7 @@ export async function readNativeStatisticsProof(
   bookId: number,
   plan: StatisticIdentityPlan,
   guard: StatisticsMigrationGuard,
-  maxRows: number
+  maxRows?: number
 ): Promise<NativeStatisticsProof> {
   guard.assertCurrent();
   guard.signal.throwIfAborted();
@@ -121,17 +122,80 @@ export async function readNativeStatisticsProof(
       const rows: BooksDbContentStatistic[] = [];
       for (const key of keys) {
         rows.push(
-          ...(await tx.objectStore('readerStatistic').getAll(statisticRange(key), maxRows + 1))
+          ...(await tx
+            .objectStore('readerStatistic')
+            .getAll(statisticRange(key), maxRows === undefined ? undefined : maxRows + 1))
         );
-        if (rows.length > maxRows) throw new Error('Too much history for one snapshot.');
+        if (maxRows !== undefined && rows.length > maxRows)
+          throw new Error('Too much history for one snapshot.');
       }
       const legacyRows = plan.legacyTitle
-        ? await tx.objectStore('statistic').getAll(statisticRange(plan.legacyTitle), maxRows + 1)
+        ? await tx
+            .objectStore('statistic')
+            .getAll(
+              statisticRange(plan.legacyTitle),
+              maxRows === undefined ? undefined : maxRows + 1
+            )
         : [];
-      if (legacyRows.length > maxRows) throw new Error('Too much legacy history for one snapshot.');
+      if (maxRows !== undefined && legacyRows.length > maxRows)
+        throw new Error('Too much legacy history for one snapshot.');
       guard.assertCurrent();
       guard.signal.throwIfAborted();
       return { plan, rows, legacyRows };
+    });
+  } finally {
+    guard.signal.removeEventListener('abort', abort);
+  }
+}
+
+/** A continuation never reruns migration. Compare its immutable source proof under
+ * one read lock; a replacement, new claimant, or changed row retires the transfer. */
+export async function verifyNativeStatisticsProofs(
+  db: IDBPDatabase<BooksDb>,
+  proofs: ReadonlyMap<number, NativeStatisticsProof>,
+  guard: StatisticsMigrationGuard,
+  includeRows = true
+): Promise<void> {
+  guard.assertCurrent();
+  guard.signal.throwIfAborted();
+  const tx = db.transaction(statisticsStores, 'readonly');
+  const abort = () => {
+    try {
+      tx.abort();
+    } catch {
+      /* Already settled. */
+    }
+  };
+  guard.signal.addEventListener('abort', abort, { once: true });
+  try {
+    await commitTransaction(tx, async () => {
+      const checkedKeys = new Set<string>(),
+        checkedTitles = new Set<string>();
+      for (const [id, proof] of proofs) {
+        const { keys } = await validateIdentity(tx, id, proof.plan, guard);
+        if (!includeRows) continue;
+        for (const key of keys) {
+          if (checkedKeys.has(key)) continue;
+          checkedKeys.add(key);
+          const current = await tx.objectStore('readerStatistic').getAll(statisticRange(key));
+          if (
+            !equivalent(
+              current,
+              proof.rows.filter((row) => row.bookKey === key)
+            )
+          )
+            throw changed();
+        }
+        if (proof.plan.legacyTitle && !checkedTitles.has(proof.plan.legacyTitle)) {
+          checkedTitles.add(proof.plan.legacyTitle);
+          const current = await tx
+            .objectStore('statistic')
+            .getAll(statisticRange(proof.plan.legacyTitle));
+          if (!equivalent(current, proof.legacyRows)) throw changed();
+        }
+      }
+      guard.assertCurrent();
+      guard.signal.throwIfAborted();
     });
   } finally {
     guard.signal.removeEventListener('abort', abort);
@@ -144,7 +208,8 @@ export async function mutateNativeStatistics(
   db: IDBPDatabase<BooksDb>,
   proofs: ReadonlyMap<number, NativeStatisticsProof>,
   input: NativeStatisticsAction,
-  guard: StatisticsMigrationGuard
+  guard: StatisticsMigrationGuard,
+  selectedKeys?: ReadonlySet<string>
 ): Promise<void> {
   const ids = input.type === 'delete-range' ? input.bookIds : [input.bookId];
   guard.assertCurrent();
@@ -176,10 +241,12 @@ export async function mutateNativeStatistics(
         const plan = proof.plan;
         const { keys, receipt } = await validateIdentity(tx, id, plan, guard);
         for (const rowKey of keys) {
+          if (selectedKeys && !selectedKeys.has(rowKey)) continue;
           if (input.type === 'delete-day' && rowKey !== input.bookKey) continue;
           targets.set(rowKey, {
             plan:
-              input.type === 'delete-day' && receipt?.bookKey !== rowKey
+              (input.type === 'delete-day' || selectedKeys !== undefined) &&
+              receipt?.bookKey !== rowKey
                 ? { ...plan, legacyTitle: undefined }
                 : plan,
             rows: proof.rows.filter((row) => row.bookKey === rowKey),
