@@ -59,8 +59,17 @@ export function ConnectionsScreen(
       ),
     props
   );
+  const [preferenceChange, setPreferenceChange] = React.useState<{
+    owner: NonNullable<typeof c>;
+    user: string;
+    enabled: boolean;
+  } | null>(null);
   useReaderBindings(c, props);
   if (!c) return null;
+  const changingPreferences =
+    preferenceChange?.owner === c && preferenceChange.user === c.$account.session?.user?.id
+      ? preferenceChange
+      : null;
   return (
     <SettingsContext.Provider value={context}>
       <div className="react-settings-connections-screen" style={{ display: 'contents' }}>
@@ -132,13 +141,25 @@ export function ConnectionsScreen(
                     <Dom
                       as="input"
                       type={'checkbox'}
-                      checked={c.$preferenceStatus.enabled}
+                      checked={changingPreferences?.enabled ?? c.$preferenceStatus.enabled}
                       disabled={c.busy}
                       events={{
-                        change: (event: Event & { currentTarget: HTMLInputElement }) =>
-                          c.action(() =>
-                            enablePreferenceSync(event.currentTarget.checked, c.preferenceChoice)
-                          )
+                        change: (event: Event & { currentTarget: HTMLInputElement }) => {
+                          const user = c.$account.session?.user?.id;
+                          if (c.busy || !user) return;
+                          const change = { owner: c, user, enabled: event.currentTarget.checked };
+                          // React requires the controlled choice during this event. The
+                          // durable preference status is published only after storage
+                          // commits; keep that pending choice local to this account.
+                          setPreferenceChange(change);
+                          void c
+                            .action(() => enablePreferenceSync(change.enabled, c.preferenceChoice))
+                            .finally(() =>
+                              setPreferenceChange((current) =>
+                                current === change ? null : current
+                              )
+                            );
+                        }
                       }}
                     />
                     {' Sync reader settings with this Manabi account'}

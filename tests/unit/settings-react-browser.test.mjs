@@ -16,10 +16,15 @@ const { outputFiles } = await build({
       import { createRoot } from 'react-dom/client';
       import { Dom } from './apps/web/src/settings-react/primitives';
       import { SettingsScreen } from './apps/web/src/settings-react/settings-screen';
+      import { ConnectionsScreen } from './apps/web/src/settings-react/connections-screen';
+      import { startPreferenceSync, preferenceStatus } from './apps/web/src/lib/manabi/preferences';
+      import { integrationDB } from './apps/web/src/lib/manabi/persistence';
+      import { refreshAccount } from './apps/web/src/lib/manabi/client';
       import { goto, installRouter, beforeNavigate, afterNavigate } from './apps/web/src/runtime/navigation';
       import { page } from './apps/web/src/runtime/stores';
       import { get } from './apps/web/src/lib/state/store';
       const root = createRoot(document.getElementById('root'));
+      let stopPreferences;
       function CheckboxFixture({ binding }) {
         const [checked, setChecked] = React.useState(false);
         React.useEffect(() => { window.checkboxMounted = true; }, []);
@@ -29,11 +34,18 @@ const { outputFiles } = await build({
           events={binding ? {} : { change: event => update(event.currentTarget.checked) }} />;
       }
       window.controls = {
-        goto, installRouter, beforeNavigate, afterNavigate,
+        goto, installRouter, beforeNavigate, afterNavigate, refreshAccount,
         location: () => get(page).url.href,
         render: strict => root.render(strict ? <React.StrictMode><SettingsScreen /></React.StrictMode> : <SettingsScreen />),
         renderCheckbox: binding => root.render(<React.StrictMode><CheckboxFixture binding={binding} /></React.StrictMode>),
-        unmount: () => root.unmount()
+        renderConnections: strict => {
+          stopPreferences ??= startPreferenceSync();
+          root.render(strict ? <React.StrictMode><ConnectionsScreen /></React.StrictMode> : <ConnectionsScreen />);
+        },
+        preferenceStatus: () => get(preferenceStatus),
+        savedPreferences: async (user = '42') => (await integrationDB()).get('metadata', 'preferences/' + user),
+        clear: () => root.render(null),
+        unmount: () => { root.unmount(); stopPreferences?.(); }
       };
     `,
     resolveDir: root,
@@ -55,7 +67,7 @@ const { outputFiles } = await build({
 });
 const javascript = outputFiles.find((file) => file.path.endsWith('.js')).text;
 
-async function fixture(run) {
+async function fixture(run, fetch = async () => new Response('', { status: 503 })) {
   const errors = [];
   const console = new VirtualConsole();
   console.on('jsdomError', (error) => errors.push(error.message));
@@ -72,6 +84,7 @@ async function fixture(run) {
   const { window } = dom;
   Object.assign(window, {
     ...fakeIndexedDB,
+    indexedDB: new fakeIndexedDB.IDBFactory(),
     changes: [],
     process: { env: {} },
     TextEncoder,
@@ -80,7 +93,7 @@ async function fixture(run) {
     Response,
     Request,
     Headers,
-    fetch: async () => new Response('', { status: 503 }),
+    fetch,
     CSS: {
       escape: (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, (character) => '\\' + character)
     },
@@ -279,4 +292,240 @@ test('native checkbox events and bindings receive the user choice before React r
       assert.deepEqual(Array.from(window.changes), [true, false]);
       await until(() => !input.checked, 'the user can disable the controlled checkbox');
     });
+});
+
+function accountServer() {
+  const profiles = new Map();
+  const server = {
+    user: { id: '42', username: 'reader' },
+    requests: [],
+    preferenceFailure: false,
+    pendingGet: null,
+    holdPreferenceGet() {
+      const { promise, resolve } = Promise.withResolvers();
+      const gate = { promise, release: resolve, started: false };
+      server.pendingGet = gate;
+      return gate;
+    },
+    async fetch(path, options = {}) {
+      server.requests.push({ path, ...options });
+      const user = path.endsWith('/session/')
+        ? server.user.id
+        : options.headers.get('X-Manabi-User');
+      let value;
+      if (path.endsWith('/session/'))
+        value = { user: server.user, csrf_token: 'c'.repeat(64), providers: [] };
+      else if (path.endsWith('/connections/')) value = { items: [] };
+      else if (path.includes('/preferences/')) {
+        if (options.method === 'GET' && server.pendingGet) {
+          const gate = server.pendingGet;
+          server.pendingGet = null;
+          gate.started = true;
+          await gate.promise;
+        }
+        if (server.preferenceFailure)
+          return Response.json({ error: 'unavailable' }, { status: 503 });
+        const profile = profiles.get(user) ?? { settings: {}, revision: 0 };
+        profiles.set(user, profile);
+        if (options.method === 'PUT') {
+          assert.equal(options.headers.get('If-Match'), '"' + profile.revision + '"');
+          profile.settings = JSON.parse(options.body).settings;
+          profile.revision++;
+        }
+        value = { user_id: user, schema_version: 1, ...profile, book_presentation_version: 1 };
+      } else throw new Error('Unexpected account endpoint: ' + path);
+      return Response.json(value, { headers: { 'X-Manabi-User': user } });
+    }
+  };
+  return server;
+}
+
+const accountCheckbox = (window) =>
+  [...window.document.querySelectorAll('input[type="checkbox"]')].find((node) =>
+    node.closest('label')?.textContent.includes('Sync reader settings')
+  );
+
+test('account sync checkbox keeps the chosen state through real storage, delayed requests and repeated enable/disable', async () => {
+  for (const strict of [false, true]) {
+    const server = accountServer();
+    await fixture(async ({ window, api, until }) => {
+      api.renderConnections(strict);
+      const input = () => accountCheckbox(window);
+      await until(() => input() && !input().disabled, 'account controls finish loading');
+      assert.equal(input().checked, false);
+      const pending = server.holdPreferenceGet();
+      try {
+        input().click();
+        assert.equal(
+          input().checked,
+          true,
+          'the checked state must not revert while consent is saving'
+        );
+        await until(() => pending.started, 'the real preference client reaches its first request');
+        assert.equal((await api.savedPreferences()).enabled, true);
+        assert.equal(input().checked, true);
+        assert.equal(input().disabled, true);
+        assert.equal(api.preferenceStatus().state, 'syncing');
+        input().click();
+        assert.equal(input().checked, true, 'repeated activation while busy cannot toggle consent');
+        assert.equal(
+          server.requests.filter(({ path }) => path.includes('/preferences/')).length,
+          1
+        );
+      } finally {
+        pending.release();
+      }
+      await until(
+        () => api.preferenceStatus().state === 'synced' && !input().disabled,
+        'real preferences finish syncing'
+      );
+      assert.equal(input().checked, true);
+      input().click();
+      assert.equal(
+        input().checked,
+        false,
+        'disabling sync must also keep the chosen state immediately'
+      );
+      await until(
+        () => api.preferenceStatus().state === 'off' && !input().disabled,
+        'real preferences finish disabling'
+      );
+      assert.equal((await api.savedPreferences()).enabled, false);
+      assert.equal(input().checked, false);
+      api.clear();
+      await until(() => !input(), 'account screen unmounts');
+      api.renderConnections(strict);
+      await until(() => input() && !input().disabled, 'account screen remounts');
+      assert.equal(input().checked, false, 'remount uses the durable choice');
+      input().click();
+      assert.equal(input().checked, true);
+      await until(
+        () => api.preferenceStatus().state === 'synced' && !input().disabled,
+        'sync can be enabled again'
+      );
+      const preferences = server.requests.filter(({ path }) => path.includes('/preferences/'));
+      assert.ok(preferences.some(({ method }) => method === 'GET'));
+      assert.ok(preferences.some(({ method }) => method === 'PUT'));
+      for (const request of preferences) {
+        assert.equal(request.path, '/api/reader-web/preferences/?book_presentation_version=1');
+        assert.equal(request.credentials, 'same-origin');
+        assert.equal(request.headers.get('X-Manabi-Library-Items'), 'snippets-v1');
+        assert.equal(request.headers.get('X-Manabi-User'), '42');
+        assert.equal(
+          request.headers.get('X-CSRFToken'),
+          request.method === 'PUT' ? 'c'.repeat(64) : null
+        );
+      }
+    }, server.fetch);
+  }
+});
+
+test('account sync failure retains saved consent without claiming success and can be disabled or retried', async () => {
+  const server = accountServer();
+  server.preferenceFailure = true;
+  await fixture(async ({ window, api, until }) => {
+    api.renderConnections(true);
+    const input = () => accountCheckbox(window);
+    await until(() => input() && !input().disabled, 'account controls finish loading');
+    input().click();
+    assert.equal(input().checked, true);
+    await until(
+      () => api.preferenceStatus().state === 'unavailable' && !input().disabled,
+      'failed sync is reported'
+    );
+    assert.equal(input().checked, true);
+    assert.equal((await api.savedPreferences()).enabled, true);
+    assert.match(
+      window.document.querySelector('[aria-label="Settings sync status"]').textContent,
+      /unavailable/
+    );
+    input().click();
+    assert.equal(input().checked, false);
+    await until(
+      () => api.preferenceStatus().state === 'off' && !input().disabled,
+      'consent can be disabled after failure'
+    );
+    assert.equal((await api.savedPreferences()).enabled, false);
+    server.preferenceFailure = false;
+    input().click();
+    assert.equal(input().checked, true);
+    await until(
+      () => api.preferenceStatus().state === 'synced' && !input().disabled,
+      'explicit retry succeeds'
+    );
+  }, server.fetch);
+});
+
+test('a pending checkbox choice never carries into a newly refreshed account', async () => {
+  const server = accountServer();
+  await fixture(async ({ window, api, until }) => {
+    api.renderConnections(true);
+    const input = () => accountCheckbox(window);
+    await until(() => input() && !input().disabled, 'account controls finish loading');
+    const pending = server.holdPreferenceGet();
+    try {
+      input().click();
+      assert.equal(input().checked, true);
+      await until(() => pending.started, 'first account sync waits for its response');
+      server.user = { id: '43', username: 'other-reader' };
+      await api.refreshAccount(true);
+      await until(
+        () => window.document.querySelector('strong')?.textContent === 'other-reader',
+        'new account renders'
+      );
+      assert.equal(input().checked, false, 'pending intent belongs only to its original account');
+      assert.equal(api.preferenceStatus().enabled, false);
+    } finally {
+      pending.release();
+    }
+    await until(() => !input().disabled, 'old request finishes without retaining a busy control');
+    assert.equal(input().checked, false);
+    assert.equal(await api.savedPreferences('43'), undefined, 'new account has not consented');
+    input().click();
+    assert.equal(input().checked, true);
+    await until(
+      () => api.preferenceStatus().state === 'synced' && !input().disabled,
+      'new account can explicitly opt in'
+    );
+    assert.equal((await api.savedPreferences('43')).enabled, true);
+  }, server.fetch);
+});
+
+test('remounting during an account request can revoke consent without a late checkbox update', async () => {
+  const server = accountServer();
+  await fixture(async ({ window, api, until }) => {
+    api.renderConnections(true);
+    const input = () => accountCheckbox(window);
+    await until(() => input() && !input().disabled, 'account controls finish loading');
+    const pending = server.holdPreferenceGet();
+    try {
+      input().click();
+      assert.equal(input().checked, true);
+      await until(() => pending.started, 'preference request is pending');
+      api.clear();
+      await until(() => !input(), 'original account screen unmounts');
+      api.renderConnections(true);
+      await until(() => input() && !input().disabled, 'new account screen finishes loading');
+      assert.equal(input().checked, true, 'saved consent remains visible on the new screen');
+      input().click();
+      assert.equal(input().checked, false);
+      await until(
+        () => api.preferenceStatus().state === 'off' && !input().disabled,
+        'new screen revokes consent'
+      );
+      assert.equal((await api.savedPreferences()).enabled, false);
+    } finally {
+      pending.release();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(input().checked, false, 'old completion cannot republish its checkbox choice');
+    assert.equal(api.preferenceStatus().state, 'off');
+    assert.equal(server.requests.filter(({ method }) => method === 'PUT').length, 0);
+    input().click();
+    assert.equal(input().checked, true);
+    await until(
+      () => api.preferenceStatus().state === 'synced' && !input().disabled,
+      'new screen can opt in again'
+    );
+  }, server.fetch);
 });
