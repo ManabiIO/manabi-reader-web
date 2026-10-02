@@ -186,6 +186,14 @@ export class PitchController {
     try {
       // resume() is invoked in the toggle's user gesture, before any download.
       const context = (this.context ??= this.environment.createContext());
+      if (!hasStableSwiftF0Context(context.sampleRate, MAX_ANALYSER_SAMPLES)) {
+        this.fail(
+          `Pitch needs a lower audio output rate. This device is using ${Math.round(
+            context.sampleRate / 1000
+          )} kHz; switch it to 48 kHz and retry.`
+        );
+        return;
+      }
       const resumed = context.resume();
       // Observe rejection even if Worker construction throws synchronously.
       void resumed.catch(() => {});
@@ -195,14 +203,6 @@ export class PitchController {
       const begin = () => {
         if (!current() || !contextReady || !this.workerReady) return;
         try {
-          if (!hasStableSwiftF0Context(context.sampleRate, MAX_ANALYSER_SAMPLES)) {
-            this.fail(
-              `Pitch needs a lower audio output rate. This device is using ${Math.round(
-                context.sampleRate / 1000
-              )} kHz; switch it to 48 kHz and retry.`
-            );
-            return;
-          }
           if (!this.source) {
             this.source = context.createMediaElementSource(audio);
             this.source.connect(context.destination);
