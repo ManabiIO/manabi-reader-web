@@ -852,6 +852,9 @@ def main():
                         windows:[null,null],repairs:[null]}};
                 player.generationProgress(job,'decoding');
                 const firstStarted=typeof player.firstWindowStartedAt==='number';
+                const beforePrepare=player.firstWindowStartedAt;
+                player.generationProgress(job,'loading');
+                const preparePreserved=player.firstWindowStartedAt===beforePrepare;
                 job.sparse.windows[0]={cues:[],inferenceMs:50,digitalSilence:true};
                 player.generationProgress(job,'transcribing');
                 const reset=player.firstWindowStartedAt===undefined;
@@ -860,9 +863,11 @@ def main():
                     && player.firstWindowCompleted===1;
                 player.firstWindowStartedAt-=3000;
                 player.updateBuffering();
-                return {firstStarted,reset,restarted,status:player.bufferStatus.textContent};
+                return {firstStarted,preparePreserved,reset,restarted,
+                    status:player.bufferStatus.textContent};
             }""")
-            assert result['firstStarted'] and result['reset'] and result['restarted'],result
+            assert result['firstStarted'] and result['preparePreserved'],result
+            assert result['reset'] and result['restarted'],result
             assert 'first speech window' in result['status'] and '0:03 elapsed on this device' in result['status'],result
         case('digital-silent coverage restarts the first-speech ETA clock',sparse_silence_restarts_speech_clock)
         def native_play_at_sparse_gap():
