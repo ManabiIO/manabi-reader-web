@@ -66,10 +66,15 @@ test('storage-source publication waits for transaction completion observed befor
     }
   };
   const writes = [];
+  let resolveFirstRequest;
+  const firstRequest = new Promise((resolve) => {
+    resolveFirstRequest = resolve;
+  });
   const store = {
     async add(value) {
       assert.equal(completionObserved, true);
       writes.push(['add', value.name]);
+      resolveFirstRequest();
     },
     async put(value) {
       assert.equal(completionObserved, true);
@@ -110,7 +115,7 @@ test('storage-source publication waits for transaction completion observed befor
     true,
     true
   );
-  await Promise.resolve();
+  await firstRequest;
   assert.deepEqual(writes, [['add', 'Browser backup']]);
   assert.deepEqual(published, [], 'sync target published before transaction commit');
   assert.deepEqual(defaults, [], 'default source published before transaction commit');
