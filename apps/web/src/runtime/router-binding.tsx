@@ -14,6 +14,7 @@ export function RouterBinding() {
   useEffect(
     () =>
       installRouter({
+        sameDocumentHistory: true,
         push: (path) => router.push(path as never),
         replace: (path) => router.replace(path as never)
       }),

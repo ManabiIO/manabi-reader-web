@@ -5,7 +5,6 @@
  */
 
 import {
-  assertBookAccessIdentity,
   snapshotBookAccessIdentity,
   type BookAccessAuthority,
   type BookAccessIdentity
@@ -595,9 +594,18 @@ export function createSession(
           ))
         );
         localStorageHandler.startContext({ id, title: '' });
-        bookData = await localStorageHandler.getBook();
+        bookData = expectedBook
+          ? await database.getAdmittedData(id, expectedBook, {
+              profileId: operation.profileId,
+              assertCurrent: assertLoadCurrent,
+              signal: AbortSignal.any([
+                operation.signal,
+                readerLeaseLifetime.signal,
+                ...(bookAuthority ? [bookAuthority.signal] : [])
+              ])
+            })
+          : await localStorageHandler.getBook();
         assertLoadCurrent();
-        if (expectedBook) assertBookAccessIdentity(bookData, expectedBook);
         if (!bookData) {
           return bookData;
         }

@@ -290,10 +290,7 @@ async function fixture(t, platform = 'web', media = false) {
     filter: (source) => media || !source.startsWith(path.join(publicDir, 'moss'))
   });
   const prefix = platform === 'web' ? '/reader-web/' : './';
-  const names = [
-    ...workerNames.filter((name) => platform === 'web' || name !== 'library-content-search-worker'),
-    ...(media ? ['moss-worker'] : [])
-  ];
+  const names = [...workerNames, ...(media ? ['moss-worker'] : [])];
   const entry =
     names.map((name, index) => workerCall(name, index, prefix)).join('\n') +
     assets
@@ -489,15 +486,8 @@ for (const platform of ['web', 'android', 'apk'])
     const report = await verifyExport(options);
     assert.deepEqual(report.errors, []);
     assert.equal(report.passed, true);
-    assert.equal(report.evidence.moduleWorkers.length, platform === 'web' ? 4 : 3);
-    if (platform !== 'web') {
-      assert.deepEqual(report.evidence.unimplementedNativeFeatures, ['library-content-search']);
-      assert.ok(
-        report.warnings.some((warning) =>
-          warning.includes('does not certify native feature parity')
-        )
-      );
-    }
+    assert.equal(report.evidence.moduleWorkers.length, 4);
+    assert.ok(report.evidence.requiredModuleWorkers.includes('library-content-search-worker'));
     assert.equal(report.evidence.dictionaryWasmOverride.target, 'lib/zstd.wasm');
     if (platform === 'android') {
       assert.match(report.readiness, /not APK readiness/);

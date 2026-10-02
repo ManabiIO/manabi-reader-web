@@ -93,6 +93,15 @@ export function createSettingsWorkspace(
     })
   );
   __readerController.onMount(() => {
+    const restoreCategory = () => {
+      const category = window.location.hash.slice(1);
+      filter.set({
+        category: categories.some((item) => item.id === category) ? category : 'appearance',
+        query: ''
+      });
+    };
+    window.addEventListener('popstate', restoreCategory);
+    window.addEventListener('hashchange', restoreCategory);
     const countVisibleSettings = () => {
       if (root?.isConnected)
         __readerController.changed(
@@ -114,6 +123,8 @@ export function createSettingsWorkspace(
       });
     countVisibleSettings();
     return () => {
+      window.removeEventListener('popstate', restoreCategory);
+      window.removeEventListener('hashchange', restoreCategory);
       stop();
       observer.disconnect();
     };

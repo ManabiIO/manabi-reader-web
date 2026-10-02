@@ -6,7 +6,9 @@
 
 import { refreshLocation } from './stores';
 import { base } from './paths';
-let router: { push(path: string): void; replace(path: string): void } | undefined;
+let router:
+  | { push(path: string): void; replace(path: string): void; sameDocumentHistory?: boolean }
+  | undefined;
 export function installRouter(value: NonNullable<typeof router>) {
   router = value;
   return () => {
@@ -60,7 +62,21 @@ export async function goto(
     location.assign(url);
     return;
   }
-  if (router) {
+  // The browser owns fragment navigation within the current document. Pushing
+  // it through Expo Stack retains another copy of the same screen. Embedded
+  // native owners do not opt in: every route intent still reaches their bridge.
+  const sameDocumentFragment =
+    router?.sameDocumentHistory &&
+    url.pathname === location.pathname &&
+    url.search === location.search &&
+    (url.hash !== '' || url.hash !== location.hash);
+  if (sameDocumentFragment) {
+    history[options.replaceState ? 'replaceState' : 'pushState'](
+      { ...history.state, ...options.state },
+      '',
+      url
+    );
+  } else if (router) {
     const path = `${url.pathname.startsWith(base + '/') ? url.pathname.slice(base.length) : url.pathname}${url.search}${url.hash}`;
     router[options.replaceState ? 'replace' : 'push'](path);
   } else history[options.replaceState ? 'replaceState' : 'pushState'](options.state ?? {}, '', url);

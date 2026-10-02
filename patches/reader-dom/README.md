@@ -18,6 +18,8 @@ Pin `@expo/dom-webview` to `57.0.1` and declare this patch in the workspace's pn
 '@expo/dom-webview@57.0.1': patches/reader-dom/expo-dom-webview-57.0.1.patch
 ```
 
+SDK 57 enables precompiled Android AARs by default. A source patch alone does **not** change that binary. The app's `package.json` sets `expo.autolinking.android.buildFromSource: ["expo-dom-webview"]`. In the installed SDK, `SettingsManager.configurePublication` matches Gradle project names, so the npm-scoped name `@expo/dom-webview` is insufficient. The guard runs the installed autolinker, checks the exact module version and project, checks the pattern using the native full-match semantics, and requires the patched source files before Gradle compilation. CI then requires `:expo-dom-webview:testDebugUnitTest` and release APK assembly; omitting the source module fails the build. See [Expo's precompiled module guidance](https://docs.expo.dev/guides/prebuilt-expo-modules/) and [autolinking configuration](https://docs.expo.dev/modules/autolinking/#buildfromsource).
+
 The parent application must pass these Android DOM properties to its **single persistent** trusted reader owner:
 
 ```ts

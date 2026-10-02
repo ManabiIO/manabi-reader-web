@@ -324,6 +324,39 @@ test('unmount while bridge open is pending fences late success and releases list
   assert.equal(runtime.backListeners.size, 0);
   assert.equal(runtime.appListeners.size, 0);
 });
+test('mounted native provider cancels a hidden passage admission without replaying its late reply', async () => {
+  const load = deferred();
+  const view = await mount({
+    path: '/manage',
+    params: {},
+    handler: (req) => (req.method === 'open' ? load.promise : undefined)
+  });
+  try {
+    let opening;
+    await act(async () => {
+      opening = view.context.command('open', {
+        bookId: 1,
+        librarySearchToken: 'search-1',
+        librarySearchHit: 'hit-1'
+      });
+    });
+    const rejected = assert.rejects(opening, /cancelled/);
+    await flush();
+    await act(async () => view.context.command('library.content.cancel', { token: 'search-1' }));
+    await act(async () => load.resolve({ bookId: 1 }));
+    await rejected;
+    await flush();
+    assert.equal(view.visible(), false);
+    assert.equal(view.context.reader.identity, undefined);
+    assert.equal(runtime.calls.filter((call) => call.method === 'close').length, 1);
+    assert.equal(
+      runtime.calls.filter((call) => call.method === 'library.content.cancel').length,
+      1
+    );
+  } finally {
+    await view.close();
+  }
+});
 test.after(() => {
   rmSync(directory, { recursive: true, force: true });
   dom.window.close();

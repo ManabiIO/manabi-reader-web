@@ -287,6 +287,7 @@ export function HeaderView({
                               title={'Library actions'}
                               disabled={!!c.replicationToProgress}
                               ref={(element: any) => {
+                                props.ref(element);
                                 c.libraryActionsButton = element;
                               }}
                               className={['size-11 rounded-full'].filter(Boolean).join(' ')}

@@ -70,6 +70,8 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false);
   const importActive = useRef(false);
   const path = usePathname();
+  const latestPath = useRef(path);
+  latestPath.current = path;
   const params = useGlobalSearchParams();
   const [reader, setReader] = useState<NativeReaderState>({
     visible: false,
@@ -167,6 +169,13 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         } catch (cause) {
           return Promise.reject(cause);
         }
+      }
+      if (method === 'library.content.cancel') {
+        const cancelled = navigationRef.current!.cancelPassage(
+          payload.token,
+          latestPath.current === '/b'
+        );
+        return Promise.all([bridgeCommand(method, payload), cancelled]).then(([result]) => result);
       }
       if (method === 'close') return navigationRef.current!.close();
       if (method === 'snippets.action' && payload.type === 'read')

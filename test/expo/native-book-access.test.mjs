@@ -49,6 +49,13 @@ function load(path, dependencies = {}) {
 const base = 'lib/data/database/books-db/';
 const identity = load(`${base}book-identity.ts`);
 const contentHash = load(`${base}content-hash-index.ts`);
+const binary = load(`${base}book-binary.ts`);
+const records = load(`${base}book-records.ts`);
+const admittedRead = load(`${base}admitted-book-read.ts`, {
+  './book-identity': identity,
+  './book-records': records,
+  './commit-transaction.mjs': transactions
+});
 const statistics = load(`${base}reader-statistics.ts`, {
   './commit-transaction.mjs': transactions,
   './content-hash-index.ts': contentHash
@@ -66,6 +73,8 @@ const errorHandler = load('lib/functions/replication/error-handler.ts', {
 });
 const { DatabaseService } = load(`${base}database.service.ts`, {
   './book-identity': identity,
+  './book-binary': binary,
+  './admitted-book-read': admittedRead,
   './commit-transaction.mjs': transactions,
   './reader-statistics': statistics,
   './content-hash-index': contentHash,
@@ -87,7 +96,8 @@ const row = () => ({
   title: 'Selected book',
   contentHash: hash,
   lastBookModified: 10,
-  elementHtml: '<p>Selected content</p>'
+  elementHtml: '<p>Selected content</p>',
+  blobs: {}
 });
 const storeKeys = {
   data: 'id',
@@ -295,6 +305,61 @@ test('identity deletion commits the selected copy and preserves other copies and
   assert.deepEqual(f.notices, ['lastItem', 'bookmark']);
 });
 
+for (const keepStatistics of [true, false])
+  test(`canonical deletion rejects a replaced legacy UUID while keepStatistics=${keepStatistics}`, async (t) => {
+    const f = await fixture(t);
+    await f.db.put('data', { ...row(), contentHash: undefined });
+    await f.db.put('readerLocalIdentity', {
+      bookId: 1,
+      uuid: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    });
+    const before = await f.snapshot();
+    const result = await f.remove(
+      new Map([
+        [
+          1,
+          {
+            ...target(),
+            contentHash: undefined,
+            readerBookKey: 'local:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+          }
+        ]
+      ]),
+      undefined,
+      undefined,
+      keepStatistics
+    );
+    assert.match(result.error, /book changed/);
+    assert.deepEqual(result.deleted, []);
+    assert.deepEqual(await f.snapshot(), before);
+    assert.deepEqual(f.notices, []);
+  });
+
+test('canonical legacy deletion retaining statistics admits its original UUID', async (t) => {
+  const f = await fixture(t);
+  const uuid = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  await f.db.put('data', { ...row(), contentHash: undefined });
+  await f.db.put('readerLocalIdentity', { bookId: 1, uuid });
+  const result = await f.remove(
+    new Map([
+      [
+        1,
+        {
+          ...target(),
+          contentHash: undefined,
+          readerBookKey: `local:${uuid}`
+        }
+      ]
+    ]),
+    undefined,
+    undefined,
+    true
+  );
+  assert.deepEqual(result, { error: '', deleted: [1] });
+  assert.equal(await f.db.get('data', 1), undefined);
+  assert.equal((await f.db.getAll('statistic')).length, 1);
+});
+
 test('legacy callers omitting admission identities retain their deletion contract', async (t) => {
   const f = await fixture(t);
   const result = await f.service.deleteData(
@@ -363,6 +428,7 @@ async function readerFixture(t, expected = target()) {
     captureLibraryOperation() {
       return {
         signal: operation.signal,
+        profileId: account,
         assertCurrent() {
           operation.signal.throwIfAborted();
         },
@@ -392,7 +458,13 @@ async function readerFixture(t, expected = target()) {
       }
     }),
     integrationDB: async () => ({ getAll: async () => [] }),
-    database: { db: Promise.resolve(f.db) },
+    database: {
+      db: Promise.resolve(f.db),
+      async getAdmittedData(...args) {
+        await getHook();
+        return f.service.getAdmittedData(...args);
+      }
+    },
     readerAccessOwners,
     $account: { status: 'signed-in' },
     localProfileUser: () => ({ id: account }),
@@ -489,6 +561,63 @@ test('reader accepts exactly admitted content and runs existing loading effects'
   const result = await f.load(1);
   assert.deepEqual(f.dialogs, []);
   assert.equal(result.elementHtml, row().elementHtml);
+  assert.deepEqual(f.effects, ['lastRead', 'sync', 'externalLastRead']);
+  assert.deepEqual(f.dialogs, []);
+});
+
+const legacyUuid = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const legacyTarget = () => ({
+  ...target(),
+  contentHash: undefined,
+  readerBookKey: `local:${legacyUuid}`
+});
+for (const changed of [false, true])
+  test(`reader final canonical admission ${changed ? 'rejects a changed' : 'accepts the same'} legacy UUID`, async (t) => {
+    const f = await readerFixture(t, legacyTarget());
+    await f.db.put('data', { ...row(), contentHash: undefined });
+    await f.db.put('readerLocalIdentity', {
+      bookId: 1,
+      uuid: changed ? 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' : legacyUuid
+    });
+    const result = await f.load(1);
+    if (changed) {
+      assert.equal(result, undefined);
+      assert.deepEqual(f.effects, []);
+      assert.match(f.dialogs[0][0].props.message, /book changed/);
+    } else {
+      assert.equal(result.elementHtml, row().elementHtml);
+      assert.deepEqual(f.effects, ['lastRead', 'sync', 'externalLastRead']);
+      assert.deepEqual(f.dialogs, []);
+    }
+  });
+
+for (const action of ['close', 'changeGeneration', 'accountABA'])
+  test(`reader ${action} during the final canonical request prevents loading effects`, async (t) => {
+    const f = await readerFixture(t, legacyTarget());
+    await f.db.put('data', { ...row(), contentHash: undefined });
+    await f.db.put('readerLocalIdentity', { bookId: 1, uuid: legacyUuid });
+    const original = IDBObjectStore.prototype.get;
+    IDBObjectStore.prototype.get = function (...args) {
+      const request = original.apply(this, args);
+      if (this.name === 'readerLocalIdentity')
+        request.addEventListener('success', () => f[action](), { once: true });
+      return request;
+    };
+    t.after(() => {
+      IDBObjectStore.prototype.get = original;
+    });
+    assert.equal(await f.load(1), undefined);
+    assert.deepEqual(f.effects, []);
+    assert.deepEqual(f.dialogs, []);
+  });
+
+test('web reader without expectedBook retains the existing local getBook path', async (t) => {
+  const f = await readerFixture(t);
+  f.context.expectedBook = undefined;
+  f.context.database.getAdmittedData = () => {
+    throw new Error('Unexpected guarded read');
+  };
+  assert.equal((await f.load(1)).elementHtml, row().elementHtml);
   assert.deepEqual(f.effects, ['lastRead', 'sync', 'externalLastRead']);
   assert.deepEqual(f.dialogs, []);
 });

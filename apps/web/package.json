@@ -88,5 +88,14 @@
     "lucide-react": "1.49.0",
     "@expo/dom-webview": "57.0.1"
   },
-  "main": "expo-router/entry"
+  "main": "expo-router/entry",
+  "expo": {
+    "autolinking": {
+      "android": {
+        "buildFromSource": [
+          "expo-dom-webview"
+        ]
+      }
+    }
+  }
 }

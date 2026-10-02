@@ -51,6 +51,8 @@ import { isUUID } from '$lib/snippets/document';
 import { getRecord as getSnippet, type SnippetRecord } from '$lib/snippets/database';
 import { scope as captureSnippetScope, type SnippetScope } from '$lib/snippets/scope';
 import { createNativeLibraryService } from '../native-library/dom-service';
+import { createNativeLibraryContentSearchService } from '../native-library/content-search-dom';
+import { clearLibraryLocation, queueLibraryLocation } from '$lib/library/search-navigation';
 import type { BookAccessIdentity } from '$lib/data/database/books-db/book-identity';
 import { readNativeSettingsState, dispatchNativeSettingsAction } from '../native-settings/service';
 import type { NativeStatisticsAction } from '../statistics-react/native-contract';
@@ -81,14 +83,19 @@ export default function ReaderRuntime({
   const [snippet, setSnippet] = useState<{ record: SnippetRecord; scope: SnippetScope }>();
   const snippets = useMemo(() => new NativeSnippetsService(createNativeSnippetsRepository()), []);
   const [bookId, setBookId] = useState<number>();
+  const [libraryLocationToken, setLibraryLocationToken] = useState<string>();
   const [expectedBook, setExpectedBook] = useState<BookAccessIdentity>();
   const [bookAuthority, setBookAuthority] = useState<{
     signal: AbortSignal;
     assertCurrent(): void;
   }>();
-  const opened = useRef<{ stop(): void; controller: AbortController } | undefined>(undefined);
+  const opened = useRef<
+    { stop(): void; controller: AbortController; locationToken?: string } | undefined
+  >(undefined);
   const retireBook = () => {
     setSnippet(undefined);
+    if (opened.current?.locationToken) clearLibraryLocation(opened.current.locationToken);
+    setLibraryLocationToken(undefined);
     opened.current?.controller.abort();
     opened.current?.stop();
     opened.current = undefined;
@@ -97,6 +104,7 @@ export default function ReaderRuntime({
     setBookId(undefined);
   };
   const library = useMemo(() => createNativeLibraryService(), []);
+  const contentSearch = useMemo(() => createNativeLibraryContentSearchService(library), [library]);
   const readingKind = useRef<'book' | 'snippet'>('book');
   const screen = useRef<ReaderScreenHandle | undefined>(undefined);
   const registerScreen = useCallback((handle: ReaderScreenHandle | undefined) => {
@@ -231,6 +239,12 @@ export default function ReaderRuntime({
                 return library.state(payload, libraryAuthority);
               case 'library.action':
                 return library.action(payload, libraryAuthority);
+              case 'library.content.start':
+                return contentSearch.start(payload, libraryAuthority);
+              case 'library.content.read':
+                return contentSearch.read(payload, libraryAuthority);
+              case 'library.content.cancel':
+                return contentSearch.cancel(payload, libraryAuthority);
               case 'settings.state':
                 return readNativeSettingsState(payload);
               case 'settings.action':
@@ -311,7 +325,14 @@ export default function ReaderRuntime({
                 }
                 if (
                   Object.keys(payload).some(
-                    (key) => !['bookId', 'libraryToken', 'libraryKeys'].includes(key)
+                    (key) =>
+                      ![
+                        'bookId',
+                        'libraryToken',
+                        'libraryKeys',
+                        'librarySearchToken',
+                        'librarySearchHit'
+                      ].includes(key)
                   )
                 )
                   throw new Error('Invalid book reading request.');
@@ -325,7 +346,24 @@ export default function ReaderRuntime({
                 if (!visible.some((book) => book.id === payload.bookId))
                   throw new Error('This book is unavailable to the current profile.');
                 let identity: BookAccessIdentity | undefined;
-                if (payload.libraryToken !== undefined || payload.libraryKeys !== undefined) {
+                let passage: Awaited<ReturnType<typeof contentSearch.admitOpen>> | undefined;
+                if (
+                  payload.librarySearchToken !== undefined ||
+                  payload.librarySearchHit !== undefined
+                ) {
+                  if (payload.libraryToken !== undefined || payload.libraryKeys !== undefined)
+                    throw new Error('Conflicting book reading admission.');
+                  passage = await contentSearch.admitOpen(
+                    { token: payload.librarySearchToken, hit: payload.librarySearchHit },
+                    libraryAuthority
+                  );
+                  if (passage.identity.bookId !== payload.bookId)
+                    throw new Error('The selected passage belongs to another book.');
+                  identity = passage.identity;
+                } else if (
+                  payload.libraryToken !== undefined ||
+                  payload.libraryKeys !== undefined
+                ) {
                   const admitted = await library.admitAccess(
                     { token: payload.libraryToken, keys: payload.libraryKeys, operation: 'open' },
                     libraryAuthority
@@ -345,7 +383,11 @@ export default function ReaderRuntime({
                 libraryAuthority.assertCurrent();
                 if (admission !== state.openSequence)
                   throw new Error('A newer reader navigation replaced this open request.');
+                passage?.assertCurrent();
                 retireBook();
+                const locationToken = passage
+                  ? queueLibraryLocation(identity.bookId, operation.profileId, passage.locator)
+                  : undefined;
                 const controller = new AbortController();
                 const readAuthority = {
                   signal: AbortSignal.any([libraryAuthority.signal, controller.signal]),
@@ -354,9 +396,10 @@ export default function ReaderRuntime({
                     libraryAuthority.assertCurrent();
                   }
                 };
-                opened.current = { stop: operation.stop, controller };
+                opened.current = { stop: operation.stop, controller, locationToken };
                 retained = true;
                 readingKind.current = 'book';
+                setLibraryLocationToken(locationToken);
                 setBookAuthority(readAuthority);
                 setExpectedBook(identity);
                 setBookId(payload.bookId as number);
@@ -537,6 +580,7 @@ export default function ReaderRuntime({
         state.accountLifetime = new AbortController();
         state.transfer.cancel();
         retireBook();
+        contentSearch.dispose();
         library.dispose();
         snippets.dispose();
       }
@@ -588,8 +632,10 @@ export default function ReaderRuntime({
           state.lifetime.abort();
           state.accountLifetime.abort();
           state.transfer.cancel();
+          contentSearch.dispose();
           library.dispose();
           snippets.dispose();
+          if (opened.current?.locationToken) clearLibraryLocation(opened.current.locationToken);
           opened.current?.controller.abort();
           opened.current?.stop();
         }
@@ -616,6 +662,7 @@ export default function ReaderRuntime({
           key={`${state.epoch}:${bookId}`}
           bookId={bookId}
           expectedBook={expectedBook}
+          libraryLocationToken={libraryLocationToken}
           bookAuthority={bookAuthority}
           registerHandle={registerScreen}
           onExit={() => {

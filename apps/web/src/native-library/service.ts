@@ -299,6 +299,53 @@ export class NativeLibraryService {
     while (this.admissions.size > 8) this.admissions.delete(this.admissions.keys().next().value!);
     return response;
   }
+  /** DOM-only search scope. Native handles are resolved before reading any saved content. */
+  async searchBooks(payload: unknown, authority: LibraryAuthority): Promise<ShelfBook[]> {
+    this.bind(authority);
+    const query = parseLibraryQuery(payload);
+    const seriesId = query.series ? this.handles.get(query.series) : '';
+    const sourceId = query.source ? this.handles.get(query.source) : '';
+    if ((query.series && !seriesId) || (query.source && !sourceId))
+      throw new Error('The Library view expired. Return to All Books.');
+    const data = await this.repository.load(authority);
+    this.assert(authority);
+    const { nodes } = libraryNodes(
+      data.tree,
+      data.organization,
+      { ...query, query: '' },
+      seriesId,
+      (book) => !sourceId || (!!book.source && sourceKey(book.source) === sourceId)
+    );
+    const books = allBooks(nodes).filter((book) => book.bookId && !book.isPlaceholder);
+    if (books.length > 50000) throw new Error('This Library exceeds the local search limit.');
+    return structuredClone(books);
+  }
+  /** Revalidate a retained passage target without minting a native ID-only admission. */
+  async validateSearchBook(
+    book: ShelfBook,
+    authority: LibraryAuthority
+  ): Promise<LibraryAccessIdentity> {
+    this.bind(authority);
+    const data = await this.repository.load(authority);
+    this.assert(authority);
+    const current = physicalBooks(data.tree).find(
+      (candidate) => libraryBookLocator(candidate) === libraryBookLocator(book)
+    );
+    if (
+      !book.bookId ||
+      book.isPlaceholder ||
+      !current ||
+      current.isPlaceholder ||
+      libraryBookIdentity(current) !== libraryBookIdentity(book)
+    )
+      throw new Error('This book changed. Search again before opening its passage.');
+    return {
+      bookId: book.bookId,
+      contentHash: book.contentHash,
+      title: book.canonicalTitle,
+      lastBookModified: book.lastBookModified
+    };
+  }
   async action(payload: unknown, authority: LibraryAuthority): Promise<{ saved: true }> {
     this.bind(authority);
     const action = parseAction(payload);

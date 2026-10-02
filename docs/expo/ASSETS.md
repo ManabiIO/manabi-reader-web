@@ -71,12 +71,12 @@ contract is also checked against the installed exporter source.
 - Generated HTML entry scripts, CSS, every compatibility route alias and `404.html`
 - Web prefix and Android document-relative references, with generated Metro
   dependency maps followed from HTML entries to reachable chunks/workers
-- Reader, snippet-search and voice-pitch module-worker calls, local bundle targets,
-  and matching Metro worker-entry module IDs (including MD5 update artifacts).
-  Web additionally requires library-content search; enabled media adds MOSS
-- Android reports Library content/passage search as an explicit unimplemented
-  feature. Its DOM entry uses the metadata-only native Library service and has no
-  content-search worker callsite. This parity gap is not APK asset readiness
+- Reader, snippet-search, library-content search, and voice-pitch module-worker
+  calls, local bundle targets, and matching Metro worker-entry module IDs
+  (including MD5 update artifacts) on both platforms; enabled media adds MOSS
+- Android passage search reuses the existing worker inside the persistent DOM
+  owner. Native result selections pass opaque handles, with the canonical locator
+  and final record identity checked inside that owner before reader admission
 - Every prepared font import, SwiftF0 `swift-f0-0.3.0.onnx`, and the installed ORT
   `ort-wasm-simd-threaded.wasm`: actual exported bytes must match their inputs, and
   web/APK builds must contain reachable generated runtime URLs for them

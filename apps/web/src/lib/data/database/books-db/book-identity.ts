@@ -8,6 +8,7 @@
 export interface BookAccessIdentity {
   readonly bookId: number;
   readonly contentHash?: string;
+  readonly readerBookKey?: string;
   readonly title: string;
   readonly lastBookModified: number;
 }
@@ -18,36 +19,59 @@ export interface BookAccessAuthority {
   assertCurrent(): void;
 }
 
+const contentHashPattern = /^[a-f0-9]{64}$/i;
+const readerBookKeyPattern = /^(?:content:[a-f0-9]{64}|local:[a-f0-9-]{36})$/;
+
+function normalizedHash(hash: string | undefined): string | undefined {
+  return hash !== undefined && contentHashPattern.test(hash) ? hash.toLowerCase() : hash;
+}
+
 export function snapshotBookAccessIdentity(expected: BookAccessIdentity): BookAccessIdentity {
+  // Read each caller-owned field only once, before any asynchronous admission.
+  const { bookId, contentHash, readerBookKey, title, lastBookModified } = expected ?? {};
   if (
-    !expected ||
-    !Number.isSafeInteger(expected.bookId) ||
-    expected.bookId <= 0 ||
-    typeof expected.title !== 'string' ||
-    !Number.isFinite(expected.lastBookModified) ||
-    (expected.contentHash !== undefined && typeof expected.contentHash !== 'string')
+    !Number.isSafeInteger(bookId) ||
+    bookId <= 0 ||
+    typeof title !== 'string' ||
+    !Number.isFinite(lastBookModified) ||
+    (contentHash !== undefined && typeof contentHash !== 'string') ||
+    (readerBookKey !== undefined &&
+      (typeof readerBookKey !== 'string' ||
+        !readerBookKeyPattern.test(readerBookKey) ||
+        (contentHash && contentHashPattern.test(contentHash)
+          ? readerBookKey !== `content:${contentHash.toLowerCase()}`
+          : !readerBookKey.startsWith('local:'))))
   )
     throw new Error(
       'The selected book identity is invalid. Refresh the Library and select it again.'
     );
   return Object.freeze({
-    bookId: expected.bookId,
-    contentHash: expected.contentHash,
-    title: expected.title,
-    lastBookModified: expected.lastBookModified
+    bookId,
+    contentHash: normalizedHash(contentHash),
+    ...(readerBookKey === undefined ? {} : { readerBookKey }),
+    title,
+    lastBookModified
   });
 }
 
 export function assertBookAccessIdentity(
   book: { id: number; contentHash?: string; title: string; lastBookModified: number } | undefined,
-  expected: BookAccessIdentity
+  expected: BookAccessIdentity,
+  localIdentity?: { bookId: number; uuid: string }
 ): void {
+  const canonicalKey =
+    book?.contentHash && contentHashPattern.test(book.contentHash)
+      ? `content:${book.contentHash.toLowerCase()}`
+      : book && localIdentity?.bookId === book.id
+        ? `local:${localIdentity.uuid}`
+        : undefined;
   if (
     !book ||
     book.id !== expected.bookId ||
-    book.contentHash !== expected.contentHash ||
+    normalizedHash(book.contentHash) !== normalizedHash(expected.contentHash) ||
     book.title !== expected.title ||
-    book.lastBookModified !== expected.lastBookModified
+    book.lastBookModified !== expected.lastBookModified ||
+    (expected.readerBookKey !== undefined && canonicalKey !== expected.readerBookKey)
   )
     throw new Error(
       'This book changed since it was selected. Refresh the Library and select it again.'

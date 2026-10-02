@@ -73,12 +73,23 @@ export function useReaderBindings(
   const ref = useRef(props);
   ref.current = props;
   const prior = useRef<Record<string, unknown>>({});
+  const owner = useRef<typeof c>(undefined);
   useLayoutEffect(() => {
     if (!c) return;
+    if (owner.current !== c) {
+      owner.current = c;
+      prior.current = {};
+      // Initial parent inputs are already applied by the controller factory.
+      // Reading those defaults must not turn a mount into a persisted edit.
+      for (const name of Object.keys(ref.current.bindings ?? {}))
+        if (Object.hasOwn(ref.current, name))
+          prior.current[name] = (ref.current as Record<string, unknown>)[name];
+    }
     ref.current.bindings?.this?.(c);
     return () => {
       ref.current.bindings?.this?.(undefined);
-      prior.current = {};
+      // Keep the same owner's publication baseline through Strict Mode replay.
+      // A replacement controller receives a fresh baseline on the next setup.
     };
   }, [c]);
   useLayoutEffect(() => {
@@ -86,6 +97,11 @@ export function useReaderBindings(
     for (const [name, setter] of Object.entries(ref.current.bindings ?? {})) {
       if (name === 'this' || !setter || Object.is(prior.current[name], c[name])) continue;
       prior.current[name] = c[name];
+      if (
+        Object.hasOwn(ref.current, name) &&
+        Object.is((ref.current as Record<string, unknown>)[name], c[name])
+      )
+        continue;
       setter(c[name]);
     }
   });
@@ -222,8 +238,10 @@ export function Dom({
       node.current.innerHTML = html;
       previousHtmlIdentity.current = htmlIdentity;
     }
-    const readiness = new HtmlReadiness(requestAnimationFrame, cancelAnimationFrame, () =>
-      live.current.onHtmlLoad?.()
+    const readiness = new HtmlReadiness(
+      (callback) => window.requestAnimationFrame(callback),
+      (frame) => window.cancelAnimationFrame(frame),
+      () => live.current.onHtmlLoad?.()
     );
     readiness.update(html, htmlIdentity);
     return () => readiness.destroy();

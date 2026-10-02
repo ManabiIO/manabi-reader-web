@@ -10,6 +10,7 @@ import {
   type BookAccessIdentity
 } from './book-identity';
 import { encodeBook, decodeBook } from './book-binary';
+import { readAdmittedBook, type AdmittedBookReadAuthority } from './admitted-book-read';
 import {
   contentStatisticKey,
   migrateLegacyStatistics,
@@ -248,6 +249,27 @@ export class DatabaseService {
       return book ? decodeBook(book) : undefined;
     }
     return undefined;
+  }
+
+  async getAdmittedData(
+    dataId: number,
+    expectedBook: BookAccessIdentity,
+    authority: AdmittedBookReadAuthority
+  ): Promise<BooksDbBookData> {
+    // Freeze before the database opens so caller mutation cannot retarget a read.
+    const expected = snapshotBookAccessIdentity(expectedBook);
+    if (dataId !== expected.bookId)
+      throw new Error('The book selection changed. Refresh the Library and select it again.');
+    const { signal, profileId, assertCurrent } = authority;
+    signal.throwIfAborted();
+    assertCurrent();
+    const db = await this.db;
+    signal.throwIfAborted();
+    assertCurrent();
+    const book = await readAdmittedBook(db, expected, { signal, profileId, assertCurrent });
+    signal.throwIfAborted();
+    assertCurrent();
+    return decodeBook(book);
   }
 
   async getDataByTitle(title: string) {
@@ -687,6 +709,8 @@ export class DatabaseService {
     ];
     if (shouldDeleteStatistics)
       storeNames.push('statistic', 'lastModified', 'readerStatistic', 'readerLocalIdentity');
+    else if (expectedBook?.readerBookKey?.startsWith('local:'))
+      storeNames.push('readerLocalIdentity');
 
     const tx = db.transaction(storeNames, 'readwrite');
     let removedLastItem = false;
@@ -705,7 +729,12 @@ export class DatabaseService {
         // A batch may span reader writes, renames and other tabs. Decisions must
         // use the current record in the same transaction as its deletion.
         const book = await tx.objectStore('data').get(dataId);
-        if (expectedBook) assertBookAccessIdentity(book, expectedBook);
+        if (expectedBook) {
+          const identity = expectedBook.readerBookKey?.startsWith('local:')
+            ? await tx.objectStore('readerLocalIdentity').get(dataId)
+            : undefined;
+          assertBookAccessIdentity(book, expectedBook, identity);
+        }
         const owner = await tx.objectStore('readerBookScope').get(dataId);
         assertCurrent?.();
         throwIfAborted(signal);

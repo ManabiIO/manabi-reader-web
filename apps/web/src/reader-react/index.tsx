@@ -21,6 +21,7 @@ export interface ReaderScreenHandle {
 export interface ReaderScreenProps {
   bookId?: number;
   expectedBook?: BookAccessIdentity;
+  libraryLocationToken?: string;
   bookAuthority?: BookAccessAuthority;
   onExit?: () => void;
   registerHandle?: (handle: ReaderScreenHandle | undefined) => void;
@@ -30,6 +31,7 @@ export interface ReaderScreenProps {
 export function ReaderScreen({
   bookId,
   expectedBook,
+  libraryLocationToken,
   bookAuthority,
   onExit,
   registerHandle
@@ -57,11 +59,13 @@ export function ReaderScreen({
     const url = new URL(window.location.href);
     if (bookId !== undefined) {
       url.pathname = `${base}/b`;
+      url.search = '';
       url.searchParams.set('id', String(bookId));
+      if (libraryLocationToken) url.searchParams.set('library-search', libraryLocationToken);
     }
     page.set({ url, params: {}, state: history.state ?? {}, data: {} });
     setReady({ bookId, expectedBook, bookAuthority });
-  }, [bookId, expectedBook, bookAuthority]);
+  }, [bookId, expectedBook, bookAuthority, libraryLocationToken]);
   useEffect(() => {
     session.current?.setExitHandler(onExit ? () => latestExit.current?.() : undefined);
   }, [onExit]);

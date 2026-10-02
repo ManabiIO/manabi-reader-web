@@ -136,6 +136,21 @@ export function Dom({
     props.onChange ??= () => {};
   }
   if (props.type === 'file') delete props.value;
+  if (['checkbox', 'radio'].includes(props.type) && handlers.change) {
+    // React restores controlled checked state at the end of its click event,
+    // before the browser's later native change event. Read the user's checked
+    // value through React's onChange while it still belongs to this activation.
+    const change = handlers.change;
+    const after = props.onChange;
+    props.onChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+      change(event);
+      after?.(event);
+    };
+    delete handlers.change;
+  }
+  // Native input/change listeners own these controlled fields. Tell React they
+  // are editable even when there is no synthetic onChange callback.
+  if (props.value !== undefined && (handlers.input || handlers.change)) props.onChange ??= () => {};
   const ref = (node: HTMLElement | null) => {
     elementRef?.(node);
     bindings.ref?.(node);

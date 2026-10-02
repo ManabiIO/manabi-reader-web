@@ -54,8 +54,13 @@ export class NativeReaderNavigation {
   private ownershipExit = false;
   private shown = false;
   private error = '';
-  private current?: { identity: NativeReaderIdentity; value: unknown };
-  private opening?: { key: string; promise: Promise<unknown> };
+  private current?: {
+    identity: NativeReaderIdentity;
+    value: unknown;
+    admissionKey: string;
+    passageToken?: string;
+  };
+  private opening?: { key: string; promise: Promise<unknown>; passageToken?: string };
   private closing?: Promise<NativeReaderClose>;
   constructor(
     private command: Command,
@@ -111,13 +116,24 @@ export class NativeReaderNavigation {
       ? { bookId: identity.id }
       : { snippetId: identity.id }
   ): Promise<unknown> {
-    const key = keyOf(identity);
-    if (!this.closing && this.current && keyOf(this.current.identity) === key)
+    const identityKey = keyOf(identity);
+    const passage =
+      payload.librarySearchToken !== undefined || payload.librarySearchHit !== undefined;
+    const key = passage
+      ? `${identityKey}:passage:${JSON.stringify([payload.librarySearchToken, payload.librarySearchHit])}`
+      : identityKey;
+    if (
+      !this.closing &&
+      this.current &&
+      keyOf(this.current.identity) === identityKey &&
+      (!passage || this.current.admissionKey === key)
+    )
       return Promise.resolve(this.current.value);
     return this.admit(
       key,
       () => this.command('open', payload),
-      () => identity
+      () => identity,
+      typeof payload.librarySearchToken === 'string' ? payload.librarySearchToken : undefined
     );
   }
   /** Native snippet action already admitted/mounted its DOM reader; do not open it a second time. */
@@ -135,7 +151,8 @@ export class NativeReaderNavigation {
   private admit(
     key: string,
     execute: () => Promise<unknown>,
-    identity: (value: unknown) => NativeReaderIdentity
+    identity: (value: unknown) => NativeReaderIdentity,
+    passageToken?: string
   ): Promise<unknown> {
     if (this.opening?.key === key) return this.opening.promise;
     const generation = this.generation;
@@ -148,7 +165,7 @@ export class NativeReaderNavigation {
       this.current || this.opening || this.closing
         ? this.startClose()
         : Promise.resolve({ allowed: true });
-    const opening = { key, promise: Promise.resolve() as Promise<unknown> };
+    const opening = { key, passageToken, promise: Promise.resolve() as Promise<unknown> };
     this.opening = opening;
     this.error = '';
     opening.promise = (async () => {
@@ -158,7 +175,7 @@ export class NativeReaderNavigation {
         if (!closed.allowed) throw new ReaderNavigationCancelled();
         const value = await execute();
         check();
-        this.current = { identity: identity(value), value };
+        this.current = { identity: identity(value), value, admissionKey: key, passageToken };
         return value;
       } finally {
         if (this.opening === opening) {
@@ -169,6 +186,18 @@ export class NativeReaderNavigation {
     })();
     this.publish();
     return opening.promise;
+  }
+  /** Cancel a search's hidden/pending reader only; delayed cleanup cannot close a newer book.
+   * The provider passes the current rendered route, before passive route effects run.
+   */
+  cancelPassage(token: unknown, readerRoute: boolean): Promise<unknown> {
+    if (
+      readerRoute ||
+      typeof token !== 'string' ||
+      (this.current?.passageToken !== token && this.opening?.passageToken !== token)
+    )
+      return Promise.resolve();
+    return this.close();
   }
   close(): Promise<NativeReaderClose> {
     // Even when saving is already coalesced, a newer exit must cancel any open queued behind it.

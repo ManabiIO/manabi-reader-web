@@ -107,6 +107,8 @@ export interface LibraryAccessRequest {
 /** DOM-only authority: validate these again in the actual read/write transaction. */
 export interface LibraryAccessIdentity {
   bookId: number;
+  /** Canonical content hash or legacy local UUID, retained only inside the DOM runtime. */
+  readerBookKey?: string;
   contentHash?: string;
   title: string;
   lastBookModified: number;

@@ -806,20 +806,9 @@ export async function verifyExport({
       }
     }
     evidence.reachableGeneratedScripts = [...reachable].filter((name) => graph.has(name)).sort();
-    // The native Library service performs metadata-only search. Its DOM entry
-    // does not import the web Library content-search controller; keep that parity
-    // gap visible without requiring an unreachable worker in an Android package.
-    const workerNames = [
-      ...WORKERS.filter((name) => platform === 'web' || name !== 'library-content-search-worker'),
-      ...(media ? ['moss-worker'] : [])
-    ];
+    // Both shells now use the same content-search worker through their DOM owner.
+    const workerNames = [...WORKERS, ...(media ? ['moss-worker'] : [])];
     evidence.requiredModuleWorkers = workerNames;
-    if (platform !== 'web') {
-      evidence.unimplementedNativeFeatures = ['library-content-search'];
-      warnings.push(
-        'Native Library content/passage search is not implemented; its worker is required on web only. This asset gate does not certify native feature parity.'
-      );
-    }
     for (const name of workerNames)
       check(
         workerReferences.some((reference) =>

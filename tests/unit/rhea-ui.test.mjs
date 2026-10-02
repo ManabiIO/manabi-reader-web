@@ -4,17 +4,31 @@ import { test } from 'node:test';
 import { matchesSetting } from '../../apps/web/src/lib/components/settings/settings-context.ts';
 import { clickOutside } from '../../apps/web/src/lib/functions/use-click-outside.ts';
 import { readerUIOwnsEvent } from '../../apps/web/src/lib/functions/reader-ui-events.ts';
+import {
+  hasControllerProperty,
+  jsxAttributeText,
+  jsxElements,
+  parseTsx
+} from './fixtures/jsx-contract.mjs';
 const read = (path) => readFileSync(new URL('../../' + path, import.meta.url), 'utf8');
 
 test('all 65 pre-modernization setting groups retain their exact value bindings', () => {
   const manifest = JSON.parse(read('tests/fixtures/settings-manifest.json'));
-  const content = read('apps/web/src/settings-react/settings-content.tsx');
+  const content = parseTsx(
+    read('apps/web/src/settings-react/settings-content.tsx'),
+    'settings-content.tsx'
+  );
+  const groups = jsxElements(content, 'SettingsItemGroup');
   assert.equal(manifest.length, 65);
   assert.equal(new Set(manifest.map((field) => field.id)).size, 65);
   for (const field of manifest) {
-    assert.ok(content.includes(`settingId={"${field.id}"}`), field.id);
+    const matches = groups.filter((group) => jsxAttributeText(group, 'settingId') === field.id);
+    assert.equal(matches.length, 1, `${field.id} has one setting group`);
     if (field.binding)
-      assert.ok(content.includes(`c.${field.binding}`), `${field.id} preserves its value`);
+      assert.ok(
+        hasControllerProperty(matches[0], field.binding),
+        `${field.id} preserves its own exact value binding`
+      );
   }
   const route = read('apps/web/src/settings-react/settings-screen.tsx');
   for (const key of [
@@ -28,6 +42,24 @@ test('all 65 pre-modernization setting groups retain their exact value bindings'
     'replicationSaveBehavior'
   ])
     assert.ok(route.includes(`${key}={c.$${key}$}`) && route.includes(`c.$${key}$ = value`), key);
+});
+
+test('setting contract inspection does not accept another group or a string as its value binding', () => {
+  const source = parseTsx(`
+    <>
+      <SettingsItemGroup settingId={'first'}><Input value={c.first} /></SettingsItemGroup>
+      <SettingsItemGroup settingId={"second"}><Input label="c.first" value={c.second} /></SettingsItemGroup>
+    </>
+  `);
+  const groups = jsxElements(source, 'SettingsItemGroup');
+  assert.deepEqual(
+    groups.map((group) => jsxAttributeText(group, 'settingId')),
+    ['first', 'second']
+  );
+  assert.equal(hasControllerProperty(groups[0], 'first'), true);
+  assert.equal(hasControllerProperty(groups[1], 'first'), false);
+  assert.equal(hasControllerProperty(groups[1], 'second'), true);
+  assert.equal(hasControllerProperty(groups[1], 'sec'), false);
 });
 
 test('settings search is global, case-insensitive and requires every word', () => {

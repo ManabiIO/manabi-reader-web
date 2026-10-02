@@ -29,6 +29,7 @@ import {
   type NativeLibraryState
 } from './contract';
 import { reconcileNativeSelection } from './view-model';
+import { NativeLibraryContentSearch } from './content-search';
 
 function Field({
   label,
@@ -107,6 +108,7 @@ function Library() {
     direction: 'desc'
   });
   const [search, setSearch] = useState('');
+  const [searchMode, setSearchMode] = useState<'metadata' | 'passages'>('metadata');
   const [state, setState] = useState<NativeLibraryState>();
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -276,12 +278,30 @@ function Library() {
       }
     >
       <View style={styles.controls}>
-        <Field
-          label="Search books, authors, or series"
-          value={search}
-          onChange={setSearch}
-          limit={500}
-        />
+        <View style={styles.row}>
+          <Action
+            label="Titles and authors"
+            variant={searchMode === 'metadata' ? 'filled' : 'outlined'}
+            onPress={() => setSearchMode('metadata')}
+          />
+          <Action
+            label="Passages"
+            variant={searchMode === 'passages' ? 'filled' : 'outlined'}
+            onPress={() => {
+              setSearchMode('passages');
+              setSelected([]);
+              setSelecting(false);
+            }}
+          />
+        </View>
+        {searchMode === 'metadata' && (
+          <Field
+            label="Search books, authors, or series"
+            value={search}
+            onChange={setSearch}
+            limit={500}
+          />
+        )}
         <View style={styles.row}>
           <Action label="Sort and filter" onPress={() => setSheet('filters')} />
           <Action
@@ -294,7 +314,7 @@ function Library() {
           />
           <Action
             label={selecting ? 'Cancel selection' : 'Select'}
-            disabled={busy}
+            disabled={busy || searchMode === 'passages'}
             onPress={() => {
               setSelecting(!selecting);
               setSelected([]);
@@ -451,121 +471,139 @@ function Library() {
           />
         )}
       </View>
-      <FlatList
-        key={grid ? 'grid' : 'list'}
-        numColumns={grid ? 2 : 1}
-        data={state?.items ?? []}
-        keyExtractor={(item) => item.key}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={
-          <Text>
-            {loading
-              ? 'Loading…'
-              : search
-                ? 'No matching books'
-                : 'Import an EPUB, HTMLZ, or text file to start reading.'}
-          </Text>
-        }
-        renderItem={({ item }) =>
-          item.kind === 'series' ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Open series ${item.title}, ${item.count} books`}
-              style={[styles.card, grid && styles.grid]}
-              onPress={() => view({ series: item.key })}
-            >
-              <Text style={styles.title}>{item.title}</Text>
+      {searchMode === 'passages' ? (
+        <NativeLibraryContentSearch
+          disabled={busy || importing || !!sheet}
+          view={{
+            collection: query.collection,
+            series: query.series,
+            source: query.source,
+            unfinished: query.unfinished,
+            sort: query.sort,
+            direction: query.direction
+          }}
+        />
+      ) : (
+        <>
+          <FlatList
+            key={grid ? 'grid' : 'list'}
+            numColumns={grid ? 2 : 1}
+            data={state?.items ?? []}
+            keyExtractor={(item) => item.key}
+            contentContainerStyle={styles.list}
+            ListEmptyComponent={
               <Text>
-                {item.count} books · {item.personal ? 'Personal series' : 'Source folder'}
+                {loading
+                  ? 'Loading…'
+                  : search
+                    ? 'No matching books'
+                    : 'Import an EPUB, HTMLZ, or text file to start reading.'}
               </Text>
-            </Pressable>
-          ) : (
-            <View
-              style={[
-                styles.card,
-                grid && styles.grid,
-                selected.includes(item.key) && styles.selected
-              ]}
-            >
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: selected.includes(item.key), disabled: busy }}
-                disabled={busy}
-                onLongPress={() => {
-                  setSelecting(true);
-                  toggle(item.key);
-                }}
-                onPress={() => {
-                  if (selecting) toggle(item.key);
-                  else if (item.available && item.bookId)
-                    void command('open', {
-                      bookId: item.bookId,
-                      libraryToken: state?.token,
-                      libraryKeys: [item.key]
-                    })
-                      .then(() => router.push({ pathname: '/b', params: { id: item.bookId! } }))
-                      .catch(() => {});
-                  else setError(item.unavailableReason ?? 'This book is unavailable.');
-                }}
-              >
-                <Text style={styles.title}>{item.title}</Text>
-                {!!item.creators && <Text>{item.creators}</Text>}
-                <Text>
-                  {item.finished
-                    ? `Finished${item.finishedOn ? ` · ${item.finishedOn}` : ''}`
-                    : `${Math.round(item.progress * 100)}% read`}
-                  {item.wantToRead ? ' · Want to Read' : ''}
-                </Text>
-                <Text>
-                  {item.source}
-                  {item.coverBlur ? ' · Cover blurred' : ''}
-                </Text>
-                {!item.available && <Text>Import required</Text>}
-              </Pressable>
-              <Action
-                label={`Details: ${item.title.slice(0, 40)}`}
-                disabled={busy}
-                onPress={() => {
-                  setSelected([]);
-                  setQuery((previous) => ({ ...previous, detail: item.key }));
-                  setSheet('metadata');
-                }}
-              />
-            </View>
-          )
-        }
-      />
-      <View style={styles.pagination}>
-        <Action
-          label="Previous"
-          disabled={!state?.offset || loading || busy}
-          onPress={() => {
-            setSelected([]);
-            setQuery((previous) => ({
-              ...previous,
-              offset: Math.max(0, (state?.offset ?? 0) - (state?.limit ?? 60)),
-              detail: undefined
-            }));
-          }}
-        />
-        <Text>
-          {state
-            ? `${state.total ? state.offset + 1 : 0}–${Math.min(state.offset + state.items.length, state.total)} of ${state.total}`
-            : '0 books'}
-        </Text>
-        <Action
-          label="Next"
-          disabled={!state || state.offset + state.items.length >= state.total || loading || busy}
-          onPress={() => {
-            setSelected([]);
-            setQuery((previous) => ({
-              ...previous,
-              offset: (state?.offset ?? 0) + (state?.limit ?? 60),
-              detail: undefined
-            }));
-          }}
-        />
-      </View>
+            }
+            renderItem={({ item }) =>
+              item.kind === 'series' ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open series ${item.title}, ${item.count} books`}
+                  style={[styles.card, grid && styles.grid]}
+                  onPress={() => view({ series: item.key })}
+                >
+                  <Text style={styles.title}>{item.title}</Text>
+                  <Text>
+                    {item.count} books · {item.personal ? 'Personal series' : 'Source folder'}
+                  </Text>
+                </Pressable>
+              ) : (
+                <View
+                  style={[
+                    styles.card,
+                    grid && styles.grid,
+                    selected.includes(item.key) && styles.selected
+                  ]}
+                >
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: selected.includes(item.key), disabled: busy }}
+                    disabled={busy}
+                    onLongPress={() => {
+                      setSelecting(true);
+                      toggle(item.key);
+                    }}
+                    onPress={() => {
+                      if (selecting) toggle(item.key);
+                      else if (item.available && item.bookId)
+                        void command('open', {
+                          bookId: item.bookId,
+                          libraryToken: state?.token,
+                          libraryKeys: [item.key]
+                        })
+                          .then(() => router.push({ pathname: '/b', params: { id: item.bookId! } }))
+                          .catch(() => {});
+                      else setError(item.unavailableReason ?? 'This book is unavailable.');
+                    }}
+                  >
+                    <Text style={styles.title}>{item.title}</Text>
+                    {!!item.creators && <Text>{item.creators}</Text>}
+                    <Text>
+                      {item.finished
+                        ? `Finished${item.finishedOn ? ` · ${item.finishedOn}` : ''}`
+                        : `${Math.round(item.progress * 100)}% read`}
+                      {item.wantToRead ? ' · Want to Read' : ''}
+                    </Text>
+                    <Text>
+                      {item.source}
+                      {item.coverBlur ? ' · Cover blurred' : ''}
+                    </Text>
+                    {!item.available && <Text>Import required</Text>}
+                  </Pressable>
+                  <Action
+                    label={`Details: ${item.title.slice(0, 40)}`}
+                    disabled={busy}
+                    onPress={() => {
+                      setSelected([]);
+                      setQuery((previous) => ({ ...previous, detail: item.key }));
+                      setSheet('metadata');
+                    }}
+                  />
+                </View>
+              )
+            }
+          />
+          <View style={styles.pagination}>
+            <Action
+              label="Previous"
+              disabled={!state?.offset || loading || busy}
+              onPress={() => {
+                setSelected([]);
+                setQuery((previous) => ({
+                  ...previous,
+                  offset: Math.max(0, (state?.offset ?? 0) - (state?.limit ?? 60)),
+                  detail: undefined
+                }));
+              }}
+            />
+            <Text>
+              {state
+                ? `${state.total ? state.offset + 1 : 0}–${Math.min(state.offset + state.items.length, state.total)} of ${state.total}`
+                : '0 books'}
+            </Text>
+            <Action
+              label="Next"
+              disabled={
+                !state || state.offset + state.items.length >= state.total || loading || busy
+              }
+              onPress={() => {
+                setSelected([]);
+                setQuery((previous) => ({
+                  ...previous,
+                  offset: (state?.offset ?? 0) + (state?.limit ?? 60),
+                  detail: undefined
+                }));
+              }}
+            />
+          </View>
+        </>
+      )}
       {sheet && (
         <Sheet
           title={

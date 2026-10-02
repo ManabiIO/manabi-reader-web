@@ -180,6 +180,17 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     replies = [];
   const pending = new Map();
   const routers = new Set();
+  const libraryLocation = production('lib/library/search-navigation.ts');
+  const contentSearch = {
+    disposed: 0,
+    start: (...args) => f.contentStart(...args),
+    read: (...args) => f.contentRead(...args),
+    cancel: (...args) => f.contentCancel(...args),
+    admitOpen: (...args) => f.contentAdmit(...args),
+    dispose() {
+      this.disposed++;
+    }
+  };
   const library = {
     disposed: 0,
     async state(payload, authority) {
@@ -380,6 +391,10 @@ export async function runtimeOwner(t, { strict = false } = {}) {
       }
     },
     '$lib/snippets/scope': snippetScope,
+    '$lib/library/search-navigation': libraryLocation,
+    '../native-library/content-search-dom': {
+      createNativeLibraryContentSearchService: () => contentSearch
+    },
     '../native-library/dom-service': { createNativeLibraryService: () => library },
     '../native-settings/service': {
       readNativeSettingsState: async () => ({}),
@@ -398,6 +413,8 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     changed,
     bookmarks,
     library,
+    contentSearch,
+    libraryLocation,
     routers,
     sessions,
     snippetSessions,

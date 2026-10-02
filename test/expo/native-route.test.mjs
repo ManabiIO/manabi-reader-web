@@ -309,3 +309,61 @@ test('native exit during replacement save cancels the queued replacement admissi
   assert.equal(nav.state.identity, undefined);
   assert.equal(nav.state.visible, false);
 });
+
+test('distinct passage admissions in one numeric book never coalesce, but route activation reuses the admitted reader', async () => {
+  const { nav, calls } = setup();
+  const first = { bookId: 42, librarySearchToken: 'search-1', librarySearchHit: 'hit-1' };
+  await nav.ensureOpen(book(42), first);
+  await nav.route('/b', { id: '42' });
+  await nav.ensureOpen(book(42), first);
+  assert.equal(calls.filter((call) => call.method === 'open').length, 1);
+  const second = { ...first, librarySearchHit: 'hit-2' };
+  await nav.ensureOpen(book(42), second);
+  assert.deepEqual(
+    calls.map((call) => call.method),
+    ['open', 'close', 'open']
+  );
+  assert.deepEqual(calls.at(-1).payload, second);
+  await nav.route('/b', { id: '42' });
+  assert.equal(calls.length, 3);
+});
+
+test('cancelled passage open cannot leave a hidden reader after its late bridge reply', async () => {
+  const opening = deferred();
+  const { nav, calls } = setup((method) => (method === 'open' ? opening.promise : undefined));
+  const pending = nav.ensureOpen(book(42), {
+    bookId: 42,
+    librarySearchToken: 'search-1',
+    librarySearchHit: 'hit-1'
+  });
+  const rejected = assert.rejects(pending, ReaderNavigationCancelled);
+  await tick();
+  await nav.cancelPassage('search-1', false);
+  opening.resolve({ bookId: 42 });
+  await rejected;
+  assert.deepEqual(
+    calls.map((call) => call.method),
+    ['open', 'close']
+  );
+  assert.equal(nav.state.identity, undefined);
+  assert.equal(nav.state.visible, false);
+});
+
+test('passage cleanup retains a route-transferred reader and cannot close a different admission', async () => {
+  const { nav, calls } = setup();
+  await nav.ensureOpen(book(42), {
+    bookId: 42,
+    librarySearchToken: 'search-1',
+    librarySearchHit: 'hit-1'
+  });
+  // Rendered path changes before the provider passive effect; child cleanup may run first.
+  await nav.cancelPassage('search-1', true);
+  assert.equal(calls.length, 1);
+  await nav.route('/b', { id: '42' });
+  assert.equal(nav.state.visible, true);
+  await nav.ensureOpen(book(43));
+  const count = calls.length;
+  await nav.cancelPassage('search-1', false);
+  assert.equal(calls.length, count);
+  assert.deepEqual(nav.state.identity, book(43));
+});

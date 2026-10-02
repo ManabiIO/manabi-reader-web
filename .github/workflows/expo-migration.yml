@@ -64,6 +64,7 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: |
+          node scripts/verify-reader-dom-autolinking.mjs
           node --test patches/reader-dom/contract.test.mjs
           cd apps/web/android
           ./gradlew :expo-dom-webview:testDebugUnitTest :app:assembleRelease --no-daemon --max-workers=2

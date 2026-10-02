@@ -569,3 +569,93 @@ test('account ABA revokes the retained snippet read scope even after the origina
   assert.notEqual(current, old);
   assert.doesNotThrow(current.selectedScope.guard);
 });
+
+test('native passage admission keeps the canonical locator in DOM and survives Library search cleanup', async (t) => {
+  const f = await runtimeOwner(t);
+  const locator = {
+    version: 1,
+    bookKey: `content:${'1'.repeat(64)}`,
+    marker: 'DOM-only original match'
+  };
+  let current = true;
+  f.contentAdmit = async (payload, authority) => {
+    assert.deepEqual(payload, { token: 'search-1', hit: 'hit-1' });
+    authority.assertCurrent();
+    return {
+      identity: {
+        bookId: 1,
+        contentHash: '1'.repeat(64),
+        readerBookKey: locator.bookKey,
+        title: 'Book 1',
+        lastBookModified: 10
+      },
+      locator,
+      assertCurrent() {
+        assert.ok(current);
+      }
+    };
+  };
+  assert.deepEqual(
+    success(
+      await f.command('open', {
+        bookId: 1,
+        librarySearchToken: 'search-1',
+        librarySearchHit: 'hit-1'
+      })
+    ),
+    { bookId: 1 }
+  );
+  const session = f.sessions.at(-1),
+    url = f.pages.at(-1).url;
+  assert.equal(session.expectedBook.readerBookKey, locator.bookKey);
+  assert.equal(url.pathname, '/reader-web/b');
+  const token = url.searchParams.get('library-search');
+  assert.ok(token);
+  assert.ok(!url.href.includes(locator.marker));
+  assert.deepEqual(f.libraryLocation.takeLibraryLocation(1, 'alice', token), locator);
+  assert.equal(f.libraryLocation.takeLibraryLocation(1, 'alice', token), undefined);
+  current = false; // Leaving the native Library retires only its search, not the admitted book.
+  assert.doesNotThrow(session.bookAuthority.assertCurrent);
+  assert.equal(session.bookAuthority.signal.aborted, false);
+});
+
+test('a replaced passage admission is rejected before any reader or locator is mounted', async (t) => {
+  const f = await runtimeOwner(t);
+  f.contentAdmit = async () => ({
+    identity: { bookId: 1, contentHash: '1'.repeat(64), title: 'Book 1', lastBookModified: 10 },
+    locator: {},
+    assertCurrent() {
+      throw new Error('Passage search cancelled');
+    }
+  });
+  const reply = await f.command('open', {
+    bookId: 1,
+    librarySearchToken: 'search-1',
+    librarySearchHit: 'hit-1'
+  });
+  assert.equal(reply.ok, false);
+  assert.match(reply.error, /cancelled/);
+  assert.equal(f.book, undefined);
+  assert.equal(f.operations.filter((entry) => !entry.stopped).length, 0);
+});
+
+test('native passage commands share reader account authority and retire on generation changes', async (t) => {
+  const f = await runtimeOwner(t);
+  const calls = [];
+  for (const method of ['Start', 'Read', 'Cancel'])
+    f[`content${method}`] = (payload, authority) => {
+      calls.push({ payload, authority });
+      return { result: method };
+    };
+  for (const method of ['start', 'read', 'cancel'])
+    success(await f.command(`library.content.${method}`, { token: 'search-1' }));
+  assert.equal(calls.length, 3);
+  for (const call of calls) assert.doesNotThrow(call.authority.assertCurrent);
+  const disposed = f.contentSearch.disposed;
+  await f.refreshGeneration();
+  assert.equal(f.contentSearch.disposed, disposed + 1);
+  for (const call of calls) {
+    assert.equal(call.authority.signal.aborted, true);
+    assert.throws(call.authority.assertCurrent);
+  }
+});
