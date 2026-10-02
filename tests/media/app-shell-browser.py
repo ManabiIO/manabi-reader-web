@@ -88,6 +88,9 @@ def main():
                 'Sign in to sync; everything remains local otherwise', exact=True
             )
             expect(sync).to_be_disabled()
+            sync_target = sync.locator('..')
+            sync_box = sync_target.bounding_box()
+            assert sync_box and sync_box['height'] >= 43.5, sync_box
             remove_model = page.get_by_role(
                 'button', name='Remove cached transcription model', exact=True
             )
@@ -106,8 +109,17 @@ def main():
                 inside_viewport(control, 320, 568)
             summary.scroll_into_view_if_needed()
             inside_viewport(summary, 320, 568)
+            sync_target.scroll_into_view_if_needed()
+            inside_viewport(sync_target, 320, 568)
             remove_model.scroll_into_view_if_needed()
             inside_viewport(remove_model, 320, 568)
+
+            page.set_viewport_size({'width': 320, 'height': 320})
+            remove_model.scroll_into_view_if_needed()
+            inside_viewport(remove_model, 320, 320)
+            summary.scroll_into_view_if_needed()
+            inside_viewport(summary, 320, 320)
+            page.set_viewport_size({'width': 320, 'height': 568})
             for item in nav.locator('a, [aria-current]').all():
                 item.scroll_into_view_if_needed()
                 inside_viewport(item, 320, 568)
