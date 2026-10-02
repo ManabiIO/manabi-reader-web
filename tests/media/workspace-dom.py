@@ -1050,21 +1050,24 @@ def main():
 
             page.get_by_label('Search videos',exact=True).fill('')
             page.wait_for_function('document.querySelectorAll(".video-card").length===3')
-            page.evaluate("""window.bulkSelections=[];
-                workspace.bulk=async selection=>bulkSelections.push(
-                    [...(selection ?? workspace.selected)]
-                )""")
             card=page.locator('.video-card').filter(
                 has=page.get_by_role('button',name='Watching',exact=True))
             card_key=card.get_attribute('data-media-key')
             assert card_key
             card.get_by_text('Actions',exact=True).click()
             card.get_by_role('button',name='Generate missing transcript',exact=True).click()
-            page.wait_for_function('bulkSelections.length===1')
-            assert page.evaluate('bulkSelections')==[[card_key]]
+            page.wait_for_function("""() =>
+                document.querySelector('[role=status]')?.textContent?.includes(
+                  'Reopen this video to reconnect its local file'
+                )""")
             assert page.evaluate('workspace.selected.size')==0
             assert not page.get_by_label('Select Watching',exact=True).is_checked()
 
+            # Batch generation still consumes the explicit selected set.
+            page.evaluate("""window.bulkSelections=[];
+                workspace.bulk=async selection=>bulkSelections.push(
+                    [...(selection ?? workspace.selected)]
+                )""")
             select_visible.focus()
             select_visible.press('Enter')
             assert status.inner_text()=='3 videos selected'
@@ -1073,7 +1076,8 @@ def main():
             assert clear.is_enabled() and generate.is_enabled()
             assert clear.is_focused()
             generate.click()
-            assert len(page.evaluate('bulkSelections[1]'))==3
+            page.wait_for_function('bulkSelections.length===1')
+            assert len(page.evaluate('bulkSelections[0]'))==3
 
             clear.focus()
             clear.press('Enter')
