@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 const {
   ANALYSIS_WINDOW_SECONDS,
   SWIFT_F0_FRAME_SECONDS,
+  hasStableSwiftF0Context,
   measurementFromSwiftF0,
   resampleForSwiftF0
 } = await import(new URL('analysis.mjs', process.env.PITCH_COMPILED));
@@ -52,6 +53,13 @@ for (const rate of [8000, 16000, 44100, 48000, 96000, 192000]) {
     assert.ok(Math.abs(result.length / 16000 - ANALYSIS_WINDOW_SECONDS) < 0.002);
   });
 }
+test('analyser capacity must cover SwiftF0 left and right context', () => {
+  assert.equal(hasStableSwiftF0Context(48000), true);
+  assert.equal(hasStableSwiftF0Context(88200), true);
+  assert.equal(hasStableSwiftF0Context(96000), false);
+  assert.equal(hasStableSwiftF0Context(192000), false);
+});
+
 test('SwiftF0 frame selection retains its future-context margin and speech bounds', () => {
   const samples = tone(220, 16000);
   const frameCount = Math.floor(samples.length / 256);
@@ -81,6 +89,18 @@ test('low confidence, silence and out-of-band SwiftF0 frames are unvoiced', () =
   confidence[13] = 1;
   assert.equal(measurementFromSwiftF0(samples, pitch, confidence).hz, null);
 });
+test('under-context model output fails closed instead of publishing an edge frame', () => {
+  const samples = tone(220, 16000, 0.34);
+  const count = Math.floor(samples.length / 256);
+  const result = measurementFromSwiftF0(
+    samples,
+    new Float64Array(count).fill(220),
+    new Float32Array(count).fill(1)
+  );
+  assert.equal(result.hz, null);
+  assert.equal(result.confidence, 0);
+});
+
 test('empty model output and malformed source rates fail closed', () => {
   assert.equal(measurementFromSwiftF0(new Float32Array(32), [], []).hz, null);
   for (const rate of [NaN, Infinity, 0, 7999, 192001])
@@ -203,7 +223,7 @@ function fixture(options = {}) {
     sources = [];
   const context = {
     state: 'running',
-    sampleRate: 48000,
+    sampleRate: options.sampleRate ?? 48000,
     currentTime: 0,
     destination: {},
     closes: 0,
@@ -357,6 +377,18 @@ async function running(f = fixture()) {
   await flush();
   return f;
 }
+test('native 96 kHz fallback fails safely before capturing the media element', async () => {
+  const f = fixture({ sampleRate: 96000 });
+  f.controller.setEnabled(true);
+  f.ready();
+  await flush();
+  assert.equal(f.state.status, 'error');
+  assert.match(f.state.message, /96 kHz/);
+  assert.equal(f.sources.length, 0);
+  assert.equal(f.context.closes, 0);
+  f.controller.dispose();
+});
+
 test('disabled by default: no context, worker or audio capture', () => {
   const f = fixture();
   f.play();
