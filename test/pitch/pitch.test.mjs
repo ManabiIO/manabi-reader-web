@@ -16,6 +16,9 @@ const { createPitchController } = await import(new URL('browser.mjs', process.en
 const { runSwiftF0Inference, swiftF0ModelGain } = await import(
   new URL('swift-f0-runtime.mjs', process.env.PITCH_COMPILED)
 );
+const { LatestEpochQueue } = await import(
+  new URL('worker-queue.mjs', process.env.PITCH_COMPILED)
+);
 
 test('pitch requests a 48 kHz context and falls back when the device rejects it', () => {
   const original = globalThis.AudioContext;
@@ -207,6 +210,45 @@ for (const mode of ['failRun', 'malformed', 'invalid']) {
     assert.equal(stats.live, 0);
   });
 }
+test('SwiftF0 worker queue serializes inference and skips stale queued epochs', async () => {
+  const releases = [];
+  const started = [];
+  let active = 0;
+  let maximum = 0;
+  const queue = new LatestEpochQueue(async (request, current) => {
+    active++;
+    maximum = Math.max(maximum, active);
+    started.push(request.id);
+    await new Promise((resolve) => releases.push(resolve));
+    if (!current()) started.push(`stale-${request.id}`);
+    active--;
+  });
+
+  const first = queue.submit({ id: 1, epoch: 1 });
+  await flush();
+  const stale = queue.submit({ id: 2, epoch: 1 });
+  const latest = queue.submit({ id: 3, epoch: 2 });
+  assert.deepEqual(started, [1]);
+  releases.shift()();
+  await first;
+  await flush();
+  assert.deepEqual(started, [1, 'stale-1', 3], 'queued request from epoch 1 must be skipped');
+  releases.shift()();
+  await Promise.all([stale, latest]);
+  assert.equal(maximum, 1);
+});
+
+test('SwiftF0 worker queue admits later work after a failed inference', async () => {
+  const started = [];
+  const queue = new LatestEpochQueue(async (request) => {
+    started.push(request.id);
+    if (request.id === 1) throw new Error('synthetic inference failure');
+  });
+  await assert.rejects(queue.submit({ id: 1, epoch: 1 }), /synthetic inference failure/);
+  await queue.submit({ id: 2, epoch: 1 });
+  assert.deepEqual(started, [1, 2]);
+});
+
 test('history is bounded in time and points, and seeks start a new contour', () => {
   let points = [];
   for (let i = 0; i < 10000; i++)
