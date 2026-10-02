@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { setImmediate as turn } from 'node:timers/promises';
 import { queryTask } from '../../apps/web/src/lib/search/query-task.mjs';
 import {
-  memoizeReferenceProjection,
+  projectedReferenceRevision,
   referenceRevision
 } from '../../apps/web/src/lib/search/invalidation.ts';
 const wait = () => new Promise((resolve) => globalThis.setTimeout(resolve, 5));
@@ -18,21 +18,21 @@ test('reference revisions advance only when immutable search snapshots are repla
   assert.equal(revisionFor(second), 2);
 });
 
-test('corpus projections run once per snapshot reference and preserve exact fingerprints', () => {
+test('projected corpus revisions stay compact and advance only on exact field changes', () => {
   let calls = 0;
-  const fingerprint = memoizeReferenceProjection((items) => {
+  const revisionFor = projectedReferenceRevision((items) => {
     calls++;
     return JSON.stringify(items.map((item) => [item.id, item.revision]));
   });
   const first = [{ id: 'a', revision: 1 }];
   const equivalent = [{ id: 'a', revision: 1 }];
   const changed = [{ id: 'a', revision: 2 }];
-  assert.equal(fingerprint(first), '[["a",1]]');
-  assert.equal(fingerprint(first), '[["a",1]]');
+  assert.equal(revisionFor(first), 1);
+  assert.equal(revisionFor(first), 1);
   assert.equal(calls, 1);
-  assert.equal(fingerprint(equivalent), '[["a",1]]');
+  assert.equal(revisionFor(equivalent), 1);
   assert.equal(calls, 2);
-  assert.equal(fingerprint(changed), '[["a",2]]');
+  assert.equal(revisionFor(changed), 2);
   assert.equal(calls, 3);
 });
 
