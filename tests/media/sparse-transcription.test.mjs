@@ -16,6 +16,7 @@ import {
 } from '../../.cache/media-test-build/sparse-transcription.js';
 import { TransactionFactory, RangeDouble } from './transaction-double.mjs';
 import { transcriptionDraft } from '../../.cache/media-test-build/transcription-draft.js';
+import { parseMoss } from '../../.cache/media-test-build/moss-output.js';
 
 const key = 'content:' + '6'.repeat(64);
 const cue = (window, start, end, text) => ({
@@ -101,6 +102,23 @@ test('agreed whole cues crossing a seam margin appear, one-sided cues require re
   assert.deepEqual(assembleSparse(state), { repair: 0 });
   assert.equal(sparseLead(state, 52, 0), 23);
 });
+test('marker-collapse output preserves text but cannot claim boundary readiness', () => {
+  const parsed = parseMoss('[0.00]First sentence. Second sentence.[28.00]', 28);
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].text, 'First sentence. Second sentence.');
+  assert.equal(parsed[0].speaker, undefined);
+  assert.deepEqual([parsed[0].start, parsed[0].end], [0, 28]);
+
+  const state = newSparseState(52);
+  state.windows[0] = {
+    cues: [{ ...parsed[0], id: 'w0/cue-0' }],
+    inferenceMs: 1000
+  };
+  assert.deepEqual(safeSparseCues(state, 52), []);
+  assert.equal(sparseLead(state, 52, 0), 0);
+  assert.deepEqual(assembleSparse(state), {});
+});
+
 test('verified digital silence resolves only whole cues covered by the zero input', () => {
   const state = newSparseState(52);
   const early = cue(0, 3, 4, 'real speech');
