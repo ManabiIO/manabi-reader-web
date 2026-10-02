@@ -922,45 +922,40 @@ async function stageReading(accountId: string, books: Map<string, PersonalBook[]
         ['data', 'readerBookScope', 'readerPersonalOutbox', 'readerPersonalConflict'],
         'readwrite'
       );
-      const live = await tryLivePersonalCopies(
-        bookKey,
-        books.get(bookKey) ?? [],
-        tx.objectStore('data'),
-        tx.objectStore('readerBookScope'),
-        accountId,
-        () => scoped(accountId)
-      );
-      if (!live) {
-        await tx.done;
-        continue;
-      }
-      if (await tx.objectStore('readerPersonalConflict').get(id)) {
-        await tx.done;
-        continue;
-      }
-      const matches = (
-        await tx.objectStore('readerPersonalOutbox').index('accountId').getAll(accountId)
-      ).filter((value) => value.kind === entity.kind && value.entityId === entity.entityId);
-      const prepared = matches.filter((value) => !!value.request);
-      // Unsent snapshots may be coalesced. Once prepared, the request and its
-      // mutation ID remain immutable until the server outcome is known.
-      for (const value of matches)
-        if (!value.request) await tx.objectStore('readerPersonalOutbox').delete(value.id);
-      if (!equal(local, base?.payload ?? null) && (local || base)) {
-        if (!prepared.some((value) => equal(value.localValue, local))) {
-          const mutation: PersonalMutation = {
-            id: crypto.randomUUID(),
-            accountId,
-            kind: entity.kind as PersonalMutation['kind'],
-            entityId: entity.entityId,
-            bookKey,
-            baseRevision: base?.revision ?? 0,
-            localValue: local
-          };
-          await tx.objectStore('readerPersonalOutbox').put(mutation);
+      await commitPersonalTransaction(accountId, tx, async () => {
+        const live = await tryLivePersonalCopies(
+          bookKey,
+          books.get(bookKey) ?? [],
+          tx.objectStore('data'),
+          tx.objectStore('readerBookScope'),
+          accountId,
+          () => scoped(accountId)
+        );
+        if (!live) return;
+        if (await tx.objectStore('readerPersonalConflict').get(id)) return;
+        const matches = (
+          await tx.objectStore('readerPersonalOutbox').index('accountId').getAll(accountId)
+        ).filter((value) => value.kind === entity.kind && value.entityId === entity.entityId);
+        const prepared = matches.filter((value) => !!value.request);
+        // Unsent snapshots may be coalesced. Once prepared, the request and its
+        // mutation ID remain immutable until the server outcome is known.
+        for (const value of matches)
+          if (!value.request) await tx.objectStore('readerPersonalOutbox').delete(value.id);
+        if (!equal(local, base?.payload ?? null) && (local || base)) {
+          if (!prepared.some((value) => equal(value.localValue, local))) {
+            const mutation: PersonalMutation = {
+              id: crypto.randomUUID(),
+              accountId,
+              kind: entity.kind as PersonalMutation['kind'],
+              entityId: entity.entityId,
+              bookKey,
+              baseRevision: base?.revision ?? 0,
+              localValue: local
+            };
+            await tx.objectStore('readerPersonalOutbox').put(mutation);
+          }
         }
-      }
-      await tx.done;
+      });
     }
   }
 }
@@ -1003,26 +998,26 @@ async function hydrateReading(accountId: string, books: Map<string, PersonalBook
 
   scoped(accountId);
   const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
-  for (const [bookKey, copies] of books) {
-    if (!unhydrated.has(bookKey)) continue;
-    const live = await tryLivePersonalCopies(
-      bookKey,
-      copies,
-      tx.objectStore('data'),
-      tx.objectStore('readerBookScope'),
-      accountId,
-      () => scoped(accountId)
-    );
-    if (!live) continue;
-    for (const book of live) {
-      const scope = await tx.objectStore('readerBookScope').get(book.id);
-      scoped(accountId);
-      if (scope?.accountId === accountId && !scope.hydrated)
-        await tx.objectStore('readerBookScope').put({ ...scope, hydrated: true });
+  await commitPersonalTransaction(accountId, tx, async () => {
+    for (const [bookKey, copies] of books) {
+      if (!unhydrated.has(bookKey)) continue;
+      const live = await tryLivePersonalCopies(
+        bookKey,
+        copies,
+        tx.objectStore('data'),
+        tx.objectStore('readerBookScope'),
+        accountId,
+        () => scoped(accountId)
+      );
+      if (!live) continue;
+      for (const book of live) {
+        const scope = await tx.objectStore('readerBookScope').get(book.id);
+        scoped(accountId);
+        if (scope?.accountId === accountId && !scope.hydrated)
+          await tx.objectStore('readerBookScope').put({ ...scope, hydrated: true });
+      }
     }
-  }
-  scoped(accountId);
-  await tx.done;
+  });
 }
 
 async function hasLivePersonalAuthority(
@@ -1035,17 +1030,17 @@ async function hasLivePersonalAuthority(
   const db = await database.db;
   scoped(accountId);
   const tx = db.transaction(['data', 'readerBookScope']);
-  const live = await tryLivePersonalCopies(
-    bookKey,
-    copies,
-    tx.objectStore('data'),
-    tx.objectStore('readerBookScope'),
-    accountId,
-    () => scoped(accountId)
-  );
-  scoped(accountId);
-  await tx.done;
-  return !!live;
+  return commitPersonalTransaction(accountId, tx, async () => {
+    const live = await tryLivePersonalCopies(
+      bookKey,
+      copies,
+      tx.objectStore('data'),
+      tx.objectStore('readerBookScope'),
+      accountId,
+      () => scoped(accountId)
+    );
+    return !!live;
+  });
 }
 
 async function bindMutation(accountId: string, mutation: WireMutation): Promise<WireMutation> {
