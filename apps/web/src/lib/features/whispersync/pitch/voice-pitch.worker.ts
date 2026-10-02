@@ -1,37 +1,55 @@
 import { analyseSwiftF0Window, prepareSwiftF0 } from './swift-f0';
+import { LatestEpochQueue } from './worker-queue';
 
 const scope = globalThis as unknown as {
   onmessage: (event: MessageEvent) => void;
   postMessage(message: unknown): void;
 };
 
-let epoch = -1;
+interface AnalysisRequest {
+  type: 'analyze';
+  id: number;
+  epoch: number;
+  rate: number;
+  samples: Float32Array;
+}
+
+let levelEpoch = -1;
 let levels: number[] = [];
 
+const queue = new LatestEpochQueue<AnalysisRequest>(async (data, current) => {
+  const result = await analyseSwiftF0Window(data.samples, data.rate);
+  if (!current()) return;
+  levels.push(result.rms);
+  if (levels.length > 24) levels.shift();
+  const peak = Math.max(0, ...levels);
+  if (result.rms < peak * 10 ** (-35 / 20)) result.hz = null;
+  scope.postMessage({ type: 'result', id: data.id, result });
+});
+
 scope.onmessage = ({ data }) => {
-  if (data?.type !== 'analyze' || !(data.samples instanceof Float32Array)) return;
-  if (data.epoch !== epoch) {
-    epoch = data.epoch;
+  if (
+    data?.type !== 'analyze' ||
+    !(data.samples instanceof Float32Array) ||
+    !Number.isSafeInteger(data.id) ||
+    !Number.isSafeInteger(data.epoch)
+  )
+    return;
+  const request = data as AnalysisRequest;
+  if (request.epoch < levelEpoch) return;
+  if (request.epoch > levelEpoch) {
+    levelEpoch = request.epoch;
     levels = [];
   }
-  void analyseSwiftF0Window(data.samples, data.rate)
-    .then((result) => {
-      if (data.epoch !== epoch) return;
-      levels.push(result.rms);
-      if (levels.length > 24) levels.shift();
-      const peak = Math.max(0, ...levels);
-      if (result.rms < peak * 10 ** (-35 / 20)) result.hz = null;
-      scope.postMessage({ type: 'result', id: data.id, result });
-    })
-    .catch((error) => {
-      if (data.epoch !== epoch) return;
-      scope.postMessage({
-        type: 'error',
-        id: data.id,
-        phase: 'analysis',
-        error: String(error?.message || error || 'SwiftF0 analysis failed')
-      });
+  void queue.submit(request).catch((error) => {
+    if (request.epoch !== levelEpoch) return;
+    scope.postMessage({
+      type: 'error',
+      id: request.id,
+      phase: 'analysis',
+      error: String(error?.message || error || 'SwiftF0 analysis failed')
     });
+  });
 };
 
 void prepareSwiftF0()

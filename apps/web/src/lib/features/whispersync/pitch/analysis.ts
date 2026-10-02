@@ -17,6 +17,10 @@ export const SWIFT_F0_SAMPLE_RATE = 16000;
 export const SWIFT_F0_HOP = 256;
 export const SWIFT_F0_FRAME_SECONDS = SWIFT_F0_HOP / SWIFT_F0_SAMPLE_RATE;
 export const SWIFT_F0_LOOKAHEAD_FRAMES = 10;
+export const SWIFT_F0_LEFT_CONTEXT_FRAMES = 11;
+export const SWIFT_F0_MIN_STABLE_SECONDS =
+  (SWIFT_F0_LEFT_CONTEXT_FRAMES + 1 + SWIFT_F0_LOOKAHEAD_FRAMES) * SWIFT_F0_FRAME_SECONDS;
+export const MAX_ANALYSER_SAMPLES = 32768;
 export const ANALYSIS_WINDOW_SECONDS = 0.55;
 export const SAMPLE_INTERVAL_MS = 96;
 const SILENCE_PEAK = 1e-3;
@@ -26,6 +30,19 @@ const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
 const sinc = (value: number) =>
   Math.abs(value) < 1e-8 ? 1 : Math.sin(Math.PI * value) / (Math.PI * value);
+
+export function hasStableSwiftF0Context(
+  sampleRate: number,
+  sampleCount = MAX_ANALYSER_SAMPLES
+): boolean {
+  return (
+    Number.isFinite(sampleRate) &&
+    sampleRate > 0 &&
+    Number.isFinite(sampleCount) &&
+    sampleCount > 0 &&
+    sampleCount / sampleRate >= SWIFT_F0_MIN_STABLE_SECONDS
+  );
+}
 
 export function resampleForSwiftF0(input: Float32Array, rate: number): Float32Array {
   if (!Number.isFinite(rate) || rate < 8000 || rate > 192000 || input.length === 0)
@@ -37,7 +54,10 @@ export function resampleForSwiftF0(input: Float32Array, rate: number): Float32Ar
   const length = Math.max(1, Math.floor(input.length / ratio));
   const output = new Float32Array(length);
   const cutoff = 0.47 * Math.min(1, SWIFT_F0_SAMPLE_RATE / rate);
-  const radius = rate > SWIFT_F0_SAMPLE_RATE ? 16 : 8;
+  const radius =
+    rate > SWIFT_F0_SAMPLE_RATE
+      ? Math.min(64, Math.max(16, Math.ceil((rate / 48000) * 16)))
+      : 8;
   for (let index = 0; index < length; index++) {
     const center = (index + 0.5) * ratio - 0.5;
     const first = Math.max(0, Math.ceil(center - radius));
@@ -59,17 +79,22 @@ export function resampleForSwiftF0(input: Float32Array, rate: number): Float32Ar
 function frameLevel(samples: Float32Array, center: number) {
   const width = Math.round(SWIFT_F0_SAMPLE_RATE * 0.032);
   const half = Math.max(1, Math.floor(width / 2));
-  const first = Math.max(0, Math.floor(center) - half);
-  const last = Math.min(samples.length, Math.floor(center) + half);
-  if (last <= first) return { rms: 0, peak: 0 };
+  const hopStart = Math.max(0, Math.floor(center));
+  const hopEnd = Math.min(samples.length, hopStart + SWIFT_F0_HOP);
+  const first = Math.max(0, hopStart - half);
+  const last = Math.min(samples.length, hopStart + half);
+  if (last <= first) return { rms: 0, peak: 0, currentHopPeak: 0 };
   let square = 0;
   let peak = 0;
+  let currentHopPeak = 0;
   for (let index = first; index < last; index++) {
     const value = finite(samples[index]);
+    const magnitude = Math.abs(value);
     square += value * value;
-    peak = Math.max(peak, Math.abs(value));
+    peak = Math.max(peak, magnitude);
+    if (index >= hopStart && index < hopEnd) currentHopPeak = Math.max(currentHopPeak, magnitude);
   }
-  return { rms: Math.sqrt(square / (last - first)), peak };
+  return { rms: Math.sqrt(square / (last - first)), peak, currentHopPeak };
 }
 
 export function measurementFromSwiftF0(
@@ -97,15 +122,22 @@ export function measurementFromSwiftF0(
     offsetSeconds: 0,
     windowSeconds: Math.max(0, finite(windowSeconds))
   };
-  if (!samples.length || !count) return empty;
+  if (
+    !samples.length ||
+    count < SWIFT_F0_LEFT_CONTEXT_FRAMES + 1 + SWIFT_F0_LOOKAHEAD_FRAMES
+  )
+    return empty;
 
-  const index = Math.max(0, count - 1 - SWIFT_F0_LOOKAHEAD_FRAMES);
-  const score = clamp(finite(Number(confidence[index])), 0, 1);
+  const index = count - 1 - SWIFT_F0_LOOKAHEAD_FRAMES;
   const candidate = Number(pitch[index]);
   const level = frameLevel(samples, index * SWIFT_F0_HOP);
+  const score =
+    level.currentHopPeak >= SILENCE_PEAK
+      ? clamp(finite(Number(confidence[index])), 0, 1)
+      : 0;
   const hz =
     score >= clamp(finite(voicingThreshold, VOICING_THRESHOLD), 0, 1) &&
-    level.peak >= SILENCE_PEAK &&
+    level.currentHopPeak >= SILENCE_PEAK &&
     Number.isFinite(candidate) &&
     candidate >= minHz &&
     candidate <= maxHz

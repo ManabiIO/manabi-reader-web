@@ -8,6 +8,7 @@ import {
   resampleForSwiftF0,
   type Measurement
 } from './analysis';
+import { runSwiftF0Inference, type SwiftF0TensorLike } from './swift-f0-runtime';
 
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
@@ -37,14 +38,28 @@ export async function analyseSwiftF0Window(
     });
 
   const session = await prepareSwiftF0();
-  const result = await session.run({
-    audio: new ort.Tensor('float32', samples, [1, samples.length]),
-    fmin: new ort.Tensor('float32', Float32Array.of(MIN_HZ), []),
-    fmax: new ort.Tensor('float32', Float32Array.of(MAX_HZ), [])
+  const modelOutput = (
+    value: unknown,
+    expectedType: 'float32' | 'float64'
+  ): SwiftF0TensorLike | undefined => {
+    if (!(value instanceof ort.Tensor) || value.type !== expectedType) return undefined;
+    return {
+      data: value.data as ArrayLike<number>,
+      dispose: () => value.dispose()
+    };
+  };
+  const { pitch, confidence } = await runSwiftF0Inference(samples, MIN_HZ, MAX_HZ, {
+    createTensor: (type, data, dims) => new ort.Tensor(type, data, dims),
+    run: async (feeds) => {
+      const result = await session.run(feeds);
+      return {
+        // SwiftF0 0.3.0's pinned graph exposes pitch as DOUBLE and
+        // confidence as FLOAT. Fail closed if that model contract changes.
+        pitch: modelOutput(result.pitch, 'float64'),
+        confidence: modelOutput(result.confidence, 'float32')
+      };
+    }
   });
-  const pitch = result.pitch?.data as ArrayLike<number> | undefined;
-  const confidence = result.confidence?.data as ArrayLike<number> | undefined;
-  if (!pitch || !confidence) throw new Error('SwiftF0 returned malformed output');
   return measurementFromSwiftF0(samples, pitch, confidence, {
     windowSeconds: input.length / rate
   });

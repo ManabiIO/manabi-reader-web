@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 const {
   ANALYSIS_WINDOW_SECONDS,
   SWIFT_F0_FRAME_SECONDS,
+  hasStableSwiftF0Context,
   measurementFromSwiftF0,
   resampleForSwiftF0
 } = await import(new URL('analysis.mjs', process.env.PITCH_COMPILED));
@@ -12,6 +13,12 @@ const { appendPoint, pitchPaths, initialPitchState } = await import(
 );
 const { PitchController } = await import(new URL('controller.mjs', process.env.PITCH_COMPILED));
 const { createPitchController } = await import(new URL('browser.mjs', process.env.PITCH_COMPILED));
+const { runSwiftF0Inference, swiftF0ModelGain } = await import(
+  new URL('swift-f0-runtime.mjs', process.env.PITCH_COMPILED)
+);
+const { LatestEpochQueue } = await import(
+  new URL('worker-queue.mjs', process.env.PITCH_COMPILED)
+);
 
 test('pitch requests a 48 kHz context and falls back when the device rejects it', () => {
   const original = globalThis.AudioContext;
@@ -40,6 +47,13 @@ const tone = (hz, rate = 48000, seconds = ANALYSIS_WINDOW_SECONDS, amplitude = 0
     { length: Math.ceil(rate * seconds) },
     (_, i) => amplitude * Math.sin((2 * Math.PI * hz * i) / rate)
   );
+const rms = (samples, trim = 256) => {
+  const first = Math.min(trim, Math.floor(samples.length / 4));
+  const last = Math.max(first + 1, samples.length - first);
+  let square = 0;
+  for (let index = first; index < last; index++) square += samples[index] ** 2;
+  return Math.sqrt(square / (last - first));
+};
 
 for (const rate of [8000, 16000, 44100, 48000, 96000, 192000]) {
   test(`SwiftF0 resampling keeps a finite 16 kHz window from ${rate} Hz`, () => {
@@ -49,6 +63,24 @@ for (const rate of [8000, 16000, 44100, 48000, 96000, 192000]) {
     assert.ok(Math.abs(result.length / 16000 - ANALYSIS_WINDOW_SECONDS) < 0.002);
   });
 }
+test('high-rate resampling preserves speech and suppresses 12 kHz alias energy', () => {
+  for (const rate of [48000, 96000, 192000]) {
+    const speech = resampleForSwiftF0(tone(220, rate, 0.25, 1), rate);
+    const outOfBand = resampleForSwiftF0(tone(12000, rate, 0.25, 1), rate);
+    const speechRatio = rms(speech) / (1 / Math.sqrt(2));
+    const aliasRatio = rms(outOfBand) / (1 / Math.sqrt(2));
+    assert.ok(speechRatio > 0.97 && speechRatio < 1.03, `${rate}: speech gain ${speechRatio}`);
+    assert.ok(aliasRatio < 0.005, `${rate}: alias ratio ${aliasRatio}`);
+  }
+});
+
+test('analyser capacity must cover SwiftF0 left and right context', () => {
+  assert.equal(hasStableSwiftF0Context(48000), true);
+  assert.equal(hasStableSwiftF0Context(88200), true);
+  assert.equal(hasStableSwiftF0Context(96000), false);
+  assert.equal(hasStableSwiftF0Context(192000), false);
+});
+
 test('SwiftF0 frame selection retains its future-context margin and speech bounds', () => {
   const samples = tone(220, 16000);
   const frameCount = Math.floor(samples.length / 256);
@@ -78,11 +110,156 @@ test('low confidence, silence and out-of-band SwiftF0 frames are unvoiced', () =
   confidence[13] = 1;
   assert.equal(measurementFromSwiftF0(samples, pitch, confidence).hz, null);
 });
+test('under-context model output fails closed instead of publishing an edge frame', () => {
+  const samples = tone(220, 16000, 0.34);
+  const count = Math.floor(samples.length / 256);
+  const result = measurementFromSwiftF0(
+    samples,
+    new Float64Array(count).fill(220),
+    new Float32Array(count).fill(1)
+  );
+  assert.equal(result.hz, null);
+  assert.equal(result.confidence, 0);
+});
+
 test('empty model output and malformed source rates fail closed', () => {
   assert.equal(measurementFromSwiftF0(new Float32Array(32), [], []).hz, null);
   for (const rate of [NaN, Infinity, 0, 7999, 192001])
     assert.equal(resampleForSwiftF0(tone(220), rate).length, 0);
 });
+
+test('current-hop silence is not voiced by energy from the previous hop', () => {
+  const samples = new Float32Array(Math.ceil(16000 * ANALYSIS_WINDOW_SECONDS));
+  const frameCount = Math.floor(samples.length / 256);
+  const selected = frameCount - 1 - 10;
+  const center = selected * 256;
+  for (let index = center - 256; index < center; index++)
+    samples[index] = 0.4 * Math.sin((2 * Math.PI * 220 * index) / 16000);
+  const pitch = new Float64Array(frameCount).fill(220);
+  const confidence = new Float32Array(frameCount).fill(1);
+  const result = measurementFromSwiftF0(samples, pitch, confidence);
+  assert.equal(result.hz, null);
+  assert.equal(result.confidence, 0);
+  assert.ok(result.amplitude > 0, 'centered display level should still see the preceding hop');
+});
+
+test('quiet non-silent audio is gained only for model inference', () => {
+  const quiet = tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.005);
+  const gain = swiftF0ModelGain(quiet);
+  assert.ok(gain > 1);
+  assert.ok(Math.abs(0.005 * gain - 0.5) < 0.002);
+  assert.equal(swiftF0ModelGain(new Float32Array(quiet.length)), 1);
+  assert.equal(swiftF0ModelGain(tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.1)), 1);
+});
+
+function swiftF0RuntimeFixture({ failRun = false, malformed = false, invalid = false } = {}) {
+  const stats = { live: 0, disposed: 0, peak: 0 };
+  class Tensor {
+    constructor(type, data, dims) {
+      this.type = type;
+      this.data = data;
+      this.dims = dims;
+      this.disposed = false;
+      stats.live++;
+    }
+    dispose() {
+      assert.equal(this.disposed, false, 'each tensor must be disposed exactly once');
+      this.disposed = true;
+      stats.live--;
+      stats.disposed++;
+    }
+  }
+  const runtime = {
+    createTensor(type, data, dims) {
+      return new Tensor(type, data, dims);
+    },
+    async run(feeds) {
+      stats.peak = Math.max(...feeds.audio.data.map((value) => Math.abs(value)));
+      if (failRun) throw new Error('synthetic run failure');
+      const count = Math.max(1, Math.floor(feeds.audio.data.length / 256));
+      const pitch = new Float64Array(count).fill(220);
+      const confidence = new Float32Array(malformed ? Math.max(0, count - 1) : count).fill(0.9);
+      if (invalid) pitch[0] = NaN;
+      return {
+        pitch: new Tensor('float64', pitch, [1, count]),
+        confidence: new Tensor('float32', confidence, [1, confidence.length])
+      };
+    }
+  };
+  return { runtime, stats };
+}
+
+test('SwiftF0 runtime copies outputs and disposes every tensor after success', async () => {
+  const { runtime, stats } = swiftF0RuntimeFixture();
+  const quiet = tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.005);
+  const result = await runSwiftF0Inference(quiet, 85, 520, runtime);
+  assert.equal(result.pitch.length, Math.floor(quiet.length / 256));
+  assert.equal(result.confidence.length, result.pitch.length);
+  assert.equal(stats.live, 0);
+  assert.equal(stats.disposed, 5);
+  assert.ok(stats.peak > 0.45 && stats.peak < 0.55, 'only model input should receive quiet gain');
+});
+
+for (const mode of ['failRun', 'malformed', 'invalid']) {
+  test(`SwiftF0 runtime releases tensors when ${mode} fails`, async () => {
+    const { runtime, stats } = swiftF0RuntimeFixture({ [mode]: true });
+    await assert.rejects(
+      runSwiftF0Inference(tone(220, 16000), 85, 520, runtime),
+      /synthetic run failure|malformed frame counts|invalid measurements/
+    );
+    assert.equal(stats.live, 0);
+  });
+}
+test('SwiftF0 worker queue serializes inference and skips stale queued epochs', async () => {
+  const releases = [];
+  const started = [];
+  let active = 0;
+  let maximum = 0;
+  const queue = new LatestEpochQueue(async (request, current) => {
+    active++;
+    maximum = Math.max(maximum, active);
+    started.push(request.id);
+    await new Promise((resolve) => releases.push(resolve));
+    if (!current()) started.push(`stale-${request.id}`);
+    active--;
+  });
+
+  const first = queue.submit({ id: 1, epoch: 1 });
+  await flush();
+  const stale = queue.submit({ id: 2, epoch: 1 });
+  const latest = queue.submit({ id: 3, epoch: 2 });
+  assert.deepEqual(started, [1]);
+  releases.shift()();
+  await first;
+  await flush();
+  assert.deepEqual(started, [1, 'stale-1', 3], 'queued request from epoch 1 must be skipped');
+  releases.shift()();
+  await Promise.all([stale, latest]);
+  assert.equal(maximum, 1);
+});
+
+test('SwiftF0 worker queue never re-admits an older epoch', async () => {
+  const started = [];
+  const queue = new LatestEpochQueue(async (request) => {
+    started.push(request.id);
+  });
+  await queue.submit({ id: 1, epoch: 4 });
+  await queue.submit({ id: 2, epoch: 3 });
+  await queue.submit({ id: 3, epoch: 4 });
+  assert.deepEqual(started, [1, 3]);
+});
+
+test('SwiftF0 worker queue admits later work after a failed inference', async () => {
+  const started = [];
+  const queue = new LatestEpochQueue(async (request) => {
+    started.push(request.id);
+    if (request.id === 1) throw new Error('synthetic inference failure');
+  });
+  await assert.rejects(queue.submit({ id: 1, epoch: 1 }), /synthetic inference failure/);
+  await queue.submit({ id: 2, epoch: 1 });
+  assert.deepEqual(started, [1, 2]);
+});
+
 test('history is bounded in time and points, and seeks start a new contour', () => {
   let points = [];
   for (let i = 0; i < 10000; i++)
@@ -117,7 +294,7 @@ function fixture(options = {}) {
     sources = [];
   const context = {
     state: 'running',
-    sampleRate: 48000,
+    sampleRate: options.sampleRate ?? 48000,
     currentTime: 0,
     destination: {},
     closes: 0,
@@ -164,6 +341,11 @@ function fixture(options = {}) {
     {
       createContext() {
         contexts++;
+        if (Array.isArray(options.sampleRates) && options.sampleRates.length) {
+          context.sampleRate =
+            options.sampleRates[Math.min(contexts - 1, options.sampleRates.length - 1)];
+          context.state = 'running';
+        }
         return context;
       },
       createWorker() {
@@ -245,6 +427,11 @@ function fixture(options = {}) {
     ) {
       worker.onmessage({ data: { type: 'result', id: worker.sent.at(-1).id, result } });
     },
+    analysisError(worker = workers.at(-1), id = worker.sent.at(-1)?.id) {
+      worker.onmessage({
+        data: { type: 'error', phase: 'analysis', id, error: 'synthetic analysis failure' }
+      });
+    },
     play() {
       a.paused = false;
       a.dispatchEvent(new Event('play'));
@@ -271,6 +458,27 @@ async function running(f = fixture()) {
   await flush();
   return f;
 }
+test('native 96 kHz fallback fails before download and Retry can reopen at 48 kHz', async () => {
+  const f = fixture({ sampleRates: [96000, 48000] });
+  f.controller.setEnabled(true);
+  await flush();
+  assert.equal(f.state.status, 'error');
+  assert.match(f.state.message, /96 kHz/);
+  assert.equal(f.workers.length, 0, 'unsupported output rate must not fetch the SwiftF0 worker');
+  assert.equal(f.sources.length, 0);
+  assert.equal(f.context.resumes, 0);
+  assert.equal(f.context.closes, 1);
+
+  f.controller.retry();
+  assert.equal(f.contexts, 2);
+  assert.equal(f.workers.length, 1);
+  f.ready();
+  await flush();
+  assert.equal(f.state.status, 'ready');
+  assert.equal(f.sources.length, 1);
+  f.controller.dispose();
+});
+
 test('disabled by default: no context, worker or audio capture', () => {
   const f = fixture();
   f.play();
@@ -398,16 +606,41 @@ test('load and result timeouts expose retry without closing the output route', a
   f.controller.dispose();
 });
 test('bad worker measurements fail safely, and a retry can recover', async () => {
-  const f = await running();
-  f.frame();
-  f.result(undefined, { hz: NaN, amplitude: 1 });
-  assert.equal(f.state.status, 'error');
-  assert.equal(f.state.points.length, 0);
-  f.controller.retry();
-  f.ready();
+  for (const result of [
+    { hz: NaN, amplitude: 1 },
+    {
+      hz: 220,
+      amplitude: 1,
+      rms: NaN,
+      confidence: 1,
+      offsetSeconds: 0.32,
+      windowSeconds: ANALYSIS_WINDOW_SECONDS
+    },
+    {
+      hz: 220,
+      amplitude: 1,
+      rms: 0.5,
+      confidence: 1.1,
+      offsetSeconds: 0.32,
+      windowSeconds: ANALYSIS_WINDOW_SECONDS
+    }
+  ]) {
+    const f = await running();
+    f.frame();
+    f.result(undefined, result);
+    assert.equal(f.state.status, 'error');
+    assert.equal(f.state.points.length, 0);
+    f.controller.dispose();
+  }
+
+  const recovered = await running();
+  recovered.frame();
+  recovered.result(undefined, { hz: NaN, amplitude: 1 });
+  recovered.controller.retry();
+  recovered.ready();
   await flush();
-  assert.equal(f.state.status, 'ready');
-  f.controller.dispose();
+  assert.equal(recovered.state.status, 'ready');
+  recovered.controller.dispose();
 });
 test('worker construction failure also handles a rejected resume promise', async () => {
   const f = fixture({ workerThrows: true, resume: () => Promise.reject(Error('not allowed')) });
@@ -431,6 +664,62 @@ test('paused playback stops sampling; native Play still resumes retained routing
   f.controller.dispose();
   f.controller.dispose();
   assert.equal(f.context.closes, 1);
+});
+
+test('result racing a pause property change retires its watchdog silently', async () => {
+  const f = await running();
+  f.frame();
+  f.a.paused = true;
+  f.result();
+  assert.equal(f.state.status, 'ready');
+  assert.equal(f.timers.size, 0);
+  assert.equal(f.state.points.length, 0);
+  f.controller.dispose();
+});
+
+test('watchdog racing a pause property change cannot surface a false timeout', async () => {
+  const f = await running();
+  f.frame();
+  f.a.paused = true;
+  f.timer(5000);
+  assert.equal(f.state.status, 'ready');
+  assert.equal(f.timers.size, 0);
+  assert.equal(f.state.points.length, 0);
+  f.controller.dispose();
+});
+
+test('analysis error racing a pause property change retires silently', async () => {
+  const f = await running();
+  f.frame();
+  f.a.paused = true;
+  f.analysisError();
+  assert.equal(f.state.status, 'ready');
+  assert.equal(f.timers.size, 0);
+  assert.equal(f.state.points.length, 0);
+  f.controller.dispose();
+});
+
+test('stale analysis errors after a playback discontinuity are ignored', async () => {
+  const f = await running();
+  f.frame();
+  const request = f.workers[0].sent.at(-1);
+  f.a.paused = true;
+  f.a.dispatchEvent(new Event('pause'));
+  f.analysisError(undefined, request.id);
+  assert.equal(f.state.status, 'ready');
+  assert.equal(f.state.activity, 'paused');
+  assert.equal(f.timers.size, 0);
+  f.controller.dispose();
+});
+
+test('current analysis errors retire the matching watchdog and expose Retry', async () => {
+  const f = await running();
+  f.frame();
+  assert.ok(f.timers.size > 0);
+  f.analysisError();
+  assert.equal(f.state.status, 'error');
+  assert.equal(f.timers.size, 0);
+  f.controller.dispose();
 });
 
 test('pause drops a pending result and watchdog while retaining the completed trace', async () => {
