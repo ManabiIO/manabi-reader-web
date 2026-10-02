@@ -91,6 +91,7 @@ function key(accountId: string, kind: PersonalKind, entityId: string) {
   return JSON.stringify([accountId, kind, entityId]);
 }
 let activeSyncGuard: (() => void) | undefined;
+let activeSyncSignal: AbortSignal | undefined;
 
 function scoped(accountId: string) {
   if (currentUser()?.id !== accountId) throw new IntegrationError('account_changed', 409);
@@ -106,11 +107,15 @@ async function withPersonalSyncOperation<T>(accountId: string, work: () => Promi
       'personal-sync',
       async () => {
         activeSyncGuard = scope.assertCurrent;
+        activeSyncSignal = scope.signal;
         try {
           scope.assertCurrent();
           return await work();
         } finally {
-          if (activeSyncGuard === scope.assertCurrent) activeSyncGuard = undefined;
+          if (activeSyncGuard === scope.assertCurrent) {
+            activeSyncGuard = undefined;
+            activeSyncSignal = undefined;
+          }
         }
       },
       scope.signal
@@ -119,6 +124,40 @@ async function withPersonalSyncOperation<T>(accountId: string, work: () => Promi
     scope.stop();
   }
 }
+async function commitPersonalTransaction<T>(
+  accountId: string,
+  transaction: { abort(): void; done: Promise<unknown> },
+  work: () => Promise<T>
+): Promise<T> {
+  scoped(accountId);
+  const signal = activeSyncSignal;
+  const abort = () => {
+    try {
+      transaction.abort();
+    } catch {
+      /* The transaction may already have settled. */
+    }
+  };
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
+  try {
+    const result = await commitTransaction(transaction, async () => {
+      const value = await work();
+      scoped(accountId);
+      return value;
+    });
+    scoped(accountId);
+    return result;
+  } catch (error) {
+    // A profile/session change is more actionable than the lower-level abort it
+    // caused and permanently revokes this operation even across A→B→A.
+    scoped(accountId);
+    throw error;
+  } finally {
+    signal?.removeEventListener('abort', abort);
+  }
+}
+
 async function annotationOwner(annotationId: string, bookKey: string): Promise<string | undefined> {
   const db = await database.db;
   const scope = await db.get('readerAnnotationScope', annotationId);
@@ -266,7 +305,7 @@ async function localBooks(
   // Scope adoption is one IndexedDB transaction across the exact-copy set.
   // This remains safe even when Web Locks is unavailable in another tab.
   const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
-  const claimed = await commitTransaction(tx, async () => {
+  const claimed = await commitPersonalTransaction(accountId, tx, async () => {
     const [metadata, scopeRows] = await Promise.all([
       readIndexedBookMetadata(tx.objectStore('data'), () => scoped(accountId)),
       tx.objectStore('readerBookScope').getAll()
@@ -309,7 +348,7 @@ async function readLocal(
       'readerAnnotation',
       'readerAnnotationScope'
     ]);
-    return commitTransaction(tx, async () => {
+    return commitPersonalTransaction(accountId, tx, async () => {
       if (copies.length)
         await livePersonalCopies(
           bookKey,
@@ -339,7 +378,7 @@ async function readLocal(
     const day = dayId.exec(entityId)?.[1];
     if (!day) return null;
     const tx = db.transaction(['data', 'readerBookScope', 'readerStatistic']);
-    return commitTransaction(tx, async () => {
+    return commitPersonalTransaction(accountId, tx, async () => {
       const live = await livePersonalCopies(
         bookKey,
         copies,
@@ -358,7 +397,7 @@ async function readLocal(
   }
 
   const tx = db.transaction(['data', 'readerBookScope', 'bookmark']);
-  return commitTransaction(tx, async () => {
+  return commitPersonalTransaction(accountId, tx, async () => {
     const live = await livePersonalCopies(
       bookKey,
       copies,
@@ -406,7 +445,7 @@ async function applyLocal(
       ['data', 'readerBookScope', 'readerAnnotation', 'readerAnnotationScope'],
       'readwrite'
     );
-    await commitTransaction(tx, async () => {
+    await commitPersonalTransaction(accountId, tx, async () => {
       if (copies.length)
         await livePersonalCopies(
           bookKey,
@@ -454,7 +493,7 @@ async function applyLocal(
       ['data', 'readerBookScope', 'readerStatistic', 'lastModified'],
       'readwrite'
     );
-    await commitTransaction(tx, async () => {
+    await commitPersonalTransaction(accountId, tx, async () => {
       const live = await livePersonalCopies(
         bookKey,
         copies,
@@ -489,7 +528,7 @@ async function applyLocal(
   }
 
   const tx = db.transaction(['data', 'readerBookScope', 'bookmark'], 'readwrite');
-  await commitTransaction(tx, async () => {
+  await commitPersonalTransaction(accountId, tx, async () => {
     const live = await livePersonalCopies(
       bookKey,
       copies,
@@ -1144,7 +1183,7 @@ async function stageAnnotations(accountId: string, books: ReadonlyMap<string, Pe
       const copies = books.get(annotation.bookKey) ?? [];
       if (!copies.length) continue;
       const tx = db.transaction(['data', 'readerBookScope', 'readerAnnotationScope'], 'readwrite');
-      const admitted = await commitTransaction(tx, async () => {
+      const admitted = await commitPersonalTransaction(accountId, tx, async () => {
         const live = await tryLivePersonalCopies(
           annotation.bookKey,
           copies,
