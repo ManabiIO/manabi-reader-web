@@ -29,7 +29,7 @@
   import { queryTask, type SearchState } from './query-task.mjs';
   import {
     advanceMediaSearchRevisions,
-    memoizeReferenceProjection,
+    projectedReferenceRevision,
     referenceRevision,
     searchResultPlan,
     type SearchResultFilter
@@ -84,7 +84,7 @@
   const titleMatchTextRevisionFor =
     referenceRevision<Record<string, readonly BookTitleMatchContext[]>>();
   const snippetCorpusRevisionFor = referenceRevision<SnippetSummary[]>();
-  const contentBooksFingerprintFor = memoizeReferenceProjection<ShelfBook[], string>((items) =>
+  const contentBooksRevisionFor = projectedReferenceRevision<ShelfBook[], string>((items) =>
     JSON.stringify(
       items.map((book) => [
         book.key,
@@ -136,7 +136,7 @@
   $: titleMatchesRevision = titleMatchesRevisionFor(matches);
   $: titleMatchTextRevision = titleMatchTextRevisionFor(bookMatchText);
   $: snippetCorpusRevision = snippetCorpusRevisionFor(eligible);
-  $: contentBooksFingerprint = contentBooksFingerprintFor(books);
+  $: contentBooksRevision = contentBooksRevisionFor(books);
   $: scopePlan = librarySearchScopePlan(searchScope);
   $: resultPlan = searchResultPlan(filter);
   $: availableFilters = scopePlan.dictionary
@@ -160,7 +160,7 @@
         query,
         owner,
         searchScope,
-        scopePlan.books ? contentBooksFingerprint : '',
+        scopePlan.books ? contentBooksRevision : 0,
         scopePlan.snippets ? snippetCorpusRevision : 0,
         videoLearningEnabled && searchScope === 'everything' ? mediaContentRevision : 0
       ])
