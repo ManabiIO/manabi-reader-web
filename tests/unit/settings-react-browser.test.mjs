@@ -21,6 +21,9 @@ const { outputFiles } = await build({
       import { startPreferenceSync, preferenceStatus } from './apps/web/src/lib/manabi/preferences';
       import { integrationDB } from './apps/web/src/lib/manabi/persistence';
       import { refreshAccount } from './apps/web/src/lib/manabi/client';
+      import { database } from './apps/web/src/lib/data/store';
+      import { refreshLinkedBooks } from './apps/web/src/lib/manabi/books';
+      import { configureDav, withDavSourceLock } from './apps/web/src/lib/webdav/source';
       import { goto, installRouter, beforeNavigate, afterNavigate } from './apps/web/src/runtime/navigation';
       import { page } from './apps/web/src/runtime/stores';
       import { get } from './apps/web/src/lib/state/store';
@@ -47,6 +50,44 @@ const { outputFiles } = await build({
         },
         preferenceStatus: () => get(preferenceStatus),
         savedPreferences: async (user = '42') => (await integrationDB()).get('metadata', 'preferences/' + user),
+        seedDav: async () => {
+          const sourceId = 'webdav-00000000-0000-0000-0000-000000000001';
+          const id = 'webdav-consent-fixture', title = 'WebDAV consent fixture';
+          const contentHash = 'a'.repeat(64), root = 'https://dav.example/Books/';
+          await configureDav({id:sourceId, name:'Fixture DAV', url:root, username:'', writable:true}, '',
+            {remember:false, expected:null});
+          const bookId = await (await database.db).add('data', {
+            title, contentHash, elementHtml:'<p>Generated fixture</p>', styleSheet:'',
+            blobs:{}, coverImage:'', hasThumb:false, characters:17, sections:[],
+            lastBookModified:1, lastBookOpen:0
+          });
+          await (await integrationDB()).put('books', {id,bookId,title,contentHash,owner:null,
+            sourceId,root,fileId:root+'fixture.epub',name:'fixture.epub',syncEnabled:false});
+          await refreshLinkedBooks();
+          return {id,sourceId};
+        },
+        savedDavLink: async id => (await integrationDB()).get('books', id),
+        holdDavSource: async id => {
+          let acquired, release;
+          const ready = new Promise(resolve => acquired = resolve);
+          const done = withDavSourceLock(id, () => new Promise(resolve => {
+            release = resolve; acquired();
+          }));
+          await ready;
+          return {release,done};
+        },
+        failNextDavConsent: () => {
+          const original = IDBObjectStore.prototype.put;
+          IDBObjectStore.prototype.put = function(...args) {
+            const request = original.apply(this, args);
+            if (this.name === 'books' && this.transaction.db.name === 'manabi-reader-integrations') {
+              IDBObjectStore.prototype.put = original;
+              this.transaction.abort();
+            }
+            return request;
+          };
+          return () => { IDBObjectStore.prototype.put = original; };
+        },
         clear: () => root.render(null),
         unmount: () => { root.unmount(); stopPreferences?.(); }
       };
@@ -365,6 +406,182 @@ const accountCheckbox = (window) =>
   [...window.document.querySelectorAll('input[type="checkbox"]')].find((node) =>
     node.closest('label')?.textContent.includes('Sync reader settings')
   );
+
+const davCheckbox = (window) =>
+  [...window.document.querySelectorAll('input[type="checkbox"]')].find((node) =>
+    node.closest('label')?.textContent.includes('Sync this book’s reading data with WebDAV')
+  );
+
+test('WebDAV consent holds the immediate checked intent through real delayed transactions and repeated changes', async () => {
+  for (const strict of [false, true]) {
+    const server = accountServer();
+    await fixture(async ({ window, api, until }) => {
+      const { id, sourceId } = await api.seedDav();
+      api.renderConnections(strict);
+      const input = () => davCheckbox(window);
+      await until(
+        () =>
+          input() &&
+          !input().disabled &&
+          window.document.querySelector('strong')?.textContent === 'reader',
+        'WebDAV consent and account finish loading'
+      );
+      for (const enabled of [true, false, true]) {
+        const gate = await api.holdDavSource(sourceId);
+        try {
+          input().click();
+          assert.equal(input().checked, enabled, 'native checked intent is retained immediately');
+          await until(() => input().disabled, 'pending consent disables repeated activation');
+          input().click();
+          assert.equal(input().checked, enabled);
+          assert.equal((await api.savedDavLink(id)).syncEnabled, !enabled);
+        } finally {
+          gate.release();
+          await gate.done;
+        }
+        await until(() => !input().disabled, 'guarded consent transaction completes');
+        assert.equal(input().checked, enabled);
+        assert.equal((await api.savedDavLink(id)).syncEnabled, enabled);
+        assert.equal((await api.savedDavLink(id)).davAccountId, '42');
+      }
+      assert.equal(
+        server.requests.some(
+          ({ path, method }) => !path.startsWith('/api/reader-web/') || method === 'PUT'
+        ),
+        false,
+        'consent does not upload any WebDAV or account reading data'
+      );
+    }, server.fetch);
+  }
+});
+
+test('failed WebDAV consent restores the durable choice and permits an explicit retry', async () => {
+  const server = accountServer();
+  await fixture(async ({ window, api, until }) => {
+    const { id } = await api.seedDav();
+    api.renderConnections(true);
+    const input = () => davCheckbox(window);
+    await until(
+      () =>
+        input() &&
+        !input().disabled &&
+        window.document.querySelector('strong')?.textContent === 'reader',
+      'WebDAV consent and account finish loading'
+    );
+    const restore = api.failNextDavConsent();
+    try {
+      input().click();
+      assert.equal(input().checked, true);
+      await until(
+        () => !input().disabled && !input().checked,
+        'failed consent rolls back its display'
+      );
+      assert.equal((await api.savedDavLink(id)).syncEnabled, false);
+    } finally {
+      restore();
+    }
+    input().click();
+    assert.equal(input().checked, true);
+    await until(() => !input().disabled, 'a fresh explicit retry commits');
+    assert.equal((await api.savedDavLink(id)).syncEnabled, true);
+    assert.equal(input().checked, true);
+    const restoreDisable = api.failNextDavConsent();
+    try {
+      input().click();
+      assert.equal(input().checked, false);
+      await until(
+        () => !input().disabled && input().checked,
+        'failed revocation restores saved consent'
+      );
+      assert.equal((await api.savedDavLink(id)).syncEnabled, true);
+    } finally {
+      restoreDisable();
+    }
+    input().click();
+    assert.equal(input().checked, false);
+    await until(() => !input().disabled, 'explicit revocation retry commits');
+    assert.equal((await api.savedDavLink(id)).syncEnabled, false);
+  }, server.fetch);
+});
+
+test('account replacement revokes the pending WebDAV display and prevents a stale consent commit', async () => {
+  const server = accountServer();
+  await fixture(async ({ window, api, until }) => {
+    const { id, sourceId } = await api.seedDav();
+    api.renderConnections(true);
+    const input = () => davCheckbox(window);
+    await until(
+      () =>
+        input() &&
+        !input().disabled &&
+        window.document.querySelector('strong')?.textContent === 'reader',
+      'WebDAV consent and account finish loading'
+    );
+    const gate = await api.holdDavSource(sourceId);
+    try {
+      input().click();
+      assert.equal(input().checked, true);
+      server.user = { id: '43', username: 'other-reader' };
+      await api.refreshAccount(true);
+      await until(
+        () => window.document.querySelector('strong')?.textContent === 'other-reader',
+        'new account renders'
+      );
+      assert.equal(
+        input().checked,
+        false,
+        'old pending intent is scoped to its account generation'
+      );
+    } finally {
+      gate.release();
+      await gate.done;
+    }
+    await until(() => !input().disabled, 'stale operation settles');
+    assert.equal((await api.savedDavLink(id)).syncEnabled, false);
+    input().click();
+    assert.equal(input().checked, true);
+    await until(() => !input().disabled, 'new account explicitly opts in');
+    assert.equal((await api.savedDavLink(id)).davAccountId, '43');
+  }, server.fetch);
+});
+
+test('remount reads durable WebDAV consent without inheriting another controller’s pending intent', async () => {
+  const server = accountServer();
+  await fixture(async ({ window, api, until }) => {
+    const { id, sourceId } = await api.seedDav();
+    api.renderConnections(true);
+    const input = () => davCheckbox(window);
+    await until(
+      () =>
+        input() &&
+        !input().disabled &&
+        window.document.querySelector('strong')?.textContent === 'reader',
+      'WebDAV consent and account finish loading'
+    );
+    const gate = await api.holdDavSource(sourceId);
+    try {
+      input().click();
+      assert.equal(input().checked, true);
+      api.clear();
+      await until(() => !input(), 'old Connections screen unmounts');
+      api.renderConnections(true);
+      await until(() => input() && !input().disabled, 'new Connections screen loads');
+      assert.equal(input().checked, false, 'uncommitted intent is not durable consent');
+    } finally {
+      gate.release();
+      await gate.done;
+    }
+    // Leaving a screen does not revoke an already requested consent transaction.
+    // Its committed result is received from the authoritative linked-books store.
+    await until(() => input().checked, 'the original authorized transaction publishes its commit');
+    assert.equal((await api.savedDavLink(id)).syncEnabled, true);
+    input().click();
+    assert.equal(input().checked, false);
+    await until(() => !input().disabled, 'new screen explicitly revokes consent');
+    assert.equal((await api.savedDavLink(id)).syncEnabled, false);
+    assert.equal(input().checked, false);
+  }, server.fetch);
+});
 
 test('account sync checkbox keeps the chosen state through real storage, delayed requests and repeated enable/disable', async () => {
   for (const strict of [false, true]) {

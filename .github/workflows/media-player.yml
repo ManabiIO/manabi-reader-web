@@ -106,7 +106,7 @@ jobs:
       - name: Build the actual application
         env:
           BASE_PATH: /reader-web
-          VITE_ENABLE_VIDEO_LEARNING: 'true'
+          EXPO_PUBLIC_ENABLE_VIDEO_LEARNING: 'true'
         run: pnpm --dir apps/web build
       - name: Install generated-fixture and browser tools
         run: |

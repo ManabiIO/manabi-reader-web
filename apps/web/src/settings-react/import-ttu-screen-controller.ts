@@ -5,7 +5,7 @@
  */
 
 import { beforeNavigate } from '$app/navigation';
-import { consumeImportBootstrap } from '../runtime/import-bootstrap';
+import { page as routePage } from '$app/stores';
 
 import {
   TtuMigration,
@@ -52,6 +52,12 @@ export function createImportTtuScreen(
   let page = 0;
   let yatsu = false;
   const pageSize = 50;
+  __readerController.observeSource(
+    () => routePage,
+    (value) => {
+      yatsu = value.url.searchParams.get('source') === 'yatsu';
+    }
+  );
   __readerController.effect(
     () => [rows, page, pageSize],
     () => {
@@ -75,7 +81,7 @@ export function createImportTtuScreen(
     }
   );
   function setRowSelection(key: string, selected: boolean) {
-    if (busy) return;
+    if (busy || stopped) return;
     __readerController.changed(
       (rows = rows.map((row) => (row.key === key ? { ...row, selected } : row)))
     );
@@ -92,7 +98,7 @@ export function createImportTtuScreen(
     return error instanceof Error ? error.message : 'This item could not be imported.';
   }
   function consumeSelection(input: HTMLInputElement) {
-    if (busy) return;
+    if (busy || stopped) return;
     const files = [...(input.files ?? [])];
     if (!files.length) return;
     // Clear synchronously so a queued native change and onMount cannot consume
@@ -225,7 +231,6 @@ export function createImportTtuScreen(
     __readerController.changed(
       (yatsu = new URLSearchParams(window.location.search).get('source') === 'yatsu')
     );
-    consumeImportBootstrap(consumeSelection);
     if (filePicker) consumeSelection(filePicker);
     void migratedBookChoices()
       .then((value) => {

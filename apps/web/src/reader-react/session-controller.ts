@@ -2284,7 +2284,16 @@ export function createSession(
         autoScroller?.off();
         __readerController.changed((wasTrackerPaused = true));
         isTrackerPaused$.next(true);
-        if ($confirmClose$ && storedExploredCharacter !== exploredCharCount) {
+        // Continuous scroll publication crosses an animation frame and React
+        // binding commits. Sample the ready manager before admitting a fast
+        // scroll → Back, rather than comparing its previous rendered counter.
+        const currentBookId = getBookIdSync();
+        const currentPoint =
+          $confirmClose$ && !isPaginated && currentBookId
+            ? bookmarkManager?.formatBookmarkData(currentBookId, customReadingPointScrollOffset)
+            : undefined;
+        const currentExploredCharacter = currentPoint?.exploredCharCount ?? exploredCharCount;
+        if ($confirmClose$ && storedExploredCharacter !== currentExploredCharacter) {
           const wasCanceled = await new Promise<boolean>((resolve) => {
             const resolver = (cancelled: boolean) => {
               closeSignal.removeEventListener('abort', cancelledByOwner);

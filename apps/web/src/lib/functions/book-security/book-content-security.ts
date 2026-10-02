@@ -127,6 +127,7 @@ const ATTRIBUTES = [
   'data-ttu-spoiler-img',
   'data-manabi-target-spine-index',
   'data-manabi-target-fragment',
+  'data-manabi-fragment-id',
   'viewBox',
   'preserveAspectRatio',
   'xmlns',
@@ -329,7 +330,13 @@ export function sanitizeBookHtml(html: string, policy: BookHtmlPolicy): string {
   if (!view) throw new Error('Book rendering requires a browser document');
   const purifier = createDOMPurify(view);
   if (!purifier.isSupported) throw new Error('This browser cannot safely render imported books');
+  const fragmentIds = new WeakMap<Element, string>();
   purifier.addHook('uponSanitizeElement', (node, data) => {
+    if (node.nodeType === 1) {
+      const element = node as Element;
+      const id = element.getAttribute('id');
+      if (id && id.length <= 512) fragmentIds.set(element, id);
+    }
     if (data.tagName === 'link' && policy.onStyleSheetReference && node.nodeType === 1) {
       const element = node as Element;
       if (element.getAttribute('rel')?.toLowerCase().split(/\s+/).includes('stylesheet')) {
@@ -384,6 +391,8 @@ export function sanitizeBookHtml(html: string, policy: BookHtmlPolicy): string {
     } else if (name === 'data-manabi-target-fragment') {
       data.keepAttr =
         policy.preserveReaderLinks === true && tag === 'a' && data.attrValue.length <= 512;
+    } else if (name === 'data-manabi-fragment-id') {
+      data.keepAttr = data.attrValue.length > 0 && data.attrValue.length <= 512;
     } else if (['fill', 'stroke'].includes(name)) {
       data.keepAttr = safeCssValue(data.attrValue);
     } else if (name === 'sid' || name === 'pid') {
@@ -401,6 +410,15 @@ export function sanitizeBookHtml(html: string, policy: BookHtmlPolicy): string {
         data.attrValue === 'http://www.w3.org/2000/svg' ||
         data.attrValue === 'http://www.w3.org/1999/xhtml';
     }
+  });
+  purifier.addHook('afterSanitizeAttributes', (node) => {
+    // DOMPurify correctly drops IDs such as "target"/"location" that collide
+    // with DOM properties. Keep only an inert, bounded navigation alias so
+    // legitimate EPUB links still work without restoring a clobbering ID.
+    const element = node as Element;
+    const fragment = fragmentIds.get(element);
+    if (fragment && !element.hasAttribute('id'))
+      element.setAttribute('data-manabi-fragment-id', fragment);
   });
   return purifier.sanitize(html, {
     ALLOWED_TAGS: policy.svgOnly

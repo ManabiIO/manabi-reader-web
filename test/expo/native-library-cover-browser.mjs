@@ -7,7 +7,12 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || '@playwright/test');
 const { outputFiles } = await build({
-  entryPoints: ['apps/web/src/native-library/cover-raster.ts'],
+  stdin: {
+    contents:
+      "export * from './apps/web/src/native-library/cover-raster.ts'; export { coverOverride } from './apps/web/src/lib/library/cover-override.ts';",
+    resolveDir: process.cwd(),
+    loader: 'ts'
+  },
   bundle: true,
   format: 'iife',
   globalName: 'coverFixture',
@@ -107,6 +112,59 @@ try {
     } catch {
       cancelled = true;
     }
+    const customCovers = [];
+    for (const type of ['image/png', 'image/jpeg', 'image/webp']) {
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, type));
+      const uri = await globalThis.coverFixture.coverOverride(new File([blob], 'cover', { type }));
+      const image = new window.Image();
+      image.src = uri;
+      await image.decode();
+      customCovers.push({ uri, width: image.naturalWidth, height: image.naturalHeight });
+    }
+    const rejectedCustom = [];
+    for (const input of [
+      new File([svg], 'cover.svg', { type: 'image/svg+xml' }),
+      new File([svg], 'spoof.png', { type: 'image/png' }),
+      new File(['<html><script>fetch("/escaped-html")</script></html>'], 'spoof.webp', {
+        type: 'image/webp'
+      }),
+      new File([png], 'wrong.jpeg', { type: 'image/jpeg' })
+    ]) {
+      try {
+        await globalThis.coverFixture.coverOverride(input);
+        rejectedCustom.push(false);
+      } catch {
+        rejectedCustom.push(true);
+      }
+    }
+    const tooWide = document.createElement('canvas');
+    tooWide.width = 8193;
+    tooWide.height = 1;
+    const tooWideBlob = await new Promise((resolve) => tooWide.toBlob(resolve, 'image/png'));
+    let customDimensionRejected = false;
+    try {
+      await globalThis.coverFixture.coverOverride(
+        new File([tooWideBlob], 'wide.png', { type: 'image/png' })
+      );
+    } catch {
+      customDimensionRejected = true;
+    }
+    tooWide.width = tooWide.height = 0;
+    const customAbort = new AbortController();
+    const customPending = globalThis.coverFixture.coverOverride(
+      new File([png], 'cover.png', { type: 'image/png' }),
+      {
+        signal: customAbort.signal,
+        assertCurrent() {}
+      }
+    );
+    customAbort.abort();
+    let customCancelled = false;
+    try {
+      await customPending;
+    } catch {
+      customCancelled = true;
+    }
     async function sample(image, x) {
       const el = document.createElement('img');
       el.src = image.uri;
@@ -122,6 +180,10 @@ try {
       sharp,
       blur,
       legacy,
+      customCovers,
+      rejectedCustom,
+      customDimensionRejected,
+      customCancelled,
       invalid,
       svgResult,
       excessiveDimensions,
@@ -139,6 +201,14 @@ try {
     assert.ok(image.width <= 240 && image.height <= 360);
     assert.doesNotMatch(image.uri, /https:|file:|<svg|escaped/);
   }
+  for (const image of result.customCovers) {
+    assert.match(image.uri, /^data:image\/(?:webp|png);base64,/);
+    assert.ok(image.uri.length <= 512 * 1024);
+    assert.ok(image.width <= 400 && image.height <= 600);
+  }
+  assert.deepEqual(result.rejectedCustom, Array(4).fill(true));
+  assert.equal(result.customDimensionRejected, true);
+  assert.equal(result.customCancelled, true);
   assert.deepEqual(result.invalid, Array(8).fill(null));
   assert.equal(result.excessiveDimensions, null);
   assert.match(result.fingerprint, /^image\/png:[a-f0-9]{64}$/);
@@ -154,7 +224,7 @@ try {
     'SVG cover image cannot load external resources or execute scripts'
   );
   console.log(
-    'Real Chromium: bounded raster/legacy/SVG conversion, pre-bridge blur, source/dimension rejection, cancellation, object-URL cleanup and no external cover requests passed'
+    'Real Chromium: bounded raster/legacy/SVG conversion, pre-bridge blur, source/dimension rejection, cancellation, object-URL cleanup, shared web/native custom PNG/JPEG/WebP covers and no external cover requests passed'
   );
 } finally {
   await browser?.close();

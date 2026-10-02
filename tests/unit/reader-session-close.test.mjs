@@ -412,3 +412,21 @@ test('a thrown replication preparation releases its owner so close can retry the
   assert.equal(uploads, 1);
   assert.deepEqual(h.c.dataToReplicate, []);
 });
+
+test('confirmation samples the current continuous point before deferred view bindings catch up', async (t) => {
+  const h = fixture(t, { confirm: true });
+  h.c.exploredCharCount = 0;
+  h.c.storedExploredCharacter = 0;
+  const closing = h.c.requestSuspend();
+  await turn();
+  const dialog = dialogManager.dialogs$.getValue()[0];
+  assert.equal(
+    dialog?.props?.dialogHeader,
+    'Confirm Exit',
+    'a ready manager sees point 40 even while the published view value is still zero'
+  );
+  dialog.props.resolver(true);
+  assert.equal(await closing, false);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.c.blockDataUpdates, false);
+});

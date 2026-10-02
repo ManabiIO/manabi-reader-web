@@ -50,10 +50,10 @@ try {
       platform: 'browser',
       target: 'es2022',
       minify: true,
-      // Reproduce the absence of a usable ESM module URL after Metro's rewrite.
+      // Do not inject Expo's import-meta registry: real Metro module workers
+      // do not initialize it. The production ORT transform must stand alone.
       banner: {
-        js: `globalThis.__ExpoImportMetaRegistry = { url: undefined };
-        if (typeof Worker !== 'undefined') {
+        js: `if (typeof Worker !== 'undefined') {
           const OriginalWorker = Worker;
           globalThis.Worker = class extends OriginalWorker {
             constructor(...args) { super(...args); postMessage({ type: 'unexpected-nested-worker' }); }

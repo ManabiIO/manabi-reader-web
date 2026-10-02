@@ -83,6 +83,15 @@ jobs:
           cd ../../..
           node scripts/verify-expo-export.mjs --platform apk --output apps/web/android/app/build/outputs/apk/release/app-release.apk --report apps/web/dist-android/apk-qualification.json
 
+      - name: Execute the actual emitted pitch worker without Expo globals
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          if [ '${{ matrix.platform }}' = 'web' ]; then
+            node test/expo/exported-pitch-browser.mjs --platform web --output apps/web/build --qualification apps/web/build/asset-qualification.json --report apps/web/build/pitch-runtime-qualification.json
+          else
+            node test/expo/exported-pitch-browser.mjs --platform apk --output apps/web/android/app/build/outputs/apk/release/app-release.apk --qualification apps/web/dist-android/apk-qualification.json --report apps/web/dist-android/pitch-runtime-qualification.json
+          fi
+
       - name: Collect small packaging diagnostics
         if: always()
         run: |

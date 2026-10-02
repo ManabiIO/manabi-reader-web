@@ -7,8 +7,10 @@
 import { base } from './paths';
 const id = 'manabi-import-bootstrap';
 /** Claim the browser's input synchronously, then remove the early UI before the
- * React importer becomes visible. Nothing serializes, parses, stores or uploads
- * its files here. Only the existing consumeSelection/choose path may do that.
+ * React importer becomes visible. The receiver can adopt the original input
+ * into its mounted picker, retaining a file selection still in flight. Nothing
+ * serializes, parses, stores or uploads its files here. Only the existing
+ * consumeSelection/choose path may do that.
  */
 export function consumeImportBootstrap(consume: (input: HTMLInputElement) => void): boolean {
   if (typeof document === 'undefined' || typeof location === 'undefined') return false;

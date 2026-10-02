@@ -59,6 +59,7 @@ import {
 import { buttonVariants } from '../snippets-react/button-styles';
 import { cn } from '$lib/utils';
 import { HtmlReadiness } from './html-readiness';
+import { readerMenuPosition } from './menu-position';
 import type { ControlledReader } from './controller';
 
 export type ReaderEvents = Record<string, ((event: any) => void) | undefined>;
@@ -640,15 +641,22 @@ export const Dialog = {
   )
 };
 
-const MenuContext = createContext<{ open: boolean; setOpen(value: boolean): void }>({
+const MenuContext = createContext<{
+  open: boolean;
+  setOpen(value: boolean): void;
+  trigger: React.RefObject<HTMLElement | null>;
+}>({
   open: false,
-  setOpen() {}
+  setOpen() {},
+  trigger: { current: null }
 });
 function MenuRoot({ open, defaultOpen = false, bindings, onOpenChange, children }: ControlProps) {
   const [localOpen, setLocalOpen] = useState(defaultOpen);
+  const trigger = useRef<HTMLElement | null>(null);
   return (
     <MenuContext.Provider
       value={{
+        trigger,
         open: open === undefined ? localOpen : !!open,
         setOpen: (value) => {
           setLocalOpen(value);
@@ -667,21 +675,72 @@ function MenuTrigger({ child, children, ...props }: ControlProps) {
     ...props,
     'aria-haspopup': 'menu',
     'aria-expanded': menu.open,
+    elementRef: (element: HTMLElement | null) => {
+      menu.trigger.current = element;
+      props.elementRef?.(element);
+    },
     onClick: () => menu.setOpen(!menu.open)
   };
   return child ? child({ props: trigger }) : <Button {...trigger}>{children}</Button>;
 }
 function MenuContent({ children, className = '', onCloseAutoFocus, ...props }: ControlProps) {
   const menu = useContext(MenuContext);
+  const scopes = useContext(ScopeContext);
   const ref = useRef<HTMLElement | undefined>(undefined);
+  const [position, setPosition] = useState<ReturnType<typeof readerMenuPosition>>();
   const latest = useLatest({ menu, onCloseAutoFocus });
+  useLayoutEffect(() => {
+    if (!menu.open) return;
+    const measure = () => {
+      const node = ref.current,
+        trigger = menu.trigger.current;
+      if (!node || !trigger?.isConnected) return;
+      const rect = node.getBoundingClientRect(),
+        viewport = window.visualViewport;
+      const next = readerMenuPosition(
+        trigger.getBoundingClientRect(),
+        {
+          width: rect.width,
+          height: Math.max(rect.height, node.scrollHeight)
+        },
+        {
+          left: viewport?.offsetLeft ?? 0,
+          top: viewport?.offsetTop ?? 0,
+          width: viewport?.width ?? window.innerWidth,
+          height: viewport?.height ?? window.innerHeight
+        }
+      );
+      setPosition((previous) =>
+        previous &&
+        Object.keys(next).every(
+          (key) => previous[key as keyof typeof next] === next[key as keyof typeof next]
+        )
+          ? previous
+          : next
+      );
+    };
+    measure();
+    const observer =
+      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(measure);
+    if (ref.current) observer?.observe(ref.current);
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, true);
+    window.visualViewport?.addEventListener('resize', measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+      window.visualViewport?.removeEventListener('resize', measure);
+    };
+  }, [menu.open, menu.trigger]);
   useEffect(() => {
     if (!menu.open) return;
-    const trigger = document.activeElement as HTMLElement | null;
+    const trigger = menu.trigger.current ?? (document.activeElement as HTMLElement | null);
     const items = () =>
       Array.from(
         ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? []
       );
+    items()[0]?.focus({ preventScroll: true });
     const handle = (event: KeyboardEvent) => {
       if (event.key === 'Escape' || event.key === 'Tab') {
         if (event.key === 'Escape') event.preventDefault();
@@ -714,19 +773,23 @@ function MenuContent({ children, className = '', onCloseAutoFocus, ...props }: C
       if (!event.defaultPrevented && trigger?.isConnected) trigger.focus({ preventScroll: true });
     };
   }, [menu.open]);
-  return menu.open ? (
-    <Dom
-      {...props}
-      role="menu"
-      data-slot="dropdown-menu-content"
-      className={`reader-tools-menu ${className}`}
-      elementRef={(el: HTMLElement) => {
-        ref.current = el;
-      }}
-    >
-      {children}
-    </Dom>
-  ) : null;
+  return menu.open
+    ? createPortal(
+        <Dom
+          {...props}
+          role="menu"
+          data-slot="dropdown-menu-content"
+          className={`reader-tools-menu ${scopes.join(' ')} ${className}`}
+          style={{ ...props.style, ...position, visibility: position ? 'visible' : 'hidden' }}
+          elementRef={(el: HTMLElement) => {
+            ref.current = el;
+          }}
+        >
+          {children}
+        </Dom>,
+        document.body
+      )
+    : null;
 }
 function MenuItem({ onSelect, children, ...props }: ControlProps) {
   const menu = useContext(MenuContext);

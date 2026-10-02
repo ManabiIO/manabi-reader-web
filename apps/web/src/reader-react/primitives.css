@@ -106,11 +106,16 @@
   }
 }
 .reader-tools-menu {
-  position: absolute;
-  top: 3.5rem;
-  right: 1rem;
+  position: fixed;
   z-index: 65;
-  min-width: 16rem;
+  width: min(16rem, calc(100vw - 16px));
+  min-width: 0;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  writing-mode: horizontal-tb;
   padding: 0.5rem;
   background: var(--popover, var(--background));
   color: var(--foreground);
@@ -125,6 +130,8 @@
   min-height: 2.75rem;
   justify-content: flex-start;
   padding: 0.5rem 0.75rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 [data-search-excerpt] mark {

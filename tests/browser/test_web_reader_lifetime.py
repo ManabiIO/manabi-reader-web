@@ -21,6 +21,19 @@ class WebReaderLifetime(LibraryBase):
           localStorage.setItem('writingMode', 'horizontal-tb');
           localStorage.setItem('confirmClose', localStorage.getItem('confirmClose') ?? '0');
           localStorage.setItem('manualBookmark', localStorage.getItem('manualBookmark') ?? '0');
+          window.readerHistoryEvidence = [];
+          const record = type => {
+            const content = document.querySelector('.book-content');
+            window.readerHistoryEvidence.push({type, time: performance.now(),
+              url: location.href, scroll: [scrollX, scrollY],
+              reader: !!content, busy: content?.getAttribute('aria-busy'),
+              dialog: document.querySelector('dialog[open]')?.textContent?.slice(0, 180),
+              footer: document.querySelector('#ttu-page-footer')?.textContent?.slice(0, 200)});
+            window.readerHistoryEvidence.splice(0, Math.max(0, window.readerHistoryEvidence.length - 50));
+          };
+          for (const type of ['popstate', 'scroll', 'focusin'])
+            window.addEventListener(type, () => record(type), true);
+          window.recordReaderHistoryEvidence = record;
           const original = IDBObjectStore.prototype.put;
           IDBObjectStore.prototype.put = function(...args) {
             if (window.failReaderBookmarkWrite && this.name === 'bookmark'
@@ -38,6 +51,8 @@ class WebReaderLifetime(LibraryBase):
         try:
             state = self.page.evaluate('''() => ({url: location.href,
               historyLength: history.length, state: history.state,
+              events: window.readerHistoryEvidence,
+              preferences: Object.fromEntries(['confirmClose','manualBookmark','autoBookmark'].map(key => [key, localStorage.getItem(key)])),
               contents: [...document.querySelectorAll('.book-content')].map(node => ({
                 connected: node.isConnected, busy: node.getAttribute('aria-busy'),
                 text: node.textContent.slice(0, 160)
@@ -136,14 +151,18 @@ class WebReaderLifetime(LibraryBase):
         self.assert_reader()
 
     def test_canceled_browser_departure_keeps_original_reader_and_resume_target(self):
-        self.page.evaluate("localStorage.setItem('confirmClose','1'); localStorage.setItem('manualBookmark','1');")
+        self.page.evaluate("localStorage.setItem('confirmClose','1'); localStorage.setItem('manualBookmark','1'); localStorage.setItem('autoBookmark','0');")
         self.page.reload()
         self.import_book('Confirmation lifetime', body=self.body)
         reader_url = self.read_book('Confirmation lifetime')
+        saved = self.stores('books', ['bookmark'])['bookmark']
         self.page.locator('.book-content').get_by_text('READING_POINT_060', exact=False).scroll_into_view_if_needed()
         self.page.wait_for_function('scrollY > 500')
         self.remember_reader()
         resume = self.stores('books', ['lastItem'])['lastItem']
+        position = self.page.evaluate('({x: scrollX, y: scrollY})')
+        self.assertEqual(saved, self.stores('books', ['bookmark'])['bookmark'])
+        self.page.evaluate("recordReaderHistoryEvidence('before-first-back')")
         self.page.go_back()
         dialog = self.page.get_by_role('dialog', name='Confirm Exit', exact=True)
         expect(dialog).to_be_visible()
@@ -152,6 +171,9 @@ class WebReaderLifetime(LibraryBase):
         expect(self.page).to_have_url(reader_url)
         self.assert_same_reader()
         self.assertEqual(resume, self.stores('books', ['lastItem'])['lastItem'])
+        self.assertEqual(saved, self.stores('books', ['bookmark'])['bookmark'])
+        self.page.evaluate("recordReaderHistoryEvidence('after-cancel')")
+        self.page.wait_for_function('({x,y}) => Math.abs(scrollX-x) <= 2 && Math.abs(scrollY-y) <= 2', arg=position)
         self.page.go_back()
         expect(dialog).to_be_visible()
         dialog.get_by_role('button', name='Confirm', exact=True).click()

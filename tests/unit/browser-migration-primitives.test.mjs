@@ -13,7 +13,7 @@ const { outputFiles } = await build({
     contents: `
       import React, { act, useReducer } from 'react';
       import { createRoot } from 'react-dom/client';
-      import { Dom, useReaderBindings, Dialog as ReaderDialog, Sheet as ReaderSheet } from './reader-react/dom';
+      import { Dom, useReaderBindings, Dialog as ReaderDialog, Sheet as ReaderSheet, Menu as ReaderMenu } from './reader-react/dom';
       import { HeaderView } from './library-react/header';
       import { ActionMenu, LibraryTabs } from './library-react/navigation';
       import { OrganizationView } from './library-react/organization';
@@ -26,6 +26,13 @@ const { outputFiles } = await build({
         return <Modal.Root open><Modal.Content><Modal.Title>Reader fixture</Modal.Title><Modal.Description>Reader description</Modal.Description></Modal.Content></Modal.Root>;
       }
       installRouter({ push: path => routes.push(path), replace: path => routes.push(path) });
+      function ReaderMenuFixture() {
+        return <div className="react-reader-header"><header className="reader-toolbar">
+          <ReaderMenu.Root><ReaderMenu.Trigger>Reading tools</ReaderMenu.Trigger>
+            <ReaderMenu.Content><ReaderMenu.Item onSelect={() => window.selections++}>Browse Book</ReaderMenu.Item><ReaderMenu.Item>Save Reading Position</ReaderMenu.Item></ReaderMenu.Content>
+          </ReaderMenu.Root>
+        </header></div>;
+      }
       function MenuFixture() {
         return <Menu.Root>
           <Menu.Trigger child={({ props }) => <Button {...props}>Library actions</Button>} />
@@ -68,7 +75,7 @@ const { outputFiles } = await build({
       window.controls = {
         routes,
         act: callback => { act(callback); },
-        render: (kind, props = {}) => { act(() => root.render(<React.StrictMode>{kind === 'reader-dialog' ? <ReaderModalFixture {...props} /> : kind === 'nested-menu' ? <NestedMenuFixture /> : kind === 'html' ? <Dom as="main" {...props} /> : kind === 'header' ? <HeaderView {...props} /> : kind === 'binding' ? <BindingFixture {...props} /> : kind === 'action-menu' ? <ActionMenu {...props}><Menu.Item>Batch action</Menu.Item></ActionMenu> : kind === 'organization' ? <OrganizationView {...props} /> : kind === 'tabs' ? <div className="library-react"><LibraryTabs /></div> : <MenuFixture />}</React.StrictMode>)); },
+        render: (kind, props = {}) => { act(() => root.render(<React.StrictMode>{kind === 'reader-menu' ? <ReaderMenuFixture /> : kind === 'reader-dialog' ? <ReaderModalFixture {...props} /> : kind === 'nested-menu' ? <NestedMenuFixture /> : kind === 'html' ? <Dom as="main" {...props} /> : kind === 'header' ? <HeaderView {...props} /> : kind === 'binding' ? <BindingFixture {...props} /> : kind === 'action-menu' ? <ActionMenu {...props}><Menu.Item>Batch action</Menu.Item></ActionMenu> : kind === 'organization' ? <OrganizationView {...props} /> : kind === 'tabs' ? <div className="library-react"><LibraryTabs /></div> : <MenuFixture />}</React.StrictMode>)); },
         unmount: () => { act(() => root.unmount()); }
       };
     `,
@@ -586,5 +593,49 @@ test('Library nested keyboard navigation and touch activation preserve parent fo
     );
     assert.equal(window.document.querySelectorAll('[role=menu]').length, 0);
     assert.equal(window.choices.length, 0);
+  });
+});
+
+test('Reading tools uses its live trigger and the small visual viewport outside toolbar button constraints', async () => {
+  await fixture(async ({ window, api }) => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 320 });
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 320 });
+    await api.render('reader-menu');
+    const trigger = window.document.querySelector('button');
+    let anchor = { left: 264, right: 308, top: 12, bottom: 56, width: 44, height: 44 };
+    trigger.getBoundingClientRect = () => anchor;
+    const dimensions = window.HTMLElement.prototype.getBoundingClientRect;
+    window.HTMLElement.prototype.getBoundingClientRect = function () {
+      return this.getAttribute('role') === 'menu'
+        ? { left: 0, right: 304, top: 0, bottom: 720, width: 304, height: 720 }
+        : dimensions.call(this);
+    };
+    await api.act(() => trigger.click());
+    const menu = window.document.querySelector('[role=menu]');
+    assert.equal(menu.parentElement, window.document.body);
+    assert.equal(
+      menu.closest('.reader-toolbar'),
+      null,
+      'toolbar icon sizing cannot constrain menu labels'
+    );
+    assert.equal(menu.style.left, '8px');
+    assert.equal(menu.style.top, '64px');
+    assert.equal(menu.style.maxWidth, '304px');
+    assert.equal(menu.style.maxHeight, '248px');
+    assert.equal(window.document.activeElement, menu.querySelector('[role=menuitem]'));
+    anchor = { ...anchor, top: 264, bottom: 308 };
+    await api.act(() => window.dispatchEvent(new window.Event('resize')));
+    assert.equal(menu.style.top, '8px', 'a bottom trigger places tall content above');
+    assert.equal(menu.style.maxHeight, '248px');
+    await api.act(() =>
+      menu.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    );
+    assert.equal(window.document.querySelector('[role=menu]'), null);
+    assert.equal(window.document.activeElement, trigger);
+    await api.act(() => trigger.click());
+    await api.act(() => window.document.querySelector('[role=menuitem]').click());
+    assert.equal(window.selections, 1);
+    assert.equal(window.document.querySelector('[role=menu]'), null);
+    assert.equal(window.document.activeElement, trigger);
   });
 });

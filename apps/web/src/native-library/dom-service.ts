@@ -30,6 +30,7 @@ import { NativeLibraryService, type LibraryRepository } from './service';
 import { readNativeLibrarySummaries } from './cover-records';
 import { renderNativeLibraryCover } from './cover-dom';
 import { commitNativeCompletion } from './completion';
+import { readAdmittedBook } from '$lib/data/database/books-db/admitted-book-read';
 import type { LibraryAuthority } from './contract';
 
 async function owned<T>(
@@ -133,6 +134,34 @@ export function createNativeLibraryService() {
           return true;
         };
         if (action.type === 'presentation') {
+          if (action.change.cover !== undefined) {
+            // Check the real reader record/profile in its final readonly transaction.
+            // The separate organization commit writes only its immutable content key.
+            const db = await database.db;
+            current();
+            for (const book of targets) {
+              if (
+                !book.bookId ||
+                !book.contentHash ||
+                book.organizationKey !== `content:${book.contentHash}`
+              )
+                throw new Error(
+                  'The selected cover destination is not an immutable imported book.'
+                );
+              await readAdmittedBook(
+                db,
+                {
+                  bookId: book.bookId,
+                  contentHash: book.contentHash,
+                  readerBookKey: book.organizationKey,
+                  title: book.canonicalTitle,
+                  lastBookModified: book.lastBookModified
+                },
+                { ...guard, profileId: profile }
+              );
+              current();
+            }
+          }
           // The canonical key and every legacy alias were shown in the same edit snapshot.
           const editingCurrent = () => {
             current();

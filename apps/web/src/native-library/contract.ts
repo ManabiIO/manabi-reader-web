@@ -43,6 +43,7 @@ export interface NativeLibraryBook {
   wantToRead: boolean;
   coverBlur: boolean;
   hasCover: boolean;
+  canChangeCover: boolean;
   series?: BookSeries | null;
   source: string;
   available: boolean;

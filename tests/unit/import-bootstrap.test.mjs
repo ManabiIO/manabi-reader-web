@@ -160,9 +160,21 @@ const controllerBundle = await build({
   stdin: {
     contents: `
     import { createImportTtuScreen } from './apps/web/src/settings-react/import-ttu-screen-controller';
+    import { ImportTtuFilePicker } from './apps/web/src/settings-react/import-ttu-file-picker';
+    import { refreshLocation } from './apps/web/src/runtime/stores';
+    import React from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { flushSync } from 'react-dom';
     import { inspections } from '$lib/manabi/ttu-migration';
     window.createImporter = () => createImportTtuScreen({}, () => {}, undefined);
     window.inspections = inspections;
+    window.refreshLocation = refreshLocation;
+    window.mountPicker = (owner, strict = false) => {
+      const root = createRoot(document.getElementById('root'));
+      const picker = React.createElement(ImportTtuFilePicker, {owner});
+      flushSync(() => root.render(strict ? React.createElement(React.StrictMode, null, picker) : picker));
+      return () => flushSync(() => root.unmount());
+    };
   `,
     resolveDir: fileURLToPath(new URL('../../', import.meta.url))
   },
@@ -217,7 +229,11 @@ test('real importer consumes the early FileList once, reports its normal inspect
     window.eval(controllerBundle.outputFiles[0].text);
     const importer = window.createImporter();
     importer.controller.prepare();
+    const unmount = window.mountPicker(importer, true);
     importer.controller.start();
+    assert.equal(input.isConnected, true, 'the original browser input remains mounted');
+    assert.equal(window.document.querySelectorAll('input').length, 1);
+    assert.equal(window.inspections.length, 1, 'mount claimed the original pending selection');
     // A queued native change and repeated start cannot replay the claimed input.
     importer.consumeSelection(input);
     importer.controller.start();
@@ -238,6 +254,71 @@ test('real importer consumes the early FileList once, reports its normal inspect
     assert.equal(importer.busy, false);
     assert.equal(input.files.length, 0);
     importer.controller.destroy();
+    unmount();
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('a file chooser completing after an empty bootstrap claim still reaches the single live importer', async () => {
+  const dom = fixture();
+  try {
+    const { window } = dom;
+    const original = window.document.querySelector('input');
+    let selected = [];
+    Object.defineProperty(original, 'files', { get: () => selected });
+    Object.defineProperty(original, 'value', {
+      set: () => {
+        selected = [];
+      }
+    });
+    window.eval(controllerBundle.outputFiles[0].text);
+    const importer = window.createImporter();
+    importer.controller.prepare();
+    const unmount = window.mountPicker(importer, true);
+    importer.controller.start();
+    assert.equal(importer.filePicker, original);
+    assert.equal(original.isConnected, true);
+    assert.equal(window.inspections.length, 0);
+    const late = new window.File(['pending choice'], 'late.zip');
+    selected = [late];
+    original.dispatchEvent(new window.Event('change', { bubbles: true }));
+    original.dispatchEvent(new window.Event('change', { bubbles: true }));
+    for (let n = 0; n < 20; n++) await Promise.resolve();
+    assert.equal(window.inspections.length, 1);
+    assert.equal(window.inspections[0].file, late);
+    assert.match(importer.message, /late\.zip: Invalid ZIP fixture/);
+    assert.equal(importer.busy, false);
+    unmount();
+    selected = [new window.File(['departed'], 'departed.zip')];
+    original.dispatchEvent(new window.Event('change'));
+    assert.equal(window.inspections.length, 1, 'unmounted picker cannot consume late events');
+    importer.controller.destroy();
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('mounted importer tracks late route query publication and repeated Ttu/Yatsu navigation', async () => {
+  const dom = fixture();
+  try {
+    const { window } = dom;
+    window.eval(controllerBundle.outputFiles[0].text);
+    const importer = window.createImporter();
+    importer.controller.prepare();
+    importer.controller.start();
+    assert.equal(importer.yatsu, false);
+    for (const source of ['yatsu', 'ttu', 'yatsu']) {
+      window.history.replaceState({}, '', '/reader-web/import-ttu?source=' + source);
+      window.refreshLocation();
+      for (let n = 0; n < 10; n++) await Promise.resolve();
+      assert.equal(importer.yatsu, source === 'yatsu');
+    }
+    importer.controller.destroy();
+    window.history.replaceState({}, '', '/reader-web/manage');
+    window.refreshLocation();
+    for (let n = 0; n < 10; n++) await Promise.resolve();
+    assert.equal(importer.yatsu, true, 'departed importer no longer owns route updates');
   } finally {
     dom.window.close();
   }

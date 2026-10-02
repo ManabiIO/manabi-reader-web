@@ -568,10 +568,6 @@
   }
 }
 .react-reader-foliate {
-  .reader-context {
-    z-index: 10;
-  }
-
   .foliate-reader {
     overflow: hidden;
     min-width: 0;
@@ -1512,6 +1508,7 @@
 
   .reader-context {
     position: fixed;
+    z-index: 10;
     top: calc(1.5rem + env(safe-area-inset-top));
     left: 4rem;
     right: 4rem;

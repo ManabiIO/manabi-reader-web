@@ -110,5 +110,22 @@ for (const dom of [false, true]) {
     );
     assert.match(generate(ast).code, /import\(\/\* webpackIgnore: true \*\//);
     assert.doesNotMatch(generate(ast).code, /Dynamic require defined at line/);
+    assert.doesNotMatch(generate(ast).code, /__ExpoImportMetaRegistry|import\.meta/);
   });
 }
+
+test('only the embedded ORT WASM factory treats its optional module URL as unavailable', () => {
+  const source = 'export const moduleURL = import.meta.url;';
+  assert.match(generate(transform(source)).code, /moduleURL = void 0/);
+  for (const filename of [
+    '/app/src/worker.ts',
+    '/app/node_modules/other/dist/ort.wasm.bundle.min.mjs',
+    '/app/node_modules/onnxruntime-web/dist/ort.all.min.mjs',
+    '/app/node_modules/onnxruntime-web/dist/ort.wasm.min.mjs'
+  ])
+    assert.match(generate(transform(source, filename)).code, /import\.meta\.url/);
+  assert.match(
+    generate(transform('export const env = import.meta.env;')).code,
+    /import\.meta\.env/
+  );
+});

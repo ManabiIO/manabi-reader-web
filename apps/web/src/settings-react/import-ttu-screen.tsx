@@ -17,6 +17,7 @@ import {
 } from './primitives';
 import { SettingsContext, useSettingsContext } from './context';
 import { createImportTtuScreen, type ImportTtuScreenProps } from './import-ttu-screen-controller';
+import { ImportTtuFilePicker } from './import-ttu-file-picker';
 
 import { resolve } from '$app/paths';
 
@@ -150,20 +151,7 @@ export function ImportTtuScreen(
             {'Choose '}
             {c.yatsu ? 'Yatsu backup' : 'Ttu export'}
             {' ZIPs '}
-            <Dom
-              as="input"
-              type={'file'}
-              accept={'.zip,application/zip'}
-              multiple={true}
-              disabled={c.busy}
-              elementRef={(value: typeof c.filePicker) => {
-                c.controller.changed((c.filePicker = value));
-              }}
-              events={{
-                change: (event: Event & { currentTarget: HTMLInputElement }) =>
-                  c.consumeSelection(event.currentTarget)
-              }}
-            />
+            <ImportTtuFilePicker owner={c} />
           </Dom>
           <Dom as="p">{'Imports stay on this device. No sign-in or cloud access is required.'}</Dom>
           {c.message ? (

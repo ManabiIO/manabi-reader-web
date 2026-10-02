@@ -37,6 +37,7 @@ import {
   type NativeReaderClose
 } from './native-reader-navigation';
 import { nativeNavigationPath } from './native-navigation';
+import { selectNativeLibraryCover } from '../native-library/cover-selection';
 
 type ReaderHostDOMProps = DOMProps & {
   manabiReaderHost: true;
@@ -53,6 +54,7 @@ interface RuntimeValue {
   busy: boolean;
   command(method: BridgeMethod, payload?: Record<string, unknown>): Promise<unknown>;
   importBooks(): Promise<void>;
+  changeCover(selection: { token: string; key: string }, signal: AbortSignal): Promise<boolean>;
   clearError(): void;
 }
 const RuntimeContext = createContext<RuntimeValue | null>(null);
@@ -236,7 +238,8 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
           }
           await command('import.commit', { transferId });
         } catch (cause) {
-          await command('import.cancel').catch(() => {});
+          if (owner.session === latest.current.session && owner.epoch === latest.current.epoch)
+            await command('import.cancel', { transferId }).catch(() => {});
           throw cause;
         } finally {
           handle.close(); /* Picker-owned cached copy is temporary; no source file is deleted. */
@@ -247,6 +250,31 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     } finally {
       importActive.current = false;
       setBusy(false);
+    }
+  }
+  async function changeCover(selection: { token: string; key: string }, signal: AbortSignal) {
+    if (importActive.current) throw new Error('Another file transfer is in progress.');
+    importActive.current = true;
+    setBusy(true);
+    try {
+      return await selectNativeLibraryCover(
+        {
+          scope: () => latest.current,
+          pick: () =>
+            DocumentPicker.getDocumentAsync({
+              type: ['image/png', 'image/jpeg', 'image/webp'],
+              multiple: false,
+              copyToCacheDirectory: true
+            }),
+          file: (uri) => new File(uri),
+          command
+        },
+        selection,
+        signal
+      );
+    } finally {
+      importActive.current = false;
+      if (mounted.current) setBusy(false);
     }
   }
   const routeParams = JSON.stringify({ id: params.id, snippet: params.snippet });
@@ -313,6 +341,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         busy,
         command,
         importBooks,
+        changeCover,
         clearError: () => setError('')
       }}
     >

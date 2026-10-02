@@ -55,3 +55,36 @@ test('the full-screen gallery overrides default dialog padding and gap before la
     dom.window.close();
   }
 });
+
+test('the running title layers above Foliate as a session sibling', () => {
+  const dom = new JSDOM(`<style>${css('reader-react/reader.css')}</style>
+    <div class="react-reader-session"><div class="reader-context">Book title</div>
+    <div class="react-reader-foliate"><div class="book-content"></div></div></div>`);
+  try {
+    const title = dom.window.document.querySelector('.reader-context');
+    assert.equal(title.closest('.react-reader-foliate'), null);
+    assert.equal(dom.window.getComputedStyle(title).position, 'fixed');
+    assert.equal(dom.window.getComputedStyle(title).zIndex, '10');
+  } finally {
+    dom.window.close();
+  }
+});
+
+test('Reading tools can shrink and scroll enlarged labels in a short viewport', () => {
+  const dom = new JSDOM(`<style>${css('reader-react/primitives.css')}</style>
+    <div class="reader-tools-menu" role="menu"><button role="menuitem">Save Reading Position</button></div>`);
+  try {
+    const menu = dom.window.document.querySelector('[role=menu]');
+    const style = dom.window.getComputedStyle(menu);
+    assert.equal(style.position, 'fixed');
+    assert.equal(style.minWidth, '0');
+    assert.equal(style.overflowY, 'auto');
+    assert.equal(style.overflowX, 'hidden');
+    assert.equal(style.writingMode, 'horizontal-tb');
+    const item = dom.window.getComputedStyle(menu.firstElementChild);
+    assert.equal(item.whiteSpace, 'normal');
+    assert.equal(item.overflowWrap, 'anywhere');
+  } finally {
+    dom.window.close();
+  }
+});

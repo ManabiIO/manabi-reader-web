@@ -120,7 +120,8 @@ export default function ReaderRuntime({
       mounted: false,
       accountLifetime: new AbortController(),
       lifetime: new AbortController(),
-      transfer: new ImportTransfer()
+      transfer: new ImportTransfer(),
+      coverSave: undefined as { id: string; key: string; controller: AbortController } | undefined
     }),
     []
   );
@@ -427,6 +428,17 @@ export default function ReaderRuntime({
                 return snapshot();
               }
               case 'import.begin':
+                if (payload.cover !== undefined) {
+                  const cover = library.admitCover(payload.cover, libraryAuthority);
+                  state.transfer.beginCover(
+                    scope(),
+                    payload.transferId as string,
+                    payload.name as string,
+                    payload.size as number,
+                    cover
+                  );
+                  return null;
+                }
                 state.transfer.begin(
                   scope(),
                   payload.transferId as string,
@@ -450,14 +462,39 @@ export default function ReaderRuntime({
                 );
               }
               case 'import.cancel':
-                state.transfer.cancel();
+                if (typeof payload.transferId !== 'string')
+                  throw new Error('A transfer identity is required to cancel an upload.');
+                state.transfer.retire(scope(), payload.transferId);
+                if (
+                  state.coverSave?.id === payload.transferId &&
+                  state.coverSave.key === libraryAuthority.key
+                )
+                  state.coverSave.controller.abort();
                 return null;
               case 'import.commit': {
                 const transfer = state.transfer.commit(scope(), payload.transferId as string);
                 const file = new File(
                   transfer.chunks.map((chunk) => chunk.buffer as ArrayBuffer),
-                  transfer.name
+                  transfer.name,
+                  transfer.cover ? { type: transfer.cover.type } : undefined
                 );
+                if (transfer.cover) {
+                  if (state.coverSave) throw new Error('Another cover image is still being saved.');
+                  const pending = {
+                    id: payload.transferId as string,
+                    key: libraryAuthority.key,
+                    controller: new AbortController()
+                  };
+                  state.coverSave = pending;
+                  try {
+                    return await library.replaceCover(transfer.cover, file, {
+                      ...libraryAuthority,
+                      signal: AbortSignal.any([libraryAuthority.signal, pending.controller.signal])
+                    });
+                  } finally {
+                    if (state.coverSave === pending) state.coverSave = undefined;
+                  }
+                }
                 const handler = getStorageHandler(window, StorageKey.BROWSER);
                 const error = await importData(document, handler, [file], operation.signal);
                 operation.assertCurrent();

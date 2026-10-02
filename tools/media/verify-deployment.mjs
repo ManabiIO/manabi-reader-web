@@ -10,7 +10,10 @@ const source = join(root, 'apps/web/static/moss');
 const output = join(root, 'apps/web/build/moss');
 const required = ['LICENSE-GGML.txt', 'LICENSE-MOSS.txt', 'moss.mjs', 'moss.wasm'];
 
-if (process.env.VITE_ENABLE_VIDEO_LEARNING !== 'true') {
+if (
+  (process.env.EXPO_PUBLIC_ENABLE_VIDEO_LEARNING ?? process.env.VITE_ENABLE_VIDEO_LEARNING) !==
+  'true'
+) {
   await rm(output, { recursive: true, force: true });
   console.log('Video learning disabled: removed packaged MOSS runtimes');
   process.exit(0);

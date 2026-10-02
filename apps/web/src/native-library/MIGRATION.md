@@ -16,7 +16,15 @@ The existing DOM database owner captures cover metadata and a content-hash or ex
 
 Native `FlatList` viewability drives loading, with at most 12 visible candidates, two in-flight requests and 24 cached thumbnails per view (under 1.6 MiB of encoded image text). There is no cover polling or bulk 60-image state response. Responses are capped at 48 KiB of JPEG bytes and 240 × 360 pixels; input is capped at 8 MiB, decoded dimensions at 8192 per edge and 16 megapixels, and decoding at six seconds. Cancellation retains occupied slots until work actually settles. Refresh, route departure, account changes and disposal clear native images; stale responses cannot populate a newer view. Missing, invalid, unsupported or oversized covers retain title/author fallbacks, and native decode errors do the same.
 
-Provider-only rows, cached provider-preview-only covers and legacy hashless copies without an existing local identity retain the fallback. Series/folder tiles remain text-labelled; native cover stacks are not implemented. These controls do not add cover picking, provider downloads, file permissions, another database owner or a web Library change.
+Provider-only rows, cached provider-preview-only covers and legacy hashless copies without an existing local identity retain the fallback. Series/folder tiles remain text-labelled; native cover stacks are not implemented. Cover rendering does not add provider downloads, file permissions, another database owner or native permissions for image content.
+
+## User-selected custom covers
+
+Book details exposes **Choose cover image** for available imported copies whose organization destination is a verified content hash. The native Expo DocumentPicker admits one PNG, JPEG, or WebP, copies it to the picker cache and reads at most 256 KiB at a time. The native file URI never crosses the bridge. A 32 MiB `import.begin` cover variant retains only the opaque edit token/key and raster MIME; ordinary `import.chunk`/`import.commit` receipts, sequence admission, permanent transfer tombstones and unknown-outcome reconciliation are reused. Book import and cover selection share one native transfer lock. Picker cancellation writes nothing; route departure, teardown and account generations retire selection work. Cancels target one exact transfer and account, including its pending cover decode/save; they cannot cancel a newer upload. A cancelled or unacknowledged commit is reconciled rather than replayed.
+
+The existing DOM `coverOverride` pipeline now checks raster MIME/signature agreement, 32 MiB input, a six-second bitmap decode, 8192 pixels per edge and 16 megapixels, and produces a portable raster data URI no larger than 512 KiB at up to 400 × 600 pixels. SVG and HTML inputs or raster-MIME spoofs are rejected before decode. Late cancelled bitmap results are closed. The original web picker uses this same pipeline and retains PNG/JPEG/WebP support. No original image URL/source is executable or gains native capabilities.
+
+The original selection is rechecked after picker transfer and rasterization. Ordinary single-use Library mutation admission re-reads the immutable selected book; the DOM repository rechecks its actual profile/content identity in a final reader transaction and writes through the existing `presentBooks` transaction, preserving presentation baselines and account/cancellation guards. Reader records and organization metadata occupy separate databases; only a verified content-hash key is permitted as the override destination, never a reusable numeric book ID. Provider-only, placeholder and legacy hashless copies explain that re-import is required rather than requesting file permissions or guessing identity.
 
 ## Saved-book passage search
 
@@ -35,6 +43,7 @@ Native controls explicitly submit Search/IME search actions rather than searchin
 - Search by title, canonical title, author, or matching series; eight sort fields; ascending/descending order; unfinished filter; list/grid layout and bounded pagination
 - Native saved-book passage search, highlighted original-text excerpts, bounded paging and canonical passage opening
 - Existing saved-book covers in native list/grid rows, lazily rasterized with saved blur preferences and text fallback
+- User-selected PNG/JPEG/WebP custom covers for verified imported content-hash copies
 - Cached source and folder navigation, personal-series breadcrumbs and volume ordering
 - All Books, Finished, Want to Read and custom collection navigation/counts
 - Single-page selection, metadata/author sort/language/publisher/date/description/subject/direction editing, cover blur preferences
@@ -46,15 +55,15 @@ Native controls explicitly submit Search/IME search actions rather than searchin
 
 This is source implementation, not a complete native parity or release claim. First-party native authentication/session transport and persistent Android folder handles are unavailable. Cached provider rows can be browsed; the UI explains why provider refresh/import/move/rename/group/reconnect actions cannot be performed. No invented endpoint or filesystem bridge is exposed. Unverified unsaved previews cannot be organized until imported.
 
-Editors' picks downloading, custom cover image picking, mixed snippet counts, physical local/cloud series operations and repair plans, backup/export/share, per-book statistics navigation/deletion, and finished timeline presentation are not implemented by these native controls. Existing web implementations remain intact. Layout/sort/filter state is currently screen-local.
+Editors' picks downloading, custom covers for provider-only/hashless copies, mixed snippet counts, physical local/cloud series operations and repair plans, backup/export/share, per-book statistics navigation/deletion, and finished timeline presentation are not implemented by these native controls. Existing web implementations remain intact. Layout/sort/filter state is currently screen-local.
 
 Open/remove admission returns expected content identity from the single-use Library token. The integrated host validates the expectation at its final read/write boundary; preflight visibility alone cannot authorize a replaced numeric ID. The guarded database read checks the existing canonical key and ownership in the same readonly transaction as the record bytes, and never creates a replacement UUID during admission.
 
 ## Validation
 
 - `node --test test/expo/native-library.test.mjs`: 15 service/view-model tests plus real fake-indexeddb transactions for ownership, content replacement, atomic completion rollback, and cancellation
-- `node --test test/expo/native-library-cover*.test.mjs`: 15 cover service/DTO/viewport/cache/native component tests, real fake-indexeddb guarded reads and DOM-element raster lifecycle tests (image/canvas decoding is mocked in that suite)
-- `node test/expo/native-library-cover-browser.mjs`: real Chromium raster, blur, SVG-image isolation and cancellation smoke; requires installed Playwright Chromium or `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` (local launch was blocked by process sandbox `socket()` restrictions)
+- `node --test test/expo/native-library-cover*.test.mjs`: cover service/DTO/viewport/cache/native component tests, real fake-indexeddb guarded reads, DOM-element raster lifecycle and custom-cover picker/transfer/receipt/identity tests (image/canvas decoding is mocked in that suite)
+- `node test/expo/native-library-cover-browser.mjs`: real Chromium raster, blur, SVG-image isolation, shared web/native custom-cover decoding/rejection and cancellation smoke; requires installed Playwright Chromium or `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` (local launch was blocked by process sandbox `socket()` restrictions)
 - `node --test test/expo/native-library-content*.test.mjs`: service/DTO/lifecycle tests and real existing worker + fake-indexeddb tests for profile ownership, replaced hash/UUID identity, cancellation, projection integrity, normalization and exclusion parity
 - `node test/expo/native-library-typecheck.mjs`: strict scoped diagnostics using the production Expo configuration and resolved dependency types
 - `node --test tests/unit/library-organization-lifetime.test.mjs`: delayed commit/cancellation, owner ABA, existing web callers and organization publication

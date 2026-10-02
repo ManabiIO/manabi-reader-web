@@ -24,7 +24,14 @@ import { setDavBookSync } from '$lib/webdav/sync';
 import { WebDavSource } from '$lib/webdav/source';
 
 import { resolve } from '$app/paths';
-import { refreshAccount, connectProvider, signOut, providerLabels } from '$lib/manabi/client';
+import {
+  refreshAccount,
+  connectProvider,
+  signOut,
+  providerLabels,
+  accountGeneration,
+  localProfileUser
+} from '$lib/manabi/client';
 import { enablePreferenceSync, syncPreferences } from '$lib/manabi/preferences';
 import {
   refreshLinkedBooks,
@@ -64,11 +71,24 @@ export function ConnectionsScreen(
     user: string;
     enabled: boolean;
   } | null>(null);
+  const [davChange, setDavChange] = React.useState<{
+    owner: NonNullable<typeof c>;
+    linkId: string;
+    profileId: string | null;
+    generation: number;
+    enabled: boolean;
+  } | null>(null);
   useReaderBindings(c, props);
   if (!c) return null;
   const changingPreferences =
     preferenceChange?.owner === c && preferenceChange.user === c.$account.session?.user?.id
       ? preferenceChange
+      : null;
+  const changingDav =
+    davChange?.owner === c &&
+    davChange.profileId === (localProfileUser()?.id ?? null) &&
+    davChange.generation === accountGeneration()
+      ? davChange
       : null;
   return (
     <SettingsContext.Provider value={context}>
@@ -835,14 +855,32 @@ export function ConnectionsScreen(
                         <Dom
                           as="input"
                           type={'checkbox'}
-                          checked={link.syncEnabled}
+                          checked={
+                            changingDav?.linkId === link.id ? changingDav.enabled : link.syncEnabled
+                          }
                           disabled={c.busy}
                           events={{
-                            change: (event: Event & { currentTarget: HTMLInputElement }) =>
-                              c.action(async () => {
-                                await setDavBookSync(link.id, event.currentTarget.checked);
-                                await refreshLinkedBooks();
-                              })
+                            change: (event: Event & { currentTarget: HTMLInputElement }) => {
+                              if (c.busy) return;
+                              const change = {
+                                owner: c,
+                                linkId: link.id,
+                                profileId: localProfileUser()?.id ?? null,
+                                generation: accountGeneration(),
+                                enabled: event.currentTarget.checked
+                              };
+                              // Keep only the visible intent pending. Durable consent
+                              // still belongs to the guarded WebDAV transaction.
+                              setDavChange(change);
+                              void c
+                                .action(async () => {
+                                  await setDavBookSync(change.linkId, change.enabled);
+                                  await refreshLinkedBooks();
+                                })
+                                .finally(() =>
+                                  setDavChange((current) => (current === change ? null : current))
+                                );
+                            }
                           }}
                         />
                         {' Sync this book’s reading data with WebDAV'}

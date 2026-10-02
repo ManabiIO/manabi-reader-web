@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { bookFragmentElement } from '../lib/functions/book-security/book-fragment';
 import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
 import { projectResource, rangeAt, resolveLocator, type ReaderLocator } from '$lib/reader-location';
 import { browser } from '../runtime/environment';
@@ -702,8 +703,7 @@ export function createPaginated(
     const nextSectionIndex =
       typeof target === 'string'
         ? sections.findIndex(
-            (section) =>
-              section.id === target || section.querySelector(`[id="${CSS.escape(target)}"]`)
+            (section) => section.id === target || bookFragmentElement(section, target)
           )
         : target.spineIndex;
     if (nextSectionIndex < 0 || nextSectionIndex >= sections.length) return;

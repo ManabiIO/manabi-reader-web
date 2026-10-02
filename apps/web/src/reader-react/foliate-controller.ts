@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { bookFragmentElement } from '../lib/functions/book-security/book-fragment';
 import type { EpubResourceData } from '$lib/foliate-epub/publication-data';
 import {
   nextChapter$,
@@ -629,11 +630,7 @@ export function createFoliate(
               ? (doc: Document) => {
                   if (!owner.isCurrent())
                     throw new DOMException('Navigation superseded.', 'AbortError');
-                  return (
-                    doc.getElementById(fragment) ??
-                    doc.querySelector(`#${CSS.escape(fragment)}`) ??
-                    0
-                  );
+                  return bookFragmentElement(doc, fragment) ?? 0;
                 }
               : 0
           });

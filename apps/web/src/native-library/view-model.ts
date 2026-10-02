@@ -166,6 +166,12 @@ export function nativeBook(
     finishedOn: book.completion?.finishedOn,
     wantToRead: collectionContains(wantToReadCollection(organization), book),
     coverBlur: !!book.coverBlur,
+    canChangeCover: !!(
+      book.bookId &&
+      !book.isPlaceholder &&
+      /^[a-f0-9]{64}$/.test(book.contentHash ?? '') &&
+      book.organizationKey === `content:${book.contentHash}`
+    ),
     hasCover: false,
     series: book.series,
     source: book.source?.name.slice(0, 512) || 'On this device',

@@ -21,7 +21,13 @@ import {
   WANT_TO_READ_ID
 } from '../lib/library/want-to-read';
 import { sourceKey } from '../lib/library/organization-keys';
-import type { Organization, BookPresentation } from '../lib/library/organization';
+import type {
+  Organization,
+  BookPresentation,
+  PresentationChange
+} from '../lib/library/organization';
+import { coverOverride } from '../lib/library/cover-override';
+import { parseCoverImportTarget } from '../platform/bridge-contract';
 import type { SourceDescriptor } from '../lib/library/catalog';
 import {
   LIBRARY_ACTION_LIMIT,
@@ -44,11 +50,16 @@ export interface LibraryData {
   /** DOM-only canonical identities, captured with saved covers. */
   coverIdentities?: Record<number, string>;
 }
+export type LibraryWriteRequest =
+  | Exclude<LibraryActionRequest, { type: 'presentation' }>
+  | (Omit<Extract<LibraryActionRequest, { type: 'presentation' }>, 'change'> & {
+      change: PresentationChange;
+    });
 export interface LibraryRepository {
   cover?: RenderLibraryCover;
   load(authority: LibraryAuthority): Promise<LibraryData>;
   write(
-    action: LibraryActionRequest,
+    action: LibraryWriteRequest,
     targets: ShelfBook[],
     expected: Record<string, BookPresentation | undefined>,
     authority: LibraryAuthority
@@ -386,9 +397,56 @@ export class NativeLibraryService {
       lastBookModified: book.lastBookModified
     };
   }
-  async action(payload: unknown, authority: LibraryAuthority): Promise<{ saved: true }> {
+  /** A cover transfer may only bind to an imported immutable content key. */
+  admitCover(payload: unknown, authority: LibraryAuthority) {
     this.bind(authority);
-    const action = parseAction(payload);
+    const target = parseCoverImportTarget(payload);
+    const admission = this.admissions.get(target.token);
+    const book = admission?.targets.get(target.key);
+    if (
+      !admission ||
+      admission.key !== authority.key ||
+      this.now() - admission.created < 0 ||
+      this.now() - admission.created > 10 * 60 * 1000 ||
+      !book
+    )
+      throw new Error('The Library selection expired. Refresh before changing its cover.');
+    if (
+      !book.bookId ||
+      book.isPlaceholder ||
+      !/^[a-f0-9]{64}$/.test(book.contentHash ?? '') ||
+      book.organizationKey !== `content:${book.contentHash}`
+    )
+      throw new Error(
+        'Re-import this book before choosing a cover. A verified imported copy is required.'
+      );
+    return target;
+  }
+  async replaceCover(
+    payload: unknown,
+    file: File,
+    authority: LibraryAuthority
+  ): Promise<{ saved: true }> {
+    const target = this.admitCover(payload, authority);
+    if (file.type !== target.type) throw new Error('The cover image type changed.');
+    const cover = await coverOverride(file, authority);
+    this.assert(authority);
+    // A second admission check plus the ordinary mutation re-read rejects a replaced
+    // book, account ABA, intervening metadata edit, or consumed/expired selection.
+    this.admitCover(target, authority);
+    return this.performAction(
+      { token: target.token, type: 'presentation', keys: [target.key], change: { cover } },
+      authority
+    );
+  }
+  async action(payload: unknown, authority: LibraryAuthority): Promise<{ saved: true }> {
+    return this.performAction(parseAction(payload), authority);
+  }
+  private async performAction(
+    action: LibraryWriteRequest,
+    authority: LibraryAuthority
+  ): Promise<{ saved: true }> {
+    this.bind(authority);
     const admitted = this.admissions.get(action.token);
     if (
       !admitted ||

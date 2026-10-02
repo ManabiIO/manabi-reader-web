@@ -10,6 +10,29 @@
 export const BRIDGE_VERSION = 1 as const;
 export const MAX_BRIDGE_BYTES = 768 * 1024;
 export const MAX_IMPORT_BYTES = 256 * 1024 * 1024;
+export const MAX_COVER_IMPORT_BYTES = 32 * 1024 * 1024;
+export const COVER_IMPORT_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+/** Opaque selected-book admission only; never a path, URL, or native capability. */
+export interface CoverImportTarget {
+  token: string;
+  key: string;
+  type: (typeof COVER_IMPORT_TYPES)[number];
+}
+export function parseCoverImportTarget(value: unknown): CoverImportTarget {
+  if (
+    !record(value) ||
+    Object.keys(value).some((key) => !['token', 'key', 'type'].includes(key)) ||
+    typeof value.token !== 'string' ||
+    !value.token.length ||
+    value.token.length > 128 ||
+    typeof value.key !== 'string' ||
+    !value.key.length ||
+    value.key.length > 128 ||
+    !COVER_IMPORT_TYPES.includes(value.type as CoverImportTarget['type'])
+  )
+    throw new Error('Choose a PNG, JPEG, or WebP cover for the current Library selection.');
+  return { token: value.token, key: value.key, type: value.type as CoverImportTarget['type'] };
+}
 export const IMPORT_CHUNK_BYTES = 256 * 1024;
 export const MAX_IMPORT_TRANSFERS = 2048;
 const MAX_MUTATION_RECEIPTS = 2048;
@@ -346,12 +369,30 @@ export class ImportTransfer {
     admittedSequence: number;
     chunks: Uint8Array[];
     scope: BridgeScope;
+    cover?: CoverImportTarget;
   };
   begin(scope: BridgeScope, id: string, name: string, size: number) {
+    if (!/\.(epub|htmlz|txt)$/i.test(name))
+      throw new Error('This file is not a supported book or exceeds the import limit.');
+    this.start(scope, id, name, size);
+  }
+  beginCover(scope: BridgeScope, id: string, name: string, size: number, input: unknown) {
+    const cover = parseCoverImportTarget(input);
+    if (size > MAX_COVER_IMPORT_BYTES) throw new Error('Choose a cover image smaller than 32 MB.');
+    this.start(scope, id, name, size, cover);
+  }
+  private start(
+    scope: BridgeScope,
+    id: string,
+    name: string,
+    size: number,
+    cover?: CoverImportTarget
+  ) {
     if (this.current) throw new Error('Finish or cancel the current import first.');
     if (
       !token(id) ||
-      !/\.(epub|htmlz|txt)$/i.test(name) ||
+      typeof name !== 'string' ||
+      !name.length ||
       name.length > 512 ||
       // eslint-disable-next-line no-control-regex -- reject control characters at the input boundary
       /[\u0000/\\]/.test(name) ||
@@ -372,7 +413,8 @@ export class ImportTransfer {
       sequence: 0,
       admittedSequence: -1,
       chunks: [],
-      scope: { ...scope }
+      scope: { ...scope },
+      ...(cover ? { cover } : {})
     };
   }
   admitChunk(scope: BridgeScope, id: string, sequence: number) {
@@ -403,7 +445,12 @@ export class ImportTransfer {
     const current = this.owned(scope, id);
     if (current.received !== current.size) throw new Error('The book transfer is incomplete.');
     this.current = undefined;
-    return { name: current.name, size: current.size, chunks: current.chunks };
+    return {
+      name: current.name,
+      size: current.size,
+      chunks: current.chunks,
+      ...(current.cover ? { cover: current.cover } : {})
+    };
   }
   cancel() {
     this.current = undefined;

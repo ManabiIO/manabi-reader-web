@@ -102,7 +102,7 @@ export function NativeLibraryScreen() {
   return <Library key={`${snapshot.session}:${snapshot.epoch}`} />;
 }
 function Library() {
-  const { snapshot, command, importBooks, busy: importing } = useReaderRuntime();
+  const { snapshot, command, importBooks, changeCover, busy: importing } = useReaderRuntime();
   const focused = usePathname() === '/manage';
   const [covers, setCovers] = useState<NativeCoverState>({ token: '', images: new Map() });
   const coverController = useRef<NativeLibraryCoverController | null>(null);
@@ -145,11 +145,13 @@ function Library() {
   const serial = useRef(0);
   const mounted = useRef(true);
   const mutationActive = useRef(false);
+  const coverOperation = useRef<AbortController | null>(null);
   useEffect(() => {
     mounted.current = true;
     coverController.current?.activate();
     return () => {
       coverController.current?.dispose();
+      coverOperation.current?.abort();
       mounted.current = false;
       serial.current++;
     };
@@ -200,6 +202,7 @@ function Library() {
   }, [search]);
   useEffect(() => {
     coverController.current?.setActive(focused && searchMode === 'metadata' && !loading);
+    if (!focused) coverOperation.current?.abort();
   }, [focused, searchMode, loading]);
   function view(change: LibraryQuery) {
     setError('');
@@ -234,6 +237,36 @@ function Library() {
       if (mounted.current) {
         setBusy(false);
         void refresh({ ...query, detail: undefined });
+      }
+    }
+  }
+  async function chooseCover() {
+    if (!state?.detail?.canChangeCover || mutationActive.current || importing) return;
+    const selection = { token: state.token, key: state.detail.key };
+    const controller = new AbortController();
+    coverOperation.current = controller;
+    mutationActive.current = true;
+    setBusy(true);
+    setError('');
+    let reconcile = false;
+    try {
+      const saved = await changeCover(selection, controller.signal);
+      reconcile = saved;
+      if (saved && mounted.current) setSheet(undefined);
+    } catch (cause) {
+      reconcile = true;
+      if (mounted.current)
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : 'The cover outcome is unknown. Refresh before trying again.'
+        );
+    } finally {
+      coverOperation.current = null;
+      mutationActive.current = false;
+      if (mounted.current) {
+        setBusy(false);
+        if (reconcile) void refresh();
       }
     }
   }
@@ -898,6 +931,18 @@ function Library() {
                     void mutate({ type: 'presentation', keys: [state.detail!.key], change });
                   }}
                 />
+                <Action
+                  label={busy && coverOperation.current ? 'Changing cover…' : 'Choose cover image'}
+                  disabled={busy || importing || !state.detail.canChangeCover}
+                  onPress={() => {
+                    void chooseCover();
+                  }}
+                />
+                <Text>
+                  {state.detail.canChangeCover
+                    ? 'PNG, JPEG, or WebP up to 32 MB. The image is resized before saving.'
+                    : 'Re-import this book to choose a cover for a verified copy on this device.'}
+                </Text>
                 <View style={styles.row}>
                   <Action
                     label="Collections"

@@ -58,13 +58,23 @@ jobs:
         shell: bash
         run: |
           pnpm exec playwright install --with-deps chromium webkit
-          pnpm --dir apps/web exec vite preview --host 127.0.0.1 --port 4178 > test-results/snippets/server.log 2>&1 &
+          PORT=4178 BASE_PATH=/reader-web node scripts/serve-expo.mjs > test-results/snippets/server.log 2>&1 &
           server=$!
           trap 'kill "$server" 2>/dev/null || true' EXIT
+          ready=false
           for attempt in $(seq 1 60); do
-            if curl --fail --silent http://127.0.0.1:4178/reader-web/snippets >/dev/null; then break; fi
+            if ! kill -0 "$server" 2>/dev/null; then
+              cat test-results/snippets/server.log
+              exit 1
+            fi
+            if curl --fail --silent http://127.0.0.1:4178/reader-web/snippets >/dev/null; then ready=true; break; fi
             sleep 1
           done
+          if [ "$ready" != true ]; then
+            cat test-results/snippets/server.log
+            echo 'Expo static preview did not become ready' >&2
+            exit 1
+          fi
           for engine in chromium webkit; do
             SNIPPETS_BROWSER="$engine" SNIPPETS_SCREENSHOT="test-results/snippets/$engine.png" node test/snippets/browser.mjs 2>&1 | tee "test-results/snippets/$engine.log"
           done

@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { bookFragmentElement } from '../lib/functions/book-security/book-fragment';
 import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
 import { browser } from '../runtime/environment';
 import {
@@ -685,7 +686,7 @@ export function createContinuous(
   nextChapter$.pipe(takeUntil(destroy$)).subscribe((target) => {
     let targetElement: Element | null;
     if (typeof target === 'string') {
-      targetElement = document.getElementById(target);
+      targetElement = contentEl ? bookFragmentElement(contentEl, target) : null;
       if (!targetElement) return;
       if (!target.startsWith(prependValue)) {
         targetElement = targetElement.closest(`div[id^="${prependValue}"]`) || targetElement;
@@ -693,9 +694,7 @@ export function createContinuous(
     } else {
       const section = contentEl?.children.item(target.spineIndex);
       if (!section) return;
-      targetElement = target.fragment
-        ? section.querySelector(`[id="${CSS.escape(target.fragment)}"]`)
-        : section;
+      targetElement = target.fragment ? bookFragmentElement(section, target.fragment) : section;
       if (!targetElement) return;
     }
     __readerController.changed((willNavigate = true));

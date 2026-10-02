@@ -218,6 +218,9 @@ test('migration inspection guards busy state synchronously and preserves safe de
     beforeStop = 0;
   const { createImportTtuScreen } = load('settings-react/import-ttu-screen-controller.ts', {
     '$app/navigation': { beforeNavigate: () => () => beforeStop++ },
+    '$app/stores': {
+      page: store({ url: new URL('https://reader.example/reader-web/import-ttu') })
+    },
     '$app/paths': { resolve: (value) => value },
     '$lib/manabi/ttu-migration': {
       TtuMigration: {
@@ -232,9 +235,6 @@ test('migration inspection guards busy state synchronously and preserves safe de
       importLabels: { bookData: 'Book data', settings: 'Reader settings' },
       MigrationConflict: class extends Error {}
     },
-    '../runtime/import-bootstrap': load('runtime/import-bootstrap.ts', {
-      './paths': { base: '/reader-web' }
-    }),
     '../reader-react/controller': runtime
   });
   const c = createImportTtuScreen({}, undefined, settingsContext());

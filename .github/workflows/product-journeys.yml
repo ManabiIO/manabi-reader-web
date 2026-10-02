@@ -48,7 +48,7 @@ jobs:
       - name: Build the real application
         env:
           BASE_PATH: /reader-web
-          VITE_ENABLE_VIDEO_LEARNING: 'true'
+          EXPO_PUBLIC_ENABLE_VIDEO_LEARNING: 'true'
         run: pnpm build
       - name: Install both browser engines
         run: |
