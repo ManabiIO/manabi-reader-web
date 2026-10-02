@@ -821,7 +821,7 @@ def main():
                         windows:[null,null,null],repairs:[null,null]}};
                 player.generationProgress(sparseJob);
             }""")
-            assert 'estimating after the first window' in page.locator('.video-viewing [role=status]').all_inner_texts()[-1]
+            assert 'estimating after the first speech window' in page.locator('.video-viewing [role=status]').all_inner_texts()[-1]
             elapsed=page.evaluate("""()=>{
                 player.generationProgress(sparseJob,'transcribing');
                 player.firstWindowStartedAt-=5000;
