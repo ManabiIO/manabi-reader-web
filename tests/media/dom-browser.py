@@ -843,6 +843,28 @@ def main():
             assert page.get_by_role('button',name='Wait for captions',exact=True).is_visible()
             page.wait_for_function('!player.video.paused')
         case('slow sparse inference shows a measured ETA and playback bypass',sparse_buffer_controls)
+        def sparse_silence_restarts_speech_clock():
+            result=page.evaluate("""async()=>{
+                await createPlayer();
+                await player.bindIdentity(mediaKey);
+                const job={id:trackId,mediaKey,status:'running',duration:52,
+                    sparse:{policy:'overlap-sparse-v2',targetSeconds:0,
+                        windows:[null,null],repairs:[null]}};
+                player.generationProgress(job,'decoding');
+                const firstStarted=typeof player.firstWindowStartedAt==='number';
+                job.sparse.windows[0]={cues:[],inferenceMs:50,digitalSilence:true};
+                player.generationProgress(job,'transcribing');
+                const reset=player.firstWindowStartedAt===undefined;
+                player.generationProgress(job,'decoding');
+                const restarted=typeof player.firstWindowStartedAt==='number'
+                    && player.firstWindowCompleted===1;
+                player.firstWindowStartedAt-=3000;
+                player.updateBuffering();
+                return {firstStarted,reset,restarted,status:player.bufferStatus.textContent};
+            }""")
+            assert result['firstStarted'] and result['reset'] and result['restarted'],result
+            assert 'first speech window' in result['status'] and '0:03 elapsed on this device' in result['status'],result
+        case('digital-silent coverage restarts the first-speech ETA clock',sparse_silence_restarts_speech_clock)
         def native_play_at_sparse_gap():
             result=page.evaluate("""async()=>{
                 await createPlayer();
