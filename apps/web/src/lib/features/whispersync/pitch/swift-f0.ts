@@ -38,8 +38,11 @@ export async function analyseSwiftF0Window(
     });
 
   const session = await prepareSwiftF0();
-  const modelOutput = (value: unknown): SwiftF0TensorLike | undefined => {
-    if (!(value instanceof ort.Tensor) || value.type !== 'float32') return undefined;
+  const modelOutput = (
+    value: unknown,
+    expectedType: 'float32' | 'float64'
+  ): SwiftF0TensorLike | undefined => {
+    if (!(value instanceof ort.Tensor) || value.type !== expectedType) return undefined;
     return {
       data: value.data as ArrayLike<number>,
       dispose: () => value.dispose()
@@ -50,8 +53,10 @@ export async function analyseSwiftF0Window(
     run: async (feeds) => {
       const result = await session.run(feeds);
       return {
-        pitch: modelOutput(result.pitch),
-        confidence: modelOutput(result.confidence)
+        // SwiftF0 0.3.0's pinned graph exposes pitch as DOUBLE and
+        // confidence as FLOAT. Fail closed if that model contract changes.
+        pitch: modelOutput(result.pitch, 'float64'),
+        confidence: modelOutput(result.confidence, 'float32')
       };
     }
   });
