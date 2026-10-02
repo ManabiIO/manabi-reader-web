@@ -10,6 +10,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'apps/web/src/lib/media/**'
       - 'apps/web/src/lib/manabi/media-*.ts'
       - 'apps/web/src/routes/videos/**'
       - 'apps/web/src/lib/search/**'
