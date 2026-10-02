@@ -12,6 +12,7 @@ export class LatestEpochQueue<T extends EpochRequest> {
   submit(request: T): Promise<void> {
     if (!Number.isSafeInteger(request.epoch) || request.epoch < 0)
       return Promise.reject(new Error('Invalid pitch analysis epoch'));
+    if (request.epoch < this.epoch) return Promise.resolve();
     this.epoch = request.epoch;
     const epoch = request.epoch;
     const task = this.tail.then(async () => {
