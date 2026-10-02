@@ -223,6 +223,11 @@ case, not a broad quality or performance result; the Mac was under load.
   https://github.com/localai-org/moss-transcribe.cpp/blob/190a569c13b4b247450f2fb3b2a431244e84833e/src/audio_encoder.cpp
 - Upstream windowed realtime proposal (not copied as a proven stitcher):
   https://github.com/OpenMOSS/MOSS-Transcribe-Diarize/pull/58
+- Upstream marker-collapse report: short trailing/inserted quiet can preserve ASR text
+  while removing internal speaker/timestamp markers. Reader keeps the resulting
+  outer-timestamp cue whole and does not invent internal timing; sparse readiness
+  therefore stops at a boundary-crossing collapsed cue until later agreement/repair:
+  https://github.com/OpenMOSS/MOSS-Transcribe-Diarize/issues/61
 - MOSS speaker-tag omission report:
   https://github.com/OpenMOSS/MOSS-Transcribe-Diarize/issues/40
 - Whisper-Streaming's agreement approach:
