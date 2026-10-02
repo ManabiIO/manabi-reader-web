@@ -36,3 +36,40 @@ export function advanceMediaSearchRevisions(
     content: current.content + Number(captionsChanged || metadataChanged)
   };
 }
+
+
+/** Increment only when an immutable snapshot is replaced, not on every consumer query. */
+export function referenceRevision<T>() {
+  let current: T | undefined,
+    initialized = false,
+    revision = 0;
+  return (next: T): number => {
+    if (!initialized || next !== current) {
+      initialized = true;
+      current = next;
+      revision++;
+    }
+    return revision;
+  };
+}
+
+/**
+ * Recompute an exact projection only when its immutable snapshot is replaced,
+ * and expose a small revision only when that projection actually changes.
+ */
+export function projectedReferenceRevision<T, R>(project: (value: T) => R) {
+  let current: T | undefined,
+    projection: R,
+    initialized = false,
+    revision = 0;
+  return (next: T): number => {
+    if (!initialized || next !== current) {
+      const nextProjection = project(next);
+      if (!initialized || !Object.is(nextProjection, projection)) revision++;
+      initialized = true;
+      current = next;
+      projection = nextProjection;
+    }
+    return revision;
+  };
+}
