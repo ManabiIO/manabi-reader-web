@@ -4,6 +4,32 @@
  * All rights reserved.
  */
 
+/** Data-only choices: importing these in native never loads the DOM owner. */
+export const nativeStatisticsTimeSources = [
+  { key: 'readingTime', label: 'Total Time' },
+  { key: 'averageReadingTime', label: 'Average Time' },
+  { key: 'averageWeightedReadingTime', label: 'Weighted Time' }
+] as const;
+export const nativeStatisticsCharactersSources = [
+  { key: 'charactersRead', label: 'Characters' },
+  { key: 'averageCharactersRead', label: 'Average Characters' },
+  { key: 'averageWeightedCharactersRead', label: 'Weighted Characters' }
+] as const;
+export const nativeStatisticsSpeedSources = [
+  { key: 'lastReadingSpeed', label: 'Speed' },
+  { key: 'minReadingSpeed', label: 'Min Speed' },
+  { key: 'altMinReadingSpeed', label: 'Alt Min Speed' },
+  { key: 'maxReadingSpeed', label: 'Max Speed' }
+] as const;
+export type NativeStatisticsTimeSource = (typeof nativeStatisticsTimeSources)[number]['key'];
+export type NativeStatisticsCharactersSource =
+  (typeof nativeStatisticsCharactersSources)[number]['key'];
+export type NativeStatisticsSpeedSource = (typeof nativeStatisticsSpeedSources)[number]['key'];
+export type NativeStatisticsMeasurements = Record<
+  NativeStatisticsTimeSource | NativeStatisticsCharactersSource | NativeStatisticsSpeedSource,
+  number
+>;
+
 export interface NativeStatisticsQuery {
   startDate?: string;
   endDate?: string;
@@ -14,6 +40,11 @@ export interface NativeStatisticsQuery {
   aggregation?: 'title' | 'date' | 'none';
   sort?: 'title' | 'date' | 'time' | 'characters' | 'speed';
   direction?: 'asc' | 'desc';
+  timeSource?: NativeStatisticsTimeSource;
+  charactersSource?: NativeStatisticsCharactersSource;
+  speedSource?: NativeStatisticsSpeedSource;
+  /** All-time metrics and color scale; calendar cells remain year-paged. */
+  heatmapAggregation?: 'year' | 'all-time';
 }
 export interface NativeStatisticsBook {
   id: number;
@@ -28,6 +59,8 @@ export interface NativeStatisticsRow {
   time: number;
   characters: number;
   speed: number;
+  /** Bounded display-only measurements; raw totals above remain edit values. */
+  measurements: NativeStatisticsMeasurements;
   /** Only individual, proven identity/day rows can be edited. */
   entry?: { bookId: number; bookKey: string; date: string };
 }
@@ -45,6 +78,8 @@ export interface NativeStatisticsSnapshot {
   daysRead: string;
   currentStreak: number;
   longestStreak: number;
+  /** Allows an all-time highlight to navigate without transferring other years. */
+  longestStreakStartDate: string | null;
   longestStreakDates: string[];
   allTime: { startDate: string; endDate: string } | null;
   /** Explicit schema/ownership gate, never an empty global-goals projection. */

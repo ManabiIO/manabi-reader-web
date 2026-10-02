@@ -706,6 +706,7 @@ export function ReaderScreen(props: Partial<SessionProps> & ReaderViewProps) {
                   htmlContent={c.$bookData$.htmlContent}
                   layoutKey={c.$viewMode$}
                   bookmarkManager={c.bookmarkManager}
+                  getContentElement={() => c.bookReaderComponent?.activeContentElement()}
                   onFollow={() => c.autoScroller?.off()}
                 ></AudiobookLauncher>
               </React.Fragment>

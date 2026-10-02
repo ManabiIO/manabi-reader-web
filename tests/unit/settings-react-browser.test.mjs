@@ -16,6 +16,7 @@ const { outputFiles } = await build({
       import { createRoot } from 'react-dom/client';
       import { Dom } from './apps/web/src/settings-react/primitives';
       import { SettingsScreen } from './apps/web/src/settings-react/settings-screen';
+      import SettingsRoute from './apps/web/src/screens/routes/settings.web';
       import { ConnectionsScreen } from './apps/web/src/settings-react/connections-screen';
       import { startPreferenceSync, preferenceStatus } from './apps/web/src/lib/manabi/preferences';
       import { integrationDB } from './apps/web/src/lib/manabi/persistence';
@@ -36,6 +37,8 @@ const { outputFiles } = await build({
       window.controls = {
         goto, installRouter, beforeNavigate, afterNavigate, refreshAccount,
         location: () => get(page).url.href,
+        renderRoute: (strict = true) => root.render(strict ? <React.StrictMode><SettingsRoute /></React.StrictMode> : <SettingsRoute />),
+        renderPrevious: previousPage => root.render(<SettingsScreen previousPage={previousPage} />),
         render: strict => root.render(strict ? <React.StrictMode><SettingsScreen /></React.StrictMode> : <SettingsScreen />),
         renderCheckbox: binding => root.render(<React.StrictMode><CheckboxFixture binding={binding} /></React.StrictMode>),
         renderConnections: strict => {
@@ -63,7 +66,25 @@ const { outputFiles } = await build({
     'process.env.NODE_ENV': '"development"',
     'import.meta.url': '"https://reader.example/fixture.js"'
   },
-  logLevel: 'warning'
+  logLevel: 'warning',
+  plugins: [
+    {
+      name: 'route-local-settings-context',
+      setup(builder) {
+        builder.onResolve({ filter: /^expo-router$/ }, () => ({
+          path: 'settings-route',
+          namespace: 'settings-route'
+        }));
+        builder.onLoad({ filter: /.*/, namespace: 'settings-route' }, () => ({
+          contents: `
+      export const useLocalSearchParams = () => window.routeParams ?? {};
+      export const useRoute = () => ({ key: window.routeKey ?? 'settings-visit-1' });
+    `,
+          loader: 'js'
+        }));
+      }
+    }
+  ]
 });
 const javascript = outputFiles.find((file) => file.path.endsWith('.js')).text;
 
@@ -528,4 +549,78 @@ test('remounting during an account request can revoke consent without a late che
       'new screen can opt in again'
     );
   }, server.fetch);
+});
+
+test('Settings captures reader arrival before browser history settles and preserves it through hashes and unrelated routes', async () => {
+  for (const strict of [false, true])
+    await fixture(async ({ window, api, until }) => {
+      const document = window.document;
+      const back = () => document.querySelector('a[aria-label="Back"]');
+      window.history.replaceState({}, '', '/reader-web/b?id=17#paragraph');
+      const stop = api.installRouter({
+        sameDocumentHistory: true,
+        push: () => api.renderRoute(strict),
+        replace: () => api.renderRoute(strict)
+      });
+      await api.goto('/reader-web/settings');
+      await until(() => back(), 'incoming Settings mounted');
+      assert.equal(window.location.pathname, '/reader-web/b', 'fixture keeps outgoing browser URL');
+      assert.equal(back().getAttribute('href'), '/reader-web/b?id=17#paragraph');
+      window.history.replaceState({}, '', '/reader-web/settings');
+      await api.goto('/reader-web/settings#typography');
+      window.routeParams = { '#': 'typography' };
+      await api.renderRoute(strict);
+      assert.equal(back().getAttribute('href'), '/reader-web/b?id=17#paragraph');
+      await api.goto('/reader-web/manage');
+      await api.renderRoute(strict);
+      assert.equal(
+        back().getAttribute('href'),
+        '/reader-web/b?id=17#paragraph',
+        'retained visit ignores unrelated navigation'
+      );
+      window.history.replaceState({}, '', '/reader-web/manage?q=next');
+      window.routeKey = 'settings-visit-2';
+      window.routeParams = {};
+      await api.goto('/reader-web/settings');
+      await until(
+        () => back()?.getAttribute('href') === '/reader-web/manage?q=next',
+        'new Expo visit captures its own origin'
+      );
+      stop();
+    });
+});
+
+test('direct or mismatched Settings visits use the Library fallback', async () => {
+  await fixture(async ({ window, api, until }) => {
+    await api.renderRoute();
+    const back = () => window.document.querySelector('a[aria-label="Back"]');
+    await until(() => back(), 'direct Settings mounted');
+    assert.equal(back().getAttribute('href'), '/reader-web/manage');
+    const stop = api.installRouter({ push() {}, replace() {} });
+    await api.goto('/reader-web/snippets?id=elsewhere');
+    window.routeKey = 'direct-settings-2';
+    await api.renderRoute();
+    await until(() => back(), 'new unmatched visit mounted');
+    assert.equal(back().getAttribute('href'), '/reader-web/manage');
+    stop();
+  });
+});
+
+test('Settings return props cannot create external redirects or self-category loops', async () => {
+  for (const previous of [
+    'https://outside.example/reader-web/b?id=1',
+    '//outside.example/reader-web/b',
+    '/outside',
+    '/reader-web-old/b',
+    '/reader-web/settings#layout',
+    '/reader-web/settings/',
+    'https://fixture:unused@reader.example/reader-web/b'
+  ]) {
+    await fixture(async ({ window, api, until }) => {
+      await api.renderPrevious(previous);
+      const back = () => window.document.querySelector('a[aria-label="Back"]');
+      await until(() => back(), 'Settings mounted');
+      assert.equal(back().getAttribute('href'), '/reader-web/manage');
+    });
+  }
 });

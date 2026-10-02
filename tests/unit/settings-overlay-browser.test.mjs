@@ -15,7 +15,8 @@ const { outputFiles } = await build({
       import React from 'react';
       import { createRoot } from 'react-dom/client';
       import { SettingsScreen } from './apps/web/src/settings-react/settings-screen';
-      import { DialogHost } from './apps/web/src/ui/dialogs';
+      import { DialogHost, StorageUnlock } from './apps/web/src/ui/dialogs';
+      import { dialogManager } from './apps/web/src/lib/data/dialog-manager';
       import { yuKyokashoAvailable$ } from './apps/web/src/lib/data/store';
       yuKyokashoAvailable$.next(false);
       const root = createRoot(document.getElementById('root'));
@@ -23,6 +24,10 @@ const { outputFiles } = await build({
         render: strict => root.render(strict
           ? <React.StrictMode><SettingsScreen /><DialogHost /></React.StrictMode>
           : <><SettingsScreen /><DialogHost /></>),
+        showUnlock: () => dialogManager.dialogs$.next([{component: StorageUnlock, props: {
+          description: 'Synthetic encrypted source', action: 'Enter the password',
+          requiresSecret: true, resolver: () => {}
+        }}]),
         unmount: () => root.unmount()
       };
     `,
@@ -346,5 +351,44 @@ test('font menus keep their descriptive accessible names and device-effective se
       .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await until(() => !document.querySelector('[role="menuitemradio"]'), 'font menu closes');
     assert.equal(window.localStorage.getItem('fontFamilyGroupOne'), null);
+  });
+});
+
+test('dialog gutters and intrinsic password widths stay bounded when the document text is enlarged', async () => {
+  await fixture(async ({ window, api, until }) => {
+    api.render(true);
+    await until(
+      () => window.document.querySelector('[data-setting="primary-font-input"]'),
+      'settings runtime mounts'
+    );
+    api.showUnlock();
+    await until(
+      () => window.document.querySelector('dialog[open] input[type="password"]'),
+      'unlock dialog opens'
+    );
+    const panel = window.document.querySelector('dialog[open]');
+    const password = panel.querySelector('input[type="password"]');
+    // Mounted structure/style contracts only: real viewport geometry is checked
+    // by the unchanged Chromium/WebKit settings-editor acceptance suite.
+    assert.ok(
+      panel.classList.contains('max-w-[calc(100vw-16px)]'),
+      'override the UA em-based dialog max width'
+    );
+    assert.ok(
+      panel.classList.contains('pt-[60px]'),
+      'reserve a fixed reachable close target without scaling its gutter'
+    );
+    assert.ok(password.classList.contains('w-full'));
+    assert.ok(
+      password.classList.contains('min-w-0'),
+      'do not retain the default twenty-character intrinsic input width'
+    );
+    assert.ok(password.closest('label').classList.contains('min-w-0'));
+    const scroll = panel.querySelector('[data-dialog-scroll]');
+    assert.ok(scroll.classList.contains('min-w-0'));
+    assert.ok(scroll.parentElement.classList.contains('max-h-[calc(90dvh-60px)]'));
+    assert.equal(button(panel, 'Cancel').closest('[data-dialog-scroll]'), null);
+    button(panel, 'Cancel').click();
+    await until(() => !window.document.querySelector('dialog[open]'), 'unlock cancellation closes');
   });
 });

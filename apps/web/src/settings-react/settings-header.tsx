@@ -69,7 +69,7 @@ export function SettingsHeader(
             {'Settings'}
           </Dom>
           <Dom as="div" className={['settings-navigation'].filter(Boolean).join(' ')}>
-            <AppNav></AppNav>
+            <AppNav compact></AppNav>
           </Dom>
         </Dom>
       </div>

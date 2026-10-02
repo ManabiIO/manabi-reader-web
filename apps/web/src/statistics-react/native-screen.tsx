@@ -18,16 +18,53 @@ import {
 } from 'react-native';
 import { Action, Screen } from '../screens/NativeScreens';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
-import type {
-  NativeStatisticsQuery,
-  NativeStatisticsSnapshot,
-  NativeStatisticsAction,
-  NativeStatisticsRow,
-  NativeStatisticsBook
+import { secondsToMinutes } from '$lib/functions/statistic-util';
+import {
+  nativeStatisticsTimeSources,
+  nativeStatisticsCharactersSources,
+  nativeStatisticsSpeedSources,
+  type NativeStatisticsQuery,
+  type NativeStatisticsSnapshot,
+  type NativeStatisticsAction,
+  type NativeStatisticsRow,
+  type NativeStatisticsBook
 } from './native-contract';
-const minutes = (seconds: number) => `${Math.round((seconds / 60) * 100) / 100} min`;
+const minutes = (seconds: number) => `${secondsToMinutes(seconds)} min`;
 const dateString = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+function MeasurementChoices<T extends string>({
+  title,
+  options,
+  selected,
+  disabled,
+  onChange
+}: {
+  title: string;
+  options: readonly { key: T; label: string }[];
+  selected: T;
+  disabled: boolean;
+  onChange(value: T): void;
+}) {
+  return (
+    <View>
+      <Text accessibilityRole="header" style={styles.heading}>
+        {title}
+      </Text>
+      <View style={styles.row}>
+        {options.map((option) => (
+          <Action
+            key={option.key}
+            label={`Show ${option.label}`}
+            variant={selected === option.key ? 'filled' : 'outlined'}
+            disabled={disabled}
+            onPress={() => onChange(option.key)}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
 
 /** Native Android screen. Database ownership and identity remain inside the
  * bounded trusted DOM bridge; this component receives display projections only. */
@@ -57,6 +94,7 @@ export function NativeStatisticsScreen() {
     resetMinMax: boolean;
   }>();
   const generation = useRef(0),
+    snapshotGeneration = useRef(0),
     mutation = useRef(false);
   const mounted = useRef(false);
   useEffect(() => {
@@ -81,6 +119,7 @@ export function NativeStatisticsScreen() {
       )) as NativeStatisticsSnapshot;
       if (!mounted.current || owner !== latestScope.current || current !== generation.current)
         return;
+      snapshotGeneration.current = current;
       setData(next);
       setFrom(next.query.startDate);
       setTo(next.query.endDate);
@@ -111,6 +150,8 @@ export function NativeStatisticsScreen() {
     };
   }, [refresh, runtime.session, runtime.epoch]);
   function update(next: NativeStatisticsQuery) {
+    setSelectedDay(undefined);
+    setHighlight(false);
     setQuery((previous) => ({ ...previous, ...next, page: next.page ?? 1 }));
   }
   function template(kind: 'Today' | 'Week' | 'Month' | 'Year') {
@@ -136,6 +177,7 @@ export function NativeStatisticsScreen() {
     if (
       !mounted.current ||
       mutation.current ||
+      snapshotGeneration.current !== generation.current ||
       owner !== latestScope.current ||
       action.snapshotId !== latestSnapshot.current
     )
@@ -307,6 +349,22 @@ export function NativeStatisticsScreen() {
     data?.books.filter((book) =>
       book.title.normalize('NFKC').toLowerCase().includes(search.normalize('NFKC').toLowerCase())
     ) ?? [];
+  const timeLabel = nativeStatisticsTimeSources.find(
+      (source) => source.key === data?.query.timeSource
+    )?.label,
+    charactersLabel = nativeStatisticsCharactersSources.find(
+      (source) => source.key === data?.query.charactersSource
+    )?.label,
+    speedLabel = nativeStatisticsSpeedSources.find(
+      (source) => source.key === data?.query.speedSource
+    )?.label;
+  const sortLabels = {
+    title: 'title',
+    date: 'date',
+    time: timeLabel,
+    characters: charactersLabel,
+    speed: speedLabel
+  };
   return (
     <Screen
       title="Statistics"
@@ -542,6 +600,35 @@ export function NativeStatisticsScreen() {
                     />
                   ))}
                 </View>
+                <View style={styles.card}>
+                  <MeasurementChoices
+                    title="Reading time measurement"
+                    options={nativeStatisticsTimeSources}
+                    selected={data.query.timeSource}
+                    disabled={busy}
+                    onChange={(timeSource) => update({ timeSource, sort: 'time' })}
+                  />
+                  <MeasurementChoices
+                    title="Character measurement"
+                    options={nativeStatisticsCharactersSources}
+                    selected={data.query.charactersSource}
+                    disabled={busy}
+                    onChange={(charactersSource) =>
+                      update({ charactersSource, sort: 'characters' })
+                    }
+                  />
+                  <MeasurementChoices
+                    title="Reading speed measurement"
+                    options={nativeStatisticsSpeedSources}
+                    selected={data.query.speedSource}
+                    disabled={busy}
+                    onChange={(speedSource) => update({ speedSource, sort: 'speed' })}
+                  />
+                  <Text>
+                    Averages use stored entries, without adding days for gaps. Weighted time uses
+                    character counts as weights; weighted characters use reading time as weights.
+                  </Text>
+                </View>
                 <View style={styles.row}>
                   {(['title', 'date', 'time', 'characters', 'speed'] as const).map((sort) => (
                     <Action
@@ -561,14 +648,25 @@ export function NativeStatisticsScreen() {
                     />
                   ))}
                 </View>
+                <Text>
+                  Sorting by {sortLabels[data.query.sort]},{' '}
+                  {data.query.direction === 'asc' ? 'ascending' : 'descending'}
+                </Text>
                 {data.rows.map((row) => (
                   <View key={row.id} style={styles.card}>
                     {row.title ? <Text style={styles.heading}>{row.title}</Text> : null}
                     {row.date ? <Text>{row.date}</Text> : null}
                     <Text>
-                      {minutes(row.time)} · {row.characters.toLocaleString()} characters
+                      {timeLabel}: {minutes(row.measurements[data.query.timeSource])}
                     </Text>
-                    <Text>{row.speed.toLocaleString()} characters/hour</Text>
+                    <Text>
+                      {charactersLabel}:{' '}
+                      {row.measurements[data.query.charactersSource].toLocaleString()} characters
+                    </Text>
+                    <Text>
+                      {speedLabel}: {row.measurements[data.query.speedSource].toLocaleString()}{' '}
+                      characters/hour
+                    </Text>
                     {row.entry && (
                       <View style={styles.row}>
                         <Action
@@ -609,8 +707,27 @@ export function NativeStatisticsScreen() {
               <>
                 <View style={styles.row}>
                   <Action
-                    label="Previous year"
+                    label="Yearly heatmap statistics"
+                    variant={data.query.heatmapAggregation === 'year' ? 'filled' : 'outlined'}
                     disabled={busy}
+                    onPress={() => update({ heatmapAggregation: 'year' })}
+                  />
+                  <Action
+                    label="All-time heatmap statistics"
+                    variant={data.query.heatmapAggregation === 'all-time' ? 'filled' : 'outlined'}
+                    disabled={busy}
+                    onPress={() => update({ heatmapAggregation: 'all-time' })}
+                  />
+                </View>
+                <Text>
+                  {data.query.heatmapAggregation === 'all-time'
+                    ? `All-time reading days, streaks, and color scale. Showing calendar year ${data.query.year}.`
+                    : `Reading days, streaks, and color scale for ${data.query.year}.`}
+                </Text>
+                <View style={styles.row}>
+                  <Action
+                    label="Previous year"
+                    disabled={busy || data.query.year <= 1000}
                     onPress={() => update({ year: data.query.year - 1 })}
                   />
                   <Text accessibilityRole="header" style={styles.heading}>
@@ -618,7 +735,7 @@ export function NativeStatisticsScreen() {
                   </Text>
                   <Action
                     label="Next year"
-                    disabled={busy}
+                    disabled={busy || data.query.year >= 9999}
                     onPress={() => update({ year: data.query.year + 1 })}
                   />
                   <Action
@@ -632,7 +749,18 @@ export function NativeStatisticsScreen() {
                 </Text>
                 <Action
                   label={`Highlight longest streak: ${data.longestStreak} days`}
-                  onPress={() => setHighlight(!highlight)}
+                  disabled={busy || !data.longestStreak}
+                  onPress={() => {
+                    const year = Number(data.longestStreakStartDate?.slice(0, 4));
+                    if (
+                      !highlight &&
+                      data.query.heatmapAggregation === 'all-time' &&
+                      year &&
+                      year !== data.query.year
+                    )
+                      update({ year });
+                    setHighlight(!highlight);
+                  }}
                 />
                 {Array.from({ length: 12 }, (_, month) => (
                   <View key={month} style={styles.card}>

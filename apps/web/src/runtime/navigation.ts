@@ -22,9 +22,22 @@ export type Navigation = {
   type: string;
   willUnload: boolean;
   cancel(): void;
+  /** Run only after every synchronous guard admits this attempt, before dispatch. */
+  beforeCommit(action: () => void | Promise<void>): void;
+  /** Acknowledge dispatch only after every pre-dispatch cleanup still admits it. */
+  afterCommit(action: () => void): void;
   /** Retry this exact intent after a synchronous guard has canceled it. */
   retry(): Promise<void>;
 };
+export type NavigationArrival = Readonly<{ intent: symbol; from: string; to: string }>;
+let arrival: NavigationArrival | undefined;
+/** Capture once for a focused route visit, then pass the immutable value as a
+ * route prop. Retained screens must not subscribe to unrelated global arrivals. */
+export function readNavigationArrival(routeUrl: string | URL): NavigationArrival | undefined {
+  if (!arrival) return undefined;
+  const origin = typeof location === 'undefined' ? arrival.to : location.href;
+  return arrival.to === new URL(routeUrl, origin).href ? arrival : undefined;
+}
 const before = new Set<(navigation: Navigation) => void>();
 const after = new Set<(navigation: Navigation) => void>();
 export function beforeNavigate(fn: (navigation: Navigation) => void) {
@@ -64,6 +77,8 @@ async function navigate(
   const url = new URL(href);
   options ??= {};
   let cancelled = false;
+  const commits: Array<() => void | Promise<void>> = [];
+  const committed: Array<() => void> = [];
   const event: Navigation = {
     intent,
     from: { url: new URL(location.href) },
@@ -73,10 +88,17 @@ async function navigate(
     cancel: () => {
       cancelled = true;
     },
+    beforeCommit: (action) => commits.push(action),
+    afterCommit: (action) => committed.push(action),
     retry: () => navigate(href, options, intent)
   };
   for (const listener of before) listener(event);
   if (cancelled) return;
+  for (const commit of commits) {
+    await commit();
+    // An async owner can be superseded while its departure cleanup settles.
+    if (cancelled) return;
+  }
   if (event.willUnload) {
     location.assign(url);
     return;
@@ -89,17 +111,27 @@ async function navigate(
     url.pathname === location.pathname &&
     url.search === location.search &&
     (url.hash !== '' || url.hash !== location.hash);
-  if (sameDocumentFragment) {
-    history[options.replaceState ? 'replaceState' : 'pushState'](
-      { ...history.state, ...options.state },
-      '',
-      url
-    );
-  } else if (router) {
-    const path = `${url.pathname.startsWith(base + '/') ? url.pathname.slice(base.length) : url.pathname}${url.search}${url.hash}`;
-    router[options.replaceState ? 'replace' : 'push'](path);
-  } else history[options.replaceState ? 'replaceState' : 'pushState'](options.state ?? {}, '', url);
+  const previousArrival = arrival;
+  const admitted = Object.freeze({ intent, from: event.from.url.href, to: url.href });
+  arrival = admitted;
+  try {
+    if (sameDocumentFragment) {
+      history[options.replaceState ? 'replaceState' : 'pushState'](
+        { ...history.state, ...options.state },
+        '',
+        url
+      );
+    } else if (router) {
+      const path = `${url.pathname.startsWith(base + '/') ? url.pathname.slice(base.length) : url.pathname}${url.search}${url.hash}`;
+      router[options.replaceState ? 'replace' : 'push'](path);
+    } else
+      history[options.replaceState ? 'replaceState' : 'pushState'](options.state ?? {}, '', url);
+  } catch (error) {
+    if (arrival === admitted) arrival = previousArrival;
+    throw error;
+  }
   refreshLocation();
+  for (const acknowledge of committed) acknowledge();
   for (const listener of after) listener(event);
   if (!options.noScroll) window.scrollTo(0, 0);
 }

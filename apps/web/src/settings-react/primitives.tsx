@@ -296,17 +296,17 @@ export function slotContent(children: ReactNode, name?: string): ReactNode {
 }
 export function DialogTemplate({ children }: Props) {
   return (
-    <section className="ui-panel flex max-h-[calc(90dvh-3rem)] min-h-0 min-w-0 flex-col rounded-3xl bg-popover p-5 text-popover-foreground writing-horizontal-tb sm:p-6">
+    <section className="ui-panel flex max-h-[calc(90dvh-60px)] min-h-0 min-w-0 flex-col rounded-3xl bg-popover p-[20px] text-popover-foreground writing-horizontal-tb sm:p-[24px]">
       <h2
         id="manabi-dialog-title"
-        className="mb-5 min-w-0 shrink-0 text-lg font-semibold break-words"
+        className="mb-[20px] min-w-0 shrink-0 text-lg font-semibold break-words"
       >
         {slotContent(children, 'header')}
       </h2>
       <div data-dialog-scroll className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain">
         {slotContent(children, 'content')}
       </div>
-      <footer className="mt-5 flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+      <footer className="mt-[20px] flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-[8px] border-t border-border pt-[16px]">
         {slotContent(children, 'footer')}
       </footer>
     </section>

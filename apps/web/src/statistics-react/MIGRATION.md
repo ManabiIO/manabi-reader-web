@@ -48,7 +48,7 @@ ownership guards, including every shared-content claimant. They do not return
 raw global tables. The response includes bounded summary pages, totals, book
 choices, and the original heatmap/streak model. Native controls provide date
 presets/custom ranges, book filtering/search, aggregation/sorting, paging, annual
-heatmaps/day details, longest-streak highlighting, and explicitly confirmed
+and all-time heatmap metrics/day details, longest-streak highlighting, and explicitly confirmed
 whole-history deletion for one proven book identity. Deletion revalidates its
 identity and ownership inside the committed transaction.
 
@@ -76,8 +76,33 @@ old-view, duplicate, and unmounted confirmations are fenced in native and again
 by the service. Snapshot admission failure requires a fresh read; writes are
 never automatically replayed.
 
-Native parity still excludes TTU/raw exports, all-time heatmap aggregation, and
-per-measurement average/min/max display choices. Reading-goal display, editing,
+Native summary columns now expose the same ten choices as web: total, average,
+and weighted time; total, average, and weighted characters; and speed, minimum,
+alternate minimum, and maximum speed. Sorting uses the selected measurement
+before bounded pagination, with the original numeric-title tie-break. The native
+response explicitly projects those ten numeric fields; stored completion data
+and other raw history are not serialized. Editing continues to use raw time and
+character totals regardless of the selected display measurement.
+
+`statistics-aggregation.ts` is an extraction of the original content-controller
+algorithm, and both web and native delegate to it. A frozen test oracle from
+`727b360` verifies unchanged rounding, entry counting, weighted calculations,
+date gaps, and speed-bound semantics across all three aggregation modes. This
+port deliberately does not repair inherited edge semantics: grouped alternate
+minimum starts at zero, grouped maximum uses daily final speeds, and a zero-time
+entry following accumulated reading time participates in the original average
+denominator. Native individual zero-time entries remain visible and editable;
+web's existing positive-time selection filter is unchanged.
+
+All-time heatmap mode reuses the retained controller's all-history streaks,
+reading-day counts, and color scale. Calendar output remains one selected year
+(maximum 366 days) rather than serializing the full history. A longest-streak
+highlight can load its starting year via one date of metadata. Year navigation
+is bounded to the service's supported 1000–9999 range. Book/account filters and
+ownership checks remain in force; summary date bounds do not restrict heatmaps,
+matching the original model.
+
+Native parity still excludes TTU/raw exports. Reading-goal display, editing,
 and goal heatmaps are explicitly gated in the native UI: the current
 `readingGoal` store is keyed only by `goalStartDate`, with no account ownership
 record or guarded account-bound goal API. Global recovery tables and ownerless
@@ -92,23 +117,26 @@ explicit remaining tasks, not claimed 1:1 Android parity.
 Passed:
 
 - Real esbuild browser bundle of `statistics-react/index.tsx` (approximately
-  1.3 MB unminified after explicit icon imports)
+  1.6 MB unminified after explicit icon imports)
 - Build metadata check: zero `.svelte` files or Svelte runtime/compiler inputs
 - Real esbuild browser bundle of the DOM-only native service
 - Focused esbuild native-screen bundle with platform/UI imports externalized
-- 89 statistics-focused Node tests, including 18 new tests that execute active
-  React controllers/native services and all existing statistics title-filter, deletion-range,
-  content-identity, completion, and heatmap-navigation tests without removing
-  assertions
-- 33 tests in `tests/unit/statistics-react-controller.test.mjs`, including 18
+- 109 statistics-focused Node tests across the controller, mounted native UI,
+  title-filter, deletion-range, content-identity, and completion suites, without
+  removing existing assertions
+- 39 tests in `tests/unit/statistics-react-controller.test.mjs`, including 23
   native-service tests using real fake-indexeddb transactions: ownership/identity
   isolation, guarded manual entry/editing, preserved completion records, atomic
   range deletion, exact entry deletion, optimistic conflicts, bounded/single-use
   snapshots, empty selection, runtime/account ABA, and abort after the final write
-- Five mounted React Native-control tests in
+- Twelve mounted React Native-control tests in
   `test/expo/native-statistics-ui.test.mjs`: private-filter cancel/apply, native
   manual-entry confirmation, duplicate submission, account/refresh/unmount
-  confirmation fencing, and stale asynchronous read retirement
+  confirmation fencing, stale asynchronous read retirement, measurement display/sort
+  choices, zero values, raw edit-value retention, in-flight read confirmation
+  retirement, and bounded all-time heatmap navigation
+- Scoped ESLint rule/syntax check: zero errors or warnings on all changed
+  TypeScript/TSX and test files (full-project parsing disabled)
 - Zero scoped statistics TypeScript diagnostics using the production Expo
   configuration; Node heap bounded to 650 MB for this environment
 - Real esbuild bundle of the final DOM-only native statistics service and mounted
@@ -122,5 +150,7 @@ Not qualified here:
 - Full production Metro export: parent owns integration/CI qualification; local
   production exports exceeded the execution memory limit
 - Full-project TypeScript/lint: focused source/bundle checks are not a substitute
+  (project-backed ESLint exceeded the local 650 MB heap limit; scoped rule/syntax
+  lint uses the same rule set without constructing the full project)
 
 No deployment, merge, or source deletion is part of this change.

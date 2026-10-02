@@ -4,8 +4,6 @@
  * All rights reserved.
  */
 
-import { afterNavigate } from '$app/navigation';
-
 import {
   addCharactersOnCompletion$,
   adjustStatisticsAfterIdleTime$,
@@ -85,7 +83,10 @@ import { writableSubject } from '$lib/functions/svelte/store';
 import { ReaderController, writeStore, type StoreValue } from '../reader-react/controller';
 import { type SettingsContextValue } from './context';
 
-export type SettingsScreenProps = Record<string, unknown>;
+export interface SettingsScreenProps {
+  /** Immutable origin of this admitted Settings visit, never a live global route. */
+  previousPage?: string;
+}
 
 export function createSettingsScreen(
   props: SettingsScreenProps,
@@ -220,20 +221,27 @@ export function createSettingsScreen(
     currentPersistentStorageRequest()?.then(setPersistentStorage);
     setStorageQuota();
   });
-  let prevPage = `${pagePath}${mergeEntries.MANAGE.routeId}`;
+  const fallbackPage = `${pagePath}${mergeEntries.MANAGE.routeId}`;
+  const prevPage = (() => {
+    if (!props.previousPage) return fallbackPage;
+    try {
+      const origin = typeof location === 'undefined' ? 'https://reader.invalid' : location.origin;
+      const previous = new URL(props.previousPage, origin);
+      // Route context is local only. Never turn this component input into an
+      // external redirect, or make a category change its own Back destination.
+      return previous.origin === origin &&
+        !previous.username &&
+        !previous.password &&
+        previous.pathname.startsWith(`${pagePath}/`) &&
+        previous.pathname.replace(/\/+$/, '') !== `${pagePath}${mergeEntries.SETTINGS.routeId}`
+        ? `${previous.pathname}${previous.search}${previous.hash}`
+        : fallbackPage;
+    } catch {
+      return fallbackPage;
+    }
+  })();
   const activeSettings = 'All';
   let storageQuota = '';
-  __readerController.onDestroy(
-    afterNavigate((navigation) => {
-      const { from } = navigation;
-      if (!from) return;
-      // Category/hash changes are still the same Settings visit. Preserve the
-      // external page that opened Settings so Back returns to the Reader/Library
-      // instead of being overwritten with /settings after choosing a category.
-      if (from.url.pathname === `${pagePath}${mergeEntries.SETTINGS.routeId}`) return;
-      __readerController.changed((prevPage = `${from.url.pathname}${from.url.search}`));
-    })
-  );
   function setPersistentStorage(value: boolean) {
     persistentStorage$.next(value);
   }
@@ -664,11 +672,6 @@ export function createSettingsScreen(
     },
     get prevPage() {
       return prevPage;
-    },
-    set prevPage(nextValue: typeof prevPage) {
-      if (Object.is(prevPage, nextValue)) return;
-      prevPage = nextValue;
-      __readerController.invalidate();
     },
     get activeSettings() {
       return activeSettings;

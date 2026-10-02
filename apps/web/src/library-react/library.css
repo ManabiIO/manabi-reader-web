@@ -1,5 +1,8 @@
 @charset "UTF-8";
 /** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors */
+.library-react {
+  flex-shrink: 0;
+}
 .library-react .library-selection-marquee {
   position: fixed;
   z-index: 40;

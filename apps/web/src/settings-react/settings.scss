@@ -658,4 +658,4 @@
 .settings-switch span { width:1rem; height:1rem; border-radius:9999px; background:var(--background); box-shadow:0 1px 2px #0002; transform:translateX(0); transition:transform .15s; }
 .settings-switch[aria-checked='true'] span { transform:translateX(1rem); }
 .settings-switch:focus-visible { outline:2px solid var(--ring); outline-offset:3px; }
-.settings-popover .dimension-presets { width:min(20rem,calc(90vw - 1rem)); overflow-wrap:anywhere; }
+.settings-popover .dimension-presets { width:min(20rem,calc(90vw - 1rem - 2px)); max-width:100%; overflow-wrap:anywhere; }

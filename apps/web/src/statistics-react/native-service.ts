@@ -28,11 +28,16 @@ import type { BooksDbContentStatistic } from '$lib/data/database/books-db/versio
 import { getDateString, getStartHoursDate } from '$lib/functions/statistic-util';
 import { HeatmapDataAggregration } from '$lib/components/statistics/statistics-heatmap/statistics-heatmap';
 import { createStatisticsHeatmap } from './statistics-heatmap-controller';
-import type {
-  NativeStatisticsQuery,
-  NativeStatisticsSnapshot,
-  NativeStatisticsRow,
-  NativeStatisticsAction
+import { aggregateStatistics } from './statistics-aggregation';
+import { StatisticsReadingDataAggregationMode } from '$lib/components/statistics/statistics-types';
+import {
+  nativeStatisticsTimeSources,
+  nativeStatisticsCharactersSources,
+  nativeStatisticsSpeedSources,
+  type NativeStatisticsQuery,
+  type NativeStatisticsSnapshot,
+  type NativeStatisticsRow,
+  type NativeStatisticsAction
 } from './native-contract';
 export type {
   NativeStatisticsQuery,
@@ -101,18 +106,24 @@ const dateKey = (value: unknown): value is string => {
 export function normalizeNativeStatisticsQuery(
   input: NativeStatisticsQuery = {}
 ): Required<NativeStatisticsQuery> {
+  if (!input || typeof input !== 'object' || Array.isArray(input))
+    throw new Error('Invalid statistics filter.');
   const today = getDateString(getStartHoursDate(get(startDayHoursForTracker$)));
   const startDate = input.startDate ?? (get(lastStatisticsStartDate$) || today);
   const endDate = input.endDate ?? (get(lastStatisticsEndDate$) || today);
+  if (!dateKey(startDate) || !dateKey(endDate)) throw new Error('Invalid statistics filter.');
   const year = input.year ?? Number(endDate.slice(0, 4));
   const bookIds = input.bookIds ?? [];
   const bookSelection = input.bookSelection ?? (bookIds.length ? 'selected' : 'all');
   const aggregation = input.aggregation ?? 'title',
     sort = input.sort ?? 'time',
     direction = input.direction ?? 'desc';
+  const timeSource = input.timeSource === undefined ? 'readingTime' : input.timeSource,
+    charactersSource =
+      input.charactersSource === undefined ? 'charactersRead' : input.charactersSource,
+    speedSource = input.speedSource === undefined ? 'lastReadingSpeed' : input.speedSource,
+    heatmapAggregation = input.heatmapAggregation === undefined ? 'year' : input.heatmapAggregation;
   if (
-    !dateKey(startDate) ||
-    !dateKey(endDate) ||
     startDate > endDate ||
     !Number.isSafeInteger(year) ||
     year < 1000 ||
@@ -124,6 +135,10 @@ export function normalizeNativeStatisticsQuery(
     !['title', 'date', 'none'].includes(aggregation) ||
     !['title', 'date', 'time', 'characters', 'speed'].includes(sort) ||
     !['asc', 'desc'].includes(direction) ||
+    !nativeStatisticsTimeSources.some((source) => source.key === timeSource) ||
+    !nativeStatisticsCharactersSources.some((source) => source.key === charactersSource) ||
+    !nativeStatisticsSpeedSources.some((source) => source.key === speedSource) ||
+    !['year', 'all-time'].includes(heatmapAggregation) ||
     (input.page !== undefined && (!Number.isSafeInteger(input.page) || input.page < 1))
   )
     throw new Error('Invalid statistics filter.');
@@ -136,7 +151,11 @@ export function normalizeNativeStatisticsQuery(
     page: input.page ?? 1,
     aggregation,
     sort,
-    direction
+    direction,
+    timeSource,
+    charactersSource,
+    speedSource,
+    heatmapAggregation
   };
 }
 function guardFor(scope: ReturnType<typeof captureStatisticsOperation>): StatisticsMigrationGuard {
@@ -290,43 +309,74 @@ export async function readStatisticsSnapshot(
       }
     );
     totals.speed = totals.time ? Math.ceil((totals.characters * 3600) / totals.time) : 0;
-    const groups = new Map<string, NativeStatisticsRow>();
-    for (const row of selected) {
-      const key =
-        query.aggregation === 'date'
-          ? row.dateKey
-          : query.aggregation === 'title'
-            ? row.title
-            : `${row.bookKey}_${row.dateKey}`;
-      const previous = groups.get(key) ?? {
-        id: `${query.aggregation}:${groups.size}`,
+    // Feed only already-proven, selected identities to the original model. No
+    // controller or global/ownerless database read participates in aggregation.
+    const aggregated = aggregateStatistics(
+      selected.map((row) => ({
+        ...row,
+        id: `${row.bookKey}_${row.dateKey}`,
+        averageReadingTime: row.readingTime,
+        averageWeightedReadingTime: row.readingTime,
+        averageCharactersRead: row.charactersRead,
+        averageWeightedCharactersRead: row.charactersRead,
+        averageReadingSpeed: row.lastReadingSpeed,
+        averageWeightedReadingSpeed: row.lastReadingSpeed
+      })),
+      query.aggregation === 'date'
+        ? StatisticsReadingDataAggregationMode.DATE
+        : query.aggregation === 'title'
+          ? StatisticsReadingDataAggregationMode.TITLE
+          : StatisticsReadingDataAggregationMode.NONE
+    );
+    const summary: NativeStatisticsRow[] = aggregated.map((row, index) => {
+      const book =
+        query.aggregation === 'none'
+          ? books.find(
+              (item) =>
+                item.deletable &&
+                row.bookKey &&
+                proofBooks.get(item.id)?.plan.keys.includes(row.bookKey)
+            )
+          : undefined;
+      return {
+        id: `${query.aggregation}:${index}`,
         title: query.aggregation === 'date' ? '' : row.title.slice(0, 512),
         date: query.aggregation === 'title' ? '' : row.dateKey,
-        time: 0,
-        characters: 0,
-        speed: 0,
-        ...(query.aggregation === 'none'
-          ? {
-              entry: (() => {
-                const book = books.find(
-                  (item) =>
-                    item.deletable && proofBooks.get(item.id)?.plan.keys.includes(row.bookKey)
-                );
-                return book
-                  ? { bookId: book.id, bookKey: row.bookKey, date: row.dateKey }
-                  : undefined;
-              })()
-            }
+        time: row.readingTime,
+        characters: row.charactersRead,
+        speed: row.lastReadingSpeed,
+        measurements: {
+          readingTime: row.readingTime,
+          averageReadingTime: row.averageReadingTime,
+          averageWeightedReadingTime: row.averageWeightedReadingTime,
+          charactersRead: row.charactersRead,
+          averageCharactersRead: row.averageCharactersRead,
+          averageWeightedCharactersRead: row.averageWeightedCharactersRead,
+          lastReadingSpeed: row.lastReadingSpeed,
+          minReadingSpeed: row.minReadingSpeed,
+          altMinReadingSpeed: row.altMinReadingSpeed,
+          maxReadingSpeed: row.maxReadingSpeed
+        },
+        ...(book && row.bookKey
+          ? { entry: { bookId: book.id, bookKey: row.bookKey, date: row.dateKey } }
           : {})
       };
-      previous.time += row.readingTime;
-      previous.characters += row.charactersRead;
-      previous.speed = previous.time ? Math.ceil((previous.characters * 3600) / previous.time) : 0;
-      groups.set(key, previous);
-    }
-    const summary = [...groups.values()].sort((a, b) => {
-      const left = a[query.sort],
-        right = b[query.sort];
+    });
+    const sortValue = (row: NativeStatisticsRow) => {
+      switch (query.sort) {
+        case 'time':
+          return row.measurements[query.timeSource];
+        case 'characters':
+          return row.measurements[query.charactersSource];
+        case 'speed':
+          return row.measurements[query.speedSource];
+        default:
+          return row[query.sort];
+      }
+    };
+    summary.sort((a, b) => {
+      const left = sortValue(a),
+        right = sortValue(b);
       const diff =
         typeof left === 'string' && typeof right === 'string'
           ? left.localeCompare(right, 'ja-JP', { numeric: true })
@@ -338,7 +388,10 @@ export async function readStatisticsSnapshot(
     });
     const today = getStartHoursDate(get(startDayHoursForTracker$));
     const heatmap = createStatisticsHeatmap({
-      heatmapAggregration: HeatmapDataAggregration.YEAR,
+      heatmapAggregration:
+        query.heatmapAggregation === 'all-time'
+          ? HeatmapDataAggregration.ALL_TIME
+          : HeatmapDataAggregration.YEAR,
       statisticsData: rows,
       readingGoals: [],
       statisticsTitleFilters: new Map(rows.map((row) => [row.title, true])),
@@ -347,7 +400,12 @@ export async function readStatisticsSnapshot(
     });
     let calendar: Pick<
       NativeStatisticsSnapshot,
-      'days' | 'daysRead' | 'currentStreak' | 'longestStreak' | 'longestStreakDates'
+      | 'days'
+      | 'daysRead'
+      | 'currentStreak'
+      | 'longestStreak'
+      | 'longestStreakStartDate'
+      | 'longestStreakDates'
     >;
     try {
       heatmap.heatmapYear = query.year;
@@ -372,6 +430,7 @@ export async function readStatisticsSnapshot(
         daysRead: 'daysRead' in data ? data.daysRead : '',
         currentStreak: data.currentStreak.duration,
         longestStreak: data.longestStreaks[0]?.duration ?? 0,
+        longestStreakStartDate: data.longestStreaks[0]?.startDate ?? null,
         longestStreakDates: heatmap.currentHeatmapDays
           .filter((day) =>
             data.longestStreaks.some(

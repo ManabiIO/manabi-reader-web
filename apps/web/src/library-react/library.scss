@@ -1,5 +1,9 @@
 /** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors */
 .library-react {
+  // Expo's full-height Stack content is a flex column. Keep this document
+  // screen's natural content height so sticky tools are not clamped to one
+  // viewport while its overflowing books scroll the document below it.
+  flex-shrink: 0;
 
   .library-selection-marquee {
     position: fixed;

@@ -47,6 +47,7 @@ export interface AudioPanelProps {
   onFollow: () => void;
   returnFocus: () => void;
   selectionHint?: Range | undefined;
+  getContentElement?: () => HTMLElement | undefined;
 }
 
 export function createAudioPanel(
@@ -66,6 +67,11 @@ export function createAudioPanel(
   let bookmarkManager: BookmarkManager | undefined = props.bookmarkManager;
   let onFollow: () => void = props.onFollow;
   let returnFocus: () => void = props.returnFocus;
+  let getContentElement = props.getContentElement;
+  function contentElement() {
+    const root = getContentElement?.();
+    return root?.isConnected ? root : undefined;
+  }
   let selectionHint: Range | undefined =
     props.selectionHint !== undefined ? props.selectionHint : undefined;
   let mounted = false;
@@ -172,7 +178,7 @@ export function createAudioPanel(
     __readerController.changed(
       (navigator = new ReaderNavigator({
         document,
-        root: () => document.querySelector<HTMLElement>('.book-content') ?? undefined,
+        root: contentElement,
         selectSection: (id) => nextChapter$.next(id),
         navigate: navigateToRange
       }))
@@ -440,7 +446,7 @@ export function createAudioPanel(
       built = await buildSourceBookIndex(htmlContent, document, controller.signal);
       if (!built.text) throw new Error('No readable book text was found for matching.');
       const prepared = new BookSource(built);
-      const root = document.querySelector<HTMLElement>('.book-content');
+      const root = contentElement();
       const start =
         selectionHint && root ? prepared.selectionOffset(selectionHint, root) : undefined;
       if (selectionHint && start === undefined)
@@ -534,7 +540,7 @@ export function createAudioPanel(
   }
   function observeLiveBook() {
     liveObserver.disconnect();
-    const root = document.querySelector('.book-content');
+    const root = contentElement();
     if (root)
       liveObserver.observe(root, {
         subtree: true,
@@ -553,7 +559,7 @@ export function createAudioPanel(
     __readerController.changed((lastCue = current));
     const match = matches[current];
     const location = match && source?.location(match);
-    const root = document.querySelector<HTMLElement>('.book-content');
+    const root = contentElement();
     highlight?.set(location && root ? source?.resolve(location, root) : undefined);
     if (location && navigate && follow && !snapshot.paused && !open)
       void showLocation(current, true);
@@ -685,6 +691,14 @@ export function createAudioPanel(
 
   const api = {
     controller: __readerController,
+    get getContentElement() {
+      return getContentElement;
+    },
+    set getContentElement(value: typeof getContentElement) {
+      if (Object.is(value, getContentElement)) return;
+      getContentElement = value;
+      __readerController.invalidate();
+    },
     restore,
     sessionSnapshot,
     save,
@@ -1215,6 +1229,8 @@ export function createAudioPanel(
         api.bookmarkManager = next.bookmarkManager as typeof bookmarkManager;
       if ('onFollow' in next) api.onFollow = next.onFollow as typeof onFollow;
       if ('returnFocus' in next) api.returnFocus = next.returnFocus as typeof returnFocus;
+      if ('getContentElement' in next)
+        api.getContentElement = next.getContentElement as typeof getContentElement;
       if ('selectionHint' in next) api.selectionHint = next.selectionHint as typeof selectionHint;
     }
   };

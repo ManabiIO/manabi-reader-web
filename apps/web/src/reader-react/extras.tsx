@@ -78,6 +78,7 @@ export function AudiobookLauncher(props: {
   htmlContent: string;
   layoutKey: string | number;
   bookmarkManager?: BookmarkManager;
+  getContentElement(): HTMLElement | undefined;
   onFollow(): void;
 }) {
   const [Panel, setPanel] =
@@ -96,10 +97,17 @@ export function AudiobookLauncher(props: {
   }, []);
   async function show() {
     if (loading) return;
-    const selection = window.getSelection();
+    const root = props.getContentElement();
+    const selection = root?.isConnected
+      ? root.ownerDocument.defaultView?.getSelection()
+      : undefined;
     const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
-    const root = document.querySelector('.book-content');
-    if (range && !range.collapsed && root?.contains(range.startContainer))
+    if (
+      range &&
+      !range.collapsed &&
+      root?.contains(range.startContainer) &&
+      root.contains(range.endContainer)
+    )
       setSelectionHint(range.cloneRange());
     if (Panel) {
       setOpen(true);

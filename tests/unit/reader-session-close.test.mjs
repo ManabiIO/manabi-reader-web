@@ -115,6 +115,28 @@ test('preserve-resume suspension saves before settlement while explicit close re
   assert.equal(h.deletions(), 1);
 });
 
+test('another navigation guard can resume an approved suspension without losing the live reader', async (t) => {
+  const h = fixture(t);
+  assert.equal(await h.c.requestSuspend(), true);
+  assert.equal(h.c.blockDataUpdates, true);
+  h.c.resumeAfterCanceledSuspend();
+  assert.equal(h.c.blockDataUpdates, false);
+  await h.c.saveBookmark();
+  assert.equal(h.writes.length, 2);
+  assert.equal(h.c.controller.disposed, false);
+});
+
+test('account ABA prevents an older approved suspension from resuming autosaves', async (t) => {
+  const h = fixture(t);
+  assert.equal(await h.c.requestSuspend(), true);
+  user('bob');
+  user(null);
+  h.c.resumeAfterCanceledSuspend();
+  assert.equal(h.c.blockDataUpdates, true);
+  await h.c.saveBookmark();
+  assert.equal(h.writes.length, 1);
+});
+
 test('suspension waits for an already-running bookmark write and fences later autosaves', async (t) => {
   const gate = deferred();
   let first = true;
@@ -299,6 +321,27 @@ async function admittedBook(t, h) {
   h.c.upSyncEnabled = true;
   h.c.bookmarkManager.formatBookmarkDataByRange = h.c.bookmarkManager.formatBookmarkData;
 }
+
+test('custom reading point cannot borrow a retained book when its admitted content is absent', async (t) => {
+  const h = fixture(t);
+  await admittedBook(t, h);
+  const previous = globalThis.document.createElement('article');
+  previous.className = 'book-content';
+  previous.textContent = 'A retained previous reader';
+  globalThis.document.body.append(previous);
+  h.c.isPaginated = true;
+  h.c.bookReaderComponent = { activeContentElement: () => undefined };
+  let stopped = 0;
+  h.c.autoScroller = {
+    off() {
+      stopped++;
+    }
+  };
+  h.c.handleSetCustomReadingPoint();
+  assert.equal(stopped, 0);
+  assert.equal(h.c.isSelectingCustomReadingPoint, false);
+  assert.equal(globalThis.document.body.classList.contains('cursor-crosshair'), false);
+});
 
 test('close joins existing replication and an old-account error cannot replace newer UI', async (t) => {
   const h = fixture(t);

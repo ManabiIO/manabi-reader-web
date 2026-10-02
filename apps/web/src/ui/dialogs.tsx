@@ -23,26 +23,28 @@ export function DialogTemplate({
   footer?: ReactNode;
 }) {
   return (
-    <div className="flex max-h-[calc(90dvh-3rem)] min-h-0 flex-col">
-      <header className="shrink-0 px-6 pb-3">
+    <div className="flex max-h-[calc(90dvh-60px)] min-h-0 min-w-0 flex-col">
+      <header className="min-w-0 shrink-0 px-[24px] pb-[12px]">
         <h2 id="manabi-dialog-title" className="text-xl font-semibold [overflow-wrap:anywhere]">
           {title}
         </h2>
       </header>
       <section
         data-dialog-scroll
-        className="min-h-0 flex-1 overflow-auto overscroll-contain px-6 pb-6"
+        className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain px-[24px] pb-[24px]"
       >
         {children}
       </section>
       {footer && (
-        <footer className="flex shrink-0 flex-wrap justify-end gap-2 border-t p-4">{footer}</footer>
+        <footer className="flex min-w-0 shrink-0 flex-wrap justify-end gap-[8px] border-t p-[16px]">
+          {footer}
+        </footer>
       )}
     </div>
   );
 }
 const buttonClass =
-  'inline-flex min-h-11 items-center justify-center rounded-xl border px-4 py-2 font-medium disabled:opacity-50';
+  'inline-flex min-h-[44px] items-center justify-center rounded-xl border px-[12px] py-[8px] font-medium disabled:opacity-50';
 /** Resolver ownership is per mounted dialog, including escape/back/unmount. */
 function useResolution<T>(resolver: (value: T) => void, cancelled: T, onClose?: () => void) {
   const settled = useRef(false);
@@ -360,6 +362,7 @@ export function StorageUnlock({
   }
   return (
     <form
+      className="w-full min-w-0"
       aria-busy={pending}
       onSubmit={(e) => {
         e.preventDefault();
@@ -395,9 +398,10 @@ export function StorageUnlock({
         <p>{description}</p>
         <p>{action}</p>
         {requiresSecret && (
-          <label>
+          <label className="grid min-w-0 gap-[8px]">
             Password
             <input
+              className="min-h-[44px] w-full min-w-0 rounded-xl border border-input bg-background px-[12px] py-[8px]"
               autoFocus
               type="password"
               autoComplete="current-password"
@@ -463,7 +467,7 @@ export function DialogHost() {
       ref={ref}
       data-slot={current ? 'dialog-content' : undefined}
       aria-labelledby="manabi-dialog-title"
-      className="m-auto max-h-[90dvh] w-[min(96vw,48rem)] overflow-hidden rounded-2xl border border-border bg-background p-0 pt-12 text-foreground shadow-xl backdrop:bg-black/40"
+      className="m-auto max-h-[90dvh] w-[min(96vw,48rem)] max-w-[calc(100vw-16px)] overflow-hidden rounded-2xl border border-border bg-background p-0 pt-[60px] text-foreground shadow-xl backdrop:bg-black/40"
       onCancel={(e) => {
         e.preventDefault();
         if (!current?.disableCloseOnClick) close();
@@ -485,7 +489,7 @@ export function DialogHost() {
         <>
           {!current.disableCloseOnClick && (
             <button
-              className="absolute top-3 right-3 min-h-11 min-w-11 rounded-full border"
+              className="absolute top-[12px] right-[12px] min-h-[44px] min-w-[44px] rounded-full border"
               data-modal-dismiss=""
               data-shape="circle"
               aria-label="Close"

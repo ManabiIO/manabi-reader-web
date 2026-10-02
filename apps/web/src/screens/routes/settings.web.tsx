@@ -4,4 +4,30 @@
  * All rights reserved.
  */
 
-export { SettingsScreen as default } from '../../settings-react';
+import { useState } from 'react';
+import { useLocalSearchParams, useRoute } from 'expo-router';
+import { SettingsScreen } from '../../settings-react';
+import { readNavigationArrival } from '../../runtime/navigation';
+import { base } from '../../runtime/paths';
+
+function SettingsVisit({ routeUrl }: { routeUrl: string }) {
+  const [arrival] = useState(() => readNavigationArrival(routeUrl));
+  return <SettingsScreen previousPage={arrival?.from} />;
+}
+export default function SettingsRoute() {
+  const params = useLocalSearchParams();
+  const route = useRoute();
+  const url = new URL(
+    `${base}/settings`,
+    typeof window === 'undefined' ? 'https://reader.invalid' : window.location.origin
+  );
+  for (const [name, value] of Object.entries(params)) {
+    if (value == null) continue;
+    if (name === '#') url.hash = Array.isArray(value) ? (value[0] ?? '') : value;
+    else
+      for (const item of Array.isArray(value) ? value : [value])
+        url.searchParams.append(name, item);
+  }
+  // A new Expo visit gets fresh arrival context; hash changes within it do not.
+  return <SettingsVisit key={route.key} routeUrl={url.href} />;
+}

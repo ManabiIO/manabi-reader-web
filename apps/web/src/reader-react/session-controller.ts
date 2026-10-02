@@ -2189,8 +2189,55 @@ export function createSession(
     return leaveReader(undefined);
   }
   /** Web route suspension retains resume while sharing the native save barrier. */
+  let suspension:
+    | {
+        promise: Promise<boolean>;
+        operation: ReturnType<typeof captureLibraryOperation>;
+        generation: number;
+        saved: boolean;
+      }
+    | undefined;
+  __readerController.onDestroy(() => suspension?.operation.stop());
   function requestSuspend(): Promise<boolean> {
-    return leaveReader(undefined, false);
+    const promise = leaveReader(undefined, false);
+    if (suspension?.promise !== promise) {
+      suspension?.operation.stop();
+      const receipt = {
+        promise,
+        operation: captureLibraryOperation(),
+        generation: accountGeneration(),
+        saved: false
+      };
+      suspension = receipt;
+      void promise.then(
+        (saved) => {
+          receipt.saved = saved;
+          if (!saved) receipt.operation.stop();
+        },
+        () => receipt.operation.stop()
+      );
+    }
+    return promise;
+  }
+  function resumeAfterCanceledSuspend() {
+    if (
+      __readerController.disposed ||
+      closeOperation ||
+      readerLeaseLifetime.signal.aborted ||
+      !suspension?.saved ||
+      suspension.generation !== accountGeneration()
+    )
+      return;
+    try {
+      suspension.operation.assertCurrent();
+      bookAuthority?.signal.throwIfAborted();
+      bookAuthority?.assertCurrent();
+    } catch {
+      return;
+    }
+    suspension.operation.stop();
+    suspension = undefined;
+    __readerController.changed((blockDataUpdates = false));
   }
   function leaveReader(routeId?: string, deleteLastItem = true): Promise<boolean> {
     if (__readerController.disposed) return Promise.resolve(false);
@@ -2351,8 +2398,8 @@ export function createSession(
     if (!$customReadingPointEnabled$ && !isPaginated) {
       return;
     }
-    const contentEl = document.querySelector('.book-content');
-    if (!contentEl) {
+    const contentEl = bookReaderComponent?.activeContentElement();
+    if (!contentEl?.isConnected) {
       return;
     }
     autoScroller?.off();
@@ -2959,6 +3006,7 @@ export function createSession(
     controller: __readerController,
     requestClose,
     requestSuspend,
+    resumeAfterCanceledSuspend,
     setExitHandler,
     noteReaderSelection,
     handleAction,

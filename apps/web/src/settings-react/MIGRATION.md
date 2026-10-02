@@ -45,7 +45,7 @@ The 109 `settings-react/**` diagnostics reported by the dependency-resolved CI r
 - Derived theme options, import rows, goal-history pages, sync choices, and shared-library choices have domain types rather than erased array types
 - Read-only derived observables (`resolvedMode$`, `storageSources$`) and the read-only field-filter context expose getters only; generated setters no longer pretend to write them
 - Element refs which can be cleared on unmount are nullable and guarded; IME key handling reads React's native keyboard event
-- The obsolete `compact` prop was removed from the React `AppNav` call
+- The shared React `AppNav` now restores the original compact trigger, primary links and full navigation sheet; the Settings header passes `compact` again
 - Settings buttons reuse the original `snippets-react/button-styles.ts` variants via `cn`, preserve their event/binding adapter, prevent disabled activation, omit disabled-link `href`, and retain explicit keyboard tab order
 
 Post-change checks: the 16 existing settings/Rhea controller and source-parity tests pass alongside 20 new native-settings tests (36 total). A dependency-resolved local settings-root strict check has no residual diagnostics from the posted CI failure. Its two remaining settings-file diagnostics are unresolved `showDirectoryPicker` and `PasswordCredential` globals because this partial local dependency installation does not contain `@types/wicg-file-system-access` or `@types/webappsec-credential-management`; both are already declared dependencies and referenced by `manabi-browser-types.d.ts`. Those two errors were absent from the real CI log. A fresh full dependency-installed CI run is still required; a local pass is not being substituted for it.

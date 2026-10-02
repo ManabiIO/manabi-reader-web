@@ -490,6 +490,12 @@
   height: 100%;
 }
 
+.react-reader-gallery .reader-modal {
+  padding: 0;
+  gap: 0;
+  border-radius: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
 .react-reader-gallery .gallery-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

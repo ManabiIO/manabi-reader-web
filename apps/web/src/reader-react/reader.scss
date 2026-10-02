@@ -584,6 +584,14 @@
   }
 }
 .react-reader-gallery {
+  .reader-modal {
+    // The gallery is a full-screen layout, not a padded message dialog.
+    // These unlayered primitive defaults outrank Tailwind's p-0/gap-0 utilities.
+    padding: 0;
+    gap: 0;
+    border-radius: 0;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
   .gallery-header {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
