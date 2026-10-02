@@ -1134,3 +1134,36 @@ test('web date-row confirmation metadata lists only titles on that exact day', a
   );
   port.release();
 });
+
+test('accepted query changes persist immediately and newer reads supersede older responses', async () => {
+  const pending = [];
+  const saved = [];
+  const f = sharedControllerFixture({
+    load: (query, signal) => new Promise((resolve) => pending.push({ query, signal, resolve })),
+    persistQuery: (query) => saved.push({ ...query })
+  });
+  const stop = f.controller.mount();
+  try {
+    assert.equal(saved.length, 0, 'owner bootstrap is not overwritten before its read');
+    pending[0].resolve(sharedSnapshot(pending[0].query));
+    await settle();
+    const first = f.controller.dispatch({ type: 'query', patch: { weekStartsOn: 2 } });
+    assert.equal(saved.at(-1).weekStartsOn, 2, 'accepted field writes before asynchronous read');
+    const second = f.controller.dispatch({ type: 'query', patch: { weekStartsOn: 3 } });
+    assert.equal(pending[1].signal.aborted, true);
+    assert.equal(saved.at(-1).weekStartsOn, 3);
+    pending[2].resolve(sharedSnapshot(pending[2].query, 'newer'));
+    await second;
+    pending[1].resolve(sharedSnapshot(pending[1].query, 'obsolete'));
+    await first;
+    assert.equal(f.controller.getSnapshot().data.snapshotId, 'newer');
+    assert.equal(f.controller.getSnapshot().query.weekStartsOn, 3);
+    assert.equal(saved.at(-1).weekStartsOn, 3);
+    const invalid = f.controller.dispatch({ type: 'query', patch: { weekStartsOn: 9 } });
+    await invalid;
+    assert.equal(saved.at(-1).weekStartsOn, 3);
+    assert.equal(pending.length, 3);
+  } finally {
+    stop();
+  }
+});

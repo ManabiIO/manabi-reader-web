@@ -582,7 +582,14 @@ const styles = StyleSheet.create({
     columnGap: 12,
     rowGap: 4
   },
-  tabs: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  tabs: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    minWidth: 0,
+    maxWidth: '100%',
+    gap: 4
+  },
   content: { minWidth: 0, width: '100%', alignSelf: 'center', paddingVertical: 24 },
   loading: { padding: 24, alignItems: 'center', gap: 12 },
   notice: {

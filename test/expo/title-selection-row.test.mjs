@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import { build } from 'esbuild';
 
 const require = createRequire(import.meta.url);
+const appRequire = createRequire(new URL('../../apps/web/package.json', import.meta.url));
 const { JSDOM } = require('jsdom');
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'https://localhost.test/'
@@ -59,7 +60,7 @@ await build({
           external: true
         }));
         b.onResolve({ filter: /^react-native$/ }, () => ({
-          path: require.resolve('react-native-web'),
+          path: appRequire.resolve('react-native-web'),
           external: true
         }));
       }

@@ -227,7 +227,7 @@ const stepNamed = (part) => {
   return matches[0];
 };
 
-test('two purposeful exports keep the source flag off and do not mask default-route failures', () => {
+test('two independent exports qualify the promoted reader and do not mask default-route failures', () => {
   const exports = allBrowserSteps.filter((step) =>
     step.run?.includes('expo export --platform web')
   );
@@ -249,10 +249,8 @@ test('two purposeful exports keep the source flag off and do not mask default-ro
       )
   );
   assert.equal(exports.length, 2);
-  assert.deepEqual(
-    exports.map((step) => step.env.EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME),
-    ['0', '1']
-  );
+  for (const step of exports)
+    assert.equal(step.env.EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME, undefined);
   for (const step of exports) {
     assert.match(step.run, /rm -rf apps\/web\/build/);
     assert.match(step.run, /expo export --platform web --clear/);
@@ -276,8 +274,14 @@ test('two purposeful exports keep the source flag off and do not mask default-ro
     assert.match(commands, /for engine in chromium webkit/);
     assert.match(commands, /exit "\$status"/);
   }
-  const flagSource = read('apps/web/src/runtime/web-reader-qualification.ts');
-  assert.match(flagSource, /EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME\s*===\s*'1'/);
+  const layout = read('apps/web/src/app/_layout.tsx');
+  const route = read('apps/web/src/screens/routes/b.web.tsx');
+  const binding = read('apps/web/src/runtime/router-binding.tsx');
+  for (const source of [layout, route, binding])
+    assert.doesNotMatch(source, /qualifyWebReaderLifetime|EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME/);
+  assert.match(layout, /Platform\.OS === 'web'\s*\?\s*\(\s*<Slot/);
+  assert.match(route, /return <QualifiedWebReader routeUrl=\{url\.href\}/);
+  assert.match(binding, /return installQualifiedWebNavigation\(window, adapter, setError\)/);
 });
 
 test('required original browser and runtime assertions remain selected', () => {

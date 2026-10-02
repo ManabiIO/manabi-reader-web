@@ -29,7 +29,7 @@ import {
   type NativeLibraryBook,
   type NativeLibraryState
 } from './contract';
-import { reconcileNativeSelection } from './view-model';
+import { reconcileNativeSelection } from './selection';
 import { NativeLibraryContentSearch } from './content-search';
 import { NativeBookCover } from './cover';
 import { NativeEditorsPicks } from './catalog';

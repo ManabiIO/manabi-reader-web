@@ -50,7 +50,7 @@ possible behavior or frozen mutable upstream action tags.
 - Existing typed ESLint/component rules, appearance CSS generation check, and
   strict application TypeScript
 - Every `tests/unit/*.test.mjs` and `test/expo/*.test.mjs`, including navigation,
-  history, flag-default, Library readiness/catalog ownership, and CI-policy cases
+  history, promoted-reader routing, Library readiness/catalog ownership, and CI-policy cases
 - Existing Android instrumentation-harness unit contracts, reader regressions,
   snippets domain and mounted React integration
 - Existing Whispersync core coverage thresholds and React compilation, pitch
@@ -60,15 +60,15 @@ possible behavior or frozen mutable upstream action tags.
 A failure in one test step does not hide later independent test-step evidence;
 no test is made non-blocking and no application assertion is weakened.
 
-## Two web modes with colocated qualification
+## Two independent web exports with colocated qualification
 
 The regression job builds the default route after its independent unit/domain
-steps. The web job independently builds the gated route. They check out the
+steps. The web job independently builds the same promoted production reader route. They check out the
 exact same recorded commit and frozen dependency graph, base path and pinned
 browser versions. Each job owns its build and tests; there are still exactly two
 web exports, no duplicated matrix and no cross-job transfer. Both output and
-local Metro transform cache are cleared before export. There is no test-only
-runtime flag injection and the source flag stays default-disabled.
+local Metro transform cache are cleared before export. The temporary reader flag has been removed. Both exports use the web Slot,
+account-owned reader lifetime and save/cleanup navigation barrier.
 
 A unit failure remains a job failure, but cannot suppress the default browser
 setup when dependency installation succeeded. A default-route failure cannot
@@ -81,8 +81,9 @@ The PR's automatic runs use **affected** qualification. Manual dispatch offers
 job summary records the scope with its exact source commit. An affected pass is
 never a complete-parity or merge-readiness result.
 
-Both `EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME=0` and `=1` exports receive the same
-intermediate affected checks:
+Both independent exports receive the same intermediate affected checks. The
+`default` and `gated` selector labels identify the existing CI jobs only; they
+no longer select different runtime code:
 
 - The original static-reader launcher in Chromium
 - All 20 canonical cases from `tests/browser/statistics_acceptance_cases.py` in
@@ -102,8 +103,9 @@ gated inventory below, including all shared/local data safety, open-lifetime and
 snippets cases. It is the explicit final web-parity gate on the final source.
 Intermediate scope avoids re-running known superseded duplicate presentations
 while shared routes converge; those unselected cases remain **unrun**, never
-silently passed or deleted. The Slot source flag remains disabled until the
-relevant normal and gated qualification establishes their behavior.
+silently passed or deleted. On c3b0c0ba the previous flag-enabled export passed all eight reader lifetime
+and two offline-handoff cases in each browser engine. The promoted source must
+still pass both exact-head exports; older-head results do not qualify this edit.
 
 Actual emitted-worker/genuine SwiftF0/cover checks and Android qualification are
 still separate, always-selected job steps. No scope changes runner classes,

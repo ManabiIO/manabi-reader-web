@@ -253,7 +253,10 @@ export function StatisticsHeatmap({
                     {
                       minWidth: cellSize,
                       minHeight: cellSize,
-                      padding: 0,
+                      // Override the shared button axis padding, not only the
+                      // shorthand (RN gives axis padding precedence).
+                      paddingHorizontal: 0,
+                      paddingVertical: 0,
                       borderRadius: 3,
                       backgroundColor: item.inYear
                         ? item.day?.color || colors.heatmapEmpty
@@ -359,5 +362,5 @@ const styles = StyleSheet.create({
     minWidth: 0
   },
   metrics: { marginTop: 16, justifyContent: 'center', alignItems: 'stretch' },
-  metric: { flex: 1, padding: 0, minWidth: 0, textAlign: 'center' }
+  metric: { flex: 1, paddingHorizontal: 0, paddingVertical: 0, minWidth: 0, textAlign: 'center' }
 });

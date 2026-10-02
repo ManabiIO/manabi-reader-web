@@ -78,7 +78,7 @@ Status is intentionally separate from coverage. `Ported` means source implementa
 
 - Exact head `772a5ffc09da02bcad5e38dbc6c4a55d4a985484`: production web and Android exports, patched-host compilation/JVM checks, release/test APK assembly and real asset/source-byte qualification pass. Full strict Expo types and 1,467 original unit, 317 migration, 7 instrumentation-harness, 163 reader, 61 snippet domain, 18 mounted snippet React and 98 Whispersync tests pass. Product journeys (including Settings return), Library grid labels, annotations, static/offline reader and Settings controls pass on the exported app. Broader Library, Editor's Picks, import hydration, Settings modal and gallery journeys still identify repairs below; Android runtime remains blocked before APK installation by unavailable KVM access.
 
-- The next qualification slice keeps `EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME` disabled by default. At that checkpoint a dedicated read-only CI workflow built a real production export with the flag enabled and ran seven reader lifetime cases in each of Chromium and WebKit; the current colocated plan adds the raw-anchor regression and normal-route equivalence checks. Web uses Expo Router's supported `Slot` to avoid retained inactive DOM readers, while native keeps `Stack`. A separate navigation/history barrier still owns save settlement, actual reader cleanup acknowledgement, account/intent revocation, exact browser entry replay and fragment-only traversal. Source tests and independent race review are not substitutes for these exported-browser gates. The same revision repairs route-local Library queries/selection, original Editor's Picks semantics, the early import FileList handoff, explicit modal hooks and base-qualified empty-state links.
+- The temporary `EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME` split is removed. Web always uses Expo Router's supported `Slot`, the account-owned reader lifetime and the navigation/history save-and-cleanup barrier; native retains `Stack`. On c3b0c0ba the flag-enabled export passed all eight reader lifetime and two offline-handoff cases in each of Chromium and WebKit. This source promotion still needs both fresh exports and the final full browser inventory; those earlier focused results are not a parity claim. Exact browser entry replay, fragment-only traversal, account/intent revocation, cleanup acknowledgement and raw-anchor interception remain covered by the existing unit and browser suites.
 
 - Exact head `c898bd81094977289c1c0c487fc5c6151c8df8d1`: complete regression job passes 1,437 original units, 310 migration, 7 instrumentation-harness, 163 reader, 61 snippet domain, 18 mounted snippet React and 98 Whispersync tests, with full strict Expo types and genuine browser pitch/cover execution. Production web export and ordinary typed lint/build pass. This head contains the async membership intent, snippet route snapshot, reader settlement, Settings overlay, menu and search-label repairs; patched-host Android compilation, release/test APK assembly and APK asset/source-byte qualification also pass. Static-reader, offline-reader and annotation suites pass. Unified search (15 cases), search quality (8) and focus/IME behavior (6) pass in both Chromium and WebKit, including real dictionary operations and snippet Save navigation. The runtime job fails fast without KVM access; compact UI and return-navigation journeys still have explicit failures. Reader Back/Forward lifetime integration remains an explicit next slice.
 
@@ -134,3 +134,31 @@ Windows/Linux are architecture considerations only, not build targets in this PR
 - [Expo DOM components: asynchronous actions, public assets, native execution boundary](https://docs.expo.dev/guides/dom-components/)
 - [SDK 57 Metro: CSS/Sass, asset imports and alpha web-worker support](https://docs.expo.dev/versions/v57.0.0/config/metro/)
 - [Expo FileSystem: bounded FileHandle reads](https://docs.expo.dev/versions/latest/sdk/filesystem/)
+
+### Follow-up after the shared Statistics checkpoint
+
+The c3b0c0ba run passed full lint, strict application types, unit tests, both web
+exports, Android build/assets, and emitted worker execution. Both web acceptance
+jobs failed; the Android emulator crashed during native route initialization.
+The migration harness also exposed a root-versus-app dependency resolution error.
+
+The follow-up repairs preserve the original assertions: real Expo checkbox/switch
+inputs override RNW's `pointer-events: none !important` without adding duplicate
+controls; heatmap cells override axis padding; narrow header tabs wrap; accepted
+query preferences persist before asynchronous loads. Web now always uses the
+previously qualified Slot and reader-lifetime path. Mounted tests resolve RNW from
+the application package, matching strict pnpm installation.
+
+Native Library selection is a pure leaf instead of eagerly importing the DOM
+shelf projection. The previous import initialized `lib/library/tree.ts` and its
+`Intl.Collator` while loading a native route. A regression runs selection with
+missing Intl constructors and checks unchanged deduplication, order and visibility
+semantics; the Android route-graph gate excludes that owner dependency. This
+reproduces and removes a concrete startup hazard, but the minified CI stack has
+not been symbolicated and a fresh packaged emulator pass is still required to
+establish that the observed crash is resolved. No broad Intl polyfill is added.
+
+Current Expo UI Host documentation confirms that an RN View inside a native Host
+switches rendering back to RN; universal children need a fresh nested Host. The
+existing bounded control leaves retain this boundary. Official API reference:
+https://docs.expo.dev/versions/v57.0.0/sdk/ui/universal/host/

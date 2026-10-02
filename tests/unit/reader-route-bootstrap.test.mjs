@@ -82,15 +82,40 @@ async function fixture(run) {
     './session': { ReaderScreen: Session },
     './book-reader': { BookReader: () => null }
   });
+  const accountStore = {
+    subscribe(callback) {
+      callback();
+      return () => {};
+    }
+  };
+  const navigation = production('runtime/navigation.ts', {
+    './paths': paths,
+    './stores': { refreshLocation() {} }
+  });
+  const lifetime = production('reader-react/web-reader-lifetime.tsx', {
+    '../runtime/navigation': navigation,
+    './index': screen,
+    './web-reader-departure': production('reader-react/web-reader-departure.ts', {})
+  });
+  const qualified = production('reader-react/web-qualified-reader.tsx', {
+    'expo-router': { useIsFocused: () => routeState.focused },
+    '../lib/manabi/client': {
+      account: accountStore,
+      localUser: accountStore,
+      accountGeneration: () => 0
+    },
+    '../lib/manabi/operation-scope': {
+      captureLibraryOperation: () => ({ assertCurrent() {}, stop() {} })
+    },
+    './web-reader-lifetime': lifetime
+  });
   const route = production('screens/routes/b.web.tsx', {
     'expo-router': {
       useLocalSearchParams: () => routeState.params,
       useIsFocused: () => routeState.focused
     },
-    '../../reader-react': screen,
     '../../runtime/paths': paths,
-    '../../runtime/web-reader-qualification': { qualifyWebReaderLifetime: false },
-    '../../reader-react/web-qualified-reader': { QualifiedWebReader: () => null }
+    '../../reader-react/web-qualified-reader': qualified
   }).default;
   const root = createRoot(dom.window.document.getElementById('root'));
   const render = async (component = route, props = {}) => {
@@ -137,7 +162,7 @@ test('the mounted web reader starts from route-local URL before Expo commits bro
   });
 });
 
-test('a retained web route keeps its own session while another screen updates the global page', async () => {
+test('a retained web route keeps its admitted session while blurred and admits a fresh controller on refocus', async () => {
   await fixture(async ({ render, observed, page, routeState, destroyed }) => {
     await render();
     routeState.focused = false;
@@ -152,7 +177,9 @@ test('a retained web route keeps its own session while another screen updates th
     assert.equal(new URL(observed[0].routeUrl).searchParams.get('id'), '1');
     routeState.focused = true;
     await render();
-    assert.equal(observed.length, 1);
+    assert.equal(observed.length, 2, 'a new focused visit must not reuse the retired reader');
+    assert.equal(destroyed(), 1);
+    assert.equal(new URL(observed[1].routeUrl).searchParams.get('id'), '1');
   });
 });
 

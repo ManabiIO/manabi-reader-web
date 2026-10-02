@@ -22,12 +22,14 @@ export function UiPresentation() {
 [data-ui-control='picker'][data-compact='true'] svg { right: 4px; }
 [data-ui-toggle] label { min-height: 44px; width: 100%; }
 [data-ui-toggle] label > div:last-child { min-width: 0; overflow-wrap: anywhere; }
-[data-ui-toggle='checkbox'] input { width: 20px; height: 20px; pointer-events: auto; z-index: 1; top: 50%; transform: translateY(-50%); scroll-margin-block: 16px; }
+/* RNW compiles Expo's hidden-input pointerEvents:none to !important. Match that
+   priority so the real input receives hits above its decorative sibling. */
+[data-ui-toggle='checkbox'] input { width: 20px; height: 20px; pointer-events: auto !important; z-index: 1; top: 50%; transform: translateY(-50%); scroll-margin-block: 16px; }
 [data-ui-toggle='checkbox'] label > div:first-of-type { width: 20px; height: 20px; flex-shrink: 0; }
 [data-ui-toggle] label > div { color: var(--foreground); }
 [data-ui-toggle='checkbox'] label > div:last-child { font-size: 1rem; }
 [data-ui-toggle='switch'] label > div:first-of-type { font-size: 1rem; flex: 1; min-width: 0; }
-[data-ui-toggle='switch'] input { width: 36px; height: 22px; pointer-events: auto; z-index: 1; right: 0; top: 50%; transform: translateY(-50%); }
+[data-ui-toggle='switch'] input { width: 36px; height: 22px; pointer-events: auto !important; z-index: 1; right: 0; top: 50%; transform: translateY(-50%); }
 [data-ui-modal]::backdrop { background: rgb(0 0 0 / 50%); }
 @media (pointer: coarse) { [data-ui-button]:not([data-date]) { min-width: 44px !important; min-height: 44px !important; } }
 @media (prefers-reduced-motion: reduce) { [data-ui-button] { transition: none; } }

@@ -38,7 +38,7 @@ function readerFragment(from: WebHistoryEntry, to: WebHistoryEntry) {
   );
 }
 
-/** Qualification-only adapter. Every browser traversal retains its real entry
+/** Production web navigation adapter. Every browser traversal retains its real entry
  * identity; every app navigation waits for an interrupted traversal to restore. */
 export function installQualifiedWebNavigation(
   window: Window,

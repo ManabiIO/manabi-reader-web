@@ -178,6 +178,10 @@ export function createStatisticsController(port: StatisticsPort) {
       selectedDay: undefined
     });
     try {
+      // An accepted user preference is durable immediately, as in the original
+      // controls; an asynchronous history read must not delay or drop it.
+      // Initial bootstrap still waits for the owner to resolve saved preferences.
+      if (patch) port.persistQuery?.(query);
       const data = await port.load(query, signal);
       if (!current(version, owner)) return;
       if (query.selectionToken && query.selectionToken !== data.query.selectionToken)
@@ -242,7 +246,9 @@ export function createStatisticsController(port: StatisticsPort) {
     if (state.confirmation && intent.type !== 'confirm' && intent.type !== 'clear-error') return;
     switch (intent.type) {
       case 'query': {
-        if (state.busy) return;
+        // A newer read may supersede a pending read. A mutation/confirmation
+        // lease remains exclusive and cannot be superseded by field changes.
+        if (actionLease) return;
         const patch = { ...intent.patch, page: intent.patch.page ?? 1 };
         if ('startDate' in patch || 'endDate' in patch) {
           patch.rangeTemplate = 'Custom';
@@ -276,7 +282,7 @@ export function createStatisticsController(port: StatisticsPort) {
         return;
       }
       case 'template':
-        if (!state.busy)
+        if (!actionLease)
           await refresh({
             ...(intent.value === 'Custom'
               ? {}

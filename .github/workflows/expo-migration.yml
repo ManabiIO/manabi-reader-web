@@ -150,7 +150,6 @@ jobs:
           BASE_PATH: /reader-web
           NODE_OPTIONS: --max-old-space-size=6144
           EXPO_NO_TELEMETRY: '1'
-          EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME: '0'
         run: |
           rm -rf apps/web/build
           pnpm --dir apps/web exec expo export --platform web --clear --output-dir build --max-workers 2
@@ -201,7 +200,7 @@ jobs:
           git diff --check
           git diff --exit-code
   web:
-    name: Gated web export with colocated qualification
+    name: Full web export with colocated qualification
     # Missing/private visibility fails closed; no runner is allocated.
     if: >-
       github.event.repository.visibility == 'public' &&
@@ -257,7 +256,7 @@ jobs:
           python -m pip install 'playwright==1.63.0'
           python -m playwright install --with-deps chromium webkit
           pnpm exec playwright install chromium webkit
-      - name: Export the flag-enabled qualification path
+      - name: Export the promoted production reader path
         id: export
         # This job is independent: a regression/default-route failure must not hide gated evidence.
         if: ${{ !cancelled() && steps.assets.outcome == 'success' && steps.browsers.outcome == 'success' }}
@@ -265,7 +264,6 @@ jobs:
           BASE_PATH: /reader-web
           NODE_OPTIONS: --max-old-space-size=6144
           EXPO_NO_TELEMETRY: '1'
-          EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME: '1'
         run: |
           rm -rf apps/web/build
           pnpm --dir apps/web exec expo export --platform web --clear --output-dir build --max-workers 2

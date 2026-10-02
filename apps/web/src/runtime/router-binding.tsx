@@ -6,9 +6,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { router, useGlobalSearchParams, usePathname } from 'expo-router';
-import { installRouter } from './navigation';
 import { refreshLocation } from './stores';
-import { qualifyWebReaderLifetime } from './web-reader-qualification';
 import { installQualifiedWebNavigation } from './web-navigation-qualification';
 export function RouterBinding() {
   const path = usePathname();
@@ -20,9 +18,7 @@ export function RouterBinding() {
       push: (path: string) => router.push(path as never),
       replace: (path: string) => router.replace(path as never)
     };
-    return qualifyWebReaderLifetime
-      ? installQualifiedWebNavigation(window, adapter, setError)
-      : installRouter(adapter);
+    return installQualifiedWebNavigation(window, adapter, setError);
   }, []);
   useEffect(refreshLocation, [path, params]);
   return error ? (

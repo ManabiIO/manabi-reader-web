@@ -606,6 +606,7 @@ export function createWebStatisticsPort(): StatisticsPort {
       lastStatisticsTab$.next(view === 'summary' ? StatisticsTab.SUMMARY : StatisticsTab.OVERVIEW);
     },
     persistQuery(query) {
+      assertCurrent();
       lastStatisticsStartDate$.next(query.startDate);
       lastStatisticsEndDate$.next(query.endDate);
       lastStartDayOfWeek$.next(query.weekStartsOn);

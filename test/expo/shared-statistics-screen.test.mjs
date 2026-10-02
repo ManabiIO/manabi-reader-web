@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';
 const require = createRequire(import.meta.url);
+const appRequire = createRequire(new URL('../../apps/web/package.json', import.meta.url));
 const { JSDOM } = require('jsdom');
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'https://localhost.test/'
@@ -73,7 +74,7 @@ await build({
           external: true
         }));
         b.onResolve({ filter: /^react-native$/ }, () => ({
-          path: require.resolve('react-native-web'),
+          path: appRequire.resolve('react-native-web'),
           external: true
         }));
         // Navigation is outside this control test; RNW still owns the actual anchor.
@@ -473,6 +474,68 @@ test('shared heatmap preserves one real keyboard button tab stop, native activat
     assert.notEqual(document.activeElement, day);
   } finally {
     await fixture.cleanup();
+  }
+});
+
+test('shared tabs wrap at enlarged text and real calendar buttons keep their measured cell size without inherited padding', async () => {
+  const width = Object.getOwnPropertyDescriptor(document.documentElement, 'clientWidth');
+  const previousFontSize = document.documentElement.style.fontSize;
+  Object.defineProperty(document.documentElement, 'clientWidth', {
+    configurable: true,
+    value: 320
+  });
+  document.documentElement.style.fontSize = '200%';
+  await act(async () => window.dispatchEvent(new window.Event('resize')));
+  const { port } = fakePort();
+  const fixture = await mount(port);
+  try {
+    // JSDOM has no layout engine. Assert the actual RNW output contract here;
+    // the retained 320px browser gates still own reflow and point hit testing.
+    const tabs = fixture.container.querySelector('[aria-label="Statistics view"]');
+    const tabStyle = window.getComputedStyle(tabs);
+    assert.equal(tabStyle.flexWrap, 'wrap');
+    assert.equal(tabStyle.minWidth, '0px');
+    assert.equal(tabStyle.maxWidth, '100%');
+    for (const name of ['Summary', 'Heatmap']) {
+      const button = findButton(name, tabs);
+      assert.equal(button.tagName, 'BUTTON');
+      assert.equal(window.getComputedStyle(button.firstElementChild).fontSize, '0.875rem');
+    }
+
+    await press('Heatmap');
+    const grid = fixture.container.querySelector('.heatmap-calendar');
+    for (const measuredWidth of [1500, 168]) {
+      Object.defineProperty(grid, 'clientWidth', { configurable: true, value: measuredWidth });
+      await act(async () => window.dispatchEvent(new window.Event('resize')));
+      const expected = `${Math.max(15, Math.floor((measuredWidth - 56) / 57))}px`;
+      assert.equal(grid.style.gridAutoColumns, expected);
+      assert.equal(grid.style.gridAutoRows, expected);
+      for (const date of ['2026-09-25', '2026-10-02', '2026-01-01', '2026-12-31']) {
+        const day = grid.querySelector(`[data-date="${date}"]`);
+        assert.equal(day.tagName, 'BUTTON');
+        assert.equal(day.disabled, false);
+        const style = window.getComputedStyle(day);
+        assert.equal(style.width, expected);
+        assert.equal(style.height, expected);
+        assert.equal(style.minWidth, expected);
+        assert.equal(style.minHeight, expected);
+        assert.equal(style.boxSizing, 'border-box');
+        for (const side of ['Top', 'Right', 'Bottom', 'Left']) {
+          assert.equal(style[`padding${side}`], '0px');
+        }
+      }
+      assert.equal(
+        window.getComputedStyle(grid.querySelector('[data-date="2026-10-02"]')).borderTopWidth,
+        '3px'
+      );
+      assert.equal(grid.querySelectorAll('button[tabindex="0"]').length, 1);
+    }
+  } finally {
+    await fixture.cleanup();
+    if (width) Object.defineProperty(document.documentElement, 'clientWidth', width);
+    else delete document.documentElement.clientWidth;
+    document.documentElement.style.fontSize = previousFontSize;
+    await act(async () => window.dispatchEvent(new window.Event('resize')));
   }
 });
 

@@ -184,13 +184,7 @@ export function nativeBook(
       : {})
   };
 }
-export function reconcileNativeSelection(
-  selected: readonly string[],
-  items: readonly (NativeLibraryBook | { kind: 'series'; key: string })[]
-): string[] {
-  const available = new Set(items.filter((item) => item.kind === 'book').map((item) => item.key));
-  return [...new Set(selected)].filter((key) => available.has(key));
-}
+export { reconcileNativeSelection } from './selection';
 
 /** Content visibility and personal reading-state visibility are separate decisions. */
 export function nativeOwnedCards(

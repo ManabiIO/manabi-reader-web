@@ -121,6 +121,8 @@ for (const platform of ['android', 'web'])
       );
       for (const forbidden of [
         '/reader-react/',
+        '/native-library/view-model.ts',
+        '/lib/library/tree.ts',
         '/lib/data/store.ts',
         '/lib/data/database/books-db/database.service.ts',
         '/lib/data/database/books-db/factory.ts',
