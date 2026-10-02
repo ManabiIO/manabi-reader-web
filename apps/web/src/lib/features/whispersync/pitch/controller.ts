@@ -187,6 +187,13 @@ export class PitchController {
       // resume() is invoked in the toggle's user gesture, before any download.
       const context = (this.context ??= this.environment.createContext());
       if (!hasStableSwiftF0Context(context.sampleRate, MAX_ANALYSER_SAMPLES)) {
+        // No MediaElementAudioSourceNode exists yet, so this context is safe
+        // to close. Retry must create a fresh context after the output device
+        // changes instead of reusing the same unsupported sample rate.
+        if (!this.source && this.context === context) {
+          this.context = undefined;
+          void context.close().catch(() => {});
+        }
         this.fail(
           `Pitch needs a lower audio output rate. This device is using ${Math.round(
             context.sampleRate / 1000
