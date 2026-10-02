@@ -36,3 +36,34 @@ export function advanceMediaSearchRevisions(
     content: current.content + Number(captionsChanged || metadataChanged)
   };
 }
+
+
+/** Increment only when an immutable snapshot is replaced, not on every consumer query. */
+export function referenceRevision<T>() {
+  let current: T | undefined,
+    initialized = false,
+    revision = 0;
+  return (next: T): number => {
+    if (!initialized || next !== current) {
+      initialized = true;
+      current = next;
+      revision++;
+    }
+    return revision;
+  };
+}
+
+/** Recompute a potentially expensive corpus projection only when its snapshot identity changes. */
+export function memoizeReferenceProjection<T, R>(project: (value: T) => R) {
+  let current: T | undefined,
+    initialized = false,
+    result: R;
+  return (next: T): R => {
+    if (!initialized || next !== current) {
+      initialized = true;
+      current = next;
+      result = project(next);
+    }
+    return result!;
+  };
+}
