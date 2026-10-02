@@ -684,31 +684,32 @@ async function acceptRemote(
     ],
     'readwrite'
   );
-  if (item.kind === 'annotation' && !owner && !foreign)
-    await tx.objectStore('readerAnnotationScope').put({ annotationId: item.entity_id, accountId });
-  await tx.objectStore('readerPersonalRecord').put({
-    id,
-    accountId,
-    kind: item.kind,
-    entityId: item.entity_id,
-    bookKey: item.book_key,
-    revision: item.revision,
-    generation,
-    payload: remote,
-    deleted: item.deleted
+  await commitPersonalTransaction(accountId, tx, async () => {
+    if (item.kind === 'annotation' && !owner && !foreign)
+      await tx.objectStore('readerAnnotationScope').put({ annotationId: item.entity_id, accountId });
+    await tx.objectStore('readerPersonalRecord').put({
+      id,
+      accountId,
+      kind: item.kind,
+      entityId: item.entity_id,
+      bookKey: item.book_key,
+      revision: item.revision,
+      generation,
+      payload: remote,
+      deleted: item.deleted
+    });
+    if (conflict) await tx.objectStore('readerPersonalConflict').put(conflict);
+    else await tx.objectStore('readerPersonalConflict').delete(id);
+    if (matchingReading) await tx.objectStore('readerPersonalOutbox').delete(matchingReading.id);
+    if (matchingAnnotation)
+      await tx.objectStore('readerAnnotationOutbox').delete(matchingAnnotation.id);
+    await tx.objectStore('readerSyncState').put({
+      ...(await tx.objectStore('readerSyncState').get(accountId)),
+      accountId,
+      cursor: String(cursor),
+      modifiedAt: new Date().toISOString()
+    });
   });
-  if (conflict) await tx.objectStore('readerPersonalConflict').put(conflict);
-  else await tx.objectStore('readerPersonalConflict').delete(id);
-  if (matchingReading) await tx.objectStore('readerPersonalOutbox').delete(matchingReading.id);
-  if (matchingAnnotation)
-    await tx.objectStore('readerAnnotationOutbox').delete(matchingAnnotation.id);
-  await tx.objectStore('readerSyncState').put({
-    ...(await tx.objectStore('readerSyncState').get(accountId)),
-    accountId,
-    cursor: String(cursor),
-    modifiedAt: new Date().toISOString()
-  });
-  await tx.done;
 }
 
 type SyncEpoch = { generation: string; incarnation: string };
@@ -810,23 +811,24 @@ async function recoverSnapshot(accountId: string, books: Map<string, PersonalBoo
     ['readerPersonalOutbox', 'readerAnnotationOutbox', 'readerSyncState'],
     'readwrite'
   );
-  // The actual local reading/annotation rows (including local tombstones) remain
-  // authoritative intent. Obsolete immutable requests must never simply acquire
-  // a new epoch: restaging uses the newly reconciled baseline and a new UUID.
-  for (const storeName of ['readerPersonalOutbox', 'readerAnnotationOutbox'] as const) {
-    const store = tx.objectStore(storeName);
-    for (const entry of await store.index('accountId').getAll(accountId)) {
-      if (entry.request?.sync?.generation !== epoch!.generation) await store.delete(entry.id);
+  await commitPersonalTransaction(accountId, tx, async () => {
+    // The actual local reading/annotation rows (including local tombstones) remain
+    // authoritative intent. Obsolete immutable requests must never simply acquire
+    // a new epoch: restaging uses the newly reconciled baseline and a new UUID.
+    for (const storeName of ['readerPersonalOutbox', 'readerAnnotationOutbox'] as const) {
+      const store = tx.objectStore(storeName);
+      for (const entry of await store.index('accountId').getAll(accountId)) {
+        if (entry.request?.sync?.generation !== epoch!.generation) await store.delete(entry.id);
+      }
     }
-  }
-  await tx.objectStore('readerSyncState').put({
-    accountId,
-    cursor: String(highWater),
-    ...epoch!,
-    resyncing: false,
-    modifiedAt: new Date().toISOString()
+    await tx.objectStore('readerSyncState').put({
+      accountId,
+      cursor: String(highWater),
+      ...epoch!,
+      resyncing: false,
+      modifiedAt: new Date().toISOString()
+    });
   });
-  await tx.done;
 }
 
 async function bootstrap(accountId: string, books: Map<string, PersonalBook[]>) {
