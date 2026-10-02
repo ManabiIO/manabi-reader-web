@@ -402,7 +402,9 @@ test('native 96 kHz fallback fails safely before capturing the media element', a
   await flush();
   assert.equal(f.state.status, 'error');
   assert.match(f.state.message, /96 kHz/);
+  assert.equal(f.workers.length, 0, 'unsupported output rate must not fetch the SwiftF0 worker');
   assert.equal(f.sources.length, 0);
+  assert.equal(f.context.resumes, 0);
   assert.equal(f.context.closes, 0);
   f.controller.dispose();
 });
