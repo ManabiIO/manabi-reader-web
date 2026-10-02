@@ -146,10 +146,12 @@ def main():
         shelf = page.get_by_label('Video library', exact=True)
         card_select = shelf.get_by_role('checkbox').first
         expect(card_select).to_be_visible()
-        library_card = card_select.locator('..').locator('..')
+        library_card = card_select.locator('xpath=ancestor::article[1]')
         expect(library_card).to_have_class(re.compile(r'.*\bvideo-card\b.*'))
-        select_target = card_select.locator('..')
+        select_target = library_card.locator('.video-select')
+        expect(select_target).to_be_visible()
         select_box = select_target.bounding_box()
+        assert select_box is not None, 'selection target detached during shelf refresh'
         assert select_box['width'] >= 43.5 and select_box['height'] >= 43.5, select_box
         assert card_select.evaluate("""input => {
             const label=input.closest('label');
