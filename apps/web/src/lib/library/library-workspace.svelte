@@ -330,13 +330,15 @@
   let pendingQueryURL: string | undefined;
   let pendingLibrarySearchScope: LibrarySearchScope | undefined;
   $: nextQueryURL = $page.url.searchParams.get('q') ?? '';
+  $: nextLibrarySearchScope = parseLibrarySearchScope($page.url.searchParams.get('scope'));
+  $: nextSelectionSearch = foldSearch(nextQueryURL.trim());
   $: if (pendingQueryURL !== undefined && nextQueryURL === pendingQueryURL)
     pendingQueryURL = undefined;
   $: if (pendingQueryURL === undefined && queryURL !== nextQueryURL) {
+    retireSelectionScope(selectionScopeFor(nextSelectionSearch, nextLibrarySearchScope));
     queryURL = nextQueryURL;
     query = nextQueryURL;
   }
-  $: nextLibrarySearchScope = parseLibrarySearchScope($page.url.searchParams.get('scope'));
   $: if (
     pendingLibrarySearchScope !== undefined &&
     nextLibrarySearchScope === pendingLibrarySearchScope
@@ -346,6 +348,7 @@
     pendingLibrarySearchScope === undefined &&
     librarySearchScope !== nextLibrarySearchScope
   ) {
+    retireSelectionScope(selectionScopeFor(nextSelectionSearch, nextLibrarySearchScope));
     librarySearchScope = nextLibrarySearchScope;
   }
   // The unified search spans the library. Collection/series navigation must
