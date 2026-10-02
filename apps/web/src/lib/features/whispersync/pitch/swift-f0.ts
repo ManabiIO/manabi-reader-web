@@ -40,7 +40,13 @@ export async function analyseSwiftF0Window(
   const session = await prepareSwiftF0();
   const { pitch, confidence } = await runSwiftF0Inference(samples, MIN_HZ, MAX_HZ, {
     createTensor: (type, data, dims) => new ort.Tensor(type, data, dims),
-    run: (feeds) => session.run(feeds)
+    run: async (feeds) => {
+      const result = await session.run(feeds);
+      return {
+        pitch: result.pitch as ort.Tensor | undefined,
+        confidence: result.confidence as ort.Tensor | undefined
+      };
+    }
   });
   return measurementFromSwiftF0(samples, pitch, confidence, {
     windowSeconds: input.length / rate
