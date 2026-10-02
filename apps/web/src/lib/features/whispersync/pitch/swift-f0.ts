@@ -39,7 +39,7 @@ export async function analyseSwiftF0Window(
 
   const session = await prepareSwiftF0();
   const modelOutput = (value: unknown): SwiftF0TensorLike | undefined => {
-    if (!(value instanceof ort.Tensor)) return undefined;
+    if (!(value instanceof ort.Tensor) || value.type !== 'float32') return undefined;
     return {
       data: value.data as ArrayLike<number>,
       dispose: () => value.dispose()
