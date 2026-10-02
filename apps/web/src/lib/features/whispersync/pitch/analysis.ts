@@ -17,6 +17,10 @@ export const SWIFT_F0_SAMPLE_RATE = 16000;
 export const SWIFT_F0_HOP = 256;
 export const SWIFT_F0_FRAME_SECONDS = SWIFT_F0_HOP / SWIFT_F0_SAMPLE_RATE;
 export const SWIFT_F0_LOOKAHEAD_FRAMES = 10;
+export const SWIFT_F0_LEFT_CONTEXT_FRAMES = 11;
+export const SWIFT_F0_MIN_STABLE_SECONDS =
+  (SWIFT_F0_LEFT_CONTEXT_FRAMES + 1 + SWIFT_F0_LOOKAHEAD_FRAMES) * SWIFT_F0_FRAME_SECONDS;
+export const MAX_ANALYSER_SAMPLES = 32768;
 export const ANALYSIS_WINDOW_SECONDS = 0.55;
 export const SAMPLE_INTERVAL_MS = 96;
 const SILENCE_PEAK = 1e-3;
@@ -26,6 +30,19 @@ const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
 const sinc = (value: number) =>
   Math.abs(value) < 1e-8 ? 1 : Math.sin(Math.PI * value) / (Math.PI * value);
+
+export function hasStableSwiftF0Context(
+  sampleRate: number,
+  sampleCount = MAX_ANALYSER_SAMPLES
+): boolean {
+  return (
+    Number.isFinite(sampleRate) &&
+    sampleRate > 0 &&
+    Number.isFinite(sampleCount) &&
+    sampleCount > 0 &&
+    sampleCount / sampleRate >= SWIFT_F0_MIN_STABLE_SECONDS
+  );
+}
 
 export function resampleForSwiftF0(input: Float32Array, rate: number): Float32Array {
   if (!Number.isFinite(rate) || rate < 8000 || rate > 192000 || input.length === 0)
@@ -102,9 +119,13 @@ export function measurementFromSwiftF0(
     offsetSeconds: 0,
     windowSeconds: Math.max(0, finite(windowSeconds))
   };
-  if (!samples.length || !count) return empty;
+  if (
+    !samples.length ||
+    count < SWIFT_F0_LEFT_CONTEXT_FRAMES + 1 + SWIFT_F0_LOOKAHEAD_FRAMES
+  )
+    return empty;
 
-  const index = Math.max(0, count - 1 - SWIFT_F0_LOOKAHEAD_FRAMES);
+  const index = count - 1 - SWIFT_F0_LOOKAHEAD_FRAMES;
   const candidate = Number(pitch[index]);
   const level = frameLevel(samples, index * SWIFT_F0_HOP);
   const score =
