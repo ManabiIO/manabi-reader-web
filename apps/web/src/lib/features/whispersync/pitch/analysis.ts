@@ -59,17 +59,22 @@ export function resampleForSwiftF0(input: Float32Array, rate: number): Float32Ar
 function frameLevel(samples: Float32Array, center: number) {
   const width = Math.round(SWIFT_F0_SAMPLE_RATE * 0.032);
   const half = Math.max(1, Math.floor(width / 2));
-  const first = Math.max(0, Math.floor(center) - half);
-  const last = Math.min(samples.length, Math.floor(center) + half);
-  if (last <= first) return { rms: 0, peak: 0 };
+  const hopStart = Math.max(0, Math.floor(center));
+  const hopEnd = Math.min(samples.length, hopStart + SWIFT_F0_HOP);
+  const first = Math.max(0, hopStart - half);
+  const last = Math.min(samples.length, hopStart + half);
+  if (last <= first) return { rms: 0, peak: 0, currentHopPeak: 0 };
   let square = 0;
   let peak = 0;
+  let currentHopPeak = 0;
   for (let index = first; index < last; index++) {
     const value = finite(samples[index]);
+    const magnitude = Math.abs(value);
     square += value * value;
-    peak = Math.max(peak, Math.abs(value));
+    peak = Math.max(peak, magnitude);
+    if (index >= hopStart && index < hopEnd) currentHopPeak = Math.max(currentHopPeak, magnitude);
   }
-  return { rms: Math.sqrt(square / (last - first)), peak };
+  return { rms: Math.sqrt(square / (last - first)), peak, currentHopPeak };
 }
 
 export function measurementFromSwiftF0(
@@ -100,12 +105,15 @@ export function measurementFromSwiftF0(
   if (!samples.length || !count) return empty;
 
   const index = Math.max(0, count - 1 - SWIFT_F0_LOOKAHEAD_FRAMES);
-  const score = clamp(finite(Number(confidence[index])), 0, 1);
   const candidate = Number(pitch[index]);
   const level = frameLevel(samples, index * SWIFT_F0_HOP);
+  const score =
+    level.currentHopPeak >= SILENCE_PEAK
+      ? clamp(finite(Number(confidence[index])), 0, 1)
+      : 0;
   const hz =
     score >= clamp(finite(voicingThreshold, VOICING_THRESHOLD), 0, 1) &&
-    level.peak >= SILENCE_PEAK &&
+    level.currentHopPeak >= SILENCE_PEAK &&
     Number.isFinite(candidate) &&
     candidate >= minHz &&
     candidate <= maxHz
