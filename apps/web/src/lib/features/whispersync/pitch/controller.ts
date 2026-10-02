@@ -289,6 +289,10 @@ export class PitchController {
             this.pending = undefined;
             if (this.replyTimer !== undefined) this.environment.clearTimer(this.replyTimer);
             this.replyTimer = undefined;
+            // paused/seeking can become true before their DOM event callback
+            // runs. A request that just lost playback authority must not turn
+            // that user action into an analysis failure.
+            if (audio.paused || audio.seeking || this.buffering) return;
           }
           this.fail('Pitch analysis could not load or run. Check your connection and retry.');
         }
