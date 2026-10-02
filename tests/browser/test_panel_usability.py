@@ -164,16 +164,34 @@ class PanelUsabilityBrowser(LibraryBase):
         expect(first.get_by_text('Time change:', exact=True)).to_be_visible()
         expect(first.get_by_text('Character change:', exact=True)).to_be_visible()
         revert = first.get_by_role('button', name='Revert history item', exact=True)
-        self.assertGreaterEqual(revert.bounding_box()['height'], 43.99)
+        revert_box = revert.bounding_box()
+        self.assertGreaterEqual(revert_box['height'], 43.99)
+        self.assertLessEqual(revert_box['height'], 64)
+        expect(revert.get_by_text('Revert', exact=True)).to_be_visible()
+        self.assertEqual('nowrap', revert.evaluate('e => getComputedStyle(e).whiteSpace'))
+        self.assertLessEqual(revert.locator('svg').bounding_box()['width'], 18.5)
         self.assert_unoccluded(revert)
-        state_text = first.locator('.sr-only').all_text_contents()
+        save_state = first.locator('[data-tracker-save-state]')
+        expect(save_state).to_be_visible()
+        self.assertGreaterEqual(save_state.bounding_box()['height'], 43.99)
+        self.assertLessEqual(save_state.locator('svg').bounding_box()['width'], 18.5)
+        state_text = save_state.inner_text()
         self.assertTrue(
-            any(value in ('Saved to database', 'Not saved yet') for value in state_text),
+            'Saved' in state_text or 'Not saved yet' in state_text,
             state_text
         )
 
         previous = panel.get_by_role('button', name='Previous history page', exact=True)
         next_page = panel.get_by_role('button', name='Next history page', exact=True)
+        for pager in (previous, next_page):
+            box = pager.bounding_box()
+            self.assertGreaterEqual(box['width'], 43.5)
+            self.assertLessEqual(box['width'], 44.5)
+            self.assertGreaterEqual(box['height'], 43.5)
+            self.assertLessEqual(box['height'], 44.5)
+        page_status = panel.get_by_role('status').filter(has_text='Page 1 of 2')
+        expect(page_status).to_be_visible()
+        self.assertEqual('nowrap', page_status.evaluate('e => getComputedStyle(e).whiteSpace'))
         expect(previous).to_be_disabled()
         expect(next_page).to_be_enabled()
         expect(panel.get_by_role('status').filter(has_text='Page 1 of 2')).to_be_visible()
