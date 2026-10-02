@@ -12,6 +12,9 @@ const { appendPoint, pitchPaths, initialPitchState } = await import(
 );
 const { PitchController } = await import(new URL('controller.mjs', process.env.PITCH_COMPILED));
 const { createPitchController } = await import(new URL('browser.mjs', process.env.PITCH_COMPILED));
+const { runSwiftF0Inference, swiftF0ModelGain } = await import(
+  new URL('swift-f0-runtime.mjs', process.env.PITCH_COMPILED)
+);
 
 test('pitch requests a 48 kHz context and falls back when the device rejects it', () => {
   const original = globalThis.AudioContext;
@@ -83,6 +86,89 @@ test('empty model output and malformed source rates fail closed', () => {
   for (const rate of [NaN, Infinity, 0, 7999, 192001])
     assert.equal(resampleForSwiftF0(tone(220), rate).length, 0);
 });
+
+test('current-hop silence is not voiced by energy from the previous hop', () => {
+  const samples = new Float32Array(Math.ceil(16000 * ANALYSIS_WINDOW_SECONDS));
+  const frameCount = Math.floor(samples.length / 256);
+  const selected = frameCount - 1 - 10;
+  const center = selected * 256;
+  for (let index = center - 256; index < center; index++)
+    samples[index] = 0.4 * Math.sin((2 * Math.PI * 220 * index) / 16000);
+  const pitch = new Float64Array(frameCount).fill(220);
+  const confidence = new Float32Array(frameCount).fill(1);
+  const result = measurementFromSwiftF0(samples, pitch, confidence);
+  assert.equal(result.hz, null);
+  assert.equal(result.confidence, 0);
+  assert.ok(result.amplitude > 0, 'centered display level should still see the preceding hop');
+});
+
+test('quiet non-silent audio is gained only for model inference', () => {
+  const quiet = tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.005);
+  const gain = swiftF0ModelGain(quiet);
+  assert.ok(gain > 1);
+  assert.ok(Math.abs(0.005 * gain - 0.5) < 0.002);
+  assert.equal(swiftF0ModelGain(new Float32Array(quiet.length)), 1);
+  assert.equal(swiftF0ModelGain(tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.1)), 1);
+});
+
+function swiftF0RuntimeFixture({ failRun = false, malformed = false, invalid = false } = {}) {
+  const stats = { live: 0, disposed: 0, peak: 0 };
+  class Tensor {
+    constructor(type, data, dims) {
+      this.type = type;
+      this.data = data;
+      this.dims = dims;
+      this.disposed = false;
+      stats.live++;
+    }
+    dispose() {
+      assert.equal(this.disposed, false, 'each tensor must be disposed exactly once');
+      this.disposed = true;
+      stats.live--;
+      stats.disposed++;
+    }
+  }
+  const runtime = {
+    createTensor(type, data, dims) {
+      return new Tensor(type, data, dims);
+    },
+    async run(feeds) {
+      stats.peak = Math.max(...feeds.audio.data.map((value) => Math.abs(value)));
+      if (failRun) throw new Error('synthetic run failure');
+      const count = Math.max(1, Math.floor(feeds.audio.data.length / 256));
+      const pitch = new Float64Array(count).fill(220);
+      const confidence = new Float32Array(malformed ? Math.max(0, count - 1) : count).fill(0.9);
+      if (invalid) pitch[0] = NaN;
+      return {
+        pitch: new Tensor('float64', pitch, [1, count]),
+        confidence: new Tensor('float32', confidence, [1, confidence.length])
+      };
+    }
+  };
+  return { runtime, stats };
+}
+
+test('SwiftF0 runtime copies outputs and disposes every tensor after success', async () => {
+  const { runtime, stats } = swiftF0RuntimeFixture();
+  const quiet = tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.005);
+  const result = await runSwiftF0Inference(quiet, 85, 520, runtime);
+  assert.equal(result.pitch.length, Math.floor(quiet.length / 256));
+  assert.equal(result.confidence.length, result.pitch.length);
+  assert.equal(stats.live, 0);
+  assert.equal(stats.disposed, 5);
+  assert.ok(stats.peak > 0.45 && stats.peak < 0.55, 'only model input should receive quiet gain');
+});
+
+for (const mode of ['failRun', 'malformed', 'invalid']) {
+  test(`SwiftF0 runtime releases tensors when ${mode} fails`, async () => {
+    const { runtime, stats } = swiftF0RuntimeFixture({ [mode]: true });
+    await assert.rejects(
+      runSwiftF0Inference(tone(220, 16000), 85, 520, runtime),
+      /synthetic run failure|malformed frame counts|invalid measurements/
+    );
+    assert.equal(stats.live, 0);
+  });
+}
 test('history is bounded in time and points, and seeks start a new contour', () => {
   let points = [];
   for (let i = 0; i < 10000; i++)
