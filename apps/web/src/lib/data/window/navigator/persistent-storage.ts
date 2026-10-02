@@ -50,3 +50,12 @@ export function retryPersistentStorage(): Promise<boolean> {
 export function currentPersistentStorageRequest(): Promise<boolean> | undefined {
   return automaticRequest;
 }
+
+/**
+ * Read the authoritative persisted state after any request already in flight.
+ * This never starts browser permission UI.
+ */
+export async function persistentStorageStatus(): Promise<boolean> {
+  await automaticRequest?.catch(() => false);
+  return automaticStorage.persisted();
+}
