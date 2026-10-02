@@ -100,7 +100,7 @@ function mount(element) {
   };
 }
 
-test('real Expo UI checkbox, switch and picker preserve values, native labels, semantic colors, and disabled behavior', () => {
+test('real Expo UI checkbox, switch and picker preserve values, HTML labels, semantic colors, and disabled behavior', () => {
   const changes = [];
   const fixture = mount(
     h(
@@ -145,6 +145,8 @@ test('real Expo UI checkbox, switch and picker preserve values, native labels, s
     act(() => checkbox.click());
     act(() => fixture.container.querySelector('[data-testid="compare"]').click());
     const picker = fixture.container.querySelector('select');
+    assert.equal(picker.dataset.testid, 'week');
+    assert.equal(fixture.container.querySelectorAll('[data-testid="week"]').length, 1);
     assert.equal(picker.value, '1');
     assert.match(picker.labels[0].textContent, /Start of week/);
     act(() => {
@@ -172,6 +174,91 @@ test('real Expo UI checkbox, switch and picker preserve values, native labels, s
       )
     );
     assert.equal(fixture.container.querySelector('select').disabled, true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('real Expo Picker receives distinct names and descriptions across updates, removal and remount', () => {
+  const content = (props, key = 'original') =>
+    h(
+      React.Fragment,
+      null,
+      h('p', { id: 'book-help' }, 'Choose a book for the reading day.'),
+      h('p', { id: 'other-help' }, 'Only available books are listed.'),
+      h(ui.ChoiceField, {
+        key,
+        label: 'Book',
+        value: 'one',
+        options: [{ value: 'one', label: 'First book' }],
+        onValueChange() {},
+        ...props
+      })
+    );
+  const fixture = mount(
+    content({
+      accessibilityLabel: 'Book for reading day',
+      accessibilityDescribedBy: 'book-help'
+    })
+  );
+  try {
+    const picker = fixture.container.querySelector('select');
+    assert.equal(picker.getAttribute('aria-label'), 'Book for reading day');
+    assert.equal(picker.getAttribute('aria-describedby'), 'book-help');
+    assert.equal(picker.labels[0].control, picker);
+    assert.equal(picker.labels[0].querySelector('span').textContent, 'Book');
+    assert.equal(picker.labels[0].hasAttribute('aria-label'), false);
+    act(() =>
+      fixture.root.render(
+        content({
+          accessibilityLabel: 'Choose a different book',
+          accessibilityDescribedBy: 'book-help other-help',
+          disabled: true
+        })
+      )
+    );
+    assert.equal(fixture.container.querySelector('select'), picker);
+    assert.equal(picker.getAttribute('aria-label'), 'Choose a different book');
+    assert.equal(picker.getAttribute('aria-describedby'), 'book-help other-help');
+    assert.equal(picker.disabled, true);
+    for (const id of picker.getAttribute('aria-describedby').split(' '))
+      assert.ok(document.getElementById(id));
+    act(() => fixture.root.render(content({ label: 'Visible fallback' })));
+    assert.equal(picker.hasAttribute('aria-label'), false);
+    assert.equal(picker.hasAttribute('aria-describedby'), false);
+    assert.equal(picker.labels[0].querySelector('span').textContent, 'Visible fallback');
+    act(() =>
+      fixture.root.render(
+        content(
+          { accessibilityLabel: 'Remounted book picker', accessibilityDescribedBy: 'other-help' },
+          'replacement'
+        )
+      )
+    );
+    const replacement = fixture.container.querySelector('select');
+    assert.notEqual(replacement, picker);
+    assert.equal(picker.isConnected, false);
+    assert.equal(replacement.getAttribute('aria-label'), 'Remounted book picker');
+    assert.equal(replacement.getAttribute('aria-describedby'), 'other-help');
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('field frames preserve direct TextField accessible names while labeling Expo selects', () => {
+  const fixture = mount(
+    h(ui.TextField, {
+      label: 'Book',
+      accessibilityLabel: 'Find a book by title',
+      value: '',
+      onChangeText() {}
+    })
+  );
+  try {
+    assert.equal(
+      fixture.container.querySelector('input').getAttribute('aria-label'),
+      'Find a book by title'
+    );
   } finally {
     fixture.cleanup();
   }
@@ -215,6 +302,33 @@ test('branded RNW actions retain title, aria state, focus refs, keyboard hooks, 
     assert.equal(document.activeElement, button);
     assert.deepEqual(keys, ['ArrowDown']);
     assert.equal(fixture.container.querySelector('a').getAttribute('href'), '/manage');
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('secondary actions retain the original semantic foreground and rendered web hover rules', () => {
+  const fixture = mount(h(ui.ActionButton, { variant: 'secondary' }, 'Options'));
+  try {
+    const button = fixture.container.querySelector('[role="button"]');
+    assert.equal(button.dataset.variant, 'secondary');
+    const label = [...button.querySelectorAll('*')].find((node) => node.textContent === 'Options');
+    assert.equal(label.style.color, 'var(--secondary-foreground)');
+    const css = [...document.querySelectorAll('style')].map((node) => node.textContent).join('\n');
+    assert.match(css, /color-mix\(in srgb, var\(--primary\), var\(--primary-foreground\) 8%\)/);
+    assert.match(css, /color-mix\(in oklch, var\(--secondary\), var\(--foreground\) 5%\)/);
+    assert.match(css, /\[aria-expanded='true'\].*background-color: var\(--secondary\)/);
+    act(() =>
+      fixture.root.render(
+        h(ui.ActionButton, { variant: 'outline', 'aria-expanded': true }, 'Open menu')
+      )
+    );
+    const expanded = fixture.container.querySelector('[role="button"]');
+    assert.equal(expanded.style.backgroundColor, 'var(--primary)');
+    const expandedLabel = [...expanded.querySelectorAll('*')].find(
+      (node) => node.textContent === 'Open menu'
+    );
+    assert.equal(expandedLabel.style.color, 'var(--primary-foreground)');
   } finally {
     fixture.cleanup();
   }

@@ -43,7 +43,8 @@ import {
   type NativeStatisticsSelectionAdmission,
   type NativeStatisticsSnapshot,
   type NativeStatisticsRow,
-  type NativeStatisticsAction
+  type NativeStatisticsAction,
+  type SharedNativeStatisticsAction
 } from './native-contract';
 export type {
   NativeStatisticsQuery,
@@ -465,7 +466,7 @@ export async function readStatisticsSnapshot(
           bookKey: plan.bookKey,
           deletable:
             !plan.unresolvedLegacy &&
-            book.title.length <= 512 &&
+            (!!projection || book.title.length <= 512) &&
             (query.bookSelection === 'all' || query.bookIds.includes(book.id))
         });
         if (plan.unresolvedLegacy)
@@ -839,7 +840,7 @@ export async function readStatisticsSnapshot(
 /** Every mutation consumes an original, account-bound read proof. Failed or stale
  * confirmations must refresh; duplicate clicks cannot repeat a write. */
 export async function dispatchStatisticsAction(
-  input: NativeStatisticsAction,
+  request: NativeStatisticsAction | SharedNativeStatisticsAction,
   authority?: NativeStatisticsAuthority,
   sharedAdmission?: SharedStatisticsMutationAdmission,
   sharedTargetKeys?: ReadonlySet<string>
@@ -849,13 +850,33 @@ export async function dispatchStatisticsAction(
   const validBook = (id: unknown) => Number.isSafeInteger(id) && Number(id) > 0;
   const validKey = (key: unknown) =>
     typeof key === 'string' && /^(?:content:[a-f0-9]{64}|local:[A-Za-z0-9-]{1,128})$/.test(key);
-  if (!input || typeof input.snapshotId !== 'string' || input.snapshotId.length > 64)
+  if (!request || typeof request.snapshotId !== 'string' || request.snapshotId.length > 64)
     throw new Error('Invalid statistics action.');
+  clearExpiredSnapshots();
+  const proof = snapshots.get(request.snapshotId);
+  if (!proof || proof.authorityKey !== authority?.key)
+    throw new Error(
+      'This statistics view expired or changed accounts. Refresh before trying again.'
+    );
+  if (
+    proof.complete
+      ? !sharedAdmission || sharedMutationAdmissions.get(sharedAdmission) !== proof
+      : !!sharedAdmission
+  )
+    throw new Error('Shared statistics mutations require a completed projection admission.');
+  // Relax legacy product limits only after checking the private DOM admission.
+  // The title is metadata from that original proof, never an expanded bridge input.
+  let input: NativeStatisticsAction =
+    proof.complete && request.type !== 'delete-range'
+      ? { ...request, title: proof.books.get(request.bookId)?.plan.title ?? '' }
+      : (request as NativeStatisticsAction);
+  const validSharedMeasurement = (value: number) =>
+    Number.isFinite(value) && value >= 0 && value <= Number.MAX_SAFE_INTEGER;
   if (input.type === 'delete-range') {
     if (
       !Array.isArray(input.bookIds) ||
       !input.bookIds.length ||
-      (input.bookIds.length > MAX_BOOKS && !snapshots.get(input.snapshotId)?.complete) ||
+      (input.bookIds.length > MAX_BOOKS && !proof.complete) ||
       input.bookIds.some((id) => !validBook(id)) ||
       new Set(input.bookIds).size !== input.bookIds.length ||
       !dateKey(input.startDate) ||
@@ -872,7 +893,7 @@ export async function dispatchStatisticsAction(
       !validBook(input.bookId) ||
       !validKey(input.bookKey) ||
       typeof input.title !== 'string' ||
-      input.title.length > 512
+      (!proof.complete && input.title.length > 512)
     )
       throw new Error('Invalid statistics action.');
     if (input.type === 'delete-day' && !dateKey(input.date))
@@ -881,29 +902,23 @@ export async function dispatchStatisticsAction(
       input.type === 'save-day' &&
       (!dateKey(input.date) ||
         !['create', 'edit'].includes(input.mode) ||
-        !Number.isSafeInteger(input.time) ||
-        input.time < 0 ||
-        input.time > 86400 ||
-        !Number.isSafeInteger(input.characters) ||
-        input.characters < 0 ||
-        input.characters > 100000000 ||
+        (proof.complete
+          ? !validSharedMeasurement(input.time) ||
+            !validSharedMeasurement(input.characters) ||
+            !Number.isSafeInteger(
+              input.time ? Math.ceil((input.characters * 3600) / input.time) : 0
+            )
+          : !Number.isSafeInteger(input.time) ||
+            input.time < 0 ||
+            input.time > 86400 ||
+            !Number.isSafeInteger(input.characters) ||
+            input.characters < 0 ||
+            input.characters > 100000000) ||
         typeof input.resetMinMax !== 'boolean')
     )
       throw new Error('Invalid statistics action.');
   } else throw new Error('Invalid statistics action.');
   input = input.type === 'delete-range' ? { ...input, bookIds: [...input.bookIds] } : { ...input };
-  clearExpiredSnapshots();
-  const proof = snapshots.get(input.snapshotId);
-  if (!proof || proof.authorityKey !== authority?.key)
-    throw new Error(
-      'This statistics view expired or changed accounts. Refresh before trying again.'
-    );
-  if (
-    proof.complete
-      ? !sharedAdmission || sharedMutationAdmissions.get(sharedAdmission) !== proof
-      : !!sharedAdmission
-  )
-    throw new Error('Shared statistics mutations require a completed projection admission.');
   if (sharedTargetKeys && (!sharedAdmission || input.type !== 'delete-range'))
     throw new Error('Invalid shared mutation target.');
   if (proof.complete && input.type === 'delete-range') {

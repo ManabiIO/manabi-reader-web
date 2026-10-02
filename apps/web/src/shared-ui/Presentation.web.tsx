@@ -13,6 +13,9 @@ export function UiPresentation() {
 }
 [data-ui-heading] { overflow-wrap: normal; word-break: normal; }
 [data-ui-button] { transition: color 150ms, background-color 150ms, border-color 150ms; }
+[data-ui-button][data-variant='default']:not([aria-disabled='true']):hover { background-color: color-mix(in srgb, var(--primary), var(--primary-foreground) 8%) !important; }
+[data-ui-button][data-variant='secondary']:not([aria-disabled='true']):hover { background-color: color-mix(in oklch, var(--secondary), var(--foreground) 5%) !important; }
+[data-ui-button][data-variant='secondary'][aria-expanded='true']:not([aria-disabled='true']) { background-color: var(--secondary) !important; }
 [data-ui-button][data-variant='link']:hover { text-decoration: underline; }
 [data-ui-field] select { width: 100%; min-width: 0; height: auto; min-height: 44px; padding: 8px 36px 8px 10px; border: 1px solid var(--input); border-radius: 10px; background: var(--background); color: var(--foreground); font: inherit; font-size: 1rem; box-shadow: none; }
 [data-ui-control='picker'][data-compact='true'] select { border: 0; background: transparent; border-radius: 0; min-height: 32px; padding: 0 20px 0 0; font-size: 1rem; }

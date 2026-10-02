@@ -108,11 +108,13 @@ export function StatisticsSettings({ state, dispatch }: StatisticsViewProps) {
     value: T,
     options: readonly { value: T; label: string }[],
     onValueChange: (value: T) => void,
-    id: string
+    id: string,
+    accessibilityDescribedBy?: string
   ) => (
     <ChoiceField
       label={label}
       accessibilityLabel={label}
+      accessibilityDescribedBy={accessibilityDescribedBy}
       value={value}
       options={[...options]}
       onValueChange={onValueChange}
@@ -204,7 +206,8 @@ export function StatisticsSettings({ state, dispatch }: StatisticsViewProps) {
             q.timeSource,
             statisticsTimeSources.map((source) => ({ value: source.key, label: source.label })),
             (timeSource) => patch({ timeSource }),
-            'timeDataSource'
+            'timeDataSource',
+            'statistics-measurement-help'
           )}
           {field(
             'Characters Data Source',
@@ -214,14 +217,16 @@ export function StatisticsSettings({ state, dispatch }: StatisticsViewProps) {
               label: source.label
             })),
             (charactersSource) => patch({ charactersSource }),
-            'charactersSource'
+            'charactersSource',
+            'statistics-measurement-help'
           )}
           {field(
             'Speed Data Source',
             q.speedSource,
             statisticsSpeedSources.map((source) => ({ value: source.key, label: source.label })),
             (speedSource) => patch({ speedSource }),
-            'speedSource'
+            'speedSource',
+            'statistics-measurement-help'
           )}
           {field(
             'Primary Aggregation',
@@ -232,7 +237,8 @@ export function StatisticsSettings({ state, dispatch }: StatisticsViewProps) {
               { value: 'title', label: 'Title' }
             ],
             (aggregation) => patch({ aggregation }),
-            'primaryAggregration'
+            'primaryAggregration',
+            'statistics-measurement-help'
           )}
         </View>
       </Group>
@@ -269,12 +275,21 @@ export function StatisticsSettings({ state, dispatch }: StatisticsViewProps) {
         <CapabilityReason value={caps.ttuExport} />
       </Group>
       <Group title="Manage history">
-        <SwitchField
-          label="Confirm Statistics Deletion"
-          value={q.confirmDeletion}
-          onValueChange={(confirmDeletion) => patch({ confirmDeletion })}
-          disabled={busy}
-        />
+        <View
+          testID="statistics-confirm-deletion"
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}
+        >
+          <SwitchField
+            label="Confirm Statistics Deletion"
+            value={q.confirmDeletion}
+            onValueChange={(confirmDeletion) => patch({ confirmDeletion })}
+            disabled={busy}
+            style={{ flex: 1, minWidth: 0 }}
+          />
+          <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>
+            {q.confirmDeletion ? 'On' : 'Off'}
+          </Text>
+        </View>
         <View style={styles.actions}>
           <ActionButton
             variant="destructive"

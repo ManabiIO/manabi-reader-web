@@ -88,15 +88,17 @@ export const ActionButton = forwardRef<View, ActionButtonProps>(function ActionB
   const [baseHeight, radius, px, py, font] = sizes[size];
   const height = Platform.OS === 'web' ? baseHeight : Math.max(44, baseHeight);
   const icon = size.startsWith('icon') || shape === 'circle';
-  const active = selected ?? props['aria-pressed'] ?? false;
+  const active = selected ?? props['aria-pressed'] ?? props['aria-expanded'] ?? false;
   const filled = variant === 'default';
   const foreground = filled
     ? c.primaryForeground
-    : variant === 'outline' || variant === 'link'
-      ? c.primary
-      : variant === 'destructive'
-        ? c.destructive
-        : c.foreground;
+    : variant === 'secondary'
+      ? c.secondaryForeground
+      : variant === 'outline' || variant === 'link'
+        ? c.primary
+        : variant === 'destructive'
+          ? c.destructive
+          : c.foreground;
   const background = filled
     ? c.primary
     : variant === 'secondary'

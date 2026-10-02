@@ -21,6 +21,9 @@ Expo Router shell, domain algorithms, persistent DOM owner and typed bridge are
 real reuse, but do **not** establish shared screen UI or full web/native parity.
 The parallel presentations are migration reference, not the final architecture.
 
+See the per-screen [fidelity matrix](FIDELITY-MATRIX.md) for visual, layout,
+interaction, accessibility, persistence, navigation and Android acceptance gates.
+
 ## Component policy
 
 Use owned RN/RNW layout, text, surfaces and branded interactions with the existing

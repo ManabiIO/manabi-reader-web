@@ -49,7 +49,9 @@ function ControlHost({
       >
         <Host
           matchContents={{ vertical: true }}
-          ignoreSafeArea="all"
+          // The enclosing web screen owns insets. Android's separate keyboard
+          // inset contract still requires qualification; do not send an ignored prop.
+          ignoreSafeArea={Platform.OS === 'web' ? 'all' : undefined}
           colorScheme={theme.mode}
           seedColor={theme.seedColor}
           style={[{ minHeight: 44, width: '100%' }, semanticVariables]}
@@ -69,6 +71,8 @@ export interface ChoiceFieldProps<T extends string | number> {
   testID?: string;
   style?: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
+  /** Browser element IDs describing the select. */
+  accessibilityDescribedBy?: string;
   compact?: boolean;
 }
 export function ChoiceField<T extends string | number>({
@@ -80,12 +84,15 @@ export function ChoiceField<T extends string | number>({
   testID,
   style,
   accessibilityLabel,
+  accessibilityDescribedBy,
   compact
 }: ChoiceFieldProps<T>) {
   return (
     <FieldFrame
       label={label}
+      testID={Platform.OS === 'android' ? testID : undefined}
       accessibilityLabel={accessibilityLabel}
+      accessibilityDescribedBy={accessibilityDescribedBy}
       hideLabel={compact}
       style={style}
     >
@@ -94,7 +101,9 @@ export function ChoiceField<T extends string | number>({
           selectedValue={value}
           onValueChange={onValueChange}
           enabled={!disabled}
-          testID={testID}
+          // SDK 57's Android implementation drops this prop; the RN field
+          // wrapper owns that ID. This does not establish TalkBack labeling.
+          testID={Platform.OS === 'web' ? testID : undefined}
         >
           {options.map((option) => (
             <Picker.Item key={String(option.value)} value={option.value} label={option.label} />

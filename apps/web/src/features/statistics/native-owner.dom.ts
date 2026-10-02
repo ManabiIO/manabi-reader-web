@@ -292,7 +292,9 @@ export async function readSharedStatisticsRequest(
       today: native.today,
       dateRangeLabel: getDateRangeLabel(query.startDate, query.endDate),
       shortcuts: Object.fromEntries(
-        Object.entries(get(statisticsTabKeybindMap$)).flatMap(([key, value]) =>
+        Object.entries(get(statisticsTabKeybindMap$)).flatMap<
+          [string, 'range-template' | 'aggregation']
+        >(([key, value]) =>
           value === 'templateRangeToggle'
             ? [[key, 'range-template']]
             : value === 'aggregationToggle'
@@ -305,9 +307,9 @@ export async function readSharedStatisticsRequest(
         ...item,
         selected: query.selectedTitles === undefined || query.selectedTitles.includes(item.title)
       })),
-      rows: native.rows.map(({ sharedMutationTargets: _targets, ...row }) => ({
+      rows: native.rows.map(({ sharedMutationTargets: _targets, entry, ...row }) => ({
         ...row,
-        ...(row.entry ? { entry: { ...row.entry, title: row.title } } : {})
+        ...(entry ? { entry: { ...entry, title: row.title } } : {})
       })),
       totalRows: native.totalRows,
       selectionTitles: native.selectionTitles,
@@ -396,7 +398,8 @@ export async function dispatchSharedStatisticsAction(
     );
     const row = snapshot.rows.find(
       (row) =>
-        row.entry?.bookId === entry.bookId &&
+        row.entry !== undefined &&
+        row.entry.bookId === entry.bookId &&
         row.entry.bookKey === entry.bookKey &&
         row.entry.date === entry.date
     );
@@ -412,7 +415,6 @@ export async function dispatchSharedStatisticsAction(
         snapshotId: action.snapshotId,
         bookId: book.id!,
         bookKey: entry.bookKey,
-        title: book.title,
         date: entry.date,
         mode: action.mode,
         time: action.time,
@@ -434,7 +436,6 @@ export async function dispatchSharedStatisticsAction(
         snapshotId: action.snapshotId,
         bookId: row.entry.bookId!,
         bookKey: row.entry.bookKey!,
-        title: row.entry.title,
         date: row.entry.date
       },
       authority,

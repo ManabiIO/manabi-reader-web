@@ -148,3 +148,11 @@ export type NativeStatisticsAction =
       startDate: string;
       endDate: string;
     };
+
+/** DOM-only shared dispatch recovers titles from its privately admitted proof. */
+export type SharedNativeStatisticsAction = {
+  [Type in NativeStatisticsAction['type']]: Omit<
+    Extract<NativeStatisticsAction, { type: Type }>,
+    'title'
+  >;
+}[NativeStatisticsAction['type']];

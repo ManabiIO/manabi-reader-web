@@ -174,8 +174,11 @@ Remaining constraints:
   original proof and computes full aggregation/heatmap in memory. This is not a
   fully streaming IndexedDB implementation; maximum dataset/device performance
   is unqualified
-- Native day writes retain the established integer bounds of 86,400 seconds and
-  100,000,000 characters. Web finite nonnegative editing remains available
+- Shared-v1 native day writes preserve fractional measurements and long titles
+  from the privately admitted source proof. Finite nonnegative values and safe
+  derived speed are required; legacy native calls retain their original integer,
+  86,400-second, 100,000,000-character and 512-character-title bounds. No bridge
+  caller may select the relaxed path without its complete private admission
 - Native ownerless goals, global recovery, global deletion, clipboard and TTU
   file destinations remain explicit unavailable capabilities. The corresponding
   established web flows remain available

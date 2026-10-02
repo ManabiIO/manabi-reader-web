@@ -285,6 +285,20 @@ test('production shared screen uses real RNW and ExpoUI controls for every measu
     assert.ok(panel);
     assert.equal(panel.dataset.slot, 'sheet-content');
     const pickers = [...panel.querySelectorAll('select')];
+    const measurementHelp = panel.querySelector('#statistics-measurement-help');
+    assert.match(measurementHelp.textContent, /Choose which values appear in the summary/);
+    for (const id of ['timeDataSource', 'charactersSource', 'speedSource', 'primaryAggregration']) {
+      const picker = panel.querySelector(`select[data-testid="${id}"]`);
+      assert.equal(picker.getAttribute('aria-describedby'), measurementHelp.id);
+      assert.equal(
+        picker.getAttribute('aria-label'),
+        picker.labels[0].querySelector('span').textContent
+      );
+    }
+    assert.equal(
+      panel.querySelector('select[data-testid="datesTemplate"]').hasAttribute('aria-describedby'),
+      false
+    );
     const time = pickers.find((node) =>
       [...node.options].some((o) => o.value === 'averageWeightedReadingTime')
     );
@@ -330,6 +344,28 @@ test('shared navigation retains the original external User guide destination and
     assert.equal(guide.getAttribute('href'), '/Manabi-Web/Docs/');
     assert.equal(guide.target, '_blank');
     assert.equal(guide.rel, 'noopener noreferrer');
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('deletion confirmation setting retains its accessible label and explicit On/Off state', async () => {
+  const { port } = fakePort();
+  const fixture = await mount(port);
+  try {
+    await press('Statistics options');
+    await press('Statistics Settings');
+    const setting = dialog('Statistics options').querySelector(
+      '[data-testid="statistics-confirm-deletion"]'
+    );
+    const control = setting.querySelector('input[role="switch"]');
+    assert.match(control.labels[0].textContent, /Confirm Statistics Deletion/);
+    const initial = control.checked;
+    assert.ok(setting.textContent.endsWith(initial ? 'On' : 'Off'));
+    await act(async () => control.click());
+    await settle();
+    assert.equal(control.checked, !initial);
+    assert.ok(setting.textContent.endsWith(initial ? 'Off' : 'On'));
   } finally {
     await fixture.cleanup();
   }

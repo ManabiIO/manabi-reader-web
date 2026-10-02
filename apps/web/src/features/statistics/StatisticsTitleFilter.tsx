@@ -16,6 +16,7 @@ import {
 } from '../../shared-ui/StatisticsPrimitives';
 import { TITLE_FILTER_PAGE_SIZE } from '../../lib/components/statistics/title-filter-model';
 import { FocusPage } from '../../shared-ui/FocusPage';
+import { TitleSelectionRow } from '../../shared-ui/TitleSelectionRow';
 import type { StatisticsViewProps } from './view-model';
 
 /** Only the displayed page is local: the shared controller owns the uncommitted
@@ -130,11 +131,9 @@ export function StatisticsTitleFilter({ state, dispatch }: StatisticsViewProps) 
               keyExtractor={(item) => item.title}
               scrollEnabled={false}
               renderItem={({ item, index }) => (
-                <View
-                  style={[
-                    styles.titleRow,
-                    index > 0 && { borderTopWidth: 1, borderTopColor: colors.border }
-                  ]}
+                <TitleSelectionRow
+                  disabled={state.busy}
+                  style={index > 0 && { borderTopWidth: 1, borderTopColor: colors.border }}
                 >
                   <CheckboxField
                     label={item.title}
@@ -143,7 +142,7 @@ export function StatisticsTitleFilter({ state, dispatch }: StatisticsViewProps) 
                     onValueChange={() => void dispatch({ type: 'title-toggle', title: item.title })}
                     style={{ flex: 1, opacity: item.inDateRange ? 1 : 0.65 }}
                   />
-                </View>
+                </TitleSelectionRow>
               )}
             />
           </FocusPage>
@@ -205,7 +204,6 @@ const styles = StyleSheet.create({
   panel: { gap: 16, minWidth: 0 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   list: { borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
-  titleRow: { minHeight: 52, padding: 12, flexDirection: 'row', alignItems: 'center' },
   empty: { padding: 20, borderRadius: 12, textAlign: 'center' },
   pages: {
     flexDirection: 'row',

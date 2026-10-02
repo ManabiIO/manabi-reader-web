@@ -357,7 +357,9 @@ export function createWebStatisticsPort(): StatisticsPort {
         today: getDateString(today),
         dateRangeLabel: getDateRangeLabel(query.startDate, query.endDate),
         shortcuts: Object.fromEntries(
-          Object.entries(get(statisticsTabKeybindMap$)).flatMap(([key, value]) =>
+          Object.entries(get(statisticsTabKeybindMap$)).flatMap<
+            [string, 'range-template' | 'aggregation']
+          >(([key, value]) =>
             value === 'templateRangeToggle'
               ? [[key, 'range-template']]
               : value === 'aggregationToggle'
