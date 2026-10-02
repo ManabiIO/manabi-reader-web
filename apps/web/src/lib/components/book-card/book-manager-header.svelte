@@ -132,9 +132,24 @@
   }
   async function exitSelectionMode() {
     selectMode = false;
-    // Selection chrome unmounts its focused control. Restore a stable trigger.
+    // Selection chrome unmounts its focused control. Restore a stable trigger
+    // for both the modern browser library and legacy provider libraries.
     await tick();
-    libraryActionsButton?.focus({ preventScroll: true });
+    (
+      libraryActionsButton ??
+      document.querySelector<HTMLButtonElement>('.app-header button[aria-label="Add books"]')
+    )?.focus({ preventScroll: true });
+  }
+  function selectionKeydown(event: KeyboardEvent) {
+    if (
+      event.defaultPrevented ||
+      event.key !== 'Escape' ||
+      event.isComposing ||
+      event.altKey
+    )
+      return;
+    event.preventDefault();
+    void exitSelectionMode();
   }
   let countImportElm: HTMLInputElement;
   $: isOldUrl = browser && isOnOldUrl(window);
@@ -638,12 +653,9 @@
       <div
         class:compact-selection={compactLibrary}
         class="library-selection-toolbar mx-auto flex min-h-14 max-w-6xl flex-wrap items-center gap-2 border-t border-border/60 px-[16px] py-[8px] sm:px-[24px]"
+        role="toolbar"
         aria-label="Book selection"
-        onkeydown={(event) => {
-          if (event.key !== 'Escape' || event.isComposing || event.altKey) return;
-          event.preventDefault();
-          void exitSelectionMode();
-        }}
+        onkeydown={selectionKeydown}
       >
         <Button
           class="selection-action"
@@ -781,48 +793,54 @@
         ></progress>
         <span role="status" class="whitespace-nowrap text-sm">{replicationProgressRemaining}</span>
       {:else if selectMode}
-        <Button
-          variant="ghost"
-          disabled={libraryMenu?.selectedActions?.busy}
-          onclick={() => (selectMode = false)}>Cancel selection</Button
+        <div
+          role="toolbar"
+          aria-label="Book selection"
+          class="flex min-w-max items-center gap-2"
+          onkeydown={selectionKeydown}
         >
-        <span role="status" aria-live="polite" aria-atomic="true" class="whitespace-nowrap text-sm"
-          >{selectedCount} selected</span
-        >
-        <Button
-          variant="outline"
-          disabled={libraryMenu?.selectedActions?.busy}
-          onclick={() => dispatch('selectAllClick')}
-          >{modernLibrary ? 'Select All Visible' : 'Select all'}</Button
-        >
-        {#if selectedCount > 0}
           <Button
-            variant="secondary"
-            onclick={() => dispatch('replicateData')}
-            title="Open Export Menu">Export</Button
+            variant="ghost"
+            disabled={libraryMenu?.selectedActions?.busy}
+            onclick={() => void exitSelectionMode()}>Cancel selection</Button
           >
-          <ActionMenu label="Actions" title="Selected book actions">
-            {#if $storageSource$ === StorageKey.BROWSER}
-              <Menu.Item
-                disabled={libraryMenu?.selectedActions?.busy}
-                onSelect={() => dispatch('selectionToStatistics')}
-                >Statistics for selected books</Menu.Item
-              >
+          <span role="status" aria-live="polite" aria-atomic="true" class="whitespace-nowrap text-sm"
+            >{selectedCount} selected</span
+          >
+          <Button
+            variant="outline"
+            disabled={libraryMenu?.selectedActions?.busy}
+            onclick={() => dispatch('selectAllClick')}>Select all</Button
+          >
+          {#if selectedCount > 0}
+            <Button
+              variant="secondary"
+              onclick={() => dispatch('replicateData')}
+              title="Open Export Menu">Export</Button
+            >
+            <ActionMenu label="Actions" title="Selected book actions">
+              {#if $storageSource$ === StorageKey.BROWSER}
+                <Menu.Item
+                  disabled={libraryMenu?.selectedActions?.busy}
+                  onSelect={() => dispatch('selectionToStatistics')}
+                  >Statistics for selected books</Menu.Item
+                >
+                <Menu.Item
+                  variant="destructive"
+                  disabled={libraryMenu?.selectedActions?.busy}
+                  onSelect={() => dispatch('deleteStatistics')}>Delete selected statistics</Menu.Item
+                >
+                <Menu.Separator />
+              {/if}
               <Menu.Item
                 variant="destructive"
-                disabled={libraryMenu?.selectedActions?.busy}
-                onSelect={() => dispatch('deleteStatistics')}>Delete selected statistics</Menu.Item
+                disabled={libraryMenu?.selectedActions?.busy ||
+                  libraryMenu?.selectedActions?.savedCount === 0}
+                onSelect={() => dispatch('removeClick')}>Delete selected books</Menu.Item
               >
-              <Menu.Separator />
-            {/if}
-            <Menu.Item
-              variant="destructive"
-              disabled={libraryMenu?.selectedActions?.busy ||
-                libraryMenu?.selectedActions?.savedCount === 0}
-              onSelect={() => dispatch('removeClick')}>Delete selected books</Menu.Item
-            >
-          </ActionMenu>
-        {/if}
+            </ActionMenu>
+          {/if}
+        </div>
       {:else}
         <ActionMenu label="Add books">
           <Menu.Item onSelect={() => fileImportElm.click()}>Import File(s)</Menu.Item>
