@@ -53,17 +53,23 @@ export function referenceRevision<T>() {
   };
 }
 
-/** Recompute a potentially expensive corpus projection only when its snapshot identity changes. */
-export function memoizeReferenceProjection<T, R>(project: (value: T) => R) {
+/**
+ * Recompute an exact projection only when its immutable snapshot is replaced,
+ * and expose a small revision only when that projection actually changes.
+ */
+export function projectedReferenceRevision<T, R>(project: (value: T) => R) {
   let current: T | undefined,
+    projection: R,
     initialized = false,
-    result: R;
-  return (next: T): R => {
+    revision = 0;
+  return (next: T): number => {
     if (!initialized || next !== current) {
+      const nextProjection = project(next);
+      if (!initialized || !Object.is(nextProjection, projection)) revision++;
       initialized = true;
       current = next;
-      result = project(next);
+      projection = nextProjection;
     }
-    return result!;
+    return revision;
   };
 }
