@@ -70,6 +70,27 @@ jobs:
           cd ../../..
           node scripts/verify-expo-export.mjs --platform apk --output apps/web/android/app/build/outputs/apk/release/app-release.apk --report apps/web/dist-android/apk-qualification.json
 
+      - name: Collect small packaging diagnostics
+        if: always()
+        run: |
+          python - <<'PY_DIAGNOSTICS'
+          from pathlib import Path
+          import zipfile
+          root = Path('apps/web/build' if '${{ matrix.platform }}' == 'web' else 'apps/web/dist-android')
+          if (root / 'index.html').exists():
+              print('EXPO_HTML_DIAGNOSTICS=' + (root / 'index.html').read_text()[:12000])
+          with zipfile.ZipFile('expo-diagnostics.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+              if root.exists():
+                  for file in root.rglob('*'):
+                      if file.is_file() and (file.suffix in ('.js', '.mjs', '.html', '.json') or file.name in ('SOURCE.txt', 'LICENSE')):
+                          archive.write(file, file.relative_to(root))
+          PY_DIAGNOSTICS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: expo-${{ matrix.platform }}-diagnostics
+          path: expo-diagnostics.zip
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         if: always()
         with:
