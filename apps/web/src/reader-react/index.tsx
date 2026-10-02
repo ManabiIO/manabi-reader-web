@@ -17,6 +17,8 @@ import './reader.css';
 import './primitives.css';
 export interface ReaderScreenHandle {
   requestClose(): Promise<boolean>;
+  /** Save a web departure without clearing the portable resume target. */
+  requestSuspend?(): Promise<boolean>;
 }
 export interface ReaderScreenProps {
   bookId?: number;
@@ -49,7 +51,8 @@ export function ReaderScreen({
   }, []);
   useEffect(() => {
     const handle: ReaderScreenHandle = {
-      requestClose: () => session.current?.requestClose() ?? Promise.resolve(false)
+      requestClose: () => session.current?.requestClose() ?? Promise.resolve(false),
+      requestSuspend: () => session.current?.requestSuspend() ?? Promise.resolve(false)
     };
     registerHandle?.(handle);
     return () => registerHandle?.(undefined);

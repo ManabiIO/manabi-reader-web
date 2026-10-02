@@ -198,48 +198,76 @@ export function createTracker(
     updateTimeToFinishBook();
     return flushData ? flushUpdates() : Promise.resolve([false, 0]);
   }
-  async function flushUpdates(force = false) {
-    if (!statisticsToStore.size || (blockDataUpdates && !force)) {
-      return [false, 0];
+  function flushUpdates(force = false): Promise<[boolean, number]> {
+    // A close must join a pending write even while its dates are out of the
+    // queue. Upgrade the whole drain when close overrides blockDataUpdates.
+    if (pendingStatisticsFlush) {
+      forceStatisticsFlush ||= force;
+      return pendingStatisticsFlush;
     }
+    if (!statisticsToStore.size || (blockDataUpdates && !force)) {
+      return Promise.resolve([false, 0]);
+    }
+    forceStatisticsFlush = force;
     __readerController.changed((actionInProgress = true));
     __readerController.changed((hadError = false));
-    const toUpdate: string[] = JSON.parse(JSON.stringify([...statisticsToStore]));
-    const itemsToStore = toUpdate
-      .map((statisticToStore) => statistics.get(statisticToStore))
-      .filter(filterNotNullAndNotUndefined);
-    statisticsToStore.clear();
-    try {
-      await database.storeStatistics(
-        bookTitle,
-        itemsToStore,
-        ReplicationSaveBehavior.Overwrite,
-        MergeMode.LOCAL,
-        Date.now(),
-        bookId
-      );
-      __readerController.changed(
-        (trackingHistory = trackingHistory.map((item) => {
-          const oldItem = item;
-          oldItem.saved = toUpdate.some((dateKey) => dateKey === item.dateKey);
-          return oldItem;
-        }))
-      );
-      dispatch('statisticsSaved');
-    } catch (error: any) {
-      __readerController.changed((hadError = true));
-      __readerController.changed(
-        (statisticsToStore = new Set([...statisticsToStore, ...toUpdate]))
-      );
-      logger.error(`Error updating statistics: ${error.message}`);
-    } finally {
-      __readerController.changed((actionInProgress = false));
-      __readerController.changed((lastTrackerFlushTime = Date.now()));
-      if ($isTrackerMenuOpen$) {
-        updateReadingGoalWindow();
+    // Publish ownership before entering storage or emitting callbacks that can
+    // request another flush. All callers share the same settlement and error.
+    pendingStatisticsFlush = Promise.resolve().then(async (): Promise<[boolean, number]> => {
+      let updated = 0;
+      try {
+        while (statisticsToStore.size && (!blockDataUpdates || forceStatisticsFlush)) {
+          const toUpdate = [...statisticsToStore];
+          const historyToSave = new Set(
+            trackingHistory.filter((item) => statisticsToStore.has(item.dateKey))
+          );
+          const itemsToStore = structuredClone(
+            toUpdate
+              .map((statisticToStore) => statistics.get(statisticToStore))
+              .filter(filterNotNullAndNotUndefined)
+          );
+          statisticsToStore.clear();
+          updated += toUpdate.length;
+          try {
+            await database.storeStatistics(
+              bookTitle,
+              itemsToStore,
+              ReplicationSaveBehavior.Overwrite,
+              MergeMode.LOCAL,
+              Date.now(),
+              bookId
+            );
+            __readerController.changed(
+              (trackingHistory = trackingHistory.map((item) =>
+                historyToSave.has(item) ? { ...item, saved: true } : item
+              ))
+            );
+            dispatch('statisticsSaved');
+          } catch (error: any) {
+            __readerController.changed((hadError = true));
+            __readerController.changed(
+              (statisticsToStore = new Set([...statisticsToStore, ...toUpdate]))
+            );
+            logger.error(`Error updating statistics: ${error.message}`);
+            // Retain the latest rows for an explicit retry. Do not hide a failed
+            // close behind an automatic retry or loop forever on storage errors.
+            return [true, updated];
+          }
+        }
+        return [false, updated];
+      } finally {
+        // Retire ownership in the same continuation that checked the queue.
+        // A later microtask must not join an already-finished drain.
+        pendingStatisticsFlush = undefined;
+        forceStatisticsFlush = false;
+        __readerController.changed((actionInProgress = false));
+        __readerController.changed((lastTrackerFlushTime = Date.now()));
+        if ($isTrackerMenuOpen$) {
+          updateReadingGoalWindow();
+        }
       }
-    }
-    return [hadError, toUpdate.length];
+    });
+    return pendingStatisticsFlush;
   }
   function updateCompletedBook(
     completedBookStatistics: BooksDbStatistic,
@@ -290,6 +318,8 @@ export function createTracker(
   let autoScrollerTimer$: Observable<''> | undefined;
   let lastExploredCharCountScroller = exploredCharCount;
   let statisticsToStore = new Set<string>();
+  let pendingStatisticsFlush: Promise<[boolean, number]> | undefined;
+  let forceStatisticsFlush = false;
   let lastTrackerTick = 0;
   let lastTrackerFlushTime = 0;
   let trackerIdleTime = 0;

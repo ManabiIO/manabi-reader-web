@@ -16,7 +16,8 @@ let React,
   SnippetCapture,
   Shelf,
   DestinationPicker,
-  Workspace;
+  Workspace,
+  SnippetsRoute;
 let createReader, createDestinationPicker, createWorkspace, documentAPI, database, dom;
 const mounted = [];
 const pause = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -95,6 +96,7 @@ before(async () => {
   ({ Shelf } = await import('../../apps/web/src/snippets-react/shelf'));
   ({ DestinationPicker } = await import('../../apps/web/src/snippets-react/destination-picker'));
   ({ Workspace } = await import('../../apps/web/src/snippets-react/workspace'));
+  ({ default: SnippetsRoute } = await import('../../apps/web/src/screens/routes/snippets.web'));
   ({ createReader } = await import('../../apps/web/src/snippets-react/reader-controller'));
   ({ createDestinationPicker } = await import(
     '../../apps/web/src/snippets-react/destination-picker-controller'
@@ -107,7 +109,10 @@ after(() => {
   dom.window.close();
   for (const port of messagePorts) port.close();
 });
-beforeEach(() => {
+beforeEach(async () => {
+  window.history.replaceState({}, '', '/reader-web/snippets');
+  const { refreshLocation } = await import('../../apps/web/src/runtime/stores');
+  refreshLocation();
   fixture.changeUser(null);
   fixture.snippetItems.set([]);
   Object.assign(fixture.memory, {
@@ -116,6 +121,8 @@ beforeEach(() => {
     folderReads: [],
     appends: [],
     progress: [],
+    commits: [],
+    routeParams: {},
     permissions: 0,
     mounts: 0,
     failFolders: false,
@@ -172,6 +179,11 @@ async function input(node, value) {
     node.dispatchEvent(new Event('input', { bubbles: true }));
     await pause();
   });
+}
+async function waitFor(predicate, description) {
+  const deadline = Date.now() + 2000;
+  while (!predicate() && Date.now() < deadline) await act(async () => pause(10));
+  assert.ok(predicate(), description);
 }
 const source = (id) => ({ owner: 'owner', id, root: 'root-' + id, provider: 'google', name: id });
 
@@ -447,6 +459,163 @@ test('workspace New snippet mounts the actual dynamically loaded Tiptap editor',
   while (!button('New snippet', ui.host) && Date.now() < returnDeadline)
     await act(async () => pause(10));
   assert.ok(button('New snippet', ui.host));
+});
+
+test('snippet Save opens its persisted reader before Expo commits browser history', async () => {
+  const { installRouter } = await import('../../apps/web/src/runtime/navigation');
+  const { page } = await import('../../apps/web/src/runtime/stores');
+  const paths = [];
+  const stopRouter = installRouter({
+    push: (path) => paths.push(path),
+    replace: (path) => paths.push(path)
+  });
+  try {
+    const ui = await mount(SnippetsRoute, {}, true);
+    await act(async () => pause(20));
+    await click(button('New snippet', ui.host));
+    const deadline = Date.now() + 2000;
+    while (!ui.host.querySelector('.editor-host [contenteditable="true"]') && Date.now() < deadline)
+      await act(async () => pause(10));
+    const editable = ui.host.querySelector('.editor-host [contenteditable="true"]');
+    assert.ok(editable, 'the dynamically imported production editor is mounted');
+    await input(ui.host.querySelector('[aria-label="Snippet title"]'), 'Scope snippet');
+    // Exercise the real ProseMirror DOM observer rather than replacing editor/controller state.
+    await act(async () => {
+      editable.innerHTML = '<p>SCOPE_TOKEN snippet body</p>';
+      editable.dispatchEvent(new Event('input', { bubbles: true }));
+      await pause(20);
+    });
+    await click(button('Save snippet', ui.host));
+    assert.ok(button('Keep on this device only'));
+    assert.equal(fixture.memory.commits.length, 0, 'choosing storage does not commit the draft');
+    await click(button('Keep on this device only'));
+    await waitFor(() => !document.querySelector('[role="dialog"]'), 'save location closes');
+    await click(button('Save snippet', ui.host));
+    await waitFor(() => paths.length === 1, 'Save requests the committed snippet route');
+    assert.equal(fixture.memory.commits.length, 1, ui.host.textContent);
+    const saved = fixture.memory.commits[0];
+    assert.equal(
+      (await database.getRecord('local', saved.id)).document.title.text,
+      'Scope snippet'
+    );
+    assert.equal(
+      (await database.drafts('local')).some((draft) => draft.id === saved.id),
+      false
+    );
+    assert.equal(paths.length, 1, ui.host.textContent);
+    const target = new URL(paths[0], location.origin);
+    assert.equal(target.searchParams.get('id'), saved.id);
+    assert.equal(target.searchParams.get('returnTo'), '/reader-web/snippets');
+    fixture.memory.routeParams = Object.fromEntries(target.searchParams);
+    // Expo admits the new route before its history listener changes window.location.
+    const reader = await mount(SnippetsRoute, {}, true);
+    await waitFor(
+      () => reader.host.querySelector('article[aria-label="Snippet content"]'),
+      'the saved snippet reader mounts using route-local parameters'
+    );
+    assert.equal(location.search, '', 'the outgoing address bar is intentionally stale');
+    assert.equal(
+      reader.host.querySelector('article[aria-label="Snippet content"]')?.textContent,
+      'SCOPE_TOKEN snippet body'
+    );
+    assert.equal(reader.host.querySelector('h1')?.textContent, 'Scope snippet');
+    await act(async () => {
+      page.set({
+        url: new URL('/reader-web/manage?q=another-screen', location.origin),
+        params: {},
+        state: {},
+        data: {}
+      });
+      await pause(20);
+    });
+    assert.equal(
+      reader.host.querySelector('article[aria-label="Snippet content"]')?.textContent,
+      'SCOPE_TOKEN snippet body',
+      'an outgoing or retained route cannot overwrite the admitted snippet URL'
+    );
+    await act(async () => {
+      fixture.changeUser('another-snippet-owner');
+      await pause(20);
+    });
+    assert.equal(
+      !!reader.host.querySelector('article[aria-label="Snippet content"]'),
+      false,
+      'route authority never bypasses the active account guard'
+    );
+  } finally {
+    stopRouter();
+  }
+});
+
+test('route-local draft recovery rotates one durable session and preserves route query values', async () => {
+  const doc = documentAPI.createSnippet(documentAPI.plainContent('Recover my draft'), 'Recovery');
+  const selected = fixture.scope(),
+    session = crypto.randomUUID();
+  const draft = {
+    key: database.recordKey(selected.owner, session),
+    owner: selected.owner,
+    id: doc.id,
+    session,
+    base: null,
+    document: doc,
+    updatedAt: Date.now(),
+    mode: 'new',
+    locationChosen: true
+  };
+  await database.saveDraft(draft, selected.guard);
+  const url = new URL('/reader-web/snippets', location.origin);
+  url.searchParams.set('draft', session);
+  url.searchParams.set('q', '猫');
+  url.searchParams.append('note', 'one');
+  url.searchParams.append('note', 'two');
+  let controller;
+  const props = {
+    routeUrl: url.href,
+    bindings: { this: (value) => (controller = value) }
+  };
+  const ui = await mount(Workspace, props, true);
+  await waitFor(
+    () => ui.host.querySelector('.editor-host [contenteditable="true"]'),
+    'the selected recovery draft opens its real editor'
+  );
+  assert.equal(ui.host.querySelector('[aria-label="Snippet title"]').value, 'Recovery');
+  assert.equal(ui.host.querySelector('.editor-host').textContent, 'Recover my draft');
+  const recovered = (await database.drafts('local')).filter((item) => item.id === doc.id);
+  assert.equal(recovered.length, 1);
+  assert.notEqual(recovered[0].session, session);
+  assert.equal(controller.draftId, recovered[0].session);
+  assert.equal(new URL(location.href).searchParams.get('draft'), recovered[0].session);
+  assert.deepEqual(controller.params.getAll('note'), ['one', 'two']);
+  assert.equal(controller.query, '猫');
+  // An unchanged parent snapshot must not undo the recovered session handoff.
+  await ui.update(props);
+  assert.equal(controller.draftId, recovered[0].session);
+  assert.equal((await database.drafts('local')).filter((item) => item.id === doc.id).length, 1);
+  assert.equal(controller.error, '');
+});
+
+test('a reused Expo snippet screen accepts newer local parameters without reading another screen', async () => {
+  const selected = fixture.scope();
+  const docs = ['First snippet', 'Second snippet'].map((text) =>
+    documentAPI.createSnippet(documentAPI.plainContent(text), text)
+  );
+  for (const doc of docs)
+    await database.saveDocument(selected.owner, doc, null, undefined, selected.guard);
+  fixture.memory.routeParams = { id: docs[0].id };
+  const ui = await mount(SnippetsRoute);
+  const text = () => ui.host.querySelector('article[aria-label="Snippet content"]')?.textContent;
+  await waitFor(() => text() === 'First snippet', 'the first route-local snippet is loaded');
+  fixture.memory.routeParams = { id: docs[1].id };
+  await ui.update({});
+  await waitFor(() => text() === 'Second snippet', 'new route props select the second snippet');
+  assert.equal(location.search, '', 'neither selection depends on browser history settling');
+  await click(button('Edit', ui.host));
+  await waitFor(
+    () => ui.host.querySelector('.editor-host [contenteditable="true"]'),
+    'the newer selected record is also the edit target'
+  );
+  assert.equal(ui.host.querySelector('[aria-label="Snippet title"]').value, 'Second snippet');
+  assert.equal(ui.host.querySelector('.editor-host').textContent, 'Second snippet');
 });
 
 test('capture mounts once under StrictMode, saves before prompting, and keeps drafts when dismissed', async () => {

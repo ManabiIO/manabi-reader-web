@@ -296,12 +296,17 @@ export function slotContent(children: ReactNode, name?: string): ReactNode {
 }
 export function DialogTemplate({ children }: Props) {
   return (
-    <section className="ui-panel min-w-0 rounded-3xl bg-popover p-5 text-popover-foreground writing-horizontal-tb sm:p-6">
-      <h2 className="mb-5 min-w-0 text-lg font-semibold break-words">
+    <section className="ui-panel flex max-h-[calc(90dvh-3rem)] min-h-0 min-w-0 flex-col rounded-3xl bg-popover p-5 text-popover-foreground writing-horizontal-tb sm:p-6">
+      <h2
+        id="manabi-dialog-title"
+        className="mb-5 min-w-0 shrink-0 text-lg font-semibold break-words"
+      >
         {slotContent(children, 'header')}
       </h2>
-      {slotContent(children, 'content')}
-      <footer className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
+      <div data-dialog-scroll className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain">
+        {slotContent(children, 'content')}
+      </div>
+      <footer className="mt-5 flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
         {slotContent(children, 'footer')}
       </footer>
     </section>
@@ -387,6 +392,11 @@ export function Popover({
       });
     };
     place();
+    // Controller-backed content mounts after this layout effect. Reposition
+    // when it arrives or changes size so lower preset choices stay on screen.
+    const resize = new ResizeObserver(place);
+    resize.observe(content);
+    resize.observe(root);
     const outside = (event: Event) => {
       if (!root.contains(event.target as Node) && !content.contains(event.target as Node))
         change(false);
@@ -408,6 +418,7 @@ export function Popover({
     window.addEventListener('resize', place);
     window.addEventListener('scroll', place, true);
     return () => {
+      resize.disconnect();
       document.removeEventListener('pointerdown', outside);
       document.removeEventListener('keydown', key);
       content.removeEventListener(CLOSE_POPOVER, close);

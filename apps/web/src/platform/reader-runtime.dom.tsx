@@ -517,7 +517,8 @@ export default function ReaderRuntime({
             if (!retained) operation.stop();
           }
         },
-        state.lifetime.signal
+        state.lifetime.signal,
+        state.transfer
       ),
     []
   );

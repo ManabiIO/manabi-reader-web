@@ -60,4 +60,4 @@ Open/remove admission returns expected content identity from the single-use Libr
 - `node --test tests/unit/library-organization-lifetime.test.mjs`: delayed commit/cancellation, owner ABA, existing web callers and organization publication
 - Focused esbuild UI and DOM-service dependency bundles
 
-No Android device, emulator, production Metro export, or real browser interaction test was run for this package. A full-app TypeScript run was killed by environment memory limits; the scoped check is not a claim that unrelated legacy files are type-clean.
+The initial isolated service checks above did not run an Android host. Subsequent integrated head `727b360e` passes full strict app types, production web/Android Metro exports, patched-host compilation/tests, release APK/source-byte qualification, and the real Chromium cover raster smoke. The fresh emulator failed to boot because runner KVM access was unavailable, so native Library controls, native/DOM replies and device storage remain runtime-unqualified. See the [project qualification record](../../../../docs/expo/MIGRATION.md).

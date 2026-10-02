@@ -5,6 +5,13 @@
  */
 
 import { writable, derived, get } from '$lib/state/store';
+import {
+  getRecord,
+  saveDocument,
+  summaries,
+  type Destination
+} from '../../../apps/web/src/lib/snippets/database';
+import type { SnippetDocument } from '../../../apps/web/src/lib/snippets/document';
 export const account = writable({ status: 'available', session: null as any });
 export const localUser = derived(account, (s) => s.session?.user ?? null);
 let generation = 0;
@@ -41,6 +48,8 @@ export const memory = {
   folderReads: [] as any[],
   appends: [] as any[],
   progress: [] as any[],
+  commits: [] as SnippetDocument[],
+  routeParams: {} as Record<string, string | string[]>,
   permissions: 0,
   mounts: 0,
   failFolders: false,
@@ -71,14 +80,33 @@ export const appendToSnippet = async (...args: any[]) => {
   memory.appends.push(args);
 };
 export const flushSnippets = async () => {};
-export const refreshSnippet = async () => undefined;
+export const refreshSnippet = async (id: string, selected = scope()) => {
+  const record = await getRecord(selected.owner, id);
+  selected.guard();
+  return record;
+};
 export const refreshSnippets = async () => {};
-export const reloadSnippets = async () => {};
+export const reloadSnippets = async (selected = scope()) => {
+  const values = await summaries(selected.owner);
+  selected.guard();
+  snippetItems.set(values);
+};
 export const suggestedDestination = async () => undefined;
 export const rememberDestination = async () => {};
 export const trashSnippet = async () => {};
 export const resolveConflict = async () => {};
-export const commitSnippet = async () => {};
+export const commitSnippet = async (
+  document: SnippetDocument,
+  base: string | null,
+  destination: Destination | undefined,
+  selected = scope()
+) => {
+  const record = await saveDocument(selected.owner, document, base, destination, selected.guard);
+  memory.commits.push(document);
+  await reloadSnippets(selected);
+  return record;
+};
+export const useLocalSearchParams = () => memory.routeParams;
 export const currentTransfer = async () => undefined;
 export const moveSnippet = async () => {};
 export const resumeTransfer = async () => {};

@@ -19,6 +19,7 @@ try {
     conditions: ['browser'],
     external: ['node:*'],
     jsx: 'automatic',
+    loader: { '.css': 'empty' },
     alias: {
       $lib: `${root}/apps/web/src/lib`,
       $app: `${root}/apps/web/src/runtime`,
@@ -44,6 +45,9 @@ try {
             path: `${root}/test/snippets/fixtures/navigation-shell.tsx`
           }));
           b.onResolve({ filter: /^snippet-ui-fixture$/ }, () => ({
+            path: `${root}/test/snippets/fixtures/react-environment.ts`
+          }));
+          b.onResolve({ filter: /^expo-router$/ }, () => ({
             path: `${root}/test/snippets/fixtures/react-environment.ts`
           }));
         }

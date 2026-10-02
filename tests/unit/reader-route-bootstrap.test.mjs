@@ -90,7 +90,7 @@ async function fixture(run) {
     '../../reader-react': screen,
     '../../runtime/paths': paths
   }).default;
-  const root = createRoot(document.getElementById('root'));
+  const root = createRoot(dom.window.document.getElementById('root'));
   const render = async (component = route, props = {}) => {
     await act(async () => root.render(React.createElement(component, props)));
   };
@@ -157,7 +157,7 @@ test('a retained web route keeps its own session while another screen updates th
 test('web missing and malformed IDs retain explicit URL semantics instead of borrowing prior browser state', async () => {
   for (const params of [{}, { id: 'not-a-book' }, { id: ['2', '3'] }]) {
     await fixture(async ({ render, routeState, observed }) => {
-      history.replaceState({}, '', '/reader-web/b?id=99');
+      globalThis.history.replaceState({}, '', '/reader-web/b?id=99');
       routeState.params = params;
       await render();
       const url = new URL(observed[0].routeUrl);
@@ -171,7 +171,7 @@ test('web missing and malformed IDs retain explicit URL semantics instead of bor
 
 test('native reader still reconstructs only its admitted book and retains identity guards', async () => {
   await fixture(async ({ render, screen, observed }) => {
-    history.replaceState({}, '', '/reader-web/manage?foreign=not-reader-data');
+    globalThis.history.replaceState({}, '', '/reader-web/manage?foreign=not-reader-data');
     const expectedBook = { bookId: 7, title: 'Native admission' };
     const bookAuthority = { signal: new AbortController().signal, assertCurrent() {} };
     await render(screen.ReaderScreen, {

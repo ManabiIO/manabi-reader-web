@@ -461,6 +461,7 @@ export function DialogHost() {
   return (
     <dialog
       ref={ref}
+      data-slot={current ? 'dialog-content' : undefined}
       aria-labelledby="manabi-dialog-title"
       className="m-auto max-h-[90dvh] w-[min(96vw,48rem)] overflow-hidden rounded-2xl border border-border bg-background p-0 pt-12 text-foreground shadow-xl backdrop:bg-black/40"
       onCancel={(e) => {

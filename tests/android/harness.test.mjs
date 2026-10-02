@@ -230,6 +230,46 @@ test('instrumentation evidence parser rejects absent, duplicated, failed or inco
   );
 });
 
+test('runtime evidence requires an actual native roundtrip in both process phases', () => {
+  const base = {
+    schema: 1,
+    passed: true,
+    id,
+    target: 'io.manabi.reader',
+    targetDebuggable: false,
+    nativeRoundTrip: 'snapshot-route-and-library-state-reply',
+    entry: 'https://appassets.androidplatform.net/www.bundle/' + 'a'.repeat(32) + '.html',
+    nativeSettings: { webViewVersion: 'fixture-version', fileOriginBypass: false }
+  };
+  const seed = {
+    ...base,
+    phase: 'seed',
+    initial: {
+      secureContext: true,
+      moduleWorker: 'real-packaged-worker-replied-not_open-without-storage-open',
+      wasm: 'real-packaged-sqlite-streaming-compile-only',
+      webLocks: 'exclusive-contention-and-reacquisition'
+    },
+    afterReload: { indexedDB: 'read-committed-sentinel', opfs: 'read-committed-sentinel' },
+    navigation: Array.from({ length: 9 }, () => ({ rootRetained: true }))
+  };
+  const verify = {
+    ...base,
+    phase: 'verify',
+    afterProcessRestart: { indexedDB: 'read-committed-sentinel', opfs: 'read-committed-sentinel' },
+    cleanup: { cleaned: name }
+  };
+  for (const evidence of [seed, verify]) {
+    assert.equal(verifyEvidence(evidence, evidence.phase, id), evidence);
+    for (const nativeRoundTrip of [undefined, 'shim-exists', false]) {
+      assert.throws(() => verifyEvidence({ ...evidence, nativeRoundTrip }, evidence.phase, id));
+    }
+    assert.throws(() =>
+      verifyEvidence({ ...evidence, targetDebuggable: true }, evidence.phase, id)
+    );
+  }
+});
+
 test('the expression injected by Java accepts the formatted probe asset', () => {
   const expression = source.trim().replace(/;$/, '');
   const invoke = vm.runInNewContext(`(${expression})`);

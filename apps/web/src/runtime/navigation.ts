@@ -15,12 +15,15 @@ export function installRouter(value: NonNullable<typeof router>) {
     if (router === value) router = undefined;
   };
 }
-type Navigation = {
+export type Navigation = {
+  readonly intent: symbol;
   from: { url: URL };
   to: { url: URL } | null;
   type: string;
   willUnload: boolean;
   cancel(): void;
+  /** Retry this exact intent after a synchronous guard has canceled it. */
+  retry(): Promise<void>;
 };
 const before = new Set<(navigation: Navigation) => void>();
 const after = new Set<(navigation: Navigation) => void>();
@@ -44,17 +47,33 @@ export async function goto(
     keepFocus?: boolean;
     state?: Record<string, unknown>;
   } = {}
-) {
-  const url = new URL(href, location.href);
+): Promise<void> {
+  const url = new URL(href, location.href).href;
+  const captured = {
+    ...options,
+    ...(options.state !== undefined && { state: structuredClone(options.state) })
+  };
+  const intent = Symbol('navigation');
+  return navigate(url, captured, intent);
+}
+async function navigate(
+  href: string,
+  options: Parameters<typeof goto>[1],
+  intent: symbol
+): Promise<void> {
+  const url = new URL(href);
+  options ??= {};
   let cancelled = false;
   const event: Navigation = {
+    intent,
     from: { url: new URL(location.href) },
     to: { url },
     type: 'goto',
     willUnload: url.origin !== location.origin,
     cancel: () => {
       cancelled = true;
-    }
+    },
+    retry: () => navigate(href, options, intent)
   };
   for (const listener of before) listener(event);
   if (cancelled) return;

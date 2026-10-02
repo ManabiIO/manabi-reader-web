@@ -28,6 +28,31 @@ const { outputFiles } = await build({
           <Menu.Content><Menu.Item onSelect={() => window.selections++}>Select Books</Menu.Item></Menu.Content>
         </Menu.Root>;
       }
+      function NestedMenuFixture() {
+        return <Menu.Root>
+          <Menu.Trigger>Library actions</Menu.Trigger>
+          <Menu.Content>
+            <Menu.Item data-test="plain">Select Books</Menu.Item>
+            <Menu.Sub>
+              <Menu.SubTrigger data-test="view">View Options</Menu.SubTrigger>
+              <Menu.SubContent side="right">
+                <Menu.RadioGroup value="grid" onValueChange={value => window.choices.push(value)}>
+                  <Menu.RadioItem value="grid">Grid</Menu.RadioItem>
+                  <Menu.RadioItem value="list">List</Menu.RadioItem>
+                </Menu.RadioGroup>
+                <Menu.Sub>
+                  <Menu.SubTrigger data-test="sort">Sort by…</Menu.SubTrigger>
+                  <Menu.SubContent side="right"><Menu.Item data-test="title">Title</Menu.Item></Menu.SubContent>
+                </Menu.Sub>
+              </Menu.SubContent>
+            </Menu.Sub>
+            <Menu.Sub>
+              <Menu.SubTrigger data-test="add">Add Books</Menu.SubTrigger>
+              <Menu.SubContent side="right"><Menu.Item data-test="import">Import File(s)</Menu.Item></Menu.SubContent>
+            </Menu.Sub>
+          </Menu.Content>
+        </Menu.Root>;
+      }
       function BindingFixture(props) {
         const [, redraw] = useReducer(n => n + 1, 0);
         useReaderBindings(props.controller, props);
@@ -39,7 +64,7 @@ const { outputFiles } = await build({
       window.controls = {
         routes,
         act: callback => { act(callback); },
-        render: (kind, props = {}) => { act(() => root.render(<React.StrictMode>{kind === 'html' ? <Dom as="main" {...props} /> : kind === 'header' ? <HeaderView {...props} /> : kind === 'binding' ? <BindingFixture {...props} /> : kind === 'action-menu' ? <ActionMenu {...props}><Menu.Item>Batch action</Menu.Item></ActionMenu> : kind === 'organization' ? <OrganizationView {...props} /> : kind === 'tabs' ? <div className="library-react"><LibraryTabs /></div> : <MenuFixture />}</React.StrictMode>)); },
+        render: (kind, props = {}) => { act(() => root.render(<React.StrictMode>{kind === 'nested-menu' ? <NestedMenuFixture /> : kind === 'html' ? <Dom as="main" {...props} /> : kind === 'header' ? <HeaderView {...props} /> : kind === 'binding' ? <BindingFixture {...props} /> : kind === 'action-menu' ? <ActionMenu {...props}><Menu.Item>Batch action</Menu.Item></ActionMenu> : kind === 'organization' ? <OrganizationView {...props} /> : kind === 'tabs' ? <div className="library-react"><LibraryTabs /></div> : <MenuFixture />}</React.StrictMode>)); },
         unmount: () => { act(() => root.unmount()); }
       };
     `,
@@ -92,6 +117,7 @@ async function fixture(run) {
   const { window } = dom;
   window.IS_REACT_ACT_ENVIRONMENT = true;
   window.selections = 0;
+  window.choices = [];
   window.scrollTo = () => {};
   window.HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute('open', '');
@@ -422,5 +448,122 @@ test('Library section tabs preserve wrapping, text-zoom-safe spacing and subpath
       assert.equal(result, false, modifier + ' retains native link behavior');
     }
     assert.equal(api.routes.length, 1);
+  });
+});
+
+function pointer(window, node, pointerType = 'mouse') {
+  const event = new window.MouseEvent('pointerover', { bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'pointerType', { value: pointerType });
+  node.dispatchEvent(event);
+}
+
+test('Library submenu hover opens one sibling, retains portals and closes the tree after selection', async () => {
+  await fixture(async ({ window, api }) => {
+    await api.render('nested-menu');
+    const trigger = window.document.querySelector('#root button');
+    await api.act(() => trigger.click());
+    const viewTrigger = window.document.querySelector('[data-test=view]');
+    viewTrigger.getBoundingClientRect = () => ({
+      left: 200,
+      right: 400,
+      top: 80,
+      bottom: 124,
+      width: 200,
+      height: 44
+    });
+    Object.defineProperty(window.HTMLElement.prototype, 'offsetWidth', {
+      configurable: true,
+      get() {
+        return this.getAttribute('role') === 'menu' ? 160 : 44;
+      }
+    });
+    await api.act(() => pointer(window, viewTrigger));
+    assert.equal(window.document.querySelectorAll('[role=menu]').length, 2);
+    const submenu = window.document.querySelectorAll('[role=menu]')[1];
+    assert.equal(submenu.style.left, '404px');
+    assert.equal(submenu.style.top, '80px');
+    window.innerWidth = 500;
+    await api.act(() => window.dispatchEvent(new window.Event('resize')));
+    assert.equal(
+      submenu.style.left,
+      '36px',
+      'a right submenu flips before overflowing the viewport'
+    );
+    const item = [...window.document.querySelectorAll('[role=menuitemradio]')].find(
+      (node) => node.textContent.trim() === 'List'
+    );
+    assert.ok(item);
+    await api.act(() => pointer(window, item));
+    assert.equal(
+      window.document.querySelectorAll('[role=menu]').length,
+      2,
+      'entering a submenu portal keeps its parent'
+    );
+    await api.act(() => pointer(window, window.document.querySelector('[data-test=add]')));
+    assert.equal(
+      window.document.querySelectorAll('[role=menu]').length,
+      2,
+      'a sibling submenu replaces the prior one'
+    );
+    assert.equal(window.document.querySelectorAll('[role=menuitemradio]').length, 0);
+    assert.ok(window.document.querySelector('[data-test=import]'));
+    await api.act(() => pointer(window, window.document.querySelector('[data-test=plain]')));
+    assert.equal(window.document.querySelectorAll('[role=menu]').length, 1);
+    await api.act(() => pointer(window, window.document.querySelector('[data-test=view]')));
+    await api.act(() =>
+      [...window.document.querySelectorAll('[role=menuitemradio]')]
+        .find((node) => node.textContent.trim() === 'List')
+        .click()
+    );
+    assert.deepEqual(Array.from(window.choices), ['list']);
+    assert.equal(window.document.querySelectorAll('[role=menu]').length, 0);
+    assert.equal(window.document.activeElement, trigger);
+  });
+});
+
+test('Library nested keyboard navigation and touch activation preserve parent focus', async () => {
+  await fixture(async ({ window, api }) => {
+    await api.render('nested-menu');
+    const trigger = window.document.querySelector('#root button');
+    await api.act(() => trigger.click());
+    let view = window.document.querySelector('[data-test=view]');
+    await api.act(() => pointer(window, view, 'touch'));
+    assert.equal(window.document.querySelectorAll('[role=menu]').length, 1);
+    await api.act(() => view.click());
+    assert.equal(window.document.querySelectorAll('[role=menu]').length, 2);
+    const sort = window.document.querySelector('[data-test=sort]');
+    await api.act(() => {
+      sort.focus();
+      sort.dispatchEvent(
+        new window.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })
+      );
+    });
+    assert.equal(window.document.querySelectorAll('[role=menu]').length, 3);
+    const title = window.document.querySelector('[data-test=title]');
+    assert.equal(window.document.activeElement, title);
+    await api.act(() =>
+      title.dispatchEvent(
+        new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      )
+    );
+    assert.equal(
+      window.document.querySelectorAll('[role=menu]').length,
+      2,
+      'Escape closes only the innermost portal'
+    );
+    assert.equal(window.document.activeElement, sort);
+    await api.act(() =>
+      sort.dispatchEvent(
+        new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })
+      )
+    );
+    assert.equal(window.document.querySelectorAll('[role=menu]').length, 1);
+    view = window.document.querySelector('[data-test=view]');
+    assert.equal(window.document.activeElement, view);
+    await api.act(() =>
+      window.document.body.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true }))
+    );
+    assert.equal(window.document.querySelectorAll('[role=menu]').length, 0);
+    assert.equal(window.choices.length, 0);
   });
 });

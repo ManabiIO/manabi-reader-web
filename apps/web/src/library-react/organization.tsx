@@ -4,14 +4,68 @@
  * All rights reserved.
  */
 
-import { Fragment, useId, type ReactNode } from 'react';
+import { Fragment, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 /**
  * React/controller port of lib/library/book-organization-dialog.svelte; transactions retain their original guards.
  */
 
 import { OrganizationController } from './organization-controller';
 
-import { Action, Button, Dialog } from './primitives';
+import { Button, Dialog } from './primitives';
+
+/** Preserve the native toggle while its guarded transaction awaits persistence. */
+export function MembershipCheckbox({
+  checked,
+  mixed = false,
+  disabled,
+  scope,
+  onChange
+}: {
+  checked: boolean;
+  mixed?: boolean;
+  disabled: boolean;
+  scope: object;
+  onChange: (included: boolean) => Promise<void>;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const pending = useRef<symbol | null>(null);
+  const [intent, setIntent] = useState<boolean | null>(null);
+  useLayoutEffect(() => {
+    setIntent(null);
+    return () => {
+      // A retired owner must not clear a replacement's intent or update an unmounted input.
+      pending.current = null;
+    };
+  }, [scope]);
+  useLayoutEffect(() => {
+    if (input.current) input.current.indeterminate = intent === null && mixed;
+  }, [intent, mixed]);
+  return (
+    <input
+      ref={input}
+      type="checkbox"
+      checked={intent ?? checked}
+      disabled={disabled || intent !== null}
+      onChange={(event) => {
+        if (disabled || pending.current) return;
+        const token = Symbol();
+        const included = event.currentTarget.checked;
+        pending.current = token;
+        // React restores controlled inputs before the controller's batched notice.
+        // Local event state must therefore retain this intent synchronously.
+        setIntent(included);
+        const settled = () => {
+          if (pending.current !== token) return;
+          pending.current = null;
+          setIntent(null);
+        };
+        // The caller owns transaction guards and error reporting. Both outcomes
+        // return to the canonical store; optimistic state is never persisted here.
+        void onChange(included).then(settled, settled);
+      }}
+    />
+  );
+}
 
 export function OrganizationView({
   c,
@@ -65,17 +119,15 @@ export function OrganizationView({
                               .filter(Boolean)
                               .join(' ')}
                           >
-                            <Action
-                              type={'checkbox'}
+                            <MembershipCheckbox
+                              key={`${c.scopeKey}:${collection.id}`}
+                              scope={c}
                               checked={count === c.targets.length}
                               disabled={c.busy}
-                              onChange={(event: any) => {
-                                const included = event.currentTarget.checked;
-                                void c.run(() => c.membership(collection.id, included));
-                              }}
-                              as={'input'}
-                              action={c.mixed}
-                              options={count > 0 && count < c.targets.length}
+                              onChange={(included) =>
+                                c.run(() => c.membership(collection.id, included))
+                              }
+                              mixed={count > 0 && count < c.targets.length}
                             />
                             <span className={['min-w-0 break-words'].filter(Boolean).join(' ')}>
                               {collection.name}

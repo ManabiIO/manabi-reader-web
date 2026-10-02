@@ -17,6 +17,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.widget.TextView;
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -78,6 +79,7 @@ public final class PackagedReaderTest {
       reader = awaitReader();
       entry = readUrl();
       awaitReady();
+      awaitNativeLibraryReply();
       evidence.put("entry", entry).put("nativeSettings", nativeSettings());
       if (phase.equals("verify")) {
         evidence.put("afterProcessRestart", runProbe("verify"));
@@ -170,6 +172,34 @@ public final class PackagedReaderTest {
       SystemClock.sleep(200);
     }
     throw new AssertionError("Actual packaged DOM app/bridge did not become ready. URL=" + readUrl());
+  }
+
+  /** Home can reach Library only after onSnapshot crosses into native; its
+   * non-fallback pagination text requires a real library.state/onReply roundtrip.
+   * Do not infer bridge readiness merely from the JavaScript shim existing.
+   */
+  private void awaitNativeLibraryReply() throws Exception {
+    long deadline = SystemClock.uptimeMillis() + 90000;
+    List<String> last = new ArrayList<>();
+    while (SystemClock.uptimeMillis() < deadline) {
+      last.clear();
+      scenario.onActivity(activity -> collectNativeText(activity.getWindow().getDecorView(), last));
+      if (last.contains("Library") && last.contains("0–0 of 0")) {
+        evidence.put("nativeRoundTrip", "snapshot-route-and-library-state-reply");
+        return;
+      }
+      SystemClock.sleep(200);
+    }
+    throw new AssertionError("Native Library never received its empty saved-state reply: " + last);
+  }
+
+  private void collectNativeText(View view, List<String> text) {
+    if (!view.isShown() || view instanceof WebView) return;
+    if (view instanceof TextView) text.add(((TextView) view).getText().toString());
+    if (view instanceof ViewGroup) {
+      ViewGroup group = (ViewGroup) view;
+      for (int index = 0; index < group.getChildCount(); index++) collectNativeText(group.getChildAt(index), text);
+    }
   }
 
   private String evaluate(String javascript) throws Exception {

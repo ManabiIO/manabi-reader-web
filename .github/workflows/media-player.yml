@@ -12,6 +12,10 @@ on:
       - 'apps/web/src/lib/media/**'
       - 'apps/web/src/lib/manabi/media-*.ts'
       - 'apps/web/src/routes/videos/**'
+      - 'apps/web/src/media-react/**'
+      - 'apps/web/src/runtime/**'
+      - 'apps/web/src/screens/routes/**'
+      - 'apps/web/src/library-react/**'
       - 'apps/web/src/lib/search/**'
       - 'tests/browser/test_unified_search.py'
       - 'apps/web/src/lib/components/book-reader/reader-appearance.svelte'
@@ -24,7 +28,11 @@ on:
       - 'tests/browser/test_static_reader.py'
       - 'tools/media/**'
       - 'apps/web/package.json'
-      - 'apps/web/svelte.config.js'
+      - 'apps/web/app.config.ts'
+      - 'apps/web/{babel,metro}.config.cjs'
+      - 'apps/web/metro-source-resolver.cjs'
+      - 'scripts/prepare-expo.mjs'
+      - 'scripts/expo-postbuild.mjs'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - '.github/workflows/media-player.yml'
@@ -52,10 +60,13 @@ jobs:
           git archive --format=tar.gz HEAD \
             apps/web/src/lib/media apps/web/src/lib/search \
             apps/web/src/lib/manabi/media-profile.ts apps/web/src/lib/manabi/media-runtime.ts \
-            apps/web/src/lib/manabi/runtime.svelte apps/web/src/lib/service-worker \
+            apps/web/src/runtime apps/web/src/lib/service-worker apps/web/src/media-react \
+            apps/web/src/library-react apps/web/src/screens/routes apps/web/src/platform \
             apps/web/src/routes/videos apps/web/src/routes/manage/+page.svelte \
             tests/media tests/browser/test_unified_search.py tools/media \
-            package.json apps/web/package.json apps/web/svelte.config.js pnpm-lock.yaml \
+            package.json apps/web/package.json apps/web/app.config.ts pnpm-lock.yaml \
+            apps/web/babel.config.cjs apps/web/metro.config.cjs apps/web/metro-source-resolver.cjs \
+            scripts/prepare-expo.mjs scripts/expo-postbuild.mjs \
             .prettierrc.cjs .github/workflows/media-player.yml \
             > test-results/media/source/media-source.tar.gz
           sha256sum test-results/media/source/media-source.tar.gz > test-results/media/source/SHA256SUMS
@@ -114,7 +125,7 @@ jobs:
           python tools/media/generate-fixtures.py --language en > fixture-path.txt
           export MEDIA_FIXTURE="$(cat fixture-path.txt)"
           pnpm exec node tools/media/test.mjs | tee test-results/media/core.log
-      - name: Actual Svelte application and native IndexedDB
+      - name: Actual Expo application and native IndexedDB
         run: python tests/media/app-browser.py --fixture "$(cat fixture-path.txt)" --output test-results/media/app
       - name: Native media IndexedDB contracts
         if: ${{ !cancelled() && steps.fixture.outcome == 'success' }}

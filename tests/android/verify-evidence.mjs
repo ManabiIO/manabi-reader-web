@@ -14,6 +14,7 @@ export function verifyEvidence(evidence, phase, id) {
   assert.equal(evidence.id, id);
   assert.equal(evidence.target, 'io.manabi.reader');
   assert.equal(evidence.targetDebuggable, false);
+  assert.equal(evidence.nativeRoundTrip, 'snapshot-route-and-library-state-reply');
   assert.match(
     evidence.entry,
     /^https:\/\/appassets\.androidplatform\.net\/www\.bundle\/[a-f0-9]{32}\.html$/

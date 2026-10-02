@@ -387,20 +387,32 @@ const sessionSource = ts.createSourceFile(
   ts.ScriptTarget.Latest,
   true
 );
-let loadCallback;
+let loadCallback, ownedDialogsDeclaration, publishSessionDialogsDeclaration;
 function visit(node) {
   if (ts.isVariableDeclaration(node) && node.name.getText(sessionSource) === 'rawBookData$')
     loadCallback = node.initializer.arguments[0].arguments[0];
+  if (ts.isVariableDeclaration(node) && node.name.getText(sessionSource) === 'ownedDialogs')
+    ownedDialogsDeclaration = node.parent.parent;
+  if (ts.isFunctionDeclaration(node) && node.name?.text === 'publishSessionDialogs')
+    publishSessionDialogsDeclaration = node;
   ts.forEachChild(node, visit);
 }
 visit(sessionSource);
 assert.ok(loadCallback && ts.isArrowFunction(loadCallback));
-const loadCode = ts.transpileModule(`const load = ${loadCallback.getText(sessionSource)};`, {
-  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS }
-}).outputText;
-const makeReaderLoad = compileFunction(`with (context) { ${loadCode}\n return load; }`, [
-  'context'
-]);
+assert.ok(ownedDialogsDeclaration && ts.isVariableStatement(ownedDialogsDeclaration));
+assert.ok(publishSessionDialogsDeclaration);
+const loadCode = ts.transpileModule(
+  `${ownedDialogsDeclaration.getText(sessionSource)}
+  ${publishSessionDialogsDeclaration.getText(sessionSource)}
+  const load = ${loadCallback.getText(sessionSource)};`,
+  {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS }
+  }
+).outputText;
+const makeReaderLoad = compileFunction(
+  `with (context) { ${loadCode}\n return {load, publishSessionDialogs}; }`,
+  ['context']
+);
 const { readerAccessOwners } = load('lib/library/account-visibility.ts', {
   './book-identity.ts': load('lib/library/book-identity.ts')
 });
@@ -408,6 +420,7 @@ async function readerFixture(t, expected = target()) {
   const f = await fixture(t);
   const effects = [];
   const dialogs = [];
+  let currentDialogs = [];
   const lifetime = new AbortController();
   const operation = new AbortController();
   const native = new AbortController();
@@ -491,19 +504,24 @@ async function readerFixture(t, expected = target()) {
     MessageDialog: 'dialog',
     dialogManager: {
       dialogs$: {
+        getValue() {
+          return currentDialogs;
+        },
         next(value) {
+          currentDialogs = value;
           dialogs.push(value);
         }
       }
     },
     syncedResolver() {}
   };
+  const session = makeReaderLoad(context);
   return {
     ...f,
     effects,
     dialogs,
     context,
-    load: makeReaderLoad(context),
+    ...session,
     hook(value) {
       getHook = value;
     },
@@ -563,6 +581,25 @@ test('reader accepts exactly admitted content and runs existing loading effects'
   assert.equal(result.elementHtml, row().elementHtml);
   assert.deepEqual(f.effects, ['lastRead', 'sync', 'externalLastRead']);
   assert.deepEqual(f.dialogs, []);
+});
+
+test('the extracted reader load keeps production dialog ownership and disposed-session fencing', async (t) => {
+  const f = await readerFixture(t);
+  f.hook(() => f.second.put('data', { ...row(), title: 'Replaced book' }));
+  assert.equal(await f.load(1), undefined);
+  assert.match(f.dialogs[0][0].props.message, /book changed/);
+  const newer = [{ component: 'settings-dialog' }];
+  f.context.dialogManager.dialogs$.next(newer);
+  f.publishSessionDialogs([]);
+  assert.equal(f.context.dialogManager.dialogs$.getValue(), newer);
+  const own = [{ component: 'reader-dialog' }];
+  f.publishSessionDialogs(own);
+  assert.equal(f.context.dialogManager.dialogs$.getValue(), own);
+  f.publishSessionDialogs([]);
+  assert.deepEqual(f.context.dialogManager.dialogs$.getValue(), []);
+  f.context.__readerController.disposed = true;
+  f.publishSessionDialogs(own);
+  assert.deepEqual(f.context.dialogManager.dialogs$.getValue(), []);
 });
 
 const legacyUuid = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

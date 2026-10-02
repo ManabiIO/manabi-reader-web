@@ -1,7 +1,18 @@
 name: Expo Android and web migration
 on:
   pull_request:
-    paths: ['apps/web/**', 'scripts/**', 'test/**', 'tests/**', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'patches/**', '.github/workflows/expo-migration.yml']
+    paths:
+      [
+        'apps/web/**',
+        'scripts/**',
+        'test/**',
+        'tests/**',
+        'package.json',
+        'pnpm-lock.yaml',
+        'pnpm-workspace.yaml',
+        'patches/**',
+        '.github/workflows/expo-migration.yml'
+      ]
   workflow_dispatch:
 permissions:
   contents: read
@@ -164,7 +175,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [test_static_reader.py, test_library_parity.py, test_settings_controls.py, test_annotations_quality.py, test_offline_reader.py]
+        suite:
+          [
+            test_static_reader.py,
+            test_library_parity.py,
+            test_settings_controls.py,
+            test_annotations_quality.py,
+            test_offline_reader.py
+          ]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -227,14 +245,20 @@ jobs:
             echo 'Refusing an existing emulator' >&2
             exit 1
           fi
+          mkdir -p test-results/android
+          # KVM access is a host permission boundary, never granted by this job.
+          # Software x86_64 emulation failed to boot in the first 600-second run.
+          { id; ls -l /dev/kvm || true; emulator -accel-check || true; } > test-results/android/acceleration.log 2>&1
+          if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+            cat test-results/android/acceleration.log
+            echo 'Android runtime qualification blocked: runner KVM access has not been authorized/provisioned.' >&2
+            exit 1
+          fi
           sdkmanager --install 'system-images;android-35;google_apis;x86_64' emulator platform-tools
           export ANDROID_AVD_HOME="$(mktemp -d "$RUNNER_TEMP/manabi-reader-avd.XXXXXX")"
           printf 'no\n' | avdmanager create avd --name manabi-reader-qualification --package 'system-images;android-35;google_apis;x86_64'
-          acceleration=off
-          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then acceleration=auto; fi
-          mkdir -p test-results/android
-          echo "Emulator acceleration: $acceleration (no host permission changes)"
-          emulator -avd manabi-reader-qualification -port 5554 -accel "$acceleration" -memory 2048 -no-window -no-audio -no-snapshot -gpu swiftshader -no-boot-anim > test-results/android/emulator.log 2>&1 &
+          emulator -accel-check
+          emulator -avd manabi-reader-qualification -port 5554 -accel on -memory 2048 -no-window -no-audio -no-snapshot -no-metrics -gpu swiftshader -no-boot-anim > test-results/android/emulator.log 2>&1 &
           emulator_pid=$!
           trap 'adb -s "$ANDROID_SERIAL" emu kill >/dev/null 2>&1 || kill "$emulator_pid" 2>/dev/null || true' EXIT
           timeout 600 bash -c 'until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = 1 ]; do sleep 2; done'

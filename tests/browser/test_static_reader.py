@@ -10,6 +10,7 @@ import unittest
 from urllib.parse import parse_qs, unquote, urlsplit
 import zipfile
 import zlib
+from layout_diagnostics import report_layout_failure
 from playwright.sync_api import sync_playwright, expect
 
 class ThreadingHTTPServer(BaseThreadingHTTPServer):
@@ -306,6 +307,7 @@ class ReaderBrowser(unittest.TestCase):
         StaticHandler.preference_settings = {}
 
     def tearDown(self):
+        report_layout_failure(self)
         # Keep diagnostics for this generated fixture only, never real account data.
         diagnostics = Path('test-results')
         diagnostics.mkdir(exist_ok=True)

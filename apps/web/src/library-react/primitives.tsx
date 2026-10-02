@@ -16,6 +16,7 @@ import {
   type ReactNode,
   type CSSProperties,
   type MouseEvent,
+  type PointerEvent,
   type KeyboardEvent,
   type RefObject
 } from 'react';
@@ -298,6 +299,10 @@ type MenuState = {
   open: boolean;
   setOpen(open: boolean): void;
   trigger: RefObject<HTMLElement | null>;
+  rootTrigger: RefObject<HTMLElement | null>;
+  submenu: boolean;
+  activeSubmenu: string | null;
+  setActiveSubmenu(id: string | null): void;
   root: string;
   closeTree(): void;
 };
@@ -305,7 +310,15 @@ const MenuContext = createContext<MenuState | null>(null);
 function MenuRoot({ children }: AnyProps) {
   const parent = useContext(MenuContext);
   const id = useId();
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null);
+  const open = parent ? parent.activeSubmenu === id : ownOpen;
+  const setOpen = (next: boolean) => {
+    if (parent) {
+      if (next || parent.activeSubmenu === id) parent.setActiveSubmenu(next ? id : null);
+    } else setOwnOpen(next);
+    if (!next) setActiveSubmenu(null);
+  };
   const trigger = useRef<HTMLElement>(null);
   return (
     <MenuContext.Provider
@@ -313,6 +326,10 @@ function MenuRoot({ children }: AnyProps) {
         open,
         setOpen,
         trigger,
+        rootTrigger: parent?.rootTrigger ?? trigger,
+        submenu: !!parent,
+        activeSubmenu,
+        setActiveSubmenu,
         root: parent?.root ?? id,
         closeTree() {
           setOpen(false);
@@ -336,8 +353,11 @@ function MenuTrigger({ child, children, ...rest }: AnyProps) {
     },
     onClick: () => context.setOpen(!context.open),
     onKeyDown: (e: KeyboardEvent) => {
+      rest.onKeyDown?.(e);
+      if (e.defaultPrevented) return;
       if (['ArrowDown', 'ArrowUp'].includes(e.key)) {
         e.preventDefault();
+        e.stopPropagation();
         context.setOpen(true);
       }
     }
@@ -348,7 +368,7 @@ function MenuContent({
   children,
   className = '',
   align = 'end',
-  side: _side,
+  side = 'bottom',
   collisionPadding: _collisionPadding,
   ...props
 }: AnyProps) {
@@ -363,17 +383,22 @@ function MenuContent({
     const position = () => {
       const r = trigger.getBoundingClientRect();
       const height = menu.getBoundingClientRect().height;
+      const width = menu.offsetWidth;
+      const inline = side === 'right' || side === 'left';
+      let left = inline
+        ? side === 'right'
+          ? r.right + 4
+          : r.left - width - 4
+        : align === 'end'
+          ? r.right - width
+          : r.left;
+      if (inline && left + width > window.innerWidth - 8) left = r.left - width - 4;
+      if (inline && left < 8) left = r.right + 4;
       setStyle({
         position: 'fixed',
         zIndex: 70,
-        top: Math.max(8, Math.min(r.bottom + 4, window.innerHeight - height - 8)),
-        left: Math.max(
-          8,
-          Math.min(
-            align === 'end' ? r.right - menu.offsetWidth : r.left,
-            window.innerWidth - menu.offsetWidth - 8
-          )
-        ),
+        top: Math.max(8, Math.min(inline ? r.top : r.bottom + 4, window.innerHeight - height - 8)),
+        left: Math.max(8, Math.min(left, window.innerWidth - width - 8)),
         maxHeight: '80dvh',
         overflowY: 'auto'
       });
@@ -398,7 +423,7 @@ function MenuContent({
       window.removeEventListener('resize', position);
       window.removeEventListener('scroll', position, true);
     };
-  }, [context.open]);
+  }, [context.open, align, side]);
   if (!context.open) return null;
   return createPortal(
     <div
@@ -416,6 +441,7 @@ function MenuContent({
         const index = items.indexOf(document.activeElement as HTMLElement);
         if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
           event.preventDefault();
+          event.stopPropagation();
           const next =
             event.key === 'Home'
               ? 0
@@ -423,12 +449,14 @@ function MenuContent({
                 ? items.length - 1
                 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
           items[next]?.focus();
-        } else if (event.key === 'Escape' || event.key === 'Tab') {
+        } else if (event.key === 'Escape' || (context.submenu && event.key === 'ArrowLeft')) {
+          event.preventDefault();
+          event.stopPropagation();
           context.setOpen(false);
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            context.trigger.current?.focus();
-          }
+          context.trigger.current?.focus();
+        } else if (event.key === 'Tab') {
+          event.stopPropagation();
+          context.closeTree();
         }
       }}
     >
@@ -446,9 +474,13 @@ function MenuItem({ children, onSelect, variant, disabled, ...props }: AnyProps)
       role="menuitem"
       disabled={disabled}
       className={`flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left hover:bg-muted focus:bg-muted ${variant === 'destructive' ? 'text-destructive' : ''} ${props.className ?? ''}`}
+      onPointerEnter={(event) => {
+        if (event.pointerType === 'mouse') context.setActiveSubmenu(null);
+        props.onPointerEnter?.(event);
+      }}
       onClick={(event) => {
         context.closeTree();
-        context.trigger.current?.focus();
+        context.rootTrigger.current?.focus();
         onSelect?.(event);
       }}
     >
@@ -489,10 +521,13 @@ function RadioItem({ value, children, disabled }: AnyProps) {
       aria-checked={radio.value === value}
       disabled={disabled}
       className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left hover:bg-muted focus:bg-muted"
+      onPointerEnter={(event) => {
+        if (event.pointerType === 'mouse') menu.setActiveSubmenu(null);
+      }}
       onClick={() => {
         radio.change(value);
         menu.closeTree();
-        menu.trigger.current?.focus();
+        menu.rootTrigger.current?.focus();
       }}
     >
       <span aria-hidden="true">{radio.value === value ? '✓' : ''}</span>
@@ -501,9 +536,22 @@ function RadioItem({ value, children, disabled }: AnyProps) {
   );
 }
 function SubTrigger({ children, ...props }: AnyProps) {
+  const context = useContext(MenuContext)!;
   return (
     <MenuTrigger
       {...props}
+      onPointerEnter={(event: PointerEvent) => {
+        if (event.pointerType === 'mouse' && !props.disabled) context.setOpen(true);
+        props.onPointerEnter?.(event);
+      }}
+      onKeyDown={(event: KeyboardEvent) => {
+        props.onKeyDown?.(event);
+        if (event.key === 'ArrowRight' && !event.defaultPrevented && !props.disabled) {
+          event.preventDefault();
+          event.stopPropagation();
+          context.setOpen(true);
+        }
+      }}
       child={({ props }: { props: AnyProps }) => (
         <Button {...props} role="menuitem" variant="ghost" className="w-full justify-start">
           {children}

@@ -40,7 +40,7 @@ import { readStore } from './observable-controller';
 import { Action, Button, Dialog, Menu } from './primitives';
 import { BookCover, CoverStack, SourceIcon } from './covers';
 import { CollectionsSheet } from './collections';
-import { OrganizationDialog as BookOrganizationDialog } from './organization';
+import { MembershipCheckbox, OrganizationDialog as BookOrganizationDialog } from './organization';
 import { UnifiedSearch } from './search';
 import { SnippetShelf } from './snippet-shelf';
 import {
@@ -1294,19 +1294,19 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
                             .filter(Boolean)
                             .join(' ')}
                         >
-                          <input
-                            type={'checkbox'}
+                          <MembershipCheckbox
+                            key={`${c.organizationEpoch}:${c.targetBook?.key}:${collection.id}`}
+                            scope={c}
                             checked={
                               c.targetBook?.organizationAliases.some((alias) =>
                                 collection.members.includes(alias)
                               ) ?? false
                             }
                             disabled={c.busy}
-                            onChange={(event: any) => {
-                              const included = event.currentTarget.checked;
+                            onChange={(included) => {
                               const selected = c.targetBook;
-                              if (!selected) return;
-                              void c.action(async () => {
+                              if (!selected) return Promise.resolve();
+                              return c.action(async () => {
                                 const stable = await c.stableOrganizationBook(selected);
                                 c.targetBook = stable;
                                 await setMembership(

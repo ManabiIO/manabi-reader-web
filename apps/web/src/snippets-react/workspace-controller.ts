@@ -61,13 +61,18 @@ import { restoreBackup, MAX_BACKUP_BYTES } from '../lib/snippets/portability';
 import type { Editor } from '@tiptap/core';
 import { ReaderController, type StoreValue } from '../reader-react/controller';
 
-export type WorkspaceProps = Record<string, unknown>;
+export interface WorkspaceProps {
+  /** This Expo screen's URL; browser/global history may still belong to another screen. */
+  routeUrl?: string;
+}
 
 export function createWorkspace(
   props: WorkspaceProps,
   _emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
+  let routeUrl = props.routeUrl;
+  let pageUrl: URL;
   let params: URLSearchParams;
   let routeURL: string;
   let id: string;
@@ -138,18 +143,22 @@ export function createWorkspace(
     leaveTarget = '',
     transferIssue = '';
   __readerController.effect(
-    () => [mounted, $page],
+    () => [routeUrl ?? $page.url],
     () => {
-      __readerController.changed(
-        (params = mounted ? $page.url.searchParams : new URLSearchParams())
-      );
+      __readerController.changed((pageUrl = routeUrl ? new URL(routeUrl) : $page.url));
     }
   );
   __readerController.effect(
-    () => [mounted, $page],
+    () => [mounted, pageUrl],
+    () => {
+      __readerController.changed((params = mounted ? pageUrl.searchParams : new URLSearchParams()));
+    }
+  );
+  __readerController.effect(
+    () => [mounted, pageUrl],
     () => {
       __readerController.changed(
-        (routeURL = mounted ? $page.url.pathname + $page.url.search : base + '/snippets')
+        (routeURL = mounted ? pageUrl.pathname + pageUrl.search : base + '/snippets')
       );
     }
   );
@@ -377,7 +386,7 @@ export function createWorkspace(
     if (editing) return;
     const selectedDraftId = draftId,
       selectedId = id,
-      url = new URL($page.url);
+      url = new URL(pageUrl);
     __readerController.changed((current = undefined));
     __readerController.changed((error = ''));
     __readerController.changed((notice = ''));
@@ -410,6 +419,7 @@ export function createWorkspace(
           url.searchParams.set('draft', session);
           request.replace(JSON.stringify([s.owner, selectedId, session]));
           replaceState(resolve(libraryPath(url.pathname + url.search)), $page.state);
+          if (routeUrl !== undefined) __readerController.changed((routeUrl = url.href));
           await deleteDraft(draft.key, s.guard);
           s.guard();
           await openDraft(restored, s);
@@ -1460,7 +1470,10 @@ export function createWorkspace(
     get $snippetStatus() {
       return $snippetStatus;
     },
-    updateProps(_next: Record<string, unknown>) {}
+    updateProps(next: Record<string, unknown>) {
+      if ('routeUrl' in next && !Object.is(routeUrl, next.routeUrl))
+        __readerController.changed((routeUrl = next.routeUrl as string | undefined));
+    }
   };
   return api;
 }

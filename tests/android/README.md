@@ -38,14 +38,18 @@ removes the instrumentation wiring; rerun preparation afterward.
 
 Provision a new disposable AVD using the official SDK `sdkmanager`/`avdmanager`
 and an API 35+ Google APIs x86_64 image (with a current Android System WebView).
-Use only runner-supported hardware acceleration or the emulator's software
-fallback. Do not change `/dev/kvm` permissions, disable security checks, or install
-unreviewed runner actions. A typical official-tool boot, once the image is
+Use runner-supported, already provisioned hardware acceleration. The first CI
+attempt on `727b360e` lacked KVM device access; software x86_64 emulation timed
+out before boot after 600 seconds, with no APK installation or assertions. The
+workflow now records capability diagnostics and fails fast without KVM rather
+than consuming another software boot loop. Do not change `/dev/kvm` permissions
+without specific authorization, disable security checks, or install unreviewed
+runner actions. A typical official-tool boot, once the image is
 available, is:
 
 ```sh
 printf 'no\n' | avdmanager create avd --name manabi-reader-qualification --package 'system-images;android-35;google_apis;x86_64'
-emulator -avd manabi-reader-qualification -port 5554 -no-window -no-audio -no-snapshot -gpu swiftshader -no-boot-anim > emulator.log 2>&1 &
+emulator -avd manabi-reader-qualification -port 5554 -accel on -no-metrics -no-window -no-audio -no-snapshot -gpu swiftshader -no-boot-anim > emulator.log 2>&1 &
 export ANDROID_SERIAL=emulator-5554
 adb wait-for-device
 # Wait (with an outer timeout) until adb shell getprop sys.boot_completed is 1.
@@ -75,6 +79,9 @@ runner for that claim.
 
 ## Assertions made by a passing two-phase run
 
+- Real native Library heading and non-fallback empty-state pagination, requiring
+  DOM `onSnapshot` → native routing and native `library.state` → DOM `onReply`;
+  the existence of a JavaScript bridge shim alone is insufficient
 - Actual packaged HTTPS root, secure context, read-only Expo DOM bootstrap, no
   native evaluation bridge, DOM storage enabled, file/content and file-origin
   access disabled, mixed content denied, automatic/multiple windows disabled
@@ -119,3 +126,5 @@ offline gates remain separate before Android runtime readiness is declared.
 - [Instrumented tests from the command line](https://developer.android.com/studio/test/command-line)
 - [Official emulator command-line options](https://developer.android.com/studio/run/emulator-commandline)
 - [Local WebView content and HTTPS asset loading](https://developer.android.com/develop/ui/views/layout/webapps/load-local-content)
+
+- [GitHub-supported Android virtualization and its explicit host permission setup](https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/)

@@ -7,7 +7,9 @@
 import {
   BRIDGE_VERSION,
   MAX_BRIDGE_BYTES,
+  MAX_IMPORT_TRANSFERS,
   bridgeMessageBytes,
+  importChunkRequestId,
   readOnlyBridgeMethods,
   parseBridgeRequest,
   sameScope,
@@ -28,6 +30,9 @@ export class BridgeClient {
       timer?: ReturnType<typeof setTimeout>;
     }
   >();
+  // Never let a late acknowledgement for an earlier send settle a new promise
+  // with the same canonical chunk ID (possibly carrying different bytes).
+  private chunkSequences = new Map<string, number>();
   private serial = 0;
   private disposed = false;
   private getScope: () => BridgeScope;
@@ -57,10 +62,29 @@ export class BridgeClient {
     const request = parseBridgeRequest({
       version: BRIDGE_VERSION,
       ...scope,
-      id: `${readOnlyBridgeMethods.includes(method) ? 'read_' : ''}command_${Date.now()}_${++this.serial}`,
+      id:
+        method === 'import.chunk'
+          ? importChunkRequestId(payload.transferId, payload.sequence)
+          : `${readOnlyBridgeMethods.includes(method) ? 'read_' : ''}command_${Date.now()}_${++this.serial}`,
       method,
       payload
     });
+    if (this.pending.has(request.id))
+      return Promise.reject(new Error('This import chunk is still awaiting acknowledgement.'));
+    if (method === 'import.chunk') {
+      const transferId = payload.transferId as string;
+      const sequence = payload.sequence as number;
+      const previous = this.chunkSequences.get(transferId);
+      if (previous !== undefined && sequence <= previous)
+        return Promise.reject(
+          new Error(
+            'This import chunk was already sent. Reconcile saved state and start a new import.'
+          )
+        );
+      if (previous === undefined && this.chunkSequences.size >= MAX_IMPORT_TRANSFERS)
+        return Promise.reject(new Error('Import identity history is full. Restart the app.'));
+      this.chunkSequences.set(transferId, sequence);
+    }
     return new Promise((resolve, reject) => {
       // Close can be waiting on a human confirmation. Only ownership retirement or teardown cancels that wait.
       const timer =
@@ -142,5 +166,6 @@ export class BridgeClient {
       );
     }
     this.pending.clear();
+    this.chunkSequences.clear();
   }
 }

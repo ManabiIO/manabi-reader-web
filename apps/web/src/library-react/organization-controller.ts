@@ -25,6 +25,12 @@ export class OrganizationController extends ObservableController {
   busy = false;
   alive = true;
   error = '';
+  private epoch = 0;
+  private previousScope = '';
+  get scopeKey() {
+    // Display keys survive content-hash promotion after a successful write.
+    return JSON.stringify([this.mode, ...this.targets.map((target) => target.key)]);
+  }
   get book() {
     return this.targets[0];
   }
@@ -46,6 +52,7 @@ export class OrganizationController extends ObservableController {
   collectionName = '';
   coverBlur = this.book?.coverBlur ?? false;
   initialize() {
+    this.previousScope = this.scopeKey;
     this.title = this.book?.title ?? '';
     this.authors = this.book?.creators?.map((creator) => creator.name).join('\n') ?? '';
     this.authorSort = this.book?.creators?.map((creator) => creator.sortAs ?? '').join('\n') ?? '';
@@ -67,17 +74,20 @@ export class OrganizationController extends ObservableController {
     this.coverBlur = this.book?.coverBlur ?? false;
   }
   async run(work: () => Promise<void>, finish = false) {
-    if (this.busy) return;
+    if (this.busy || !this.alive) return;
+    const epoch = this.epoch;
+    const scope = this.scopeKey;
+    const current = () => this.alive && epoch === this.epoch && scope === this.scopeKey;
     this.busy = true;
     this.error = '';
     try {
       await work();
-      if (this.alive && finish) this.open = false;
+      if (current() && finish) this.open = false;
     } catch (cause) {
-      if (this.alive)
+      if (current())
         this.error = cause instanceof Error ? cause.message : 'The change could not be saved.';
     } finally {
-      if (this.alive) this.busy = false;
+      if (current()) this.busy = false;
     }
   }
   seriesValue() {
@@ -144,12 +154,21 @@ export class OrganizationController extends ObservableController {
     };
   }
   reconcile() {
+    if (this.previousScope !== this.scopeKey) {
+      this.previousScope = this.scopeKey;
+      this.epoch++;
+      this.busy = false;
+      this.error = '';
+    }
     if (!this.open) this.close();
   }
   start() {
+    this.epoch++;
     this.alive = true;
+    this.busy = false;
     this.retain(() => {
       this.alive = false;
+      this.epoch++;
     });
     this.watch();
   }

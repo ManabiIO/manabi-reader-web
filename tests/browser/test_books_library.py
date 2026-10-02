@@ -19,6 +19,7 @@ import unittest
 import zipfile
 import zlib
 from xml.sax.saxutils import escape
+from layout_diagnostics import report_layout_failure
 from playwright.sync_api import sync_playwright, expect
 from test_static_reader import StaticHandler, ThreadingHTTPServer
 
@@ -134,6 +135,7 @@ class LibraryBase(unittest.TestCase):
         self.go_library()
 
     def tearDown(self):
+        report_layout_failure(self)
         output = Path('test-results')
         output.mkdir(exist_ok=True)
         try:

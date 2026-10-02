@@ -11,6 +11,11 @@ export const BRIDGE_VERSION = 1 as const;
 export const MAX_BRIDGE_BYTES = 768 * 1024;
 export const MAX_IMPORT_BYTES = 256 * 1024 * 1024;
 export const IMPORT_CHUNK_BYTES = 256 * 1024;
+export const MAX_IMPORT_TRANSFERS = 2048;
+const MAX_MUTATION_RECEIPTS = 2048;
+const MAX_TRANSIENT_RECEIPTS = 16;
+const MAX_PENDING_TRANSIENT_RECEIPTS = 32;
+const IMPORT_CHUNK_ID_PREFIX = 'import_chunk_';
 /** UTF-8 length without allocating another copy of chunked transfer payloads. */
 export function bridgeMessageBytes(value: string): number {
   let bytes = 0;
@@ -99,12 +104,23 @@ const record = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 const token = (value: unknown): value is string =>
   typeof value === 'string' && /^[A-Za-z0-9_-]{8,128}$/.test(value);
+/** Canonical identities cannot be reused for another transfer, sequence, or method.
+ * Legacy command/UUID identities remain protected by the permanent mutation ledger.
+ */
+export function importChunkRequestId(transferId: unknown, sequence: unknown): string {
+  if (!token(transferId) || !Number.isSafeInteger(sequence) || (sequence as number) < 0)
+    throw new Error('Invalid import chunk identity.');
+  return `${IMPORT_CHUNK_ID_PREFIX}${transferId}_${sequence}`;
+}
+const transientChunkRequest = (value: Record<string, unknown>) =>
+  typeof value.id === 'string' && value.id.startsWith(IMPORT_CHUNK_ID_PREFIX);
 export function parseBridgeRequest(value: unknown): BridgeRequest {
   if (
     !record(value) ||
     value.version !== BRIDGE_VERSION ||
     !token(value.session) ||
-    !token(value.id) ||
+    typeof value.id !== 'string' ||
+    !(token(value.id) || (transientChunkRequest(value) && (value.id as string).length <= 158)) ||
     !Number.isSafeInteger(value.epoch) ||
     (value.epoch as number) < 0 ||
     !bridgeMethods.includes(value.method as BridgeMethod) ||
@@ -113,6 +129,12 @@ export function parseBridgeRequest(value: unknown): BridgeRequest {
     throw new Error('Invalid reader bridge request.');
   if (value.id.startsWith('read_') && !readOnlyBridgeMethods.includes(value.method as BridgeMethod))
     throw new Error('Read-only request identity cannot authorize a mutation.');
+  if (
+    transientChunkRequest(value) &&
+    (value.method !== 'import.chunk' ||
+      value.id !== importChunkRequestId(value.payload.transferId, value.payload.sequence))
+  )
+    throw new Error('Import chunk identity must match its transfer and sequence.');
   if (bridgeMessageBytes(JSON.stringify(value)) > MAX_BRIDGE_BYTES)
     throw new Error('Reader bridge message exceeds the size limit.');
   return value as unknown as BridgeRequest;
@@ -148,17 +170,25 @@ const fingerprintHash = async (value: string): Promise<string> =>
 export class BridgeAuthority {
   private outcomes = new Map<string, Receipt>();
   private reads = new Map<string, Receipt>();
+  private chunks = new Map<string, Receipt>();
+  private importTransfer?: ImportTransfer;
   private scope: () => BridgeScope;
   private execute: (request: BridgeRequest, signal: AbortSignal) => Promise<unknown>;
   private lifetime: AbortSignal;
   constructor(
     scope: () => BridgeScope,
     execute: (request: BridgeRequest, signal: AbortSignal) => Promise<unknown>,
-    lifetime: AbortSignal
+    lifetime: AbortSignal,
+    importTransfer?: ImportTransfer
   ) {
     this.scope = scope;
     this.execute = execute;
     this.lifetime = lifetime;
+    this.importTransfer = importTransfer;
+    if (importTransfer) {
+      if (lifetime.aborted) importTransfer.cancel();
+      else lifetime.addEventListener('abort', () => importTransfer.cancel(), { once: true });
+    }
   }
   async request(input: unknown): Promise<BridgeReply> {
     const request = parseBridgeRequest(input);
@@ -170,7 +200,9 @@ export class BridgeAuthority {
     };
     const fingerprint = JSON.stringify(request);
     const readOnly = request.id.startsWith('read_');
-    const receipts = readOnly ? this.reads : this.outcomes;
+    const transientChunk = request.id.startsWith(IMPORT_CHUNK_ID_PREFIX);
+    const transient = readOnly || transientChunk;
+    const receipts = readOnly ? this.reads : transientChunk ? this.chunks : this.outcomes;
     const previous = receipts.get(request.id);
     if (previous) {
       let matches: boolean;
@@ -210,9 +242,10 @@ export class BridgeAuthority {
       };
     // Refuse admission rather than dropping mutation outcomes and allowing a retry.
     if (
-      readOnly
-        ? [...this.reads.values()].filter((receipt) => !receipt.settled).length >= 32
-        : this.outcomes.size >= 2048
+      transient
+        ? [...receipts.values()].filter((receipt) => !receipt.settled).length >=
+          MAX_PENDING_TRANSIENT_RECEIPTS
+        : this.outcomes.size >= MAX_MUTATION_RECEIPTS
     )
       return {
         ...common,
@@ -220,8 +253,29 @@ export class BridgeAuthority {
         outcome: 'not-started',
         error: readOnly
           ? 'Too many state queries are pending. Wait before refreshing.'
-          : 'Reader command history is full. Restart the app to reconcile saved state.'
+          : transientChunk
+            ? 'Too many import chunks are pending. Wait before trying again.'
+            : 'Reader command history is full. Restart the app to reconcile saved state.'
       };
+    if (transientChunk) {
+      try {
+        if (!this.importTransfer) throw new Error('Sequenced import transfers are unavailable.');
+        // Once evicted, an old chunk can only be rejected, never executed again:
+        // admission consumes a sequence even when execution or acknowledgement fails.
+        this.importTransfer.admitChunk(
+          request,
+          request.payload.transferId as string,
+          request.payload.sequence as number
+        );
+      } catch (error) {
+        return {
+          ...common,
+          ok: false,
+          outcome: 'not-started',
+          error: error instanceof Error ? error.message : 'The import chunk was not admitted.'
+        };
+      }
+    }
     const reply = (async (): Promise<BridgeReply> => {
       try {
         const value = await this.execute(request, this.lifetime);
@@ -233,6 +287,10 @@ export class BridgeAuthority {
           value
         };
       } catch (error) {
+        // A failed transient acknowledgement must not make this sequence reusable.
+        // Abandon only its matching upload; a newer account/transfer is independent.
+        if (transientChunk)
+          this.importTransfer?.retire(request, request.payload.transferId as string);
         return {
           ...common,
           ok: false,
@@ -260,12 +318,12 @@ export class BridgeAuthority {
           receipt.hashed = false;
         });
       }
-      if (readOnly) {
-        let settled = [...this.reads.values()].filter((entry) => entry.settled).length;
-        for (const [id, entry] of this.reads) {
-          if (settled <= 16) break;
+      if (transient) {
+        let settled = [...receipts.values()].filter((entry) => entry.settled).length;
+        for (const [id, entry] of receipts) {
+          if (settled <= MAX_TRANSIENT_RECEIPTS) break;
           if (entry.settled) {
-            this.reads.delete(id);
+            receipts.delete(id);
             settled--;
           }
         }
@@ -276,12 +334,16 @@ export class BridgeAuthority {
 }
 /** One bounded upload at a time. Bytes cross the bridge once; no whole-book base64 prop. */
 export class ImportTransfer {
+  // Never recycle an admitted identity, even after cancel, commit, or account ABA.
+  // Keep the compact tombstones bounded and refuse new uploads at capacity.
+  private usedIds = new Set<string>();
   private current?: {
     id: string;
     name: string;
     size: number;
     received: number;
     sequence: number;
+    admittedSequence: number;
     chunks: Uint8Array[];
     scope: BridgeScope;
   };
@@ -298,7 +360,30 @@ export class ImportTransfer {
       size > MAX_IMPORT_BYTES
     )
       throw new Error('This file is not a supported book or exceeds the import limit.');
-    this.current = { id, name, size, received: 0, sequence: 0, chunks: [], scope: { ...scope } };
+    if (this.usedIds.has(id)) throw new Error('This import identity has already been used.');
+    if (this.usedIds.size >= MAX_IMPORT_TRANSFERS)
+      throw new Error('Import identity history is full. Restart the app before importing again.');
+    this.usedIds.add(id);
+    this.current = {
+      id,
+      name,
+      size,
+      received: 0,
+      sequence: 0,
+      admittedSequence: -1,
+      chunks: [],
+      scope: { ...scope }
+    };
+  }
+  admitChunk(scope: BridgeScope, id: string, sequence: number) {
+    const current = this.owned(scope, id);
+    if (sequence !== current.sequence || sequence <= current.admittedSequence)
+      throw new Error('Import chunk receipt expired or its sequence is out of order.');
+    current.admittedSequence = sequence;
+  }
+  /** Retire a failed upload without cancelling a newer upload or account. */
+  retire(scope: BridgeScope, id: string) {
+    if (this.current?.id === id && sameScope(scope, this.current.scope)) this.cancel();
   }
   chunk(scope: BridgeScope, id: string, sequence: number, bytes: Uint8Array) {
     const current = this.owned(scope, id);

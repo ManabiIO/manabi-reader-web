@@ -15,12 +15,14 @@ The web views retain the original labels, selectors, content, buttons, input sty
 Run from the repository root with Node 24.21:
 
 - `NODE_OPTIONS=--max-old-space-size=768 node test/snippets/run.mjs`: all 61 existing domain regressions pass. Assertions remain intact; the harness now imports the active framework-independent stores
-- `node test/snippets/react-run.mjs`: 13 React/controller tests pass using real React and Tiptap, jsdom, and fake IndexedDB. Only external service and navigation-shell boundaries are fixtures
+- `node test/snippets/react-run.mjs`: 18 React/controller tests pass using real React and Tiptap, jsdom, and fake IndexedDB. External service and Expo/navigation-shell boundaries are fixtures; the save fixture uses the production IndexedDB document/draft transactions
 - `NODE_OPTIONS=--max-old-space-size=384 node test/snippets/typecheck.mjs`: zero diagnostics in the snippets surface using the production Expo TypeScript configuration and resolved dependency graph. This command reports snippets diagnostics, not all application diagnostics
 
 The UI tests cover StrictMode ownership and cleanup; furigana composition, serialization, and pending-state coordination; rejected executable URLs; cancelled annotation edits; folder source switching and pending-write teardown; explicit locator restoration without manufacturing reading progress; final deliberate scroll persistence; shelf filtering, card layout and range selection; durable capture-before-prompt behavior; account switching; and guarded draft navigation.
 
 The locator test caught a shared raw-HTML regression: fresh `dangerouslySetInnerHTML` objects erased DOM decorations on unrelated React renders. The shared DOM boundary now memoizes that payload, and the test verifies restoration and decoration retention after state changes.
+
+The mounted Save regression follows the real editor, device-location picker, durable commit and new Expo route while browser history still describes the outgoing shelf. Route-local parameters own the workspace so stale global page updates cannot erase the selected snippet. Additional cases preserve account fences, recovered draft identity, and newer parameters on a reused screen.
 
 ## Remaining qualification
 

@@ -85,9 +85,9 @@ export function ReaderSearch(props: Partial<SearchProps> & ReaderViewProps) {
                   }}
                   type={'search'}
                   dir={'auto'}
-                  autocapitalize={'none'}
+                  autoCapitalize={'none'}
                   autoComplete={'off'}
-                  spellcheck={false}
+                  spellCheck={false}
                   aria-label={'Search within book'}
                   aria-invalid={c.queryError ? true : undefined}
                   aria-describedby={c.queryError ? 'reader-search-query-error' : undefined}
@@ -182,8 +182,7 @@ export function ReaderSearch(props: Partial<SearchProps> & ReaderViewProps) {
                               {c.query.trim() ? (
                                 <>
                                   {c.truncated ? 'At least ' : ''}
-                                  {c.total}
-                                  {c.total === 1 ? 'result' : 'results'}
+                                  {c.total} {c.total === 1 ? 'result' : 'results'}
                                 </>
                               ) : (
                                 <> {'Enter a word or phrase.'}</>

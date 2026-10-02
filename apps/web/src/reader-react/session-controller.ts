@@ -113,6 +113,7 @@ import {
 import type { AnnotationImportConflict } from '$lib/reader-annotations';
 import {
   account,
+  accountGeneration,
   currentUser,
   localProfileUser,
   localUser,
@@ -153,7 +154,7 @@ import {
   type BooksDbBookmarkData,
   type BooksDbStatistic
 } from '$lib/data/database/books-db/versions/books-db';
-import { dialogManager } from '$lib/data/dialog-manager';
+import { dialogManager, type Dialog } from '$lib/data/dialog-manager';
 import { pagePath } from '$lib/data/env';
 import { DB_VERSION, PAGE_CHANGE, SKIPKEYLISTENER, SYNCED } from '$lib/data/events';
 import { fullscreenManager } from '$lib/data/fullscreen-manager';
@@ -197,6 +198,7 @@ import {
   pulseElement
 } from '$lib/functions/range-util';
 import { ReaderController, readerTick, writeStore, type StoreValue } from './controller';
+import { suppressReaderShortcuts } from './shortcut-suppression';
 import { LogReportDialog, MessageDialog, ConfirmDialog, NumberDialog } from '../ui/dialogs';
 export interface SessionProps {
   routeUrl?: string;
@@ -212,6 +214,17 @@ export function createSession(
   const expectedBook = props.expectedBook && snapshotBookAccessIdentity(props.expectedBook);
   const bookAuthority = props.bookAuthority;
   const readerRouteUrl = props.routeUrl ? new URL(props.routeUrl) : undefined;
+  let ownedDialogs: Dialog[] | undefined;
+  function publishSessionDialogs(dialogs: Dialog[]) {
+    if (!dialogs.length) {
+      if (ownedDialogs && dialogManager.dialogs$.getValue() === ownedDialogs)
+        dialogManager.dialogs$.next([]);
+      ownedDialogs = undefined;
+    } else if (!__readerController.disposed) {
+      ownedDialogs = dialogs;
+      dialogManager.dialogs$.next(dialogs);
+    }
+  }
   let isPaginated: boolean;
   let firstDimensionMargin: number;
   let tapButtonHeight: string;
@@ -684,7 +697,7 @@ export function createSession(
           return undefined;
         const message = `Error loading book: ${error.message}`;
         logger.warn(message);
-        dialogManager.dialogs$.next([
+        publishSessionDialogs([
           {
             component: MessageDialog,
             props: {
@@ -1013,7 +1026,7 @@ export function createSession(
     }
     readerImageGalleryPictures$.next([]);
     if (dismissDialogs) {
-      dialogManager.dialogs$.next([]);
+      publishSessionDialogs([]);
     }
   });
   function handleUnload(event: BeforeUnloadEvent) {
@@ -1042,7 +1055,7 @@ export function createSession(
     if (!$statisticsEnabled$) {
       return;
     }
-    dialogManager.dialogs$.next([]);
+    publishSessionDialogs([]);
     __readerController.changed((wasTrackerPaused = !$isTrackerPaused$));
     isTrackerPaused$.next(wasTrackerPaused);
   }
@@ -1054,7 +1067,7 @@ export function createSession(
     pauseTracker();
     skipKeyDownListener$.next(true);
     const target = await new Promise<number | undefined>((resolver) => {
-      dialogManager.dialogs$.next([
+      publishSessionDialogs([
         {
           component: NumberDialog,
           props: {
@@ -1099,7 +1112,7 @@ export function createSession(
         ? Math.max(0, bookCharCount - exploredCharCount)
         : 0;
     const wasCanceled = await new Promise((resolver) => {
-      dialogManager.dialogs$.next([
+      publishSessionDialogs([
         {
           component: ConfirmDialog,
           props: {
@@ -1120,7 +1133,7 @@ export function createSession(
       }
       return;
     }
-    dialogManager.dialogs$.next([
+    publishSessionDialogs([
       {
         component: '<div/>',
         disableCloseOnClick: true
@@ -1214,7 +1227,7 @@ export function createSession(
         );
         isTrackerMenuOpen$.next(true);
       } else {
-        dialogManager.dialogs$.next([]);
+        publishSessionDialogs([]);
         __readerController.changed((confettiWidthModifier = 0));
         __readerController.changed((confettiMaxRuns = 3));
         __readerController.changed((bookCompleted = celebrateCompletion));
@@ -1227,7 +1240,7 @@ export function createSession(
         }
       }
     } catch ({ message }: any) {
-      dialogManager.dialogs$.next([
+      publishSessionDialogs([
         {
           component: MessageDialog,
           props: {
@@ -1293,7 +1306,7 @@ export function createSession(
     }
     if (storageSourceName === StorageSourceDefault.GDRIVE_DEFAULT) {
       if (!$isOnline$) {
-        dialogManager.dialogs$.next([
+        publishSessionDialogs([
           {
             component: MessageDialog,
             props: {
@@ -1318,7 +1331,7 @@ export function createSession(
     }
     if (storageSourceName === StorageSourceDefault.ONEDRIVE_DEFAULT) {
       if (!$isOnline$) {
-        dialogManager.dialogs$.next([
+        publishSessionDialogs([
           {
             component: MessageDialog,
             props: {
@@ -1346,7 +1359,7 @@ export function createSession(
       const storageSource = await db.get('storageSource', storageSourceName);
       if (storageSource) {
         if (storageSource.type !== StorageKey.FS && !$isOnline$) {
-          dialogManager.dialogs$.next([
+          publishSessionDialogs([
             {
               component: MessageDialog,
               props: {
@@ -1375,7 +1388,7 @@ export function createSession(
     }
     const message = `No storage source with name ${storageSourceName} found - skipping auto import/export`;
     logger.warn(message);
-    dialogManager.dialogs$.next([
+    publishSessionDialogs([
       {
         component: MessageDialog,
         props: {
@@ -1414,7 +1427,7 @@ export function createSession(
     await storageHandler.updateLastRead(dataToReturn).catch((error: any) => {
       const message = `Failed to update last read on external storage: ${error.message}`;
       logger.warn(message);
-      dialogManager.dialogs$.next([
+      publishSessionDialogs([
         {
           component: MessageDialog,
           props: {
@@ -1594,8 +1607,13 @@ export function createSession(
   }
   // Autosave is persistence, not a toolbar action. It must not unmount the
   // trigger of an open menu or steal keyboard focus while somebody uses it.
+  const pendingBookmarkWrites = new Set<Promise<void>>();
   async function saveBookmark() {
-    if (readerNavigation.previewing || suppressResumeSave) return;
+    return writeBookmark(false);
+  }
+  async function writeBookmark(duringClose: boolean) {
+    if ((blockDataUpdates && !duringClose) || readerNavigation.previewing || suppressResumeSave)
+      return;
     const bookId = getBookIdSync();
     if (!bookId || !bookmarkManager) return;
     let data: BooksDbBookmarkData | undefined;
@@ -1614,9 +1632,19 @@ export function createSession(
     // A font/layout pass has not produced a trustworthy reading position yet.
     // Keep the last good bookmark rather than saving a sentinel or zero progress.
     if (!data) return;
-    await database.putBookmark(data);
-    __readerController.changed((bookmarkData = Promise.resolve(data)));
-    scheduleReplication(StorageDataType.PROGRESS);
+    const snapshot = structuredClone(data);
+    const writing = (async () => {
+      await database.putBookmark(snapshot);
+      if (__readerController.disposed) return;
+      __readerController.changed((bookmarkData = Promise.resolve(snapshot)));
+      scheduleReplication(StorageDataType.PROGRESS);
+    })();
+    pendingBookmarkWrites.add(writing);
+    void writing.then(
+      () => pendingBookmarkWrites.delete(writing),
+      () => pendingBookmarkWrites.delete(writing)
+    );
+    await writing;
   }
   async function scrollToBookmark() {
     const data = await bookmarkData;
@@ -1965,7 +1993,7 @@ export function createSession(
     void readerFullscreen?.toggle();
   }
   function onDomainHintClick() {
-    dialogManager.dialogs$.next([
+    publishSessionDialogs([
       {
         component: MessageDialog,
         props: {
@@ -2000,7 +2028,9 @@ export function createSession(
   let replicationOperation: Promise<void> | undefined;
   function executeReplication(isSilent = true): Promise<void> {
     if (replicationOperation) return replicationOperation;
+    const releaseShortcuts = isSilent ? undefined : suppressReaderShortcuts(skipKeyDownListener$);
     replicationOperation = performReplication(isSilent).finally(() => {
+      releaseShortcuts?.();
       replicationOperation = undefined;
       __readerController.changed((isReplicating = false));
     });
@@ -2010,126 +2040,140 @@ export function createSession(
     if (isReplicating || !dataToReplicate.length || !$rawBookData$ || !externalStorageHandler) {
       return;
     }
-    const bookForReplication = $rawBookData$;
-    const handlerForReplication = externalStorageHandler;
-    __readerController.changed((isReplicating = true));
-    const personalReadingAuthority = await hasPersonalReadingAuthority(bookForReplication);
-    if (
-      $rawBookData$?.id !== bookForReplication.id ||
-      externalStorageHandler !== handlerForReplication
-    ) {
-      __readerController.changed((dataToReplicate = []));
-      __readerController.changed((dataToReplicateQueue = []));
-      __readerController.changed((isReplicating = false));
-      return;
-    }
-    __readerController.changed(
-      (dataToReplicate = legacyReplicationTypes(
-        dataToReplicate,
-        personalReadingAuthority,
-        personalReplicationTypes
-      ))
-    );
-    __readerController.changed(
-      (dataToReplicateQueue = legacyReplicationTypes(
-        dataToReplicateQueue,
-        personalReadingAuthority,
-        personalReplicationTypes
-      ))
-    );
-    if (!dataToReplicate.length) {
-      __readerController.changed((dataToReplicate = dataToReplicateQueue));
-      __readerController.changed((dataToReplicateQueue = []));
-      __readerController.changed((isReplicating = false));
-      if (dataToReplicate.length) executeReplicate$.next();
-      return;
-    }
-    if (!isSilent) {
-      skipKeyDownListener$.next(true);
-      logger.clearHistory();
-      openActionBackdrop();
-    }
-    const currentHandlerStorageSource = $rawBookData$.storageSource || $syncTarget$;
-    externalStorageHandler.updateSettings(
-      window,
-      false,
-      $replicationSaveBehavior$,
-      $statisticsMergeMode$,
-      $readingGoalsMergeMode$,
-      $cacheStorageData$,
-      !isSilent,
-      currentHandlerStorageSource
-    );
-    const error = await replicateData(
-      localStorageHandler,
-      externalStorageHandler,
-      !isSilent && $storageSource$ === externalStorageHandler.storageType,
-      [
-        {
-          id: $rawBookData$.id,
-          title: $rawBookData$.title,
-          imagePath: $rawBookData$.coverImage
-        }
-      ],
-      dataToReplicate
-    ).catch((err: any) => err.message);
-    externalStorageHandler.updateSettings(
-      window,
-      true,
-      $replicationSaveBehavior$,
-      $statisticsMergeMode$,
-      $readingGoalsMergeMode$,
-      $cacheStorageData$,
-      false,
-      currentHandlerStorageSource
-    );
-    __readerController.changed((isReplicating = false));
-    if (error) {
-      if (!isSilent) {
-        const showReport = logger.errorCount > 1;
-        logger.warn(error);
-        dialogManager.dialogs$.next([
-          {
-            component: showReport ? LogReportDialog : MessageDialog,
-            props: {
-              title: 'Error Processing Data',
-              message: showReport
-                ? `Some or all data could not be stored on an external storage`
-                : error
-            }
-          }
-        ]);
+    const operation = captureLibraryOperation();
+    const generation = accountGeneration();
+    const isCurrent = () => {
+      try {
+        operation.assertCurrent();
+        bookAuthority?.signal.throwIfAborted();
+        bookAuthority?.assertCurrent();
+        return !__readerController.disposed && generation === accountGeneration();
+      } catch {
+        return false;
       }
-      __readerController.changed((externalStorageErrors += 1));
-    } else {
-      __readerController.changed((externalStorageErrors = 0));
-      if (!isSilent) {
-        dialogManager.dialogs$.next([]);
-      }
-      if (dataToReplicateQueue.length) {
-        const isAudioBookOnly =
-          dataToReplicate.length === 1 && dataToReplicate[0] === StorageDataType.AUDIOBOOK;
-        __readerController.changed(
-          (dataToReplicate = JSON.parse(JSON.stringify(dataToReplicateQueue)))
-        );
+    };
+    try {
+      const bookForReplication = $rawBookData$;
+      const handlerForReplication = externalStorageHandler;
+      __readerController.changed((isReplicating = true));
+      const personalReadingAuthority = await hasPersonalReadingAuthority(bookForReplication);
+      if (!isCurrent()) return;
+      if (
+        $rawBookData$?.id !== bookForReplication.id ||
+        externalStorageHandler !== handlerForReplication
+      ) {
+        __readerController.changed((dataToReplicate = []));
         __readerController.changed((dataToReplicateQueue = []));
-        if (isSilent || isAudioBookOnly) {
-          executeReplicate$.next();
-        } else if (!isAudioBookOnly) {
-          await performReplication(false);
+        __readerController.changed((isReplicating = false));
+        return;
+      }
+      __readerController.changed(
+        (dataToReplicate = legacyReplicationTypes(
+          dataToReplicate,
+          personalReadingAuthority,
+          personalReplicationTypes
+        ))
+      );
+      __readerController.changed(
+        (dataToReplicateQueue = legacyReplicationTypes(
+          dataToReplicateQueue,
+          personalReadingAuthority,
+          personalReplicationTypes
+        ))
+      );
+      if (!dataToReplicate.length) {
+        __readerController.changed((dataToReplicate = dataToReplicateQueue));
+        __readerController.changed((dataToReplicateQueue = []));
+        __readerController.changed((isReplicating = false));
+        if (dataToReplicate.length) executeReplicate$.next();
+        return;
+      }
+      if (!isSilent) {
+        logger.clearHistory();
+        openActionBackdrop();
+      }
+      const currentHandlerStorageSource = $rawBookData$.storageSource || $syncTarget$;
+      externalStorageHandler.updateSettings(
+        window,
+        false,
+        $replicationSaveBehavior$,
+        $statisticsMergeMode$,
+        $readingGoalsMergeMode$,
+        $cacheStorageData$,
+        !isSilent,
+        currentHandlerStorageSource
+      );
+      const error = await replicateData(
+        localStorageHandler,
+        externalStorageHandler,
+        !isSilent && $storageSource$ === externalStorageHandler.storageType,
+        [
+          {
+            id: $rawBookData$.id,
+            title: $rawBookData$.title,
+            imagePath: $rawBookData$.coverImage
+          }
+        ],
+        dataToReplicate
+      ).catch((err: any) => err.message);
+      if (!isCurrent()) return;
+      externalStorageHandler.updateSettings(
+        window,
+        true,
+        $replicationSaveBehavior$,
+        $statisticsMergeMode$,
+        $readingGoalsMergeMode$,
+        $cacheStorageData$,
+        false,
+        currentHandlerStorageSource
+      );
+      __readerController.changed((isReplicating = false));
+      if (error) {
+        if (!isSilent) {
+          const showReport = logger.errorCount > 1;
+          logger.warn(error);
+          publishSessionDialogs([
+            {
+              component: showReport ? LogReportDialog : MessageDialog,
+              props: {
+                title: 'Error Processing Data',
+                message: showReport
+                  ? `Some or all data could not be stored on an external storage`
+                  : error
+              }
+            }
+          ]);
+        }
+        __readerController.changed((externalStorageErrors += 1));
+      } else {
+        __readerController.changed((externalStorageErrors = 0));
+        if (!isSilent) {
+          publishSessionDialogs([]);
+        }
+        if (dataToReplicateQueue.length) {
+          const isAudioBookOnly =
+            dataToReplicate.length === 1 && dataToReplicate[0] === StorageDataType.AUDIOBOOK;
+          __readerController.changed(
+            (dataToReplicate = JSON.parse(JSON.stringify(dataToReplicateQueue)))
+          );
+          __readerController.changed((dataToReplicateQueue = []));
+          if (isSilent || isAudioBookOnly) {
+            executeReplicate$.next();
+          } else if (!isAudioBookOnly) {
+            await performReplication(false);
+          } else {
+            __readerController.changed((dataToReplicate = []));
+          }
         } else {
           __readerController.changed((dataToReplicate = []));
         }
-      } else {
-        __readerController.changed((dataToReplicate = []));
       }
-    }
-    if (!isSilent) {
-      skipKeyDownListener$.next(false);
+    } finally {
+      operation.stop();
     }
   }
   function openActionBackdrop() {
-    dialogManager.dialogs$.next([
+    publishSessionDialogs([
       {
         component: '<div/>',
         disableCloseOnClick: true
@@ -2144,6 +2188,10 @@ export function createSession(
   function requestClose(): Promise<boolean> {
     return leaveReader(undefined);
   }
+  /** Web route suspension retains resume while sharing the native save barrier. */
+  function requestSuspend(): Promise<boolean> {
+    return leaveReader(undefined, false);
+  }
   function leaveReader(routeId?: string, deleteLastItem = true): Promise<boolean> {
     if (__readerController.disposed) return Promise.resolve(false);
     closeOperation ??= performLeaveReader(routeId, deleteLastItem).finally(() => {
@@ -2152,90 +2200,152 @@ export function createSession(
     return closeOperation;
   }
   async function performLeaveReader(routeId?: string, deleteLastItem = true): Promise<boolean> {
-    let message;
+    const operation = captureLibraryOperation();
+    const generation = accountGeneration();
+    const revoked = new AbortController();
+    const stopAccount = account.subscribe(() => {
+      if (accountGeneration() !== generation) revoked.abort();
+    });
+    const closeSignal = AbortSignal.any([
+      operation.signal,
+      readerLeaseLifetime.signal,
+      revoked.signal,
+      ...(bookAuthority ? [bookAuthority.signal] : [])
+    ]);
+    const assertCloseCurrent = () => {
+      closeSignal.throwIfAborted();
+      operation.assertCurrent();
+      bookAuthority?.assertCurrent();
+      if (__readerController.disposed || generation !== accountGeneration())
+        throw new Error('Reader departure was superseded.');
+    };
+    const closeIsCurrent = () => {
+      try {
+        assertCloseCurrent();
+        return true;
+      } catch {
+        return false;
+      }
+    };
     try {
-      __readerController.changed((blockDataUpdates = true));
-      await readerTick();
-      autoScroller?.off();
-      __readerController.changed((wasTrackerPaused = true));
-      isTrackerPaused$.next(true);
-      if ($confirmClose$ && storedExploredCharacter !== exploredCharCount) {
-        const wasCanceled = await new Promise((resolver) => {
-          dialogManager.dialogs$.next([
-            {
-              component: ConfirmDialog,
-              props: {
-                dialogHeader: 'Confirm Exit',
-                dialogMessage: 'Your current location was not bookmarked. Continue leaving?',
-                resolver
-              },
-              disableCloseOnClick: true
+      let message;
+      try {
+        assertCloseCurrent();
+        __readerController.changed((blockDataUpdates = true));
+        await readerTick();
+        assertCloseCurrent();
+        autoScroller?.off();
+        __readerController.changed((wasTrackerPaused = true));
+        isTrackerPaused$.next(true);
+        if ($confirmClose$ && storedExploredCharacter !== exploredCharCount) {
+          const wasCanceled = await new Promise<boolean>((resolve) => {
+            const resolver = (cancelled: boolean) => {
+              closeSignal.removeEventListener('abort', cancelledByOwner);
+              resolve(cancelled);
+            };
+            const cancelledByOwner = () => resolver(true);
+            closeSignal.addEventListener('abort', cancelledByOwner, { once: true });
+            if (closeSignal.aborted) {
+              resolver(true);
+              return;
             }
-          ]);
-        });
-        if (wasCanceled) {
-          __readerController.changed((blockDataUpdates = false));
+            publishSessionDialogs([
+              {
+                component: ConfirmDialog,
+                props: {
+                  dialogHeader: 'Confirm Exit',
+                  dialogMessage: 'Your current location was not bookmarked. Continue leaving?',
+                  resolver
+                },
+                disableCloseOnClick: true
+              }
+            ]);
+          });
+          assertCloseCurrent();
+          if (wasCanceled) {
+            publishSessionDialogs([]);
+            __readerController.changed((blockDataUpdates = false));
+            return false;
+          }
+          await readerTick();
+          assertCloseCurrent();
+        }
+        openActionBackdrop();
+        // Existing autosaves own real database work even after their callers have
+        // stopped producing events. Freeze new autosaves and join their settlement.
+        await Promise.all([...pendingBookmarkWrites]);
+        assertCloseCurrent();
+        if (deleteLastItem) {
+          await database.deleteLastItem();
+          assertCloseCurrent();
+        }
+        if (!$manualBookmark$) {
+          hideReaderChrome();
+          await writeBookmark(true);
+          assertCloseCurrent();
+        }
+        if ($statisticsEnabled$ && trackerElm) {
+          const [hadError, updated] = await trackerElm.flushUpdates(true);
+          assertCloseCurrent();
+          if (hadError) {
+            throw new Error('Error updating Statistics');
+          }
+          if (updated) {
+            scheduleReplication(StorageDataType.STATISTICS);
+          }
+        }
+        if (upSyncEnabled) {
+          // An existing background upload owns its settlement. Do not let Back
+          // retire the session merely because a second sync call was ignored.
+          if (replicationOperation) await replicationOperation;
+          assertCloseCurrent();
+          do {
+            if (__readerController.disposed || !$rawBookData$ || !externalStorageHandler) {
+              __readerController.changed((blockDataUpdates = false));
+              return false;
+            }
+            await executeReplication(false);
+            assertCloseCurrent();
+            if (externalStorageErrors && (dataToReplicate.length || dataToReplicateQueue.length)) {
+              __readerController.changed((blockDataUpdates = false));
+              return false;
+            }
+          } while (dataToReplicate.length || dataToReplicateQueue.length);
+        }
+        publishSessionDialogs([]);
+      } catch (error: any) {
+        if (!closeIsCurrent()) {
+          publishSessionDialogs([]);
           return false;
         }
-        await readerTick();
+        message = error.message;
       }
-      openActionBackdrop();
-      if (deleteLastItem) {
-        await database.deleteLastItem();
-      }
-      if (!$manualBookmark$) {
-        await bookmarkPage();
-      }
-      if ($statisticsEnabled$ && trackerElm) {
-        const [hadError, updated] = await trackerElm.flushUpdates(true);
-        if (hadError) {
-          throw new Error('Error updating Statistics');
-        }
-        if (updated) {
-          scheduleReplication(StorageDataType.STATISTICS);
-        }
-      }
-      dialogManager.dialogs$.next([]);
-      if (upSyncEnabled) {
-        // An existing background upload owns its settlement. Do not let Back
-        // retire the session merely because a second sync call was ignored.
-        if (replicationOperation) await replicationOperation;
-        do {
-          if (__readerController.disposed || !$rawBookData$ || !externalStorageHandler) {
-            __readerController.changed((blockDataUpdates = false));
-            return false;
+      if (message) {
+        logger.error(message);
+        __readerController.changed((dismissDialogs = false));
+        publishSessionDialogs([
+          {
+            component: MessageDialog,
+            props: {
+              title: 'Error',
+              message
+            },
+            disableCloseOnClick: true
           }
-          await executeReplication(false);
-          if (externalStorageErrors && (dataToReplicate.length || dataToReplicateQueue.length)) {
-            __readerController.changed((blockDataUpdates = false));
-            return false;
-          }
-        } while (dataToReplicate.length || dataToReplicateQueue.length);
+        ]);
       }
-    } catch (error: any) {
-      message = error.message;
+      if (message || __readerController.disposed) {
+        __readerController.changed((blockDataUpdates = false));
+        return false;
+      }
+      assertCloseCurrent();
+      if (routeId === mergeEntries.MANAGE.routeId && exitHandler) exitHandler();
+      else if (routeId) await goto(`${pagePath}${routeId}`);
+      return true;
+    } finally {
+      stopAccount();
+      operation.stop();
     }
-    if (message) {
-      logger.error(message);
-      __readerController.changed((dismissDialogs = false));
-      dialogManager.dialogs$.next([
-        {
-          component: MessageDialog,
-          props: {
-            title: 'Error',
-            message
-          },
-          disableCloseOnClick: true
-        }
-      ]);
-    }
-    if (message || __readerController.disposed) {
-      __readerController.changed((blockDataUpdates = false));
-      return false;
-    }
-    if (routeId === mergeEntries.MANAGE.routeId && exitHandler) exitHandler();
-    else if (routeId) await goto(`${pagePath}${routeId}`);
-    return true;
   }
   function handleSetCustomReadingPoint() {
     if (!$customReadingPointEnabled$ && !isPaginated) {
@@ -2848,6 +2958,7 @@ export function createSession(
   const api = {
     controller: __readerController,
     requestClose,
+    requestSuspend,
     setExitHandler,
     noteReaderSelection,
     handleAction,
