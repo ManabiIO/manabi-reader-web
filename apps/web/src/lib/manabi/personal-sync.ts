@@ -1142,21 +1142,22 @@ async function flushReading(accountId: string, books: Map<string, PersonalBook[]
     }
     scoped(accountId);
     const tx = db.transaction(['readerPersonalOutbox', 'readerPersonalRecord'], 'readwrite');
-    const latest = await tx.objectStore('readerPersonalOutbox').get(current.id);
-    if (latest?.request?.mutation_id === prepared.mutation_id)
-      await tx.objectStore('readerPersonalOutbox').delete(current.id);
-    await tx.objectStore('readerPersonalRecord').put({
-      id: key(accountId, current.kind, current.entityId),
-      accountId,
-      kind: current.kind,
-      entityId: current.entityId,
-      bookKey: current.bookKey,
-      revision: accepted.revision,
-      generation: prepared.sync?.generation,
-      payload: accepted.deleted ? null : accepted.payload,
-      deleted: accepted.deleted
+    await commitPersonalTransaction(accountId, tx, async () => {
+      const latest = await tx.objectStore('readerPersonalOutbox').get(current.id);
+      if (latest?.request?.mutation_id === prepared.mutation_id)
+        await tx.objectStore('readerPersonalOutbox').delete(current.id);
+      await tx.objectStore('readerPersonalRecord').put({
+        id: key(accountId, current.kind, current.entityId),
+        accountId,
+        kind: current.kind,
+        entityId: current.entityId,
+        bookKey: current.bookKey,
+        revision: accepted.revision,
+        generation: prepared.sync?.generation,
+        payload: accepted.deleted ? null : accepted.payload,
+        deleted: accepted.deleted
+      });
     });
-    await tx.done;
     // A later local edit remains in IndexedDB and is staged on the next pass.
   }
 }
@@ -1293,21 +1294,22 @@ async function flushAnnotations(accountId: string, books: Map<string, PersonalBo
     }
     scoped(accountId);
     const tx = db.transaction(['readerAnnotationOutbox', 'readerPersonalRecord'], 'readwrite');
-    const latest = await tx.objectStore('readerAnnotationOutbox').get(current.id);
-    if (latest && (latest as typeof current).request?.mutation_id === prepared.mutation_id)
-      await tx.objectStore('readerAnnotationOutbox').delete(current.id);
-    await tx.objectStore('readerPersonalRecord').put({
-      id,
-      accountId,
-      kind: 'annotation',
-      entityId: current.annotationId,
-      bookKey: current.bookKey,
-      revision: accepted.revision,
-      generation: prepared.sync?.generation,
-      payload: accepted.deleted ? null : accepted.payload,
-      deleted: accepted.deleted
+    await commitPersonalTransaction(accountId, tx, async () => {
+      const latest = await tx.objectStore('readerAnnotationOutbox').get(current.id);
+      if (latest && (latest as typeof current).request?.mutation_id === prepared.mutation_id)
+        await tx.objectStore('readerAnnotationOutbox').delete(current.id);
+      await tx.objectStore('readerPersonalRecord').put({
+        id,
+        accountId,
+        kind: 'annotation',
+        entityId: current.annotationId,
+        bookKey: current.bookKey,
+        revision: accepted.revision,
+        generation: prepared.sync?.generation,
+        payload: accepted.deleted ? null : accepted.payload,
+        deleted: accepted.deleted
+      });
     });
-    await tx.done;
   }
 }
 
@@ -1446,20 +1448,21 @@ export async function resolvePersonalConflict(id: string, choice: 'local' | 'rem
       ['readerPersonalConflict', 'readerPersonalOutbox', 'readerAnnotationOutbox'],
       'readwrite'
     );
-    await tx.objectStore('readerPersonalConflict').delete(id);
-    for (const entry of await tx
-      .objectStore('readerPersonalOutbox')
-      .index('accountId')
-      .getAll(accountId))
-      if (entry.kind === conflict.kind && entry.entityId === conflict.entityId)
-        await tx.objectStore('readerPersonalOutbox').delete(entry.id);
-    for (const entry of await tx
-      .objectStore('readerAnnotationOutbox')
-      .index('accountId')
-      .getAll(accountId))
-      if (conflict.kind === 'annotation' && entry.annotationId === conflict.entityId)
-        await tx.objectStore('readerAnnotationOutbox').delete(entry.id);
-    await tx.done;
+    await commitPersonalTransaction(accountId, tx, async () => {
+      await tx.objectStore('readerPersonalConflict').delete(id);
+      for (const entry of await tx
+        .objectStore('readerPersonalOutbox')
+        .index('accountId')
+        .getAll(accountId))
+        if (entry.kind === conflict.kind && entry.entityId === conflict.entityId)
+          await tx.objectStore('readerPersonalOutbox').delete(entry.id);
+      for (const entry of await tx
+        .objectStore('readerAnnotationOutbox')
+        .index('accountId')
+        .getAll(accountId))
+        if (conflict.kind === 'annotation' && entry.annotationId === conflict.entityId)
+          await tx.objectStore('readerAnnotationOutbox').delete(entry.id);
+    });
     if (choice === 'local') {
       if (conflict.kind === 'annotation') {
         const annotation = await db.get('readerAnnotation', conflict.entityId);
