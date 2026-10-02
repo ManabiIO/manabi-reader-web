@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { queryTask, type SearchState } from './query-task.mjs';
+  import { dictionaryCountLabel, dictionaryStorageLabel } from './dictionary-status';
   import {
     dictionaryLease,
     type DictionaryResult,
@@ -352,14 +353,17 @@
         </p>
       {:else if dictionaryStatus?.dictionaries.length}
         <ul class="dictionary-list" aria-label="Installed local dictionaries">
-          {#each dictionaryStatus.dictionaries as dictionary (dictionary.title)}
+          {#each dictionaryStatus.dictionaries as dictionary, index (dictionary.title)}
+            {@const countLabel = dictionaryCountLabel(dictionaryStatus.counts.counts[index])}
             <li class="dictionary-row">
               <span class="dictionary-copy"
                 ><strong>{dictionary.title}</strong><small
                   >{disabledTitles.has(dictionary.title) ? 'Disabled' : 'Enabled'}{dictionary.revision
                     ? ` · ${dictionary.revision}`
                     : ''}</small
-                >{#if dictionary.author}<small>{dictionary.author}</small>{/if}</span
+                >{#if dictionary.author}<small>{dictionary.author}</small>{/if}{#if countLabel}<small
+                    >{countLabel}</small
+                  >{/if}</span
               >
               <span class="dictionary-actions">
                 <button
@@ -401,6 +405,9 @@
       {:else if dictionaryStatus}
         <p class="note">No local dictionaries are installed.</p>
       {/if}
+      {#if dictionaryStatus}<p class="note dictionary-storage">
+          {dictionaryStorageLabel(dictionaryStatus.storage)}
+        </p>{/if}
       <div class="setup-actions">
         <button type="button" disabled={installing || statusLoading || !!managing} onclick={() => void install()}
           >Install Jitendex</button
