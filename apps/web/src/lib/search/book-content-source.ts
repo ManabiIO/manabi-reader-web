@@ -14,13 +14,18 @@ export interface BookSearchBatch {
   failed: number;
   truncated: boolean;
 }
+export interface BookSearchPublicationOptions {
+  /** Omit progress-only batches whose visible result state did not change. */
+  progress?: boolean;
+}
 /** Reuse the existing cached book projection and canonical locator worker. */
 export async function searchBookContents(
   query: string,
   books: ShelfBook[],
   owner: string | null,
   signal: AbortSignal,
-  receive: (batch: BookSearchBatch) => void
+  receive: (batch: BookSearchBatch) => void,
+  options: BookSearchPublicationOptions = {}
 ) {
   const selected = [
     ...new Map(
@@ -51,7 +56,9 @@ export async function searchBookContents(
     { type: 'module' }
   );
   let hits: ContentHit[] = [],
-    stopped = false;
+    stopped = false,
+    visibleRevision = 0;
+  let published = { visibleRevision: 0, busy: true, failed: 0, truncated: false };
   const stop = () => {
     if (stopped) return;
     stopped = true;
@@ -60,6 +67,16 @@ export async function searchBookContents(
   };
   const publish = (busy: boolean, failed = 0, truncated = false) => {
     if (stopped) return;
+    const next = { visibleRevision, busy, failed, truncated };
+    if (
+      options.progress === false &&
+      next.visibleRevision === published.visibleRevision &&
+      next.busy === published.busy &&
+      next.failed === published.failed &&
+      next.truncated === published.truncated
+    )
+      return;
+    published = next;
     try {
       guard();
       receive({ hits, busy, failed, truncated });
@@ -75,7 +92,10 @@ export async function searchBookContents(
   worker.onmessage = ({ data }) => {
     if (data.requestId !== 1 || stopped) return;
     if (data.type === 'batch') {
-      hits = [...hits, ...data.hits];
+      if (data.hits.length) {
+        hits = [...hits, ...data.hits];
+        visibleRevision++;
+      }
       publish(true);
     } else if (data.type === 'progress') publish(true, data.failed);
     else if (data.type === 'done') {

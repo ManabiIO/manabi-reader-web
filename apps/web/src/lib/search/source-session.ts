@@ -19,7 +19,8 @@ export interface SourceBatch<T> extends SearchResults<T> {
 type Cleanup = () => void;
 export interface SearchSource<T> {
   /** Returning a cleanup means admission finished, not that the search finished.
-   * Streaming sources publish busy:false when their results are complete.
+   * Streaming sources publish busy:false exactly once when their results are complete.
+   * The session may run the cleanup immediately after that terminal publication.
    */
   start(
     signal: AbortSignal,
@@ -54,7 +55,8 @@ export function startSearchSources<T>(
     failed: 0,
     truncated: false
   }));
-  const cleanups = new Set<Cleanup>();
+  const cleanups: (Cleanup | undefined)[] = sources.map(() => undefined);
+  const completed = sources.map(() => false);
   const rejected = sources.map(() => false);
   let stopped = false;
   const retire = (cleanup: Cleanup) => {
@@ -69,8 +71,11 @@ export function startSearchSources<T>(
     stopped = true;
     signal.removeEventListener('abort', stop);
     active.abort();
-    for (const cleanup of cleanups) retire(cleanup);
-    cleanups.clear();
+    for (let index = 0; index < cleanups.length; index++) {
+      const cleanup = cleanups[index];
+      cleanups[index] = undefined;
+      if (cleanup) retire(cleanup);
+    }
   };
   signal.addEventListener('abort', stop, { once: true });
   const current = () => {
@@ -85,43 +90,63 @@ export function startSearchSources<T>(
     }
   };
   const publish = () => {
-    if (!current()) return;
-    receive({
-      state: batches.some((batch) => batch.busy) ? 'loading' : 'ready',
-      value: {
-        rows: interleave(batches.map((batch) => batch.rows)),
-        failed: batches.reduce((sum, batch) => sum + batch.failed, 0),
-        truncated: batches.some((batch) => batch.truncated)
-      }
-    });
+    if (!current()) return false;
+    try {
+      receive({
+        state: batches.some((batch) => batch.busy) ? 'loading' : 'ready',
+        value: {
+          rows: interleave(batches.map((batch) => batch.rows)),
+          failed: batches.reduce((sum, batch) => sum + batch.failed, 0),
+          truncated: batches.some((batch) => batch.truncated)
+        }
+      });
+      return true;
+    } catch {
+      stop();
+      return false;
+    }
+  };
+  const retireSource = (index: number) => {
+    const cleanup = cleanups[index];
+    cleanups[index] = undefined;
+    if (cleanup) retire(cleanup);
   };
   const failed = (index: number) => {
-    if (!current() || rejected[index]) return;
+    if (!current() || rejected[index] || completed[index]) return;
     rejected[index] = true;
+    completed[index] = true;
     batches[index] = { ...batches[index], busy: false, failed: batches[index].failed + 1 };
     publish();
+    retireSource(index);
   };
-  const admitted = (cleanup: void | Cleanup) => {
+  const admitted = (index: number, cleanup: void | Cleanup) => {
     if (!cleanup) return;
-    if (stopped) retire(cleanup);
-    else cleanups.add(cleanup);
+    if (stopped || completed[index] || rejected[index]) retire(cleanup);
+    else cleanups[index] = cleanup;
   };
-  publish();
+  if (!publish()) return stop;
   sources.forEach((source, index) => {
     if (!current()) return;
     try {
       const cleanup = source.start(active.signal, (batch) => {
-        if (!current() || rejected[index]) return;
+        if (!current() || rejected[index] || completed[index]) return;
         batches[index] = {
           rows: [...batch.rows],
           busy: batch.busy,
           failed: batch.failed,
           truncated: batch.truncated
         };
-        publish();
+        if (!batch.busy) completed[index] = true;
+        const published = publish();
+        if (completed[index]) retireSource(index);
+        if (!published) return;
       });
-      if (typeof cleanup === 'function') admitted(cleanup);
-      else if (cleanup) void Promise.resolve(cleanup).then(admitted, () => failed(index));
+      if (typeof cleanup === 'function') admitted(index, cleanup);
+      else if (cleanup)
+        void Promise.resolve(cleanup).then(
+          (value) => admitted(index, value),
+          () => failed(index)
+        );
     } catch {
       failed(index);
     }
