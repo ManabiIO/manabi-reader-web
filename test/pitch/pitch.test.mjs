@@ -374,6 +374,11 @@ function fixture(options = {}) {
     ) {
       worker.onmessage({ data: { type: 'result', id: worker.sent.at(-1).id, result } });
     },
+    analysisError(worker = workers.at(-1), id = worker.sent.at(-1)?.id) {
+      worker.onmessage({
+        data: { type: 'error', phase: 'analysis', id, error: 'synthetic analysis failure' }
+      });
+    },
     play() {
       a.paused = false;
       a.dispatchEvent(new Event('play'));
@@ -581,6 +586,29 @@ test('paused playback stops sampling; native Play still resumes retained routing
   f.controller.dispose();
   f.controller.dispose();
   assert.equal(f.context.closes, 1);
+});
+
+test('stale analysis errors after a playback discontinuity are ignored', async () => {
+  const f = await running();
+  f.frame();
+  const request = f.workers[0].sent.at(-1);
+  f.a.paused = true;
+  f.a.dispatchEvent(new Event('pause'));
+  f.analysisError(undefined, request.id);
+  assert.equal(f.state.status, 'ready');
+  assert.equal(f.state.activity, 'paused');
+  assert.equal(f.timers.size, 0);
+  f.controller.dispose();
+});
+
+test('current analysis errors retire the matching watchdog and expose Retry', async () => {
+  const f = await running();
+  f.frame();
+  assert.ok(f.timers.size > 0);
+  f.analysisError();
+  assert.equal(f.state.status, 'error');
+  assert.equal(f.timers.size, 0);
+  f.controller.dispose();
 });
 
 test('pause drops a pending result and watchdog while retaining the completed trace', async () => {
