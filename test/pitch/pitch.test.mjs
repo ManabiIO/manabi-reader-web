@@ -44,6 +44,13 @@ const tone = (hz, rate = 48000, seconds = ANALYSIS_WINDOW_SECONDS, amplitude = 0
     { length: Math.ceil(rate * seconds) },
     (_, i) => amplitude * Math.sin((2 * Math.PI * hz * i) / rate)
   );
+const rms = (samples, trim = 256) => {
+  const first = Math.min(trim, Math.floor(samples.length / 4));
+  const last = Math.max(first + 1, samples.length - first);
+  let square = 0;
+  for (let index = first; index < last; index++) square += samples[index] ** 2;
+  return Math.sqrt(square / (last - first));
+};
 
 for (const rate of [8000, 16000, 44100, 48000, 96000, 192000]) {
   test(`SwiftF0 resampling keeps a finite 16 kHz window from ${rate} Hz`, () => {
@@ -53,6 +60,17 @@ for (const rate of [8000, 16000, 44100, 48000, 96000, 192000]) {
     assert.ok(Math.abs(result.length / 16000 - ANALYSIS_WINDOW_SECONDS) < 0.002);
   });
 }
+test('high-rate resampling preserves speech and suppresses 12 kHz alias energy', () => {
+  for (const rate of [48000, 96000, 192000]) {
+    const speech = resampleForSwiftF0(tone(220, rate, 0.25, 1), rate);
+    const outOfBand = resampleForSwiftF0(tone(12000, rate, 0.25, 1), rate);
+    const speechRatio = rms(speech) / (1 / Math.sqrt(2));
+    const aliasRatio = rms(outOfBand) / (1 / Math.sqrt(2));
+    assert.ok(speechRatio > 0.97 && speechRatio < 1.03, `${rate}: speech gain ${speechRatio}`);
+    assert.ok(aliasRatio < 0.005, `${rate}: alias ratio ${aliasRatio}`);
+  }
+});
+
 test('analyser capacity must cover SwiftF0 left and right context', () => {
   assert.equal(hasStableSwiftF0Context(48000), true);
   assert.equal(hasStableSwiftF0Context(88200), true);
