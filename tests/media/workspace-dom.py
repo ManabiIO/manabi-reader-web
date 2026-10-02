@@ -1002,6 +1002,92 @@ def main():
                 await store.edit('guest','video_resume',syntheticKey('b'),syntheticKey('b'),resume(syntheticKey('b'),30,true));
             }''')
             page.wait_for_function('document.querySelectorAll(".video-card").length===3')
+        def batch_selection_state():
+            populate()
+            batch=page.get_by_role('group',name='Video selection actions',exact=True)
+            select_visible=batch.get_by_role('button',name='Select visible videos',exact=True)
+            clear=batch.get_by_role('button',name='Clear selection',exact=True)
+            generate=batch.get_by_role('button',name='Generate missing transcripts',exact=True)
+            status=batch.get_by_role('status')
+            assert status.inner_text()=='No videos selected'
+            assert status.get_attribute('aria-atomic')=='true'
+            redundant=page.evaluate("""async()=>{
+                const status=document.querySelector(
+                  '[aria-label="Video selection actions"] [role=status]');
+                let mutations=0;
+                const observer=new MutationObserver(records=>mutations+=records.length);
+                observer.observe(status,{subtree:true,childList:true,characterData:true});
+                workspace.updateSelectionActions();
+                workspace.updateSelectionActions();
+                await Promise.resolve();
+                observer.disconnect();
+                return mutations;
+            }""")
+            assert redundant==0,redundant
+            assert select_visible.is_enabled()
+            assert clear.is_disabled() and generate.is_disabled()
+
+            watching=page.get_by_label('Select Watching',exact=True)
+            watching.check()
+            assert status.inner_text()=='1 video selected'
+            assert clear.is_enabled() and generate.is_enabled()
+
+            immediate=page.evaluate("""()=>{
+                const input=document.querySelector('[aria-label="Search videos"]');
+                input.value='Finished';
+                input.dispatchEvent(new Event('input',{bubbles:true}));
+                return {
+                    selected:workspace.selected.size,
+                    checked:[...document.querySelectorAll('.video-card input[type=checkbox]')]
+                      .map(input=>input.checked),
+                    status:document.querySelector('[aria-label="Video selection actions"] [role=status]')
+                      ?.textContent
+                };
+            }""")
+            assert immediate==dict(selected=0,checked=[False,False,False],status='No videos selected'),immediate
+            page.wait_for_function('document.querySelectorAll(".video-card").length===1')
+            assert clear.is_disabled() and generate.is_disabled()
+
+            page.get_by_label('Search videos',exact=True).fill('')
+            page.wait_for_function('document.querySelectorAll(".video-card").length===3')
+            card=page.locator('.video-card').filter(
+                has=page.get_by_role('button',name='Watching',exact=True))
+            card_key=card.get_attribute('data-media-key')
+            assert card_key
+            card.get_by_text('Actions',exact=True).click()
+            card.get_by_role('button',name='Generate missing transcript',exact=True).click()
+            expect(page.get_by_role('status').filter(
+                has_text='Reopen this video to reconnect its local file'
+            )).to_be_visible()
+            assert page.evaluate('workspace.selected.size')==0
+            assert not page.get_by_label('Select Watching',exact=True).is_checked()
+
+            # Batch generation still consumes the explicit selected set.
+            page.evaluate("""window.bulkSelections=[];
+                workspace.bulk=async selection=>bulkSelections.push(
+                    [...(selection ?? workspace.selected)]
+                )""")
+            select_visible.focus()
+            select_visible.press('Enter')
+            assert status.inner_text()=='3 videos selected'
+            assert page.locator('.video-card.selected').count()==3
+            assert select_visible.is_disabled()
+            assert clear.is_enabled() and generate.is_enabled()
+            assert clear.is_focused()
+            generate.click()
+            page.wait_for_function('bulkSelections.length===1')
+            assert len(page.evaluate('bulkSelections[0]'))==3
+
+            clear.focus()
+            clear.press('Enter')
+            assert page.evaluate('workspace.selected.size')==0
+            assert status.inner_text()=='No videos selected'
+            assert page.locator('.video-card.selected').count()==0
+            assert clear.is_disabled() and generate.is_disabled()
+            assert select_visible.is_focused()
+            assert all(not check.is_checked() for check in page.get_by_label(re.compile('^Select ')).all())
+        case('video batch actions expose selection state and card generation does not mutate it',
+             batch_selection_state)
         def filtering():
             populate();page.get_by_label('Select New',exact=True).check()
             page.get_by_label('Filter videos',exact=True).select_option('continue')
