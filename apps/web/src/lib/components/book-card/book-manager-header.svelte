@@ -58,6 +58,11 @@
   let hydrated = false;
   let searchInput: HTMLInputElement | undefined;
   let searchButton: HTMLButtonElement | null = null;
+  let searchDraft = '';
+  let searchComposing = false;
+  let searchCompositionCancelled = false;
+  let searchCompositionBaseQuery = '';
+  let lastExternalSearchQuery = '';
   onMount(() => {
     hydrated = true;
     const media = window.matchMedia('(max-width: 1023px)');
@@ -69,6 +74,13 @@
   export let title = 'Library';
   export let collectionsExpanded = false;
   export let libraryMenu: LibraryMenuModel | undefined = undefined;
+  $: externalSearchQuery = libraryMenu?.search.query ?? '';
+  $: if (externalSearchQuery !== lastExternalSearchQuery) {
+    lastExternalSearchQuery = externalSearchQuery;
+    if (searchComposing && externalSearchQuery !== searchCompositionBaseQuery)
+      searchCompositionCancelled = true;
+    else if (!searchComposing) searchDraft = externalSearchQuery;
+  }
   export let hasBookOpened: boolean;
   export let selectMode: boolean;
   export let selectedCount: number;
@@ -170,12 +182,43 @@
     if (!$cacheStorageData$) getStorageHandler(window, key).clearData();
     storageSource$.next(key);
   }
+  function searchInputChanged(event: Event & { currentTarget: EventTarget & HTMLInputElement }) {
+    searchDraft = event.currentTarget.value;
+    const composing = 'isComposing' in event && event.isComposing === true;
+    if (!searchComposing && !composing) libraryMenu?.search.setQuery(searchDraft);
+  }
+  function searchCompositionStarted(event: Event & { currentTarget: EventTarget & HTMLInputElement }) {
+    searchComposing = true;
+    searchCompositionCancelled = false;
+    searchCompositionBaseQuery = externalSearchQuery;
+    searchDraft = event.currentTarget.value;
+  }
+  function searchCompositionEnded(event: Event & { currentTarget: EventTarget & HTMLInputElement }) {
+    const value = event.currentTarget.value;
+    searchComposing = false;
+    if (searchCompositionCancelled || externalSearchQuery !== searchCompositionBaseQuery) {
+      searchCompositionCancelled = false;
+      searchDraft = externalSearchQuery;
+      return;
+    }
+    searchDraft = value;
+    libraryMenu?.search.setQuery(searchDraft);
+  }
+  function searchInputBlurred() {
+    if (!searchComposing) return;
+    searchCompositionCancelled = true;
+    searchComposing = false;
+    searchDraft = externalSearchQuery;
+  }
   async function openSearch() {
     searchExpanded = true;
     await tick();
     searchInput?.focus();
   }
   async function closeSearch() {
+    searchCompositionCancelled = searchComposing;
+    searchComposing = false;
+    searchDraft = '';
     libraryMenu?.search.setQuery('');
     searchExpanded = false;
     await tick();
@@ -244,12 +287,11 @@
               disabled={!hydrated || !libraryMenu}
               class="min-w-0 w-full border-0 bg-transparent p-0 shadow-none outline-none focus:border-transparent focus:shadow-none focus:ring-0"
               placeholder="Search dictionary and library"
-              value={libraryMenu?.search.query || ''}
-              oninput={(event) => {
-                if (!('isComposing' in event && event.isComposing))
-                  libraryMenu?.search.setQuery(event.currentTarget.value);
-              }}
-              oncompositionend={(event) => libraryMenu?.search.setQuery(event.currentTarget.value)}
+              bind:value={searchDraft}
+              oninput={searchInputChanged}
+              oncompositionstart={searchCompositionStarted}
+              oncompositionend={searchCompositionEnded}
+              onblur={searchInputBlurred}
               onkeydown={(event) => {
                 if (event.isComposing || event.keyCode === 229) return;
                 if (event.key === 'Escape') {
@@ -558,13 +600,11 @@
                 type="search"
                 disabled={!hydrated || !libraryMenu}
                 placeholder="Search dictionary and library"
-                value={libraryMenu?.search.query || ''}
-                oninput={(event) => {
-                  if (!('isComposing' in event && event.isComposing))
-                    libraryMenu?.search.setQuery(event.currentTarget.value);
-                }}
-                oncompositionend={(event) =>
-                  libraryMenu?.search.setQuery(event.currentTarget.value)}
+                bind:value={searchDraft}
+                oninput={searchInputChanged}
+                oncompositionstart={searchCompositionStarted}
+                oncompositionend={searchCompositionEnded}
+                onblur={searchInputBlurred}
               /></label
             >
           {/if}

@@ -43,6 +43,10 @@ export interface VideoTranscriptBatch {
   scanned: number;
   total: number;
 }
+export interface VideoSearchPublicationOptions {
+  /** Omit scan-progress batches whose visible result state did not change. */
+  progress?: boolean;
+}
 
 export interface VideoSearchStore {
   records(
@@ -209,7 +213,8 @@ export async function searchVideoTranscripts(
   scope: Scope,
   query: string,
   signal: AbortSignal,
-  receive?: (batch: VideoTranscriptBatch) => void
+  receive?: (batch: VideoTranscriptBatch) => void,
+  options: VideoSearchPublicationOptions = {}
 ): Promise<VideoTranscriptBatch> {
   signal.throwIfAborted();
   const needle = foldSearch(query.trim());
@@ -237,9 +242,26 @@ export async function searchVideoTranscripts(
   let failed = 0;
   let truncated = false;
   let scanned = 0;
+  let published = { hits: 0, failed: 0, truncated: false, scanned: 0 };
+  let hasPublished = false;
 
-  const publish = () => {
+  const publish = (final = false) => {
     signal.throwIfAborted();
+    const visibleChanged =
+      hits.length !== published.hits ||
+      failed !== published.failed ||
+      truncated !== published.truncated;
+    const progressChanged = scanned !== published.scanned;
+    if (
+      hasPublished &&
+      !visibleChanged &&
+      (!progressChanged || options.progress === false) &&
+      !(final && progressChanged)
+    )
+      return;
+    if (!hasPublished && options.progress === false && !visibleChanged && !final) return;
+    published = { hits: hits.length, failed, truncated, scanned };
+    hasPublished = true;
     receive?.({
       hits: [...hits],
       failed,
@@ -311,7 +333,7 @@ export async function searchVideoTranscripts(
 
   if (scanned < videos.length) truncated = true;
   const result = { hits, failed, truncated, scanned, total: videos.length };
-  receive?.({ ...result, hits: [...hits] });
+  publish(true);
   return result;
 }
 

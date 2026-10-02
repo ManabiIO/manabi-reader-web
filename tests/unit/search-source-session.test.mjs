@@ -59,6 +59,72 @@ test('slow source admission does not delay siblings, and admission is not comple
   assert.deepEqual(retired.sort(), ['book', 'snippet', 'video']);
 });
 
+test('completed sources retire promptly while a sibling remains busy', () => {
+  const states = [];
+  let slowReceive,
+    completedReceive,
+    retired = 0;
+  const stop = startSearchSources(
+    [
+      {
+        start(_signal, receive) {
+          completedReceive = receive;
+          receive(batch(['done']));
+          return () => retired++;
+        }
+      },
+      {
+        start(_signal, receive) {
+          slowReceive = receive;
+          receive(batch(['pending'], true));
+        }
+      }
+    ],
+    new AbortController().signal,
+    (state) => states.push(state)
+  );
+  assert.equal(retired, 1);
+  assert.equal(states.at(-1).state, 'loading');
+  const count = states.length;
+  completedReceive(batch(['late'], true));
+  assert.equal(states.length, count);
+  slowReceive(batch(['finished']));
+  assert.equal(states.at(-1).state, 'ready');
+  stop();
+  assert.equal(retired, 1);
+});
+
+test('late async cleanup retires immediately after its source already completed', async () => {
+  const gate = Promise.withResolvers();
+  let retired = 0;
+  const states = [];
+  const stop = startSearchSources(
+    [
+      {
+        async start(_signal, receive) {
+          receive(batch(['complete']));
+          await gate.promise;
+          return () => retired++;
+        }
+      },
+      {
+        start(_signal, receive) {
+          receive(batch(['sibling'], true));
+        }
+      }
+    ],
+    new AbortController().signal,
+    (state) => states.push(state)
+  );
+  assert.equal(retired, 0);
+  assert.equal(states.at(-1).state, 'loading');
+  gate.resolve();
+  await turn();
+  assert.equal(retired, 1);
+  stop();
+  assert.equal(retired, 1);
+});
+
 test('sync and async source failures retain successful and partial results', async () => {
   const gate = Promise.withResolvers();
   const states = [];
@@ -163,6 +229,53 @@ test('account changes close the session before another batch can publish', () =>
   assert.equal(states.length, count);
   assert.equal(child.aborted, true);
   assert.equal(retired, 1);
+  stop();
+  assert.equal(retired, 1);
+});
+
+test('a throwing session receiver stops before admitting any source', () => {
+  let admitted = 0;
+  const stop = startSearchSources(
+    [
+      {
+        start() {
+          admitted++;
+        }
+      }
+    ],
+    new AbortController().signal,
+    () => {
+      throw new Error('receiver failed');
+    }
+  );
+  assert.equal(admitted, 0);
+  assert.doesNotThrow(stop);
+});
+
+test('a late session receiver failure retires admitted resources and suppresses later batches', () => {
+  let receiveSource,
+    retired = 0,
+    publications = 0;
+  const stop = startSearchSources(
+    [
+      {
+        start(_signal, receive) {
+          receiveSource = receive;
+          return () => retired++;
+        }
+      }
+    ],
+    new AbortController().signal,
+    () => {
+      publications++;
+      if (publications > 1) throw new Error('late receiver failure');
+    }
+  );
+  receiveSource(batch(['first'], true));
+  assert.equal(retired, 1);
+  const count = publications;
+  receiveSource(batch(['late']));
+  assert.equal(publications, count);
   stop();
   assert.equal(retired, 1);
 });
