@@ -105,6 +105,14 @@ export function librarySelectionScopeKey(scope: LibrarySelectionScope): string {
   ]);
 }
 
+export function selectableSavedBookIds(
+  browserLibrary: boolean,
+  browserEligibleIds: readonly number[],
+  currentCards: readonly { id: number }[]
+): readonly number[] {
+  return browserLibrary ? browserEligibleIds : currentCards.map((card) => card.id);
+}
+
 export function reconcileSelectionEligibility(
   previousScope: string,
   next: LibrarySelectionEligibility,
