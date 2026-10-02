@@ -179,6 +179,23 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         );
         return Promise.all([bridgeCommand(method, payload), cancelled]).then(([result]) => result);
       }
+      if (method === 'library.catalog.open') {
+        if (importActive.current)
+          return Promise.reject(new Error('Another file import is in progress.'));
+        importActive.current = true;
+        setBusy(true);
+        return navigationRef.current!.readCatalog(payload).finally(() => {
+          importActive.current = false;
+          if (mounted.current) setBusy(false);
+        });
+      }
+      if (method === 'library.catalog.cancel') {
+        const cancelled = navigationRef.current!.cancelCatalog(
+          payload.token,
+          latestPath.current === '/b'
+        );
+        return Promise.all([bridgeCommand(method, payload), cancelled]).then(([result]) => result);
+      }
       if (method === 'close') return navigationRef.current!.close();
       if (method === 'snippets.action' && payload.type === 'read')
         return navigationRef.current!.readSnippet(payload);

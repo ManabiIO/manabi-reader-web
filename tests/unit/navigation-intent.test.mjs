@@ -6,7 +6,7 @@ import test from 'node:test';
 import ts from 'typescript';
 import { JSDOM } from 'jsdom';
 
-async function fixture(run) {
+async function fixture(run, base = '/reader-web') {
   const dom = new JSDOM('', { url: 'https://reader.example/reader-web/b?id=7' });
   const previous = new Map();
   for (const key of ['window', 'location', 'history']) {
@@ -25,7 +25,7 @@ async function fixture(run) {
   const module = { exports: {} };
   compileFunction(outputText, ['require', 'module', 'exports'])(
     (name) => {
-      if (name === './paths') return { base: '/reader-web' };
+      if (name === './paths') return { base };
       if (name === './stores') return { refreshLocation: () => refreshes++ };
       throw new Error('Unexpected dependency: ' + name);
     },
@@ -232,3 +232,32 @@ test('canceled navigation and failed dispatch cannot publish an incoming route o
     assert.equal(readNavigationArrival('/reader-web/settings'), undefined);
   });
 });
+
+for (const base of ['/reader-web', '/', ''])
+  test(`Expo navigation maps exact deployment root ${JSON.stringify(base)} to / without losing suffixes or replay options`, async () => {
+    await fixture(async ({ goto, installRouter, beforeNavigate, scrolling }) => {
+      const calls = [],
+        events = [];
+      installRouter({
+        push: (path) => calls.push(['push', path]),
+        replace: (path) => calls.push(['replace', path])
+      });
+      let allowed = false;
+      beforeNavigate((event) => {
+        events.push(event);
+        if (!allowed) event.cancel();
+      });
+      const options = { replaceState: true, noScroll: true };
+      await goto((base || '/') + '?tag=one&tag=two#root', options);
+      assert.deepEqual(calls, []);
+      allowed = true;
+      options.replaceState = false;
+      options.noScroll = false;
+      await events[0].retry();
+      assert.deepEqual(calls, [['replace', '/?tag=one&tag=two#root']]);
+      assert.deepEqual(scrolling, []);
+      const outside = base === '/reader-web' ? '/reader-web-other/settings' : '/outside/settings';
+      await goto(outside + '?x=1#section');
+      assert.deepEqual(calls.at(-1), ['push', outside + '?x=1#section']);
+    }, base);
+  });

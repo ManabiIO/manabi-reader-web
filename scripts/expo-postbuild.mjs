@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { importBootstrapDocument } from './import-bootstrap.mjs';
+import { libraryNoScriptDocument } from './library-noscript.mjs';
 import { readerContentSecurityPolicy } from '../apps/web/src/platform/content-security-policy.mjs';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const require = createRequire(path.join(root, 'package.json'));
@@ -38,8 +39,12 @@ const html = sourceHTML.replace(
 await fs.writeFile(path.join(dir, 'index.html'), html);
 await fs.writeFile(path.join(dir, '404.html'), html);
 const importHTML = importBootstrapDocument(html, base);
+const libraryHTML = libraryNoScriptDocument(html);
 for (const route of routes.filter(Boolean))
-  await fs.writeFile(path.join(dir, `${route}.html`), route === 'import-ttu' ? importHTML : html);
+  await fs.writeFile(
+    path.join(dir, `${route}.html`),
+    route === 'import-ttu' ? importHTML : route === 'manage' ? libraryHTML : html
+  );
 async function walk(directory, prefix = '') {
   const paths = [];
   for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
@@ -56,7 +61,12 @@ const config = {
   build: urls.filter((file) => /\/(?:_expo|assets)\//.test(file)),
   files: urls.filter((file) => !/\/(?:_expo|assets)\//.test(file)),
   prerendered: routes.map((route) => `${base}/${route}`),
-  version: createHash('sha256').update(html).update(importHTML).digest('hex').slice(0, 16),
+  version: createHash('sha256')
+    .update(html)
+    .update(importHTML)
+    .update(libraryHTML)
+    .digest('hex')
+    .slice(0, 16),
   userFontsCacheName: 'ttu-userfonts',
   lazyAssets: urls.filter((file) => /voice-pitch|swift-f0|ort-wasm/.test(file))
 };

@@ -34,21 +34,30 @@ export function ReaderScrubber(props: Partial<ScrubberProps> & ReaderViewProps) 
               controls.focus({ preventScroll: true });
             }
           }}
-          className={[
-            'mx-auto max-w-3xl rounded-t-3xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] writing-horizontal-tb'
-          ]
-            .filter(Boolean)
-            .join(' ')}
+          className="reader-scrubber-sheet"
         >
-          <Sheet.Header className={['p-0'].filter(Boolean).join(' ')}>
+          <Sheet.Header className="scrubber-heading">
             <Sheet.Title>{'Browse Book'}</Sheet.Title>
+          </Sheet.Header>
+          <div className="scrubber-description">
             <Sheet.Description>
               {
                 'Preview a position, then release to open it. Your saved reading position stays put until you continue there.'
               }
             </Sheet.Description>
-          </Sheet.Header>
-          <Dom as="div" className={['my-6 grid gap-3'].filter(Boolean).join(' ')}>
+            {c.selectionError ? (
+              <>
+                <Dom
+                  as="p"
+                  role={'alert'}
+                  className={['text-sm text-destructive'].filter(Boolean).join(' ')}
+                >
+                  {c.selectionError}
+                </Dom>
+              </>
+            ) : null}
+          </div>
+          <Dom as="div" className="scrubber-controls">
             <Dom
               as="label"
               htmlFor={'reader-scrubber'}
@@ -82,7 +91,7 @@ export function ReaderScrubber(props: Partial<ScrubberProps> & ReaderViewProps) 
                   c.open = false;
                 }
               }}
-              className={['h-11 w-full accent-primary'].filter(Boolean).join(' ')}
+              className="scrubber-range w-full accent-primary"
               bindings={{
                 value: (value) => {
                   c.value = value;
@@ -90,17 +99,6 @@ export function ReaderScrubber(props: Partial<ScrubberProps> & ReaderViewProps) 
               }}
             />
           </Dom>
-          {c.selectionError ? (
-            <>
-              <Dom
-                as="p"
-                role={'alert'}
-                className={['text-sm text-destructive'].filter(Boolean).join(' ')}
-              >
-                {c.selectionError}
-              </Dom>
-            </>
-          ) : null}
         </Sheet.Content>
       </Sheet.Root>
     </ReaderScope>

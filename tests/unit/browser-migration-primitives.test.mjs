@@ -535,6 +535,11 @@ test('Library submenu hover opens one sibling, retains portals and closes the tr
     );
     assert.equal(window.document.querySelectorAll('[role=menuitemradio]').length, 0);
     assert.ok(window.document.querySelector('[data-test=import]'));
+    await api.act(() => window.document.querySelector('[data-test=add]').click());
+    assert.ok(
+      window.document.querySelector('[data-test=import]'),
+      'a pointer click after hover opens the same submenu instead of toggling it closed'
+    );
     await api.act(() => pointer(window, window.document.querySelector('[data-test=plain]')));
     assert.equal(window.document.querySelectorAll('[role=menu]').length, 1);
     await api.act(() => pointer(window, window.document.querySelector('[data-test=view]')));

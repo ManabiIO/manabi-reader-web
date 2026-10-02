@@ -51,6 +51,7 @@ import { isUUID } from '$lib/snippets/document';
 import { getRecord as getSnippet, type SnippetRecord } from '$lib/snippets/database';
 import { scope as captureSnippetScope, type SnippetScope } from '$lib/snippets/scope';
 import { createNativeLibraryService } from '../native-library/dom-service';
+import { createNativeCatalogService } from '../native-library/catalog-dom';
 import { createNativeLibraryContentSearchService } from '../native-library/content-search-dom';
 import { clearLibraryLocation, queueLibraryLocation } from '$lib/library/search-navigation';
 import type { BookAccessIdentity } from '$lib/data/database/books-db/book-identity';
@@ -104,6 +105,7 @@ export default function ReaderRuntime({
     setBookId(undefined);
   };
   const library = useMemo(() => createNativeLibraryService(), []);
+  const catalog = useMemo(() => createNativeCatalogService(), []);
   const contentSearch = useMemo(() => createNativeLibraryContentSearchService(library), [library]);
   const readingKind = useRef<'book' | 'snippet'>('book');
   const screen = useRef<ReaderScreenHandle | undefined>(undefined);
@@ -121,6 +123,7 @@ export default function ReaderRuntime({
       accountLifetime: new AbortController(),
       lifetime: new AbortController(),
       transfer: new ImportTransfer(),
+      bookImport: false,
       coverSave: undefined as { id: string; key: string; controller: AbortController } | undefined
     }),
     []
@@ -244,6 +247,43 @@ export default function ReaderRuntime({
                 return library.readCover(payload, libraryAuthority);
               case 'library.cover.cancel':
                 return library.cancelCover(payload, libraryAuthority);
+              case 'library.catalog.start':
+                return catalog.start(payload, libraryAuthority);
+              case 'library.catalog.read':
+                return catalog.read(payload, libraryAuthority);
+              case 'library.catalog.cancel':
+                return catalog.cancel(payload, libraryAuthority);
+              case 'library.catalog.open': {
+                if (state.bookImport || state.transfer.active || state.coverSave)
+                  throw new Error('Another file import is still in progress.');
+                const admission = ++state.openSequence;
+                state.bookImport = true;
+                try {
+                  const selected = await catalog.open(payload, libraryAuthority);
+                  libraryAuthority.assertCurrent();
+                  selected.assertCurrent();
+                  if (admission !== state.openSequence)
+                    throw new Error('A newer reader navigation replaced this catalog request.');
+                  retireBook();
+                  const controller = new AbortController();
+                  const readAuthority = {
+                    signal: AbortSignal.any([libraryAuthority.signal, controller.signal]),
+                    assertCurrent() {
+                      controller.signal.throwIfAborted();
+                      libraryAuthority.assertCurrent();
+                    }
+                  };
+                  opened.current = { stop: operation.stop, controller };
+                  retained = true;
+                  readingKind.current = 'book';
+                  setBookAuthority(readAuthority);
+                  setExpectedBook(selected.identity);
+                  setBookId(selected.identity.bookId);
+                  return { bookId: selected.identity.bookId };
+                } finally {
+                  state.bookImport = false;
+                }
+              }
               case 'library.content.start':
                 return contentSearch.start(payload, libraryAuthority);
               case 'library.content.read':
@@ -411,6 +451,9 @@ export default function ReaderRuntime({
                 return { bookId: payload.bookId };
               }
               case 'close': {
+                // A delayed close for an earlier catalog must not retire its replacement.
+                if (payload.catalogToken !== undefined)
+                  catalog.cancel({ token: payload.catalogToken }, libraryAuthority);
                 const target = opened.current;
                 const sequence = ++state.openSequence;
                 const destination = readingKind.current === 'snippet' ? '/snippets' : '/manage';
@@ -428,6 +471,7 @@ export default function ReaderRuntime({
                 return snapshot();
               }
               case 'import.begin':
+                if (state.bookImport) throw new Error('Another book import is still in progress.');
                 if (payload.cover !== undefined) {
                   const cover = library.admitCover(payload.cover, libraryAuthority);
                   state.transfer.beginCover(
@@ -495,11 +539,22 @@ export default function ReaderRuntime({
                     if (state.coverSave === pending) state.coverSave = undefined;
                   }
                 }
-                const handler = getStorageHandler(window, StorageKey.BROWSER);
-                const error = await importData(document, handler, [file], operation.signal);
-                operation.assertCurrent();
-                if (error) throw new Error(error);
-                return snapshot();
+                if (state.bookImport) throw new Error('Another book import is still in progress.');
+                state.bookImport = true;
+                try {
+                  const handler = getStorageHandler(window, StorageKey.BROWSER);
+                  const error = await importData(
+                    document,
+                    handler,
+                    [file],
+                    libraryAuthority.signal
+                  );
+                  libraryAuthority.assertCurrent();
+                  if (error) throw new Error(error);
+                  return snapshot();
+                } finally {
+                  state.bookImport = false;
+                }
               }
               case 'delete': {
                 if (
@@ -576,6 +631,7 @@ export default function ReaderRuntime({
                 'close',
                 'settings',
                 'import.commit',
+                'library.catalog.open',
                 'delete',
                 'account.refresh',
                 'account.logout'
@@ -623,6 +679,7 @@ export default function ReaderRuntime({
         state.transfer.cancel();
         retireBook();
         contentSearch.dispose();
+        catalog.dispose();
         library.dispose();
         snippets.dispose();
       }
@@ -675,6 +732,7 @@ export default function ReaderRuntime({
           state.accountLifetime.abort();
           state.transfer.cancel();
           contentSearch.dispose();
+          catalog.dispose();
           library.dispose();
           snippets.dispose();
           if (opened.current?.locationToken) clearLibraryLocation(opened.current.locationToken);

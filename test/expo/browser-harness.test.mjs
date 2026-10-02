@@ -74,3 +74,13 @@ test('production emitted-worker gates use original web and APK bytes without sup
     /(?:globalThis|window|self)\.__ExpoImportMetaRegistry\s*=/
   );
 });
+
+test('APK worker path containment uses a normalized root, retaining the traversal boundary', () => {
+  const script = text('test/expo/exported-pitch-browser.mjs');
+  assert.match(script, /root = path\.resolve\(temporary, artifactPrefix\)/);
+  const root = path.resolve('/tmp/fixture-apk', 'assets/www.bundle/');
+  const worker = path.resolve(root, '_expo/static/js/web/voice-pitch-example.js');
+  assert.ok(worker.startsWith(root + path.sep));
+  assert.equal(path.resolve(root, '../neighbor.js').startsWith(root + path.sep), false);
+  assert.match(script, /assert\.ok\(workerFile\.startsWith\(root \+ path\.sep\)\)/);
+});

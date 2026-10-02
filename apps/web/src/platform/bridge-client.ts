@@ -46,7 +46,7 @@ export class BridgeClient {
     payload: Record<string, unknown> = {},
     timeoutMs: number | null = method === 'close'
       ? null
-      : method === 'import.commit'
+      : method === 'import.commit' || method === 'library.catalog.open'
         ? 180000
         : 30000
   ): Promise<BridgeReply> {

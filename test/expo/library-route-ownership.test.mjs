@@ -23,7 +23,7 @@ test('mounted Library routes own their series, shallow search and return navigat
           export { database } from './apps/web/src/lib/data/store';
           export { presentBook, createCollection } from './apps/web/src/lib/library/organization';
           export { refreshLocation } from './apps/web/src/runtime/stores';
-          export { installRouter } from './apps/web/src/runtime/navigation';
+          export { installRouter, goto, beforeNavigate } from './apps/web/src/runtime/navigation';
           export { account } from './apps/web/src/lib/manabi/client';
           export { snippetItems } from './apps/web/src/lib/snippets/service';
           export { RouteParams } from 'expo-router';

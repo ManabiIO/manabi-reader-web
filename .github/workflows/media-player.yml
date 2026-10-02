@@ -43,6 +43,14 @@ concurrency:
   cancel-in-progress: true
 jobs:
   browser:
+    # This exact migration is qualified once in expo-migration.yml.
+    if: >-
+      !(github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       (github.event_name == 'push' &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration')))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -164,6 +172,14 @@ jobs:
   # core tests, or another browser suite fails. Each profile owns an independent
   # runner so a hung/crashed browser cannot hide the other profile's evidence.
   native-handle-profiles:
+    # This exact migration is qualified once in expo-migration.yml.
+    if: >-
+      !(github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       (github.event_name == 'push' &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration')))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     strategy:

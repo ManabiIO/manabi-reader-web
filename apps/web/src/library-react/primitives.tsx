@@ -351,7 +351,9 @@ function MenuTrigger({ child, children, ...rest }: AnyProps) {
     ref: (element: HTMLElement) => {
       context.trigger.current = element;
     },
-    onClick: () => context.setOpen(!context.open),
+    // Hover may already have opened a submenu before the pointer's click.
+    // Activation opens that destination; only the root trigger is a toggle.
+    onClick: () => context.setOpen(context.submenu || !context.open),
     onKeyDown: (e: KeyboardEvent) => {
       rest.onKeyDown?.(e);
       if (e.defaultPrevented) return;

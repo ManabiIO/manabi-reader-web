@@ -28,13 +28,24 @@ try {
   let root = output;
   if (platform === 'apk') {
     temporary = await mkdtemp(path.join(tmpdir(), 'manabi-pitch-apk-'));
-    const entries = execFileSync('unzip', ['-Z1', output], { encoding: 'utf8' }).split('\n');
+    const entries = execFileSync('unzip', ['-Z1', output], {
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024
+    })
+      .trim()
+      .split('\n');
+    assert.equal(new Set(entries).size, entries.length, 'Duplicate APK entry');
+    const listing = execFileSync('unzip', ['-Z', '-l', output], {
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024
+    });
+    assert.ok(!/^l[rwxstST-]{9}\s/m.test(listing), 'APK symlinks are not allowed');
     assert.ok(entries.includes('AndroidManifest.xml'));
     for (const entry of entries.filter((name) => name.startsWith(artifactPrefix))) {
       assert.ok(!entry.includes('\\') && !entry.split('/').includes('..'), 'Unsafe APK path');
     }
     execFileSync('unzip', ['-q', output, `${artifactPrefix}*`, '-d', temporary]);
-    root = path.join(temporary, artifactPrefix);
+    root = path.resolve(temporary, artifactPrefix);
   }
   const references = qualification.evidence.moduleWorkers.filter((url) =>
     /(?:^|\/)voice-pitch-[a-f0-9]+\.js$/.test(url)
@@ -50,9 +61,9 @@ try {
   );
   assert.ok(workerFile.startsWith(root + path.sep));
   const workerSource = await readFile(workerFile, 'utf8');
-  assert.doesNotMatch(
-    workerSource,
-    /__ExpoImportMetaRegistry/,
+  assert.equal(
+    workerSource.includes('__ExpoImportMetaRegistry'),
+    false,
     'Worker must not rely on an uninjected Expo global'
   );
   const assets = ['swift-f0-0.3.0.onnx', 'ort-wasm-simd-threaded.wasm'].map((name) => {

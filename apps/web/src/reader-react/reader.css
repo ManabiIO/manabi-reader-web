@@ -1373,3 +1373,54 @@
 .react-reader-session .progress-details {
   color: var(--muted-foreground);
 }
+
+.react-reader-scrubber .reader-scrubber-sheet {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  margin-inline: auto;
+  max-width: 48rem;
+  max-height: calc(100dvh - max(16px, env(safe-area-inset-top)));
+  padding: 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  overflow: hidden;
+  border-radius: 24px 24px 0 0;
+  writing-mode: horizontal-tb;
+}
+.react-reader-scrubber .scrubber-heading {
+  min-height: 44px;
+  min-width: 0;
+  padding-inline-end: 56px;
+}
+.react-reader-scrubber [data-slot=sheet-title] {
+  margin: 0;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.react-reader-scrubber .reader-scrubber-sheet > [data-modal-dismiss] {
+  top: 12px;
+  right: 12px;
+}
+.react-reader-scrubber .scrubber-description {
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.react-reader-scrubber .scrubber-description p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.react-reader-scrubber .scrubber-controls {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+.react-reader-scrubber .scrubber-controls label {
+  overflow-wrap: anywhere;
+}
+.react-reader-scrubber .scrubber-range {
+  min-width: 0;
+  height: 44px;
+  min-height: 44px;
+}

@@ -65,6 +65,9 @@ const snippetService = production('native-snippets/service.ts', {
   '../lib/snippets/document': documents,
   './editor-model': editor
 });
+const catalogService = production('native-library/catalog-service.ts', {
+  './catalog-contract': production('native-library/catalog-contract.ts')
+});
 const visibility = production('lib/library/account-visibility.ts', {
   './book-identity.ts': production('lib/library/book-identity.ts', {
     './organization-keys.ts': production('lib/library/organization-keys.ts')
@@ -180,6 +183,29 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     replies = [];
   const pending = new Map();
   const routers = new Set();
+  const catalogLoads = [],
+    catalogPreparations = [];
+  // Keep catalog admission, token consumption, cancellation and expiry real.
+  // Only public network/import work and its canonical storage result are controlled.
+  const catalog = new catalogService.NativeCatalogService({
+    async load(authority) {
+      catalogLoads.push({ authority });
+      return structuredClone((await f.catalogLoad?.(authority)) ?? f.catalogPicks);
+    },
+    async prepare(pick, authority) {
+      catalogPreparations.push({ pick, authority });
+      const result = await f.catalogPrepare?.(pick, authority);
+      if (result) return result;
+      const book = f.books[0];
+      return {
+        bookId: book.id,
+        readerBookKey: `content:${book.contentHash}`,
+        contentHash: book.contentHash,
+        title: book.title,
+        lastBookModified: book.lastBookModified
+      };
+    }
+  });
   const libraryLocation = production('lib/library/search-navigation.ts');
   const contentSearch = {
     disposed: 0,
@@ -404,6 +430,7 @@ export async function runtimeOwner(t, { strict = false } = {}) {
       createNativeLibraryContentSearchService: () => contentSearch
     },
     '../native-library/dom-service': { createNativeLibraryService: () => library },
+    '../native-library/catalog-dom': { createNativeCatalogService: () => catalog },
     '../native-settings/service': {
       readNativeSettingsState: async () => ({}),
       dispatchNativeSettingsAction: async () => ({})
@@ -422,6 +449,19 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     bookmarks,
     library,
     contentSearch,
+    catalog,
+    catalogLoads,
+    catalogPreparations,
+    catalogPicks: [
+      {
+        id: 'public-catalog-fixture',
+        title: 'Public catalog fixture',
+        author: 'Fixture author',
+        summary: '<p>Plain public summary</p>',
+        bookUrl: 'https://manabi.io/static/reader/books/library/fixture.epub',
+        coverUrl: 'https://manabi.io/static/reader/books/opds/covers/fixture.jpg'
+      }
+    ],
     libraryLocation,
     routers,
     sessions,

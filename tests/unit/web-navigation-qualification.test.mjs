@@ -77,6 +77,8 @@ async function fixture(run) {
   const departure = production('reader-react/web-reader-departure.ts');
   const adapter = production('runtime/web-navigation-qualification.ts', {
     './navigation': navigation,
+    './paths': { base: '/reader-web' },
+    './web-app-link': production('runtime/web-app-link.ts'),
     './web-history-broker': production('runtime/web-history-broker.ts'),
     '../reader-react/web-reader-departure': departure,
     './stores': { refreshLocation() {} },
@@ -112,7 +114,8 @@ async function fixture(run) {
     const ownerEpoch = accountEpoch;
     let current = true,
       retired = false,
-      saves = 0;
+      saves = 0,
+      restorations = 0;
     const gate = new departure.WebReaderDeparture({
       isCurrent: () => current && ownerEpoch === accountEpoch,
       suspend: () => {
@@ -125,6 +128,7 @@ async function fixture(run) {
       },
       resume() {},
       restore: async () => {
+        restorations++;
         retired = false;
       },
       failed: (error) => errors.push(error.message)
@@ -136,7 +140,13 @@ async function fixture(run) {
       gate.dispose();
     };
     gates.push(dispose);
-    return { gate, dispose, retired: () => retired, saves: () => saves };
+    return {
+      gate,
+      dispose,
+      retired: () => retired,
+      saves: () => saves,
+      restorations: () => restorations
+    };
   }
   try {
     await run({
@@ -344,4 +354,105 @@ test('an untracked native fragment reports a visible-recovery error without reti
     await reader.gate.settled();
     assert.equal(reader.retired(), false, 'a later blocked close still keeps its live reader');
     assert.deepEqual(h.dispatched, ['/b?id=7']);
+  }));
+
+test('raw app links share the save barrier and preserve query/hash navigation options', async () =>
+  fixture(async (h) => {
+    await h.goto('/reader-web/b?id=7');
+    const save = deferred(),
+      reader = h.reader(() => save.promise);
+    const anchor = h.dom.window.document.querySelector('a');
+    anchor.href = '/reader-web/b?id=8&note=one&note=two#passage';
+    anchor.setAttribute('data-sveltekit-replacestate', '');
+    const length = globalThis.history.length;
+    anchor.click();
+    await until(() => reader.saves() === 1);
+    assert.equal(location.search, '?id=7');
+    assert.equal(reader.retired(), false);
+    save.resolve(true);
+    await reader.gate.settled();
+    assert.equal(
+      location.href,
+      'https://reader.example/reader-web/b?id=8&note=one&note=two#passage'
+    );
+    assert.equal(globalThis.history.length, length, 'replace survives asynchronous replay');
+    assert.equal(reader.retired(), true);
+    assert.deepEqual(h.errors, []);
+  }));
+
+for (const outcome of [false, true])
+  test(`raw app link ${outcome ? 'latest target wins' : 'cancellation keeps the reader'}`, async () =>
+    fixture(async (h) => {
+      await h.goto('/reader-web/b?id=7');
+      const save = deferred(),
+        reader = h.reader(() => save.promise);
+      const anchor = h.dom.window.document.querySelector('a');
+      anchor.href = '/reader-web/settings';
+      anchor.click();
+      await until(() => reader.saves() === 1);
+      if (outcome) {
+        anchor.href = '/reader-web/b?id=8';
+        anchor.click();
+        await Promise.resolve();
+        await Promise.resolve();
+      }
+      save.resolve(outcome);
+      await reader.gate.settled();
+      assert.equal(location.pathname, '/reader-web/b');
+      assert.equal(location.search, outcome ? '?id=8' : '?id=7');
+      assert.equal(reader.retired(), outcome);
+      assert.equal(reader.saves(), 1);
+      assert.deepEqual(h.errors, []);
+    }));
+
+test('exact self-link revokes an older pending departure without bypassing its save settlement', async () =>
+  fixture(async (h) => {
+    await h.goto('/reader-web/b?id=7');
+    const id = globalThis.history.state.id,
+      length = globalThis.history.length;
+    const save = deferred(),
+      reader = h.reader(() => save.promise);
+    const anchor = h.dom.window.document.querySelector('a');
+    anchor.href = '/reader-web/settings';
+    anchor.click();
+    await until(() => reader.saves() === 1);
+    anchor.href = '/reader-web/b?id=7';
+    anchor.click();
+    assert.equal(reader.retired(), false);
+    save.resolve(true);
+    await reader.gate.settled();
+    assert.equal(location.search, '?id=7');
+    assert.equal(reader.retired(), false);
+    assert.equal(globalThis.history.state.id, id);
+    assert.equal(globalThis.history.length, length);
+    assert.deepEqual(h.dispatched, ['/b?id=7']);
+    assert.deepEqual(h.errors, []);
+  }));
+
+test('a self-link admitted during retirement restores saved content before keeping the source entry', async () =>
+  fixture(async (h) => {
+    await h.goto('/reader-web/b?id=7');
+    const identity = globalThis.history.state.id;
+    const anchor = h.dom.window.document.querySelector('a');
+    const reader = h.reader(
+      async () => true,
+      () => {
+        anchor.href = '/reader-web/b?id=7';
+        anchor.click();
+      }
+    );
+    anchor.href = '/reader-web/settings';
+    anchor.click();
+    await until(() => reader.saves() === 1);
+    await reader.gate.settled();
+    assert.equal(
+      reader.restorations(),
+      1,
+      'cleanup already started, so saved content is readmitted rather than claiming its old instance survived'
+    );
+    assert.equal(reader.retired(), false);
+    assert.equal(globalThis.history.state.id, identity);
+    assert.equal(location.search, '?id=7');
+    assert.deepEqual(h.dispatched, ['/b?id=7']);
+    assert.deepEqual(h.errors, []);
   }));

@@ -33,6 +33,7 @@ import {
   snapshotBookmarkData
 } from './book-records';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
+import { visibleLibraryEntries } from '$lib/library/account-visibility';
 import type {
   BooksDbAudioBook,
   BooksDbBookData,
@@ -43,7 +44,7 @@ import type {
   BooksDbSubtitleData,
   StoredBookData
 } from '$lib/data/database/books-db/versions/books-db';
-import { Observable, Subject, from } from 'rxjs';
+import { BehaviorSubject, Observable, Subject, from } from 'rxjs';
 import { StorageDataType, StorageKey } from '$lib/data/storage/storage-types';
 import { getDateKey, mergeStatistics, updateStatisticToStore } from '$lib/functions/statistic-util';
 import { catchError, map, shareReplay, startWith, switchMap, tap } from 'rxjs/operators';
@@ -85,6 +86,53 @@ interface DirectImportDataStore {
 }
 interface DirectImportScopeStore {
   get(id: number): Promise<{ bookId: number; accountId: string; hydrated?: boolean } | undefined>;
+}
+
+/** DOM-only catalog policy. No callback or ownership data is accepted from native payloads. */
+export interface CatalogImportAdmission {
+  contentHash: string;
+  profileId: string | null;
+  /** Integration links occupy a separate database; capture them after binary preparation. */
+  loadLinks(): Promise<{ bookId: number; owner: string | null; contentHash?: string }[]>;
+  /** Storage adapter bookkeeping only, after a successful no-write transaction. */
+  onReuse?(): void;
+}
+
+async function selectCatalogImportRecord(
+  store: DirectImportDataStore,
+  ownerStore: DirectImportScopeStore,
+  hash: string,
+  profileId: string | null,
+  links: Awaited<ReturnType<CatalogImportAdmission['loadLinks']>>,
+  assertCurrent: () => void,
+  signal?: AbortSignal
+): Promise<StoredBookData | undefined> {
+  const ids = await contentHashPrimaryKeys(store.index('contentHash'), hash, assertCurrent, signal);
+  let selected: StoredBookData | undefined;
+  for (const id of ids) {
+    assertCurrent();
+    throwIfAborted(signal);
+    const book = await store.get(id);
+    const owner = await ownerStore.get(id);
+    assertCurrent();
+    throwIfAborted(signal);
+    if (!book || normalizedDirectImportHash(book.contentHash) !== hash)
+      throw new Error('The matching catalog copy changed. No book was changed.');
+    if (
+      (owner && owner.accountId !== profileId) ||
+      !visibleLibraryEntries([{ id, libraryOwner: book.libraryOwner }], links, profileId).cards
+        .length
+    )
+      throw new Error('A matching catalog copy belongs to another account. No book was changed.');
+    if (book.storageSource)
+      throw new Error('A matching copy belongs to a connected library. No book was changed.');
+    if (!book.elementHtml)
+      throw new Error('A matching catalog copy is incomplete. Open it from the Library.');
+    if (selected)
+      throw new Error('Several local copies match this catalog book. No book was changed.');
+    selected = book;
+  }
+  return selected;
 }
 
 async function selectDirectImportRecord(
@@ -153,7 +201,9 @@ export class DatabaseService {
 
   isReady$: Observable<boolean>;
 
-  listLoading$ = new Subject<boolean>();
+  // Library routes can subscribe after dataList$ has already replayed a ready
+  // list to another mounted screen. Readiness is state, not a one-off event.
+  listLoading$ = new BehaviorSubject<boolean>(true);
 
   dataListChanged$ = new Subject<BaseStorageHandler | undefined>();
 
@@ -408,12 +458,23 @@ export class DatabaseService {
     saveBehavior: ReplicationSaveBehavior,
     skipTimestampFallback = true,
     removeStorageContext = true,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    catalogAdmission?: CatalogImportAdmission
   ) {
     const scope = captureLibraryOperation();
     try {
       scope.assertCurrent();
       throwIfAborted(signal);
+      const catalog = catalogAdmission
+        ? {
+            contentHash: normalizedDirectImportHash(catalogAdmission.contentHash),
+            profileId: catalogAdmission.profileId,
+            loadLinks: catalogAdmission.loadLinks,
+            onReuse: catalogAdmission.onReuse
+          }
+        : undefined;
+      if (catalog && (!catalog.contentHash || catalog.profileId !== scope.profileId))
+        throw new Error('The catalog import belongs to a different book or profile.');
       // encodeBook takes its owned snapshot synchronously, before either the
       // database promise or image reads can let the caller mutate the payload.
       const encoding = encodeBook(data);
@@ -422,7 +483,18 @@ export class DatabaseService {
       const [stored, db] = await Promise.all([encoding, this.db]);
       scope.assertCurrent();
       throwIfAborted(signal);
+      if (
+        catalog &&
+        (normalizedDirectImportHash(stored.contentHash) !== catalog.contentHash ||
+          stored.storageSource ||
+          !stored.elementHtml)
+      )
+        throw new Error('The imported book does not match the selected catalog download.');
+      const links = catalog ? structuredClone(await catalog.loadLinks()) : undefined;
+      scope.assertCurrent();
+      throwIfAborted(signal);
       const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
+      let catalogReused = false;
       const abort = () => {
         try {
           tx.abort();
@@ -443,16 +515,32 @@ export class DatabaseService {
         // re-import. The shared selector uses compact index keys and loads only
         // matching candidate records; the final choice remains inside this write
         // transaction so another tab cannot race selection and publication.
-        const oldData = await selectDirectImportRecord(
-          store,
-          ownerStore,
-          stored,
-          scope.profileId,
-          scope.assertCurrent,
-          signal
-        );
+        const oldData = catalog
+          ? await selectCatalogImportRecord(
+              store,
+              ownerStore,
+              catalog.contentHash!,
+              scope.profileId,
+              links!,
+              scope.assertCurrent,
+              signal
+            )
+          : await selectDirectImportRecord(
+              store,
+              ownerStore,
+              stored,
+              scope.profileId,
+              scope.assertCurrent,
+              signal
+            );
 
         if (oldData) {
+          // A catalog copy may arrive during binary encoding. Reuse its actual
+          // transaction record unchanged, never adopt/replace it via ordinary upsert.
+          if (catalog) {
+            catalogReused = true;
+            return decodeBook(oldData);
+          }
           if (
             saveBehavior === ReplicationSaveBehavior.NewOnly &&
             oldData.lastBookModified &&
@@ -509,6 +597,7 @@ export class DatabaseService {
       // acknowledge a result to the next profile or a cancelled caller.
       scope.assertCurrent();
       throwIfAborted(signal);
+      if (catalogReused) catalog?.onReuse?.();
       return result;
     } finally {
       scope.stop();

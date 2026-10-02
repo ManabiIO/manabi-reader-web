@@ -10,20 +10,38 @@ import { loadEditorsPicks, type EditorsPick } from '$lib/library/editors-picks';
 import { beforeNavigate, afterNavigate } from '$app/navigation';
 import { Button } from './primitives';
 
+function catalogRouteKey(url: URL) {
+  return JSON.stringify([
+    url.pathname,
+    url.searchParams.get('collection') || 'books',
+    url.searchParams.get('series') || '',
+    url.searchParams.get('unfinished') === '1'
+  ]);
+}
+
 export function EditorsPicks({
   openingId = '',
   headingId = 'editors-picks-heading',
   embedded = false,
+  routeUrl,
   onOpen
 }: {
   openingId?: string;
   headingId?: string;
   embedded?: boolean;
+  /** The mounted Library destination, even before Expo commits browser history. */
+  routeUrl?: string;
   onOpen(pick: EditorsPick): void;
 }) {
   const [picks, setPicks] = useState<EditorsPick[]>([]),
     [loading, setLoading] = useState(true),
     [error, setError] = useState('');
+  const [initialRouteUrl] = useState(() =>
+    typeof location === 'undefined' ? 'https://reader.invalid/manage' : location.href
+  );
+  const route = new URL(routeUrl ?? initialRouteUrl);
+  const routeKey = catalogRouteKey(route),
+    origin = route.origin;
   const retryLoad = useRef(() => {}),
     dispatchingOpen = useRef(false);
   useEffect(() => {
@@ -32,7 +50,6 @@ export function EditorsPicks({
       generation = 0,
       hasPicks = false,
       request: AbortController | undefined;
-    const pathname = location.pathname;
     const cancel = () => {
       generation++;
       request?.abort();
@@ -53,7 +70,7 @@ export function EditorsPicks({
       setLoading(true);
       setError('');
       try {
-        const result = await loadEditorsPicks(location.origin, operation.signal);
+        const result = await loadEditorsPicks(origin, operation.signal);
         if (alive && pageActive && run === generation && !operation.signal.aborted) {
           hasPicks = result.length > 0;
           setPicks(result);
@@ -74,7 +91,7 @@ export function EditorsPicks({
       retry();
     };
     const pageshow = () => {
-      if (location.pathname === pathname) resume();
+      if (catalogRouteKey(new URL(location.href)) === routeKey) resume();
     };
     const visibility = () => (document.visibilityState === 'hidden' ? cancel() : retry());
     const offline = () => {
@@ -87,12 +104,16 @@ export function EditorsPicks({
     };
     const stopBefore = beforeNavigate((nav) => {
         // A denied navigation must leave the current catalog request alive.
-        if (nav.willUnload || nav.from.url.pathname !== nav.to?.url.pathname)
+        if (
+          nav.willUnload ||
+          !nav.to ||
+          catalogRouteKey(nav.from.url) !== catalogRouteKey(nav.to.url)
+        )
           nav.beforeCommit(suspend);
       }),
       stopAfter = afterNavigate((nav) => {
         // Retained route trees must not restart their catalog on another route.
-        if (nav.to?.url.pathname === pathname) resume();
+        if (nav.to && catalogRouteKey(nav.to.url) === routeKey) resume();
       });
     retryLoad.current = retry;
     document.addEventListener('visibilitychange', visibility);
@@ -112,7 +133,7 @@ export function EditorsPicks({
       window.removeEventListener('pageshow', pageshow);
       window.removeEventListener('offline', offline);
     };
-  }, []);
+  }, [routeKey, origin]);
 
   const open = (pick: EditorsPick) => {
     if (openingId || dispatchingOpen.current) return;

@@ -1009,11 +1009,15 @@ export class LibraryController extends ObservableController {
     const openStorageSubscription = storageSource$
       .pipe(distinctUntilChanged())
       .subscribe(() => this.bookOpenAbort?.abort());
-    const stopNavigation = beforeNavigate(() => {
-      this.openGeneration++;
-      this.bookOpenAbort?.abort();
-      this.pickDownload?.abort();
-      dialogManager.dialogs$.next([]);
+    const stopNavigation = beforeNavigate((navigation) => {
+      // A later guard may still deny this attempt. Keep the current Library
+      // operation and its dialog alive until departure is actually admitted.
+      navigation.beforeCommit(() => {
+        this.openGeneration++;
+        this.bookOpenAbort?.abort();
+        this.pickDownload?.abort();
+        dialogManager.dialogs$.next([]);
+      });
     });
     this.retain(() => {
       stopNavigation();

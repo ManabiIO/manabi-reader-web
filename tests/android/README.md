@@ -38,13 +38,14 @@ removes the instrumentation wiring; rerun preparation afterward.
 
 Provision a new disposable AVD using the official SDK `sdkmanager`/`avdmanager`
 and an API 35+ Google APIs x86_64 image (with a current Android System WebView).
-Use runner-supported, already provisioned hardware acceleration. The first CI
+Use runner-supported hardware acceleration. The first CI
 attempt on `727b360e` lacked KVM device access; software x86_64 emulation timed
 out before boot after 600 seconds, with no APK installation or assertions. The
-workflow now records capability diagnostics and fails fast without KVM rather
-than consuming another software boot loop. Do not change `/dev/kvm` permissions
-without specific authorization, disable security checks, or install unreviewed
-runner actions. A typical official-tool boot, once the image is
+current migration workflow uses the specifically approved three-command temporary-runner
+KVM setup from GitHub’s official guidance, records capability diagnostics and
+fails fast rather than retrying a software boot loop. That approval is scoped to
+the disposable GitHub runner; do not change another machine’s permissions,
+disable security checks, or install unreviewed runner actions. A typical official-tool boot, once the image is
 available, is:
 
 ```sh
@@ -65,8 +66,11 @@ new process ID, unchanged canonical entry, retained sentinels, and successful
 cleanup. Both JUnit's exact success summary and complete structured evidence are
 required because `adb am instrument` can exit zero for failed tests.
 
-Archive `test-results/android/`, the APKs, and the original APK asset-qualification
-report. The report records APK SHA-256 hashes, emulator fingerprint, WebView
+Keep `test-results/android/`, the APKs, and the original APK asset-qualification
+report together during a local qualification. The migration’s
+[zero-storage CI plan](../../docs/expo/CI-COVERAGE.md) keeps those files only on the
+disposable runner and prints evidence to logs/job summaries; it does not upload
+artifacts or save remote caches. The report records APK SHA-256 hashes, emulator fingerprint, WebView
 provider/version, canonical entry, native settings, probe results and navigation
 attempts. A failed run is failure evidence, never a pass. If the seed process
 crashes, its synthetic namespace can remain in that disposable AVD; discard the

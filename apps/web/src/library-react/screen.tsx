@@ -238,6 +238,7 @@ export function LibraryScreen({ routeUrl, onOpenBook, onReady }: LibraryScreenPr
         <div className="mt-8">
           <EditorsPicks
             embedded
+            routeUrl={routeUrl}
             headingId="editors-picks-empty-heading"
             openingId={m.openingPickId}
             onOpen={m.openEditorsPick}
@@ -297,6 +298,7 @@ export function LibraryScreen({ routeUrl, onOpenBook, onReady }: LibraryScreenPr
           <Dialog.Title>Editor's Picks</Dialog.Title>
           <Dialog.Description>Open a book selected by Manabi.</Dialog.Description>
           <EditorsPicks
+            routeUrl={routeUrl}
             headingId="editors-picks-dialog-heading"
             openingId={m.openingPickId}
             onOpen={m.openEditorsPick}

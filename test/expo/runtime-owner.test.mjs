@@ -684,3 +684,256 @@ test('native cover reads and cancellation use the trusted runtime authority with
     assert.throws(call.authority.assertCurrent);
   }
 });
+
+async function catalogSelection(f) {
+  const loading = success(await f.command('library.catalog.start'));
+  assert.equal(loading.status, 'loading');
+  const state = success(await f.command('library.catalog.read', { token: loading.token }));
+  assert.equal(state.status, 'ready');
+  assert.equal(state.items.length, 1);
+  return { state, payload: { token: state.token, key: state.items[0].key } };
+}
+
+test('actual DOM catalog dispatch exposes bounded native metadata and retains canonical reader ownership after Open', async (t) => {
+  const f = await runtimeOwner(t),
+    { state, payload } = await catalogSelection(f);
+  assert.deepEqual(Object.keys(state.items[0]).sort(), ['author', 'key', 'summary', 'title']);
+  assert.equal(state.items[0].summary, 'Plain public summary');
+  assert.notEqual(state.items[0].key, f.catalogPicks[0].id);
+  assert.doesNotMatch(JSON.stringify(state), /https:|bookUrl|coverUrl|<p>/);
+  assert.equal(f.catalogLoads[0].authority.key, `${f.scope.session}:${f.scope.epoch}`);
+  assert.deepEqual(success(await f.command('library.catalog.open', payload)), { bookId: 1 });
+  assert.equal(f.catalogPreparations.length, 1);
+  assert.equal(f.book, '1');
+  const reader = f.sessions.at(-1),
+    retained = f.operations.at(-1);
+  assert.deepEqual(reader.expectedBook, {
+    bookId: 1,
+    readerBookKey: `content:${'1'.repeat(64)}`,
+    contentHash: '1'.repeat(64),
+    title: 'Book 1',
+    lastBookModified: 10
+  });
+  assert.equal(retained.stopped, 0);
+  assert.doesNotThrow(reader.bookAuthority.assertCurrent);
+  success(await f.command('library.catalog.cancel', { token: state.token }));
+  assert.equal(f.catalogPreparations[0].authority.signal.aborted, true);
+  assert.equal(
+    reader.bookAuthority.signal.aborted,
+    false,
+    'catalog cleanup does not revoke the handed-off reader'
+  );
+  success(await f.command('snapshot'));
+  assert.doesNotThrow(reader.bookAuthority.assertCurrent);
+  success(await f.command('close', { catalogToken: state.token }));
+  assert.equal(f.book, undefined);
+  assert.equal(reader.bookAuthority.signal.aborted, true);
+  assert.equal(retained.stopped, 1);
+});
+
+test('actual DOM catalog start/read/cancel rejects late feed results and delayed old cleanup leaves a replacement catalog usable', async (t) => {
+  const f = await runtimeOwner(t),
+    gate = deferred();
+  f.catalogLoad = () => gate.promise;
+  const old = success(await f.command('library.catalog.start'));
+  const owned = f.catalogLoads[0].authority;
+  assert.equal(
+    success(await f.command('library.catalog.read', { token: old.token })).status,
+    'loading'
+  );
+  success(await f.command('library.catalog.cancel', { token: old.token }));
+  assert.equal(owned.signal.aborted, true);
+  f.catalogLoad = undefined;
+  const next = await catalogSelection(f);
+  success(await f.command('library.catalog.cancel', { token: old.token }));
+  await f.settle(() => gate.resolve(f.catalogPicks));
+  assert.equal((await f.command('library.catalog.read', { token: old.token })).ok, false);
+  assert.equal(
+    success(await f.command('library.catalog.read', { token: next.state.token })).status,
+    'ready'
+  );
+  success(await f.command('library.catalog.open', next.payload));
+  assert.equal(f.book, '1');
+});
+
+test('actual DOM catalog Open receipts coalesce duplicate requests and reject concurrent activation before another import', async (t) => {
+  const f = await runtimeOwner(t),
+    { payload } = await catalogSelection(f),
+    gate = deferred();
+  f.catalogPrepare = async () => {
+    await gate.promise;
+  };
+  const first = await f.start('library.catalog.open', payload);
+  const duplicate = await f.start('library.catalog.open', payload, first.request);
+  const conflicting = await f.command('library.catalog.open', payload);
+  assert.equal(conflicting.ok, false);
+  assert.match(conflicting.error, /Another file import/);
+  assert.equal(f.catalogPreparations.length, 1);
+  await f.settle(() => gate.resolve());
+  assert.deepEqual(success(await f.finish(first)), { bookId: 1 });
+  assert.deepEqual(success(await f.finish(duplicate)), { bookId: 1 });
+  assert.equal(f.sessions.length, 1);
+  assert.equal(f.operations.filter((entry) => !entry.stopped).length, 1);
+});
+
+for (const cancel of ['catalog cancel', 'native close'])
+  test(`actual DOM ${cancel} aborts pending catalog import and fences its late reader admission`, async (t) => {
+    const f = await runtimeOwner(t),
+      { state, payload } = await catalogSelection(f),
+      gate = deferred();
+    f.catalogPrepare = async () => {
+      await gate.promise;
+    };
+    const opening = await f.start('library.catalog.open', payload);
+    const captured = f.catalogPreparations[0].authority;
+    if (cancel === 'catalog cancel')
+      success(await f.command('library.catalog.cancel', { token: state.token }));
+    else
+      assert.equal(success(await f.command('close', { catalogToken: state.token })).allowed, true);
+    assert.equal(captured.signal.aborted, true);
+    const replacement = await catalogSelection(f);
+    assert.match(
+      (await f.command('library.catalog.open', replacement.payload)).error,
+      /Another file import/
+    );
+    await f.settle(() => gate.resolve());
+    const failed = await f.finish(opening);
+    assert.equal(failed.ok, false);
+    assert.equal(failed.outcome, 'unknown');
+    assert.equal(failed.stale, false);
+    assert.equal(f.book, undefined);
+    assert.equal(f.sessions.length, 0);
+    f.catalogPrepare = undefined;
+    success(await f.command('library.catalog.open', replacement.payload));
+    assert.equal(f.book, '1');
+  });
+
+for (const change of ['same-user generation', 'account ABA', 'unmount'])
+  test(`actual DOM ${change} revokes a pending catalog operation and preserves its unknown stale receipt`, async (t) => {
+    const f = await runtimeOwner(t),
+      { payload } = await catalogSelection(f),
+      gate = deferred();
+    f.catalogPrepare = async () => {
+      await gate.promise;
+    };
+    const opening = await f.start('library.catalog.open', payload);
+    const operation = f.operations.at(-1),
+      captured = f.catalogPreparations[0].authority;
+    if (change === 'same-user generation') await f.refreshGeneration();
+    else if (change === 'account ABA') {
+      await f.changeAccount('bob');
+      await f.changeAccount('alice');
+    } else await f.unmount();
+    assert.equal(captured.signal.aborted, true);
+    assert.throws(captured.assertCurrent);
+    await f.settle(() => gate.resolve());
+    const reply = await f.finish(opening);
+    assert.equal(reply.id, opening.request.id);
+    assert.equal(reply.ok, false);
+    assert.equal(reply.outcome, 'unknown');
+    assert.equal(reply.stale, true);
+    assert.equal(f.book, undefined);
+    assert.equal(operation.stopped, 1);
+    if (change !== 'unmount') {
+      const replay = await f.command('library.catalog.open', payload, opening.request);
+      assert.equal(replay.stale, true);
+      assert.equal(replay.outcome, 'unknown');
+      assert.equal(f.catalogPreparations.length, 1);
+      f.catalogPrepare = undefined;
+      const next = await catalogSelection(f);
+      success(await f.command('library.catalog.open', next.payload));
+      assert.doesNotThrow(f.sessions.at(-1).bookAuthority.assertCurrent);
+    }
+  });
+
+test('actual DOM catalog unknown outcome may leave a saved copy but cannot mount a reader or replay its import', async (t) => {
+  const f = await runtimeOwner(t),
+    { payload } = await catalogSelection(f);
+  const saved = {
+    id: 3,
+    title: 'Committed catalog copy',
+    contentHash: '3'.repeat(64),
+    lastBookModified: 12,
+    characters: 100
+  };
+  f.catalogPrepare = async () => {
+    f.books.push(saved);
+    throw new Error('Canonical storage result lost after commit');
+  };
+  const opening = await f.start('library.catalog.open', payload),
+    reply = await f.finish(opening);
+  assert.equal(reply.ok, false);
+  assert.equal(reply.outcome, 'unknown');
+  assert.equal(reply.stale, false);
+  assert.equal(f.book, undefined);
+  assert.match(reply.error, /copy may already be saved/);
+  const snapshot = success(await f.command('snapshot'));
+  assert.equal(snapshot.books.find((book) => book.id === 3).title, saved.title);
+  const repeated = await f.command('library.catalog.open', payload, opening.request);
+  assert.equal(repeated.outcome, 'unknown');
+  assert.equal(f.catalogPreparations.length, 1);
+  assert.equal(f.books.filter((book) => book.id === 3).length, 1);
+  f.catalogPrepare = async () => ({
+    bookId: saved.id,
+    contentHash: saved.contentHash,
+    readerBookKey: `content:${saved.contentHash}`,
+    title: saved.title,
+    lastBookModified: saved.lastBookModified
+  });
+  const next = await catalogSelection(f);
+  success(await f.command('library.catalog.open', next.payload));
+  assert.equal(f.book, '3');
+  assert.equal(f.sessions.at(-1).expectedBook.readerBookKey, `content:${saved.contentHash}`);
+});
+
+test('completed catalog Open receipt becomes stale after account ABA without restoring its old reader or reimporting', async (t) => {
+  const f = await runtimeOwner(t),
+    { payload } = await catalogSelection(f);
+  const opening = await f.start('library.catalog.open', payload);
+  success(await f.finish(opening));
+  const old = f.sessions.at(-1),
+    retained = f.operations.at(-1);
+  await f.changeAccount('bob');
+  await f.changeAccount('alice');
+  assert.equal(f.book, undefined);
+  assert.equal(old.bookAuthority.signal.aborted, true);
+  assert.equal(retained.stopped, 1);
+  const replay = await f.command('library.catalog.open', payload, opening.request);
+  assert.equal(replay.ok, true);
+  assert.equal(replay.outcome, 'completed');
+  assert.equal(replay.stale, true);
+  assert.equal(f.book, undefined);
+  assert.equal(f.catalogPreparations.length, 1);
+  const stale = await f.command(
+    'library.catalog.start',
+    {},
+    { session: opening.request.session, epoch: opening.request.epoch }
+  );
+  assert.equal(stale.ok, false);
+  assert.equal(stale.outcome, 'not-started');
+  assert.equal(f.catalogLoads.length, 1);
+});
+
+test('a newer ordinary book admission fences a late catalog import without releasing the replacement reader', async (t) => {
+  const f = await runtimeOwner(t),
+    { payload } = await catalogSelection(f),
+    gate = deferred();
+  f.catalogPrepare = async () => {
+    await gate.promise;
+  };
+  const opening = await f.start('library.catalog.open', payload),
+    abandoned = f.operations.at(-1);
+  success(await f.command('open', { bookId: 2 }));
+  const replacement = f.sessions.at(-1);
+  await f.settle(() => gate.resolve());
+  const reply = await f.finish(opening);
+  assert.equal(reply.ok, false);
+  assert.equal(reply.outcome, 'unknown');
+  assert.match(reply.error, /newer reader navigation/);
+  assert.equal(f.book, '2');
+  assert.equal(f.sessions.length, 1);
+  assert.equal(abandoned.stopped, 1);
+  assert.doesNotThrow(replacement.bookAuthority.assertCurrent);
+  assert.equal(replacement.bookAuthority.signal.aborted, false);
+  assert.equal(f.operations.filter((entry) => !entry.stopped).length, 1);
+});

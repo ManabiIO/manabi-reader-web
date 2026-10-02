@@ -19,6 +19,7 @@ test('real postbuild emits the early picker only for import and versions its off
     for (const file of [
       'scripts/expo-postbuild.mjs',
       'scripts/import-bootstrap.mjs',
+      'scripts/library-noscript.mjs',
       'apps/web/src/platform/content-security-policy.mjs'
     ])
       await fs.copyFile(path.join(root, file), path.join(temp, file));
@@ -46,6 +47,7 @@ test('real postbuild emits the early picker only for import and versions its off
         route === 'import-ttu',
         route || 'index'
       );
+      assert.equal(html.includes('<noscript>'), route === 'manage', route || 'index');
       assert.equal(html.match(/id="root"/g)?.length, 1);
       assert.match(html, /Content-Security-Policy/);
       assert.match(html, /_expo\/static\/js\/web\/entry-fixture\.js/);
@@ -65,6 +67,20 @@ test('real postbuild emits the early picker only for import and versions its off
       second.config.version,
       first.config.version,
       'a bootstrap-only HTML change invalidates the offline shell'
+    );
+    const libraryHelper = path.join(temp, 'scripts/library-noscript.mjs');
+    await fs.writeFile(
+      libraryHelper,
+      (await fs.readFile(libraryHelper, 'utf8')).replace(
+        'Enable JavaScript to open',
+        'Enable JavaScript to view'
+      )
+    );
+    const third = await run();
+    assert.notEqual(
+      third.config.version,
+      second.config.version,
+      'a no-script-only Library change invalidates the offline shell'
     );
   } finally {
     await fs.rm(temp, { recursive: true, force: true });

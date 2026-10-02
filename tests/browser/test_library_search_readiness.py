@@ -1,4 +1,4 @@
-"""Genuine server-rendered and hydrated Library search controls."""
+"""Actual static no-script and hydrated Library search controls."""
 from playwright.sync_api import expect
 from test_books_library import LibraryBase
 
@@ -6,7 +6,7 @@ from test_books_library import LibraryBase
 class LibrarySearchReadiness(LibraryBase):
     def test_unhydrated_search_is_disabled_and_hydrated_input_keeps_the_query(self):
         # No interception or substitute application: disable JavaScript only in
-        # this separate context to inspect the actual server-rendered control.
+        # this separate context to inspect the actual route-specific static fallback.
         static_context = self.context.browser.new_context(java_script_enabled=False)
         try:
             static_page = static_context.new_page()

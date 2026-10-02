@@ -71,6 +71,10 @@ export const bridgeMethods = [
   'library.content.cancel',
   'library.cover.read',
   'library.cover.cancel',
+  'library.catalog.start',
+  'library.catalog.read',
+  'library.catalog.open',
+  'library.catalog.cancel',
   'settings.state',
   'settings.action',
   'snippets.state',
@@ -98,6 +102,7 @@ export const readOnlyBridgeMethods: readonly BridgeMethod[] = [
   'library.state',
   'library.content.read',
   'library.cover.read',
+  'library.catalog.read',
   'settings.state',
   'snippets.state',
   'statistics.read'
@@ -357,6 +362,9 @@ export class BridgeAuthority {
 }
 /** One bounded upload at a time. Bytes cross the bridge once; no whole-book base64 prop. */
 export class ImportTransfer {
+  get active() {
+    return !!this.current;
+  }
   // Never recycle an admitted identity, even after cancel, commit, or account ABA.
   // Keep the compact tombstones bounded and refuse new uploads at capacity.
   private usedIds = new Set<string>();

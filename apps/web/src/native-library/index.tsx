@@ -32,6 +32,7 @@ import {
 import { reconcileNativeSelection } from './view-model';
 import { NativeLibraryContentSearch } from './content-search';
 import { NativeBookCover } from './cover';
+import { NativeEditorsPicks } from './catalog';
 import { NativeLibraryCoverController, type NativeCoverState } from './cover-controller';
 
 function Field({
@@ -135,6 +136,7 @@ function Library() {
   const [selected, setSelected] = useState<string[]>([]);
   const [selecting, setSelecting] = useState(false);
   const [grid, setGrid] = useState(false);
+  const [catalogVisible, setCatalogVisible] = useState(false);
   const [sheet, setSheet] = useState<
     'filters' | 'collections' | 'membership' | 'series' | 'completion' | 'metadata'
   >();
@@ -202,7 +204,10 @@ function Library() {
   }, [search]);
   useEffect(() => {
     coverController.current?.setActive(focused && searchMode === 'metadata' && !loading);
-    if (!focused) coverOperation.current?.abort();
+    if (!focused) {
+      coverOperation.current?.abort();
+      setCatalogVisible(false);
+    }
   }, [focused, searchMode, loading]);
   function view(change: LibraryQuery) {
     setError('');
@@ -327,6 +332,10 @@ function Library() {
   };
   const choices = state?.collections ?? [];
   const selectedSource = state?.sources.find((source) => source.id === query.source);
+  const closeCatalog = () => {
+    setCatalogVisible(false);
+    void refresh();
+  };
   return (
     <Screen
       title="Library"
@@ -367,6 +376,11 @@ function Library() {
           />
         )}
         <View style={styles.row}>
+          <Action
+            label="Editor's Picks"
+            disabled={busy || importing || !snapshot.session}
+            onPress={() => setCatalogVisible(true)}
+          />
           <Action label="Sort and filter" onPress={() => setSheet('filters')} />
           <Action
             label="Collections"
@@ -535,6 +549,11 @@ function Library() {
           />
         )}
       </View>
+      {catalogVisible && focused && (
+        <Modal visible animationType="slide" onRequestClose={closeCatalog}>
+          <NativeEditorsPicks close={closeCatalog} />
+        </Modal>
+      )}
       {searchMode === 'passages' ? (
         <NativeLibraryContentSearch
           disabled={busy || importing || !!sheet}

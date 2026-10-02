@@ -115,6 +115,10 @@
   label.snippet-scope-editor {
     display: grid;
     gap: 0.2rem;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
   .editor-host.snippet-scope-editor {
     min-height: 18rem;
@@ -175,7 +179,6 @@
     height: min(68vh, 40rem);
     max-width: 100%;
     overflow: auto;
-    margin-inline: auto;
   }
   .snippet-reading.snippet-scope-reader p {
     margin-block: 0.8em;
@@ -231,7 +234,9 @@
       padding-inline: 10px;
     }
     .snippet-reading.snippet-scope-reader {
-      margin-block: 20px;
+      // Keep outer spacing physical: block margins become horizontal in vertical-rl.
+      margin-top: 20px;
+      margin-bottom: 20px;
     }
   }
 
@@ -344,6 +349,10 @@
 /* workspace: original component-local selector boundaries, no framework runtime. */
 
   .snippet-workspace.snippet-scope-workspace {
+    // Expo's screen is a flex column. Auto margins alone shrink-wrap the workspace
+    // around its intrinsic content width, which can exceed a narrow viewport.
+    width: 100%;
+    min-width: 0;
     max-width: 88rem;
     margin: auto;
     padding: 1rem clamp(1rem, 3vw, 3rem) 5rem;
@@ -617,9 +626,6 @@
     .top.snippet-scope-workspace {
       gap: 12px;
       padding-block: 8px;
-    }
-    .brand.snippet-scope-workspace {
-      white-space: nowrap;
     }
     .draft.snippet-scope-workspace {
       align-items: start;

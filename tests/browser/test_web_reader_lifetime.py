@@ -192,6 +192,51 @@ class WebReaderLifetime(LibraryBase):
         self.assertEqual(reader_url, self.page.url)
         self.assertEqual(length, self.page.evaluate('history.length'))
 
+    def test_raw_app_links_keep_self_reader_then_replace_book_without_document_reload(self):
+        self.import_book('Raw link A', body='<p>RAW_LINK_FIRST_BOOK</p>' + self.body)
+        self.import_book('Raw link B', body='<p>RAW_LINK_SECOND_BOOK</p>' + self.body)
+        first_url = self.read_book('Raw link A')
+        self.close_to_library()
+        second_url = self.read_book('Raw link B')
+        self.remember_reader()
+        self.page.evaluate('window.rawLinkWitness = {}')
+        identity = self.page.evaluate('history.state.id')
+        length = self.page.evaluate('history.length')
+
+        def click_raw_link(url):
+            self.page.evaluate('''url => {
+              const anchor = document.createElement('a');
+              anchor.href = url; anchor.textContent = 'Raw reader route';
+              anchor.style.cssText = 'position:fixed;top:8px;left:8px;z-index:1000;background:white;color:black';
+              anchor.dataset.readerQualificationLink = ''; document.body.append(anchor);
+            }''', url)
+            self.page.get_by_role('link', name='Raw reader route', exact=True).click()
+            self.page.evaluate("document.querySelector('[data-reader-qualification-link]')?.remove()")
+
+        click_raw_link(second_url)
+        self.assert_same_reader()
+        self.assertEqual(identity, self.page.evaluate('history.state.id'))
+        self.assertEqual(length, self.page.evaluate('history.length'))
+        self.assertTrue(self.page.evaluate('!!window.rawLinkWitness'))
+        click_raw_link(first_url)
+        expect(self.page).to_have_url(first_url)
+        self.assert_reader()
+        expect(self.page.locator('.book-content')).to_contain_text('RAW_LINK_FIRST_BOOK')
+        self.assertTrue(self.page.evaluate('!!window.rawLinkWitness'))
+        self.assertFalse(self.page.evaluate('window.originalReader.isConnected'))
+        self.assertEqual(length + 1, self.page.evaluate('history.length'))
+        self.page.go_back()
+        expect(self.page).to_have_url(second_url)
+        self.assert_reader()
+        expect(self.page.locator('.book-content')).to_contain_text('RAW_LINK_SECOND_BOOK')
+        self.assertEqual(identity, self.page.evaluate('history.state.id'))
+        self.assertTrue(self.page.evaluate('!!window.rawLinkWitness'))
+        self.page.go_forward()
+        expect(self.page).to_have_url(first_url)
+        self.assert_reader()
+        expect(self.page.locator('.book-content')).to_contain_text('RAW_LINK_FIRST_BOOK')
+        self.assertTrue(self.page.evaluate('!!window.rawLinkWitness'))
+
     def test_unknown_fragment_fails_visibly_without_losing_live_reader_or_replacing_history(self):
         self.import_book('Unknown history lifetime', body=self.body)
         self.read_book('Unknown history lifetime')

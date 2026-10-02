@@ -129,6 +129,10 @@ p.snippet-scope-destination-picker {
 label.snippet-scope-editor {
   display: grid;
   gap: 0.2rem;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .editor-host.snippet-scope-editor {
@@ -200,7 +204,6 @@ label.snippet-scope-editor {
   height: min(68vh, 40rem);
   max-width: 100%;
   overflow: auto;
-  margin-inline: auto;
 }
 
 .snippet-reading.snippet-scope-reader p {
@@ -268,7 +271,8 @@ label.snippet-scope-editor {
     padding-inline: 10px;
   }
   .snippet-reading.snippet-scope-reader {
-    margin-block: 20px;
+    margin-top: 20px;
+    margin-bottom: 20px;
   }
 }
 /* shelf: original component-local selector boundaries, no framework runtime. */
@@ -394,6 +398,8 @@ label.snippet-scope-editor {
 
 /* workspace: original component-local selector boundaries, no framework runtime. */
 .snippet-workspace.snippet-scope-workspace {
+  width: 100%;
+  min-width: 0;
   max-width: 88rem;
   margin: auto;
   padding: 1rem clamp(1rem, 3vw, 3rem) 5rem;
@@ -707,9 +713,6 @@ form.snippet-scope-workspace label:where(.snippet-scope-workspace) {
   .top.snippet-scope-workspace {
     gap: 12px;
     padding-block: 8px;
-  }
-  .brand.snippet-scope-workspace {
-    white-space: nowrap;
   }
   .draft.snippet-scope-workspace {
     align-items: start;

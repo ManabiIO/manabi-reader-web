@@ -533,3 +533,89 @@ test('a duplicate-id feed fails recoverably and a reordered retry preserves book
     ]);
   });
 });
+
+test('collection and series departures retire the catalog even though the pathname stays manage', async () => {
+  for (const destination of [
+    '?collection=want-to-read',
+    '?series=personal-series%3AVolumes',
+    '?unfinished=1'
+  ])
+    await fixture(
+      async ({ api, until, activeRequest, requests, event, visibility, pause, load }) => {
+        api.render();
+        await until(
+          () => activeRequest('/index.xml'),
+          'the empty Library starts its optional catalog'
+        );
+        const initial = activeRequest('/index.xml');
+        const removeGuard = api.beforeNavigate((navigation) => navigation.cancel());
+        await api.goto('/reader-web/manage' + destination);
+        assert.equal(
+          initial.options.signal.aborted,
+          false,
+          'denied destination change preserves the catalog'
+        );
+        removeGuard();
+        await api.goto('/reader-web/manage' + destination);
+        assert.equal(
+          initial.options.signal.aborted,
+          true,
+          'the admitted destination change aborts before dispatch'
+        );
+        initial.respond();
+        visibility('hidden');
+        visibility('visible');
+        event('pageshow');
+        await pause();
+        assert.equal(
+          requests.length,
+          1,
+          'a retained old Library does not restart on another shelf'
+        );
+        await api.goto('/reader-web/manage');
+        await load();
+        assert.equal(
+          requests.length,
+          3,
+          'returning to the owner starts one new index/feed sequence'
+        );
+      }
+    );
+});
+
+test('the incoming catalog owns its route params before browser history and retires replaced destinations', async () => {
+  await fixture(async ({ api, window, until, activeRequest, requests, event, pause }) => {
+    const routeUrl = 'https://reader.example/reader-web/manage?collection=custom';
+    api.render({ routeUrl });
+    await until(
+      () => activeRequest('/index.xml'),
+      'the incoming route starts without waiting for history'
+    );
+    const incoming = activeRequest('/index.xml');
+    assert.equal(
+      window.location.search,
+      '',
+      'history still describes the outgoing Books destination'
+    );
+    await api.goto('/reader-web/settings');
+    assert.equal(incoming.options.signal.aborted, true);
+    incoming.respond();
+    await api.goto('/reader-web/manage');
+    event('pageshow');
+    await pause();
+    assert.equal(requests.length, 1, 'a different Library destination is not this catalog owner');
+    await api.goto('/reader-web/manage?collection=custom');
+    await until(() => requests.length === 2, 'the exact incoming owner can resume');
+    const resumed = activeRequest('/index.xml');
+    api.render({ routeUrl: 'https://reader.example/reader-web/manage?series=next' });
+    await until(
+      () => requests.length === 3,
+      'same-instance route replacement creates a new catalog lifetime'
+    );
+    assert.equal(
+      resumed.options.signal.aborted,
+      true,
+      'the replaced destination retires its pending request'
+    );
+  });
+});

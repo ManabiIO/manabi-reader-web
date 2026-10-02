@@ -63,6 +63,8 @@ const {
   createCollection,
   refreshLocation,
   installRouter,
+  goto,
+  beforeNavigate,
   account,
   snippetItems,
   RouteParams
@@ -184,6 +186,7 @@ try {
   const readyIncoming = (library, workspace) => Object.assign(incoming, { library, workspace });
   const retainedURL = `${origin}/reader-web/manage?collection=${encodeURIComponent(collection)}&scope=snippets`;
   let incomingURL = `${seriesURL.href}&scope=books&note=one&note=two#shelf`;
+  let mountIncoming = false;
   const screens = () =>
     React.createElement(
       React.Fragment,
@@ -193,12 +196,22 @@ try {
         { id: 'retained' },
         React.createElement(LibraryScreen, { routeUrl: retainedURL, onReady: readyRetained })
       ),
-      React.createElement(
-        'section',
-        { id: 'incoming' },
-        React.createElement(LibraryScreen, { routeUrl: incomingURL, onReady: readyIncoming })
-      )
+      mountIncoming &&
+        React.createElement(
+          'section',
+          { id: 'incoming' },
+          React.createElement(LibraryScreen, { routeUrl: incomingURL, onReady: readyIncoming })
+        )
     );
+  await render(screens());
+  await settle(
+    () => retained.library && !retained.library.loading && !retained.workspace.scanning,
+    'the retained route has already received the completed list before the incoming route mounts'
+  );
+  let listPublications = 0;
+  const listSubscription = database.dataList$.subscribe(() => listPublications++);
+  assert.equal(listPublications, 1);
+  mountIncoming = true;
   await render(screens());
   await settle(
     () =>
@@ -210,6 +223,26 @@ try {
       !retained.workspace.scanning,
     'both actually mounted Library controllers finish loading independently'
   );
+  assert.equal(listPublications, 1, 'mounting a second route does not fetch the Library again');
+  const loadingEvents = [];
+  const loadingSubscription = database.listLoading$.subscribe((value) => loadingEvents.push(value));
+  assert.deepEqual(
+    loadingEvents,
+    [false],
+    'late readiness subscribers receive the committed state'
+  );
+  await act(async () => database.dataListChanged$.next(undefined));
+  await settle(
+    () => listPublications === 2 && !incoming.library.loading && !retained.library.loading,
+    'an actual list refresh makes both retained and incoming controllers ready again'
+  );
+  assert.deepEqual(
+    loadingEvents,
+    [false, true, false],
+    'reload retains its actual busy/ready transition'
+  );
+  loadingSubscription.unsubscribe();
+  listSubscription.unsubscribe();
   const active = incoming.workspace,
     old = retained.workspace;
   assert.equal(active.series.id, personalSeries);
@@ -231,6 +264,27 @@ try {
     replace: (path) => routed.push(['replace', path])
   });
   try {
+    const pendingPick = new AbortController();
+    incoming.library.pickDownload = pendingPick;
+    const generation = incoming.library.openGeneration;
+    const stopDenied = beforeNavigate((navigation) => navigation.cancel());
+    await act(async () => goto('/reader-web/connections'));
+    stopDenied();
+    assert.equal(
+      pendingPick.signal.aborted,
+      false,
+      'denied departure preserves the pending Library operation'
+    );
+    assert.equal(incoming.library.openGeneration, generation);
+    assert.deepEqual(routed, [], 'denied departure never reaches Expo');
+    await act(async () => goto('/reader-web/connections'));
+    assert.equal(
+      pendingPick.signal.aborted,
+      true,
+      'admitted departure cancels the pending operation'
+    );
+    assert.ok(incoming.library.openGeneration > generation);
+    routed.length = 0;
     const depth = window.history.length;
     await act(async () => {
       incoming.library.selectMode = true;
@@ -394,6 +448,10 @@ try {
     assert.ok(active.organizationEpoch > accountEpoch);
     assert.equal(active.organizationDialog, undefined);
     assert.equal(active.organizationTargets.length, 0);
+    await settle(
+      () => !incoming.library.loading && !retained.library.loading,
+      'an account replacement cannot strand either mounted Library in Loading'
+    );
   } finally {
     stopRouter();
   }

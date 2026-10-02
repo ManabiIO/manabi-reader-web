@@ -6,8 +6,10 @@
 
 import {
   installRouter,
+  goto,
   navigateBrowserHistory,
   pushState,
+  replaceState,
   readNavigationArrival,
   restoreNavigationArrival,
   type NavigationArrival
@@ -20,6 +22,8 @@ import {
 import { hasActiveWebReaderDeparture } from '../reader-react/web-reader-departure';
 import { account, accountGeneration, localProfileUser, localUser } from '../lib/manabi/client';
 import { refreshLocation } from './stores';
+import { base } from './paths';
+import { admittedWebAppLink } from './web-app-link';
 
 function readerFragment(from: WebHistoryEntry, to: WebHistoryEntry) {
   const source = new URL(from.href),
@@ -118,40 +122,22 @@ export function installQualifiedWebNavigation(
       }
     }
   });
-  const fragmentClick = (event: MouseEvent) => {
-    if (
-      event.defaultPrevented ||
-      event.button !== 0 ||
-      event.ctrlKey ||
-      event.metaKey ||
-      event.shiftKey ||
-      event.altKey
-    )
+  const appLinkClick = (event: MouseEvent) => {
+    const link = admittedWebAppLink(event, new URL(broker.currentEntry.href), base);
+    if (!link) return;
+    const { url, options } = link;
+    event.preventDefault();
+    if (!link.fragment) {
+      // Expo may ignore an identical route; never retire its live reader first.
+      if (link.sameUrl) {
+        version++;
+        broker.invalidate();
+        void broker.waitUntilRestored().catch(failed);
+      } else void goto(url, options).catch(failed);
       return;
-    const target = event.target as Element | null;
-    if (target?.nodeType !== 1) return;
-    const anchor = target.closest<HTMLAnchorElement>('a[href]');
-    if (
-      !anchor ||
-      typeof anchor.href !== 'string' ||
-      anchor.target ||
-      anchor.hasAttribute('download') ||
-      anchor.rel.split(/\s+/).includes('external')
-    )
-      return;
-    const href = anchor.getAttribute('href') ?? '';
-    const url = new URL(anchor.href, broker.currentEntry.href),
-      source = new URL(broker.currentEntry.href);
-    if (
-      !href.includes('#') ||
-      url.origin !== source.origin ||
-      url.pathname !== source.pathname ||
-      url.search !== source.search
-    )
-      return;
+    }
     // EPUB links normally stop here before bubbling: their existing nextChapter
     // handler owns spine/fragment navigation. This handles otherwise-native links.
-    event.preventDefault();
     const request = ++version;
     const entry = broker.currentEntry.key;
     broker.invalidate();
@@ -159,7 +145,8 @@ export function installQualifiedWebNavigation(
       .waitUntilRestored()
       .then(() => {
         if (!alive || request !== version || broker.currentEntry.key !== entry) return;
-        pushState(url, window.history.state ?? {});
+        (options.replaceState ? replaceState : pushState)(url, window.history.state ?? {});
+        if (options.noScroll) return;
         let id = url.hash.slice(1);
         try {
           id = decodeURIComponent(id);
@@ -173,11 +160,11 @@ export function installQualifiedWebNavigation(
       })
       .catch(failed);
   };
-  window.addEventListener('click', fragmentClick);
+  window.addEventListener('click', appLinkClick);
   return () => {
     alive = false;
     version++;
-    window.removeEventListener('click', fragmentClick);
+    window.removeEventListener('click', appLinkClick);
     stopAccount();
     stopProfile();
     stopRouter();

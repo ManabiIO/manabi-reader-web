@@ -1,47 +1,371 @@
 name: Expo Android and web migration
+# Public-repository, stock-runner qualification only. No remote artifacts or caches.
+# Pull requests already run on synchronize; do not add a duplicate push trigger.
 on:
   pull_request:
     paths:
-      [
-        'apps/web/**',
-        'scripts/**',
-        'test/**',
-        'tests/**',
-        'package.json',
-        'pnpm-lock.yaml',
-        'pnpm-workspace.yaml',
-        'patches/**',
-        '.github/workflows/expo-migration.yml'
-      ]
+      - 'apps/web/**'
+      - 'scripts/**'
+      - 'test/**'
+      - 'tests/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'patches/**'
+      - 'docs/expo/**'
+      - '.github/workflows/**'
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: expo-migration-${{ github.ref }}
+  group: expo-migration-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+defaults:
+  run:
+    shell: bash
 jobs:
-  export:
-    name: Production ${{ matrix.platform }} export
+  regression:
+    name: Retained regression and CI policy
+    # Missing/private visibility fails closed; no runner is allocated.
+    if: >-
+      github.event.repository.visibility == 'public' &&
+      toJSON(github.event.repository.private) == 'false' &&
+      github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
-    strategy:
-      fail-fast: false
-      matrix:
-        platform: [web, android]
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: pnpm/action-setup@v6.1.0
         with:
           version: '12.3.4'
+          cache: false
+          run_install: false
       - uses: actions/setup-node@v4
         with:
           node-version: '24.21.0'
-      - name: Install reviewed dependency graph
+      - name: Record exact source and qualification limits
+        run: |
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+          {
+            printf 'Source commit: %s\n\n' "$(git rev-parse HEAD)"
+            printf 'Source tree: %s\n\n' "$(git rev-parse HEAD^{tree})"
+            cat docs/expo/CI-COVERAGE.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Install reviewed dependency graph without a remote cache
+        run: pnpm install --frozen-lockfile
+      - run: node scripts/prepare-expo.mjs
+      - name: Lint committed application and component boundaries
+        run: |
+          pnpm eslint .
+          node tools/appearance/lint.mjs
+          node --experimental-strip-types tools/appearance/generate-css.mjs --check
+      - name: Strict application types
+        if: success() || failure()
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm --dir apps/web check
+      - name: Existing unit and migration contract tests
+        if: success() || failure()
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: node --test --test-concurrency=2 tests/unit/*.test.mjs
+      - name: Migration contract tests including CI policy
+        if: success() || failure()
+        run: pnpm test:expo
+      - name: Android instrumentation harness contracts
+        if: success() || failure()
+        run: node --test tests/android/harness.test.mjs
+      - name: Existing reader regressions
+        if: success() || failure()
+        run: pnpm test:reader
+      - name: Existing snippets domain regressions
+        if: success() || failure()
+        env:
+          NODE_OPTIONS: --max-old-space-size=2048
+        run: node test/snippets/run.mjs
+      - name: Active snippets React integration
+        if: success() || failure()
+        env:
+          NODE_OPTIONS: --max-old-space-size=2048
+        run: node test/snippets/react-run.mjs
+      - name: Existing Whispersync core coverage and React compilation
+        if: success() || failure()
+        run: node test/whispersync/run.mjs --coverage --react
+      - name: Existing pitch estimator and lifetime regressions
+        if: success() || failure()
+        run: node test/pitch/run.mjs
+      - name: Existing library dispatcher and diagnostic contracts
+        if: success() || failure()
+        run: |
+          python tests/unit/test_library_release_gate.py
+          python tests/unit/test_library_release_diagnostics.py
+  web:
+    name: Default and gated web exports with colocated qualification
+    # Missing/private visibility fails closed; no runner is allocated.
+    if: >-
+      github.event.repository.visibility == 'public' &&
+      toJSON(github.event.repository.private) == 'false' &&
+      github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+          cache: false
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - name: Record exact source and qualification limits
+        run: |
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+          {
+            printf 'Source commit: %s\n\n' "$(git rev-parse HEAD)"
+            printf 'Source tree: %s\n\n' "$(git rev-parse HEAD^{tree})"
+            cat docs/expo/CI-COVERAGE.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Install reviewed dependency graph without a remote cache
+        run: pnpm install --frozen-lockfile
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Prepare reviewed assets
+        id: assets
+        run: |
+          pnpm prepare:dictionary
+          node scripts/prepare-expo.mjs
+      - name: Install ordinary browser test dependencies on this runner
+        id: browsers
+        run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          pnpm exec playwright install chromium webkit
+      - name: Export the default production route
+        id: default-export
+        if: ${{ !cancelled() && steps.assets.outcome == 'success' && steps.browsers.outcome == 'success' }}
+        env:
+          BASE_PATH: /reader-web
+          NODE_OPTIONS: --max-old-space-size=6144
+          EXPO_NO_TELEMETRY: '1'
+          EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME: '0'
+        run: |
+          rm -rf apps/web/build
+          pnpm --dir apps/web exec expo export --platform web --clear --output-dir build --max-workers 2
+          node scripts/expo-postbuild.mjs
+          node scripts/verify-expo-export.mjs --platform web --output apps/web/build --report apps/web/build/asset-qualification.json
+          cat apps/web/build/asset-qualification.json
+      - name: Core default-route acceptance without early failure suppression
+        if: ${{ !cancelled() && steps.default-export.outcome == 'success' && steps.browsers.outcome == 'success' }}
+        run: |
+          status=0
+          run_suite() {
+            local name="$1" result=0
+            shift
+            echo "::group::$name"
+            if timeout --kill-after=15s 600s "$@"; then
+              printf -- '- PASS: %s\n' "$name" >> "$GITHUB_STEP_SUMMARY"
+            else
+              result=$?
+              status=1
+              printf -- '- FAIL (exit %s): %s\n' "$result" "$name" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo '::endgroup::'
+          }
+          # The unchanged static-reader launcher is Chromium-only.
+          run_suite default-static-reader-chromium python tests/browser/test_static_reader.py
+          for engine in chromium webkit; do
+            export LIBRARY_BROWSER="$engine" PICKS_BROWSER="$engine" APPEARANCE_BROWSER="$engine"
+            for suite in test_settings_controls test_product_journeys test_library_parity; do
+              run_suite "default-$suite-$engine" python "tests/browser/$suite.py"
+            done
+          done
+          exit "$status"
+      - name: Export the flag-enabled qualification path in the same runner
+        id: export
+        # An earlier default-route assertion must not suppress gated-path evidence.
+        if: ${{ !cancelled() && steps.assets.outcome == 'success' && steps.browsers.outcome == 'success' }}
+        env:
+          BASE_PATH: /reader-web
+          NODE_OPTIONS: --max-old-space-size=6144
+          EXPO_NO_TELEMETRY: '1'
+          EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME: '1'
+        run: |
+          rm -rf apps/web/build
+          pnpm --dir apps/web exec expo export --platform web --clear --output-dir build --max-workers 2
+          node scripts/expo-postbuild.mjs
+          node scripts/verify-expo-export.mjs --platform web --output apps/web/build --report apps/web/build/asset-qualification.json
+          cat apps/web/build/asset-qualification.json
+          test ! -e apps/web/build/moss
+          if find apps/web/build -type f -path '*/moss/*' -print -quit | grep -q .; then
+            echo 'Default-off video build unexpectedly packaged MOSS runtime assets' >&2
+            exit 1
+          fi
+      - name: Execute the actual emitted web pitch worker without Expo globals
+        if: ${{ !cancelled() && steps.export.outcome == 'success' && steps.browsers.outcome == 'success' }}
+        run: |
+          node test/expo/exported-pitch-browser.mjs --platform web --output apps/web/build --qualification apps/web/build/asset-qualification.json --report apps/web/build/pitch-runtime-qualification.json
+          cat apps/web/build/pitch-runtime-qualification.json
+      - name: Genuine SwiftF0 browser worker inference
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
+        run: node test/expo/onnx-runtime-browser.mjs
+      - name: Real browser cover decoding and canvas
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
+        run: node test/expo/native-library-cover-browser.mjs
+      - name: Retained actual-app assertions on the same export
+        if: ${{ !cancelled() && steps.export.outcome == 'success' && steps.browsers.outcome == 'success' }}
+        run: |
+          # Like qualify_library_data_safety.py, record every attempted group,
+          # keep later independent suites running, and fail on any nonzero exit.
+          status=0
+          run_suite() {
+            local name="$1" result=0
+            shift
+            echo "::group::$name"
+            if timeout --kill-after=15s 600s "$@"; then
+              printf -- '- PASS: %s\n' "$name" >> "$GITHUB_STEP_SUMMARY"
+            else
+              result=$?
+              status=1
+              printf -- '- FAIL (exit %s): %s\n' "$result" "$name" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo '::endgroup::'
+          }
+          for engine in chromium webkit; do
+            export LIBRARY_BROWSER="$engine" PICKS_BROWSER="$engine" APPEARANCE_BROWSER="$engine" SLIDE_BROWSER="$engine"
+            cases=(BooksLibraryBrowser)
+            if [ "$engine" = chromium ]; then cases+=(BooksLibraryFilesystem); fi
+            run_suite "books-library-$engine" python tests/browser/test_books_library.py "${cases[@]}"
+            for suite in \
+              test_web_reader_lifetime test_library_parity test_editors_picks \
+              test_want_to_read test_library_sync test_cloud_series_replay \
+              test_library_cloud_relocation test_library_identity test_collection_commit \
+              test_preference_sync_recovery test_import_hydration \
+              test_settings_controls test_settings_editor_usability \
+              test_annotations_quality test_scrubber_quality test_library_grid_labels \
+              test_rhea_ui test_connect_ui test_panel_usability test_gallery_usability \
+              test_modal_tab_fallback test_unified_search test_product_journeys \
+              test_search_quality test_search_focus; do
+              run_suite "$suite-$engine" python "tests/browser/$suite.py"
+            done
+            run_suite "onboarding-enlarged-text-$engine" python tests/browser/test_modal_controls.py ModalControlsBrowser.test_onboarding_dialog_fits_short_viewports_and_larger_text -v
+            run_suite "modal-keyboard-$engine" python tests/browser/test_modal_controls.py ModalControlsBrowser.test_long_library_dialogs_clear_the_close_target_in_light_and_dark -v
+            run_suite "gallery-lifetime-$engine" env PYTHONPATH=tests/browser python -m unittest test_gallery_reveal_lifetime test_gallery_continuity -v
+            run_suite "offline-reader-$engine" python tests/browser/test_offline_reader.py --browser "$engine"
+            run_suite "whispersync-app-$engine" python tests/browser/test_whispersync.py --browser "$engine"
+          done
+          export LIBRARY_BROWSER=chromium PICKS_BROWSER=chromium
+          for suite in test_static_reader test_local_library test_local_move_recovery \
+            test_library_preview_cache test_reading_recovery test_ttu_migration \
+            test_ttu_migration_edges test_completed_reading; do
+            run_suite "$suite-chromium" python "tests/browser/$suite.py"
+          done
+          exit "$status"
+      - name: Required shared and local data safety on the same export
+        if: ${{ !cancelled() && steps.export.outcome == 'success' && steps.browsers.outcome == 'success' }}
+        run: python tests/browser/qualify_library_data_safety.py
+      - name: Assembled snippets and native IndexedDB in both browser engines
+        if: ${{ !cancelled() && steps.export.outcome == 'success' && steps.browsers.outcome == 'success' }}
+        run: |
+          mkdir -p test-results/snippets
+          PORT=4178 BASE_PATH=/reader-web node scripts/serve-expo.mjs > test-results/snippets/server.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 60); do
+            if ! kill -0 "$server" 2>/dev/null; then
+              cat test-results/snippets/server.log
+              exit 1
+            fi
+            if curl --fail --silent http://127.0.0.1:4178/reader-web/snippets >/dev/null; then ready=true; break; fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            cat test-results/snippets/server.log
+            echo 'Expo static preview did not become ready' >&2
+            exit 1
+          fi
+          status=0
+          for engine in chromium webkit; do
+            if SNIPPETS_BROWSER="$engine" SNIPPETS_SCREENSHOT="test-results/snippets/$engine.png" node test/snippets/browser.mjs; then
+              printf -- '- PASS: snippets-%s\n' "$engine" >> "$GITHUB_STEP_SUMMARY"
+            else
+              result=$?
+              status=1
+              printf -- '- FAIL (exit %s): snippets-%s\n' "$result" "$engine" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          exit "$status"
+      - name: Verify qualification left committed source unchanged
+        if: always()
+        run: |
+          git diff --check
+          git diff --exit-code
+      - name: Print existing dispatcher evidence without uploading files
+        if: always()
+        run: |
+          if [ -f test-results/library-data-safety-all.json ]; then
+            cat test-results/library-data-safety-all.json
+          fi
+          printf '\nSee step outcomes and logged per-suite exit codes; skipped or unfinished suites are unqualified.\n' >> "$GITHUB_STEP_SUMMARY"
+  android:
+    name: Android export, APK assets and synthetic packaged-host runtime
+    # Missing/private visibility fails closed; no runner is allocated.
+    if: >-
+      github.event.repository.visibility == 'public' &&
+      toJSON(github.event.repository.private) == 'false' &&
+      github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+          cache: false
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - name: Record exact source and qualification limits
+        run: |
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+          {
+            printf 'Source commit: %s\n\n' "$(git rev-parse HEAD)"
+            printf 'Source tree: %s\n\n' "$(git rev-parse HEAD^{tree})"
+            cat docs/expo/CI-COVERAGE.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Install reviewed dependency graph without a remote cache
         run: pnpm install --frozen-lockfile
       - uses: actions/setup-java@v4
-        if: matrix.platform == 'android'
         with:
           distribution: temurin
           java-version: '21'
@@ -49,29 +373,23 @@ jobs:
         run: |
           pnpm prepare:dictionary
           node scripts/prepare-expo.mjs
-      - name: Export actual application and DOM workers
+      - name: Export actual Android application and DOM workers
         env:
           BASE_PATH: /reader-web
           NODE_OPTIONS: --max-old-space-size=6144
           EXPO_NO_TELEMETRY: '1'
         run: |
-          if [ '${{ matrix.platform }}' = 'web' ]; then
-            pnpm --dir apps/web exec expo export --platform web --output-dir build --max-workers 2
-            node scripts/expo-postbuild.mjs
-            node scripts/verify-expo-export.mjs --platform web --output apps/web/build --report apps/web/build/asset-qualification.json
-          else
-            pnpm --dir apps/web exec expo export --platform android --output-dir dist-android --max-workers 2
-            node scripts/verify-expo-export.mjs --platform android --output apps/web/dist-android --report apps/web/dist-android/asset-qualification.json
-          fi
+          pnpm --dir apps/web exec expo export --platform android --output-dir dist-android --max-workers 2
+          node scripts/verify-expo-export.mjs --platform android --output apps/web/dist-android --report apps/web/dist-android/asset-qualification.json
+          cat apps/web/dist-android/asset-qualification.json
       - name: Verify Android-only generated project
-        if: matrix.platform == 'android'
         run: |
           pnpm --dir apps/web exec expo prebuild --platform android --no-install
           test -d apps/web/android
           test ! -d apps/web/ios
           test ! -d apps/web/macos
       - name: Compile Android host and run origin policy tests
-        if: matrix.platform == 'android'
+        id: apk
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: |
@@ -82,169 +400,24 @@ jobs:
           ./gradlew :expo-dom-webview:testDebugUnitTest :app:assembleRelease :app:assembleReleaseAndroidTest --no-daemon --max-workers=2
           cd ../../..
           node scripts/verify-expo-export.mjs --platform apk --output apps/web/android/app/build/outputs/apk/release/app-release.apk --report apps/web/dist-android/apk-qualification.json
-
-      - name: Execute the actual emitted pitch worker without Expo globals
+          cat apps/web/dist-android/apk-qualification.json
+      - name: Execute the actual APK-emitted pitch worker in Chromium without Expo globals
         run: |
           pnpm exec playwright install --with-deps chromium
-          if [ '${{ matrix.platform }}' = 'web' ]; then
-            node test/expo/exported-pitch-browser.mjs --platform web --output apps/web/build --qualification apps/web/build/asset-qualification.json --report apps/web/build/pitch-runtime-qualification.json
-          else
-            node test/expo/exported-pitch-browser.mjs --platform apk --output apps/web/android/app/build/outputs/apk/release/app-release.apk --qualification apps/web/dist-android/apk-qualification.json --report apps/web/dist-android/pitch-runtime-qualification.json
-          fi
-
-      - name: Collect small packaging diagnostics
-        if: always()
+          node test/expo/exported-pitch-browser.mjs --platform apk --output apps/web/android/app/build/outputs/apk/release/app-release.apk --qualification apps/web/dist-android/apk-qualification.json --report apps/web/dist-android/pitch-runtime-qualification.json
+          cat apps/web/dist-android/pitch-runtime-qualification.json
+      - name: Enable documented KVM group permissions on this disposable runner
+        id: kvm
+        if: ${{ !cancelled() && steps.apk.outcome == 'success' }}
+        # Explicitly approved for this temporary GitHub runner only.
+        # https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/
         run: |
-          python - <<'PY_DIAGNOSTICS'
-          from pathlib import Path
-          import zipfile
-          root = Path('apps/web/build' if '${{ matrix.platform }}' == 'web' else 'apps/web/dist-android')
-          if (root / 'index.html').exists():
-              print('EXPO_HTML_DIAGNOSTICS=' + (root / 'index.html').read_text()[:12000])
-          with zipfile.ZipFile('expo-diagnostics.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
-              if root.exists():
-                  for file in root.rglob('*'):
-                      if file.is_file() and (file.suffix in ('.js', '.mjs', '.html', '.json') or file.name in ('SOURCE.txt', 'LICENSE')):
-                          archive.write(file, file.relative_to(root))
-          PY_DIAGNOSTICS
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: expo-${{ matrix.platform }}-diagnostics
-          path: expo-diagnostics.zip
-          retention-days: 7
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: expo-${{ matrix.platform }}-evidence
-          path: |
-            apps/web/build
-            apps/web/dist-android
-            apps/web/android/app/build/outputs/apk/release
-            apps/web/android/app/build/outputs/apk/androidTest/release
-            pnpm-lock.yaml
-          retention-days: 7
-  regression:
-    name: Adapted regression suite
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: pnpm/action-setup@v6.1.0
-        with:
-          version: '12.3.4'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.21.0'
-      - run: pnpm install --frozen-lockfile
-      - run: node scripts/prepare-expo.mjs
-      - name: Strict application types
-        env:
-          NODE_OPTIONS: --max-old-space-size=6144
-        run: pnpm --dir apps/web check
-      - name: Existing unit and migration contract tests
-        if: success() || failure()
-        env:
-          NODE_OPTIONS: --max-old-space-size=4096
-        run: |
-          node --test --test-concurrency=2 tests/unit/*.test.mjs
-      - name: Migration contract tests
-        if: success() || failure()
-        run: pnpm test:expo
-      - name: Android instrumentation harness contracts
-        if: success() || failure()
-        run: node --test tests/android/harness.test.mjs
-      - name: Existing reader regressions
-        if: success() || failure()
-        run: pnpm test:reader
-      - name: Existing snippets and active React integration
-        if: success() || failure()
-        env:
-          NODE_OPTIONS: --max-old-space-size=2048
-        run: |
-          node test/snippets/run.mjs
-          node test/snippets/react-run.mjs
-      - name: Genuine SwiftF0 browser worker inference
-        if: success() || failure()
-        run: |
-          pnpm exec playwright install --with-deps chromium
-          node test/expo/onnx-runtime-browser.mjs
-          node test/expo/native-library-cover-browser.mjs
-      - name: Existing Whispersync core coverage
-        if: success() || failure()
-        run: pnpm test:whispersync
-  browser:
-    name: Existing browser acceptance
-    needs: export
-    if: ${{ always() && !cancelled() }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        suite:
-          [
-            test_static_reader.py,
-            test_library_parity.py,
-            test_settings_controls.py,
-            test_annotations_quality.py,
-            test_offline_reader.py
-          ]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@v4
-        with:
-          name: expo-web-evidence
-          path: evidence
-      - run: |
-          mkdir -p apps/web/build
-          cp -a evidence/apps/web/build/. apps/web/build/
-          test -f apps/web/build/expo-build-manifest.json
-          test -f apps/web/build/index.html
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-      - run: |
-          python -m pip install 'playwright==1.63.0'
-          python -m playwright install --with-deps chromium
-      - name: Exercise the same built application assertions
-        run: python tests/browser/${{ matrix.suite }}
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: expo-browser-${{ matrix.suite }}
-          path: test-results/
-          retention-days: 7
-
-  android-runtime:
-    name: Packaged Android host runtime
-    needs: export
-    if: ${{ success() }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.21.0'
-      - uses: actions/download-artifact@v4
-        with:
-          name: expo-android-evidence
-          path: evidence
-      - name: Require qualified release and test APKs from this exact run
-        run: |
-          mkdir -p apps/web/android/app/build/outputs/apk
-          cp -a evidence/apps/web/android/app/build/outputs/apk/. apps/web/android/app/build/outputs/apk/
-          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('evidence/apps/web/dist-android/apk-qualification.json'));if(p.passed!==true)throw Error('APK assets did not qualify');"
-          test -f apps/web/android/app/build/outputs/apk/release/app-release.apk
-          test -f apps/web/android/app/build/outputs/apk/androidTest/release/app-release-androidTest.apk
-      - name: Boot a fresh disposable emulator using official Android SDK tools
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Qualify the actual packaged host on a fresh disposable emulator
+        id: runtime
+        if: ${{ !cancelled() && steps.apk.outcome == 'success' && steps.kvm.outcome == 'success' }}
         env:
           ANDROID_SERIAL: emulator-5554
         run: |
@@ -255,27 +428,28 @@ jobs:
             exit 1
           fi
           mkdir -p test-results/android
-          # KVM access is a host permission boundary, never granted by this job.
-          # Software x86_64 emulation failed to boot in the first 600-second run.
-          { id; ls -l /dev/kvm || true; emulator -accel-check || true; } > test-results/android/acceleration.log 2>&1
-          if [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
-            cat test-results/android/acceleration.log
-            echo 'Android runtime qualification blocked: runner KVM access has not been authorized/provisioned.' >&2
-            exit 1
-          fi
+          { id; ls -l /dev/kvm; emulator -accel-check; } 2>&1 | tee test-results/android/acceleration.log
+          test -r /dev/kvm && test -w /dev/kvm
           sdkmanager --install 'system-images;android-35;google_apis;x86_64' emulator platform-tools
           export ANDROID_AVD_HOME="$(mktemp -d "$RUNNER_TEMP/manabi-reader-avd.XXXXXX")"
           printf 'no\n' | avdmanager create avd --name manabi-reader-qualification --package 'system-images;android-35;google_apis;x86_64'
-          emulator -accel-check
           emulator -avd manabi-reader-qualification -port 5554 -accel on -memory 2048 -no-window -no-audio -no-snapshot -no-metrics -gpu swiftshader -no-boot-anim > test-results/android/emulator.log 2>&1 &
           emulator_pid=$!
           trap 'adb -s "$ANDROID_SERIAL" emu kill >/dev/null 2>&1 || kill "$emulator_pid" 2>/dev/null || true' EXIT
           timeout 600 bash -c 'until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = 1 ]; do sleep 2; done'
           adb shell input keyevent 82
           bash tests/android/run-qualification.sh
-      - uses: actions/upload-artifact@v4
+      - name: Report actual runtime outcome and local diagnostics
         if: always()
-        with:
-          name: expo-packaged-android-runtime
-          path: test-results/android/
-          retention-days: 7
+        env:
+          RUNTIME_OUTCOME: ${{ steps.runtime.outcome }}
+        run: |
+          for file in test-results/android/*.txt test-results/android/acceleration.log; do
+            if [ -f "$file" ]; then printf '\n--- %s ---\n' "$file"; cat "$file"; fi
+          done
+          if [ "$RUNTIME_OUTCOME" = success ]; then
+            printf '\nSynthetic packaged-host instrumentation passed both phases on this exact APK. Full native product parity remains unqualified.\n' >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '\nAndroid runtime is UNQUALIFIED (step outcome: %s). APK worker execution is Chromium asset qualification only.\n' "$RUNTIME_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+            if [ -f test-results/android/emulator.log ]; then tail -n 200 test-results/android/emulator.log; fi
+          fi

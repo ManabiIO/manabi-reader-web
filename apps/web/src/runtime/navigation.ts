@@ -177,7 +177,13 @@ async function navigate(
         url
       );
     } else if (router) {
-      const path = `${url.pathname.startsWith(base + '/') ? url.pathname.slice(base.length) : url.pathname}${url.search}${url.hash}`;
+      const pathname =
+        url.pathname === base
+          ? '/'
+          : url.pathname.startsWith(base + '/')
+            ? url.pathname.slice(base.length)
+            : url.pathname;
+      const path = `${pathname}${url.search}${url.hash}`;
       router[options.replaceState ? 'replace' : 'push'](path);
     } else
       history[options.replaceState ? 'replaceState' : 'pushState'](options.state ?? {}, '', url);

@@ -54,13 +54,21 @@ export class NativeReaderNavigation {
   private ownershipExit = false;
   private shown = false;
   private error = '';
+  /** A timed-out catalog reply may already have mounted its hidden DOM reader. */
+  private unacknowledgedCatalog?: string;
   private current?: {
     identity: NativeReaderIdentity;
     value: unknown;
     admissionKey: string;
     passageToken?: string;
+    catalogToken?: string;
   };
-  private opening?: { key: string; promise: Promise<unknown>; passageToken?: string };
+  private opening?: {
+    key: string;
+    promise: Promise<unknown>;
+    passageToken?: string;
+    catalogToken?: string;
+  };
   private closing?: Promise<NativeReaderClose>;
   constructor(
     private command: Command,
@@ -91,6 +99,7 @@ export class NativeReaderNavigation {
     this.intent++;
     this.routeIntent++;
     this.current = undefined;
+    this.unacknowledgedCatalog = undefined;
     this.opening = undefined;
     this.closing = undefined;
     this.shown = false;
@@ -103,6 +112,7 @@ export class NativeReaderNavigation {
     this.intent++;
     this.routeIntent++;
     this.current = undefined;
+    this.unacknowledgedCatalog = undefined;
     this.opening = undefined;
     this.closing = undefined;
     this.shown = false;
@@ -148,11 +158,26 @@ export class NativeReaderNavigation {
       }
     );
   }
+  /** Catalog import already mounted a canonically admitted DOM reader. Never reopen by ID alone. */
+  readCatalog(payload: Record<string, unknown>): Promise<unknown> {
+    return this.admit(
+      `catalog-action:${JSON.stringify(payload)}`,
+      () => this.command('library.catalog.open', payload),
+      (value) => {
+        const id =
+          value && typeof value === 'object' && 'bookId' in value ? value.bookId : undefined;
+        return parseNativeReaderIdentity({ id: typeof id === 'number' ? String(id) : undefined });
+      },
+      undefined,
+      typeof payload.token === 'string' ? payload.token : undefined
+    );
+  }
   private admit(
     key: string,
     execute: () => Promise<unknown>,
     identity: (value: unknown) => NativeReaderIdentity,
-    passageToken?: string
+    passageToken?: string,
+    catalogToken?: string
   ): Promise<unknown> {
     if (this.opening?.key === key) return this.opening.promise;
     const generation = this.generation;
@@ -162,21 +187,38 @@ export class NativeReaderNavigation {
         throw new ReaderNavigationCancelled();
     };
     const closing =
-      this.current || this.opening || this.closing
+      this.current || this.opening || this.closing || this.unacknowledgedCatalog
         ? this.startClose()
         : Promise.resolve({ allowed: true });
-    const opening = { key, passageToken, promise: Promise.resolve() as Promise<unknown> };
+    const opening = {
+      key,
+      passageToken,
+      catalogToken,
+      promise: Promise.resolve() as Promise<unknown>
+    };
     this.opening = opening;
     this.error = '';
+    let executed = false;
     opening.promise = (async () => {
       try {
         const closed = await closing;
         check();
         if (!closed.allowed) throw new ReaderNavigationCancelled();
+        executed = true;
         const value = await execute();
         check();
-        this.current = { identity: identity(value), value, admissionKey: key, passageToken };
+        this.current = {
+          identity: identity(value),
+          value,
+          admissionKey: key,
+          passageToken,
+          catalogToken
+        };
         return value;
+      } catch (cause) {
+        if (executed && catalogToken && generation === this.generation && intent === this.intent)
+          this.unacknowledgedCatalog = catalogToken;
+        throw cause;
       } finally {
         if (this.opening === opening) {
           this.opening = undefined;
@@ -199,6 +241,17 @@ export class NativeReaderNavigation {
       return Promise.resolve();
     return this.close();
   }
+  cancelCatalog(token: unknown, readerRoute: boolean): Promise<unknown> {
+    if (
+      readerRoute ||
+      typeof token !== 'string' ||
+      (this.current?.catalogToken !== token &&
+        this.opening?.catalogToken !== token &&
+        this.unacknowledgedCatalog !== token)
+    )
+      return Promise.resolve();
+    return this.close();
+  }
   close(): Promise<NativeReaderClose> {
     // Even when saving is already coalesced, a newer exit must cancel any open queued behind it.
     this.intent++;
@@ -209,12 +262,16 @@ export class NativeReaderNavigation {
     if (this.closing) return this.closing;
     const current = this.current;
     const opening = this.opening;
+    const unacknowledgedCatalog = this.unacknowledgedCatalog;
     const generation = this.generation;
     const destination = this.destination();
-    if (!current && !opening) return Promise.resolve({ allowed: true, destination });
+    if (!current && !opening && !unacknowledgedCatalog)
+      return Promise.resolve({ allowed: true, destination });
     const closing = Promise.resolve().then(async () => {
       try {
-        const result = await this.command('close');
+        const catalogToken =
+          opening?.catalogToken ?? current?.catalogToken ?? unacknowledgedCatalog;
+        const result = await this.command('close', catalogToken ? { catalogToken } : undefined);
         if (generation !== this.generation) throw new ReaderNavigationCancelled();
         const allowed =
           !!result && typeof result === 'object' && 'allowed' in result && result.allowed === true;
@@ -226,6 +283,8 @@ export class NativeReaderNavigation {
             ? '/snippets'
             : destination;
         if (allowed) {
+          if (this.unacknowledgedCatalog === unacknowledgedCatalog)
+            this.unacknowledgedCatalog = undefined;
           if (this.current === current) this.current = undefined;
           if (this.opening === opening) this.opening = undefined;
           this.shown = false;
@@ -247,6 +306,7 @@ export class NativeReaderNavigation {
     this.intent++;
     this.routeIntent++;
     this.current = undefined;
+    this.unacknowledgedCatalog = undefined;
     this.opening = undefined;
     this.shown = false;
     this.error = '';

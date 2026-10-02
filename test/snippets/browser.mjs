@@ -327,6 +327,10 @@ try {
     name: 'Vertical reading',
     exact: true
   });
+  assert(
+    (await page.locator('html').evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
+    'Horizontal snippet reader must not make the page overflow horizontally'
+  );
   await verticalToggle.click();
   await expect(verticalToggle).toHaveAttribute('aria-pressed', 'true');
   const readingArticle = page.getByRole('article', { name: 'Snippet content' });
@@ -1019,6 +1023,35 @@ try {
   console.error('FAILED', error);
   if (page && !page.isClosed()) {
     console.error((await page.locator('body').innerText()).slice(0, 18000));
+    console.error(
+      'Snippet layout:',
+      await page.evaluate(() => ({
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        page: {
+          clientWidth: document.documentElement.clientWidth,
+          scrollWidth: document.documentElement.scrollWidth
+        },
+        elements: [
+          ...document.querySelectorAll(
+            '.snippet-workspace, .snippet-workspace .brand, .reading-tools, .snippet-reading, .editor-toolbar, .annotation, .annotation label'
+          )
+        ].map((node) => {
+          const box = node.getBoundingClientRect();
+          const style = window.getComputedStyle(node);
+          return {
+            className: node.className,
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
+            clientWidth: node.clientWidth,
+            scrollWidth: node.scrollWidth,
+            writingMode: style.writingMode,
+            margin: style.margin
+          };
+        })
+      }))
+    );
     const screen = process.env.SNIPPETS_SCREENSHOT ?? '/tmp/snippet-browser-failure.png';
     await mkdir(dirname(screen), { recursive: true });
     await page.screenshot({ path: screen, fullPage: true }).catch(() => undefined);
