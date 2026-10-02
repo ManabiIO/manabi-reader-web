@@ -6,8 +6,11 @@ export interface EpochRequest {
 export class LatestEpochQueue<T extends EpochRequest> {
   private epoch = -1;
   private tail: Promise<void> = Promise.resolve();
+  private run: (request: T, current: () => boolean) => Promise<void>;
 
-  constructor(private run: (request: T, current: () => boolean) => Promise<void>) {}
+  constructor(run: (request: T, current: () => boolean) => Promise<void>) {
+    this.run = run;
+  }
 
   submit(request: T): Promise<void> {
     if (!Number.isSafeInteger(request.epoch) || request.epoch < 0)
