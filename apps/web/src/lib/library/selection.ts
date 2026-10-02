@@ -84,6 +84,27 @@ export interface LibrarySelectionEligibility {
   previews: readonly string[];
 }
 
+export interface LibrarySelectionScope {
+  viewerId: string | null;
+  collectionId: string;
+  seriesId?: string;
+  unfinished: boolean;
+  searchScope: string;
+  search: string;
+}
+
+/** Ephemeral selection identity. JSON avoids delimiter collisions in user/provider text. */
+export function librarySelectionScopeKey(scope: LibrarySelectionScope): string {
+  return JSON.stringify([
+    scope.viewerId ?? 'local',
+    scope.collectionId,
+    scope.seriesId ?? '',
+    scope.unfinished ? 'unfinished' : 'all',
+    scope.searchScope,
+    scope.search
+  ]);
+}
+
 export function reconcileSelectionEligibility(
   previousScope: string,
   next: LibrarySelectionEligibility,
