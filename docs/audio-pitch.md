@@ -51,10 +51,17 @@ The controller belongs to the persistent audiobook player, not the dismissible
 Sheet. It samples a bounded rolling ~0.55 s Web Audio window about every 96 ms,
 with one worker request in flight, and keeps at most 400 history points. SwiftF0
 resamples only that window to 16 kHz and selects the newest estimate with its
-documented future context; it never decodes or copies the entire audiobook. Analysis stops when the strip, panel or browser tab
-is hidden; pausing, ending and buffering retire both pending results and their
-watchdogs. A fresh native audio window and available media data are required
-before sampling resumes. Stale callbacks cannot restore retired traces.
+documented future context; it never decodes or copies the entire audiobook.
+The sinc kernel scales with source rate so 96/192 kHz inputs keep the same
+anti-alias response as 48 kHz. Very quiet but non-silent windows receive
+model-only gain; waveform level and silence decisions remain on the original
+samples. Input/output ORT tensors are copied as needed and disposed after every
+inference, including failures.
+
+Analysis stops when the strip, panel or browser tab is hidden; pausing, ending
+and buffering retire both pending results and their watchdogs. A fresh native
+audio window and available media data are required before sampling resumes.
+Stale callbacks cannot restore retired traces.
 
 **Web Audio routing invariant:** once the media element is captured, its direct
 connection to the destination stays alive while visualization is hidden or off.
@@ -62,6 +69,13 @@ Only the analyser branch is disconnected. Closing or suspending that context on
 Sheet dismissal would silence the existing player. Native Play resumes the
 retained context before scheduling analysis. Audio replacement retires the old
 source; final player disposal closes the context.
+
+Reader requests a 48 kHz AudioContext because AnalyserNode is capped at 32,768
+samples. If a browser rejects that request and the native context is 96/192 kHz,
+the analyser cannot contain SwiftF0's complete left/right receptive field.
+Reader fails **before** downloading the worker/model, closes that still-uncaptured
+context, and asks for a 48 kHz output. Retry creates a fresh context after the
+device rate changes rather than reusing the unsupported one.
 
 ## Provenance
 
@@ -82,10 +96,12 @@ or database schema change is required.
 ## Qualification
 
 `node test/pitch/run.mjs` executes the actual TypeScript core through Node type
-stripping. The deterministic tests cover SwiftF0 resampling/selection contracts, bounds,
-silence and malformed output, plus missing/malformed replies, delayed
-initialization, seek/pause/end/buffering races, timeouts, retries, replacement,
-native resume, preserved routing, and rolling graph geometry. Native browser
+stripping. The deterministic tests cover SwiftF0 resampling/selection contracts, high-rate
+anti-alias rejection, complete receptive-field requirements, current-hop
+silence gating, quiet-input model gain, ORT tensor lifetime and malformed output,
+plus missing/malformed replies, delayed initialization, seek/pause/end/buffering
+races, timeouts, retries, output-rate recovery, replacement, native resume,
+preserved routing, and rolling graph geometry. Native browser
 qualification exercises the real vendored model and WASM runtime.
 
 `node test/pitch/run.mjs --emit=test-results/pitch-modules` followed by
