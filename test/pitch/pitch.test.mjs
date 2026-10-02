@@ -613,6 +613,17 @@ test('paused playback stops sampling; native Play still resumes retained routing
   assert.equal(f.context.closes, 1);
 });
 
+test('analysis error racing a pause property change retires silently', async () => {
+  const f = await running();
+  f.frame();
+  f.a.paused = true;
+  f.analysisError();
+  assert.equal(f.state.status, 'ready');
+  assert.equal(f.timers.size, 0);
+  assert.equal(f.state.points.length, 0);
+  f.controller.dispose();
+});
+
 test('stale analysis errors after a playback discontinuity are ignored', async () => {
   const f = await running();
   f.frame();
