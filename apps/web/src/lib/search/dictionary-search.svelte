@@ -79,7 +79,7 @@
       const value = await opened.client.search(needle, detailed, { signal });
       signal.throwIfAborted();
       if (
-        value.version !== 1 ||
+        value.contractVersion !== 1 ||
         value.query !== needle.trim() ||
         typeof value.prefix !== 'boolean'
       )
@@ -203,7 +203,7 @@
         onProgress: () => {}
       });
       imported = true;
-      if (!file) await opened.client.setDefault('installed', result.summary.title);
+      if (!file) await opened.client.recordDefaultInstall(result.summary.title);
       if (mounted) setupOpen = false;
       if (mounted)
         message = result.cancelledAfterCommit
