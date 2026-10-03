@@ -16,13 +16,33 @@ if (
   provider.requiredDistributionFiles.some(
     (file) =>
       typeof file !== 'string' || !file || path.isAbsolute(file) || file.split('/').includes('..')
+  ) ||
+  !Array.isArray(provider.obsoletePublicPaths) ||
+  provider.obsoletePublicPaths.some(
+    (file) =>
+      typeof file !== 'string' ||
+      !file ||
+      path.isAbsolute(file) ||
+      file.split('/').includes('..') ||
+      file === 'dictionary-runtime' ||
+      file === 'dictionary-archives'
   )
 )
   throw new Error('Invalid dictionary provider configuration.');
 
 const assets = path.join(root, 'apps/web/static');
-const destination = path.join(assets, 'dictionary-runtime', provider.revision);
+const runtimeRoot = path.join(assets, 'dictionary-runtime');
+const destination = path.join(runtimeRoot, provider.revision);
 const cache = path.join(root, '.cache/dictionary-build', provider.id, provider.revision);
+
+for (const obsolete of provider.obsoletePublicPaths)
+  await fs.rm(path.join(assets, obsolete), { recursive: true, force: true });
+
+await fs.mkdir(runtimeRoot, { recursive: true });
+for (const entry of await fs.readdir(runtimeRoot, { withFileTypes: true })) {
+  if (entry.name === provider.revision) continue;
+  await fs.rm(path.join(runtimeRoot, entry.name), { recursive: true, force: true });
+}
 
 async function filesUnder(directory, base = directory) {
   const result = [];
@@ -106,6 +126,10 @@ if (
 
 const archives = path.join(assets, 'dictionary-archives');
 await fs.mkdir(archives, { recursive: true });
+for (const entry of await fs.readdir(archives, { withFileTypes: true })) {
+  if (entry.name === dictionary.fileName) continue;
+  await fs.rm(path.join(archives, entry.name), { recursive: true, force: true });
+}
 const archivePath = path.join(archives, dictionary.fileName);
 const matches = (bytes) =>
   bytes.byteLength === dictionary.bytes &&
