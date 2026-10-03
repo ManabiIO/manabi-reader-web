@@ -32,6 +32,7 @@ for (const platform of ['web', 'android'])
         assert.equal(router, WebSlotRouter);
         return children;
       };
+      Navigator.useContext = () => ({ NavigationContent: passthrough });
       Navigator.Slot = () => React.createElement('section', { 'data-navigator': 'slot' });
       const dependencies = {
         'react/jsx-runtime': jsxRuntime,

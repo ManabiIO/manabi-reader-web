@@ -545,16 +545,21 @@ function ModalContent({
         ...scopes,
         overlayProps?.className ?? overlayProps?.class ?? ''
       ].join(' ')}
-      onClick={(event) => {
+      onPointerUp={(event) => {
         if (event.target === event.currentTarget && !closeDisabled) {
           live.current.onInteractOutside?.(event);
           if (event.defaultPrevented) return;
-          // Keep the backdrop through the entire touch gesture. Removing it on
-          // pointerdown lets the compatibility click activate a reader control
-          // underneath, including the Library button at the top of the page.
           event.preventDefault();
           event.stopPropagation();
-          modal.close();
+          // Touch readers prevent compatibility clicks. Keep the backdrop through
+          // the pointer's click dispatch so dismissal cannot activate the toolbar.
+          requestAnimationFrame(() => live.current.modal.close());
+        }
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          event.preventDefault();
+          event.stopPropagation();
         }
       }}
     >

@@ -489,8 +489,13 @@ function MenuContent({
         } else if (event.key === 'Escape' || (context.submenu && event.key === 'ArrowLeft')) {
           event.preventDefault();
           event.stopPropagation();
-          context.setOpen(false);
-          context.trigger.current?.focus();
+          if (event.key === 'Escape') {
+            context.closeTree();
+            context.rootTrigger.current?.focus();
+          } else {
+            context.setOpen(false);
+            context.trigger.current?.focus();
+          }
         } else if (event.key === 'Tab') {
           event.stopPropagation();
           context.closeTree();

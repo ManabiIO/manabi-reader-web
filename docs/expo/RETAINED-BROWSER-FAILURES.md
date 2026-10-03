@@ -31,9 +31,11 @@ under investigation; it is neither waived nor counted as fixed.
 
 3. **Nested menu exit before export** — `test_library_sort_and_export_preserve_all_export_parts`
    ([case](../../tests/browser/test_rhea_ui.py)). `Select Books` timed out after only
-   two Escapes from four nested menus. The local fixture now asserts each submenu
-   closes and focus returns before reopening Library actions. All export-part
-   assertions remain; browser requalification pending.
+   two Escapes from four nested menus. Escape now closes the entire tree and
+   returns focus to Library actions; ArrowLeft closes only the innermost submenu.
+   A real Svelte baseline replay confirms the tree is gone after the first Escape.
+   The fixture retains its original two-Escape sequence and all export-part
+   assertions; browser requalification pending.
 
 4. **Custom-theme dialog focus** — `test_dialog_traps_focus_and_escape_preserves_custom_theme`
    ([case](../../tests/browser/test_rhea_ui.py)). Repeated Tab left no focused
@@ -42,9 +44,9 @@ under investigation; it is neither waived nor counted as fixed.
 
 5. **Touch dismissal and focus return** — `test_touch_reading_appearance_fits_and_outside_dismissal_restores_controls`
    ([case](../../tests/browser/test_rhea_ui.py)). The `Themes & Settings` button
-   could not be found/focused after dismissal. Local backdrop dismissal waits for
-   the completed click instead of exposing underlying reader controls during
-   pointerdown. Touch and focus-return browser requalification pending.
+   could not be found/focused after dismissal. Local backdrop dismissal handles
+   pointer release and stays mounted through click dispatch; Reader touch handling
+   can suppress compatibility clicks. Touch and focus-return browser requalification pending.
 
 6. **Whispersync conflict without audio** — `test_whispersync_conflict_warning_is_visible_without_an_audio_file`
    ([case](../../tests/browser/test_whispersync.py)). The `changed in another tab`
@@ -96,7 +98,8 @@ under investigation; it is neither waived nor counted as fixed.
 14. **Read-only WebDAV import and offline search** — `test_direct_webdav_import_is_read_only_and_offline_searchable`
     ([case](../../tests/browser/test_local_library_features.py)). Excerpts show
     both absent service-worker control and a later `Search library` timeout.
-    The local fixture uses the existing bounded offline-shell admission helper.
+    The local fixture uses the existing bounded offline-shell admission helper
+    and waits for real Library hydration after reloading the offline document.
     Controller acquisition, real offline reload/search and unchanged no-provider-write
     assertions all remain unqualified until the exported-browser rerun.
 

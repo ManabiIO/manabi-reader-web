@@ -233,6 +233,11 @@ test('Reader backdrop owns the complete touch activation and restores its trigge
     assert.ok(backdrop);
     let escapedClicks = 0;
     window.addEventListener('click', () => escapedClicks++);
+    let finishDismissal;
+    window.requestAnimationFrame = (callback) => {
+      finishDismissal = callback;
+      return 1;
+    };
     await api.act(() => {
       backdrop.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true }));
       backdrop.dispatchEvent(new window.MouseEvent('pointerup', { bubbles: true }));
@@ -243,6 +248,7 @@ test('Reader backdrop owns the complete touch activation and restores its trigge
     assert.equal(click.defaultPrevented, true);
     assert.equal(escapedClicks, 0, 'reader/window handlers cannot reinterpret the dismissal');
     assert.equal(window.outsideInteractions, 1);
+    await api.act(() => finishDismissal(0));
     assert.equal(window.document.querySelector('[role=dialog]'), null);
     assert.equal(window.document.activeElement, trigger);
   });
@@ -253,7 +259,11 @@ test('Reader outside-interaction cancellation keeps its modal open', async () =>
     await api.render('reader-dismissal', { preventOutside: true });
     await api.act(() => window.document.querySelector('#root button').click());
     const backdrop = window.document.querySelector('.reader-modal-backdrop');
-    await api.act(() => backdrop.click());
+    await api.act(() =>
+      backdrop.dispatchEvent(
+        new window.MouseEvent('pointerup', { bubbles: true, cancelable: true })
+      )
+    );
     assert.equal(window.outsideInteractions, 1);
     assert.ok(backdrop.isConnected);
   });
@@ -639,13 +649,13 @@ test('Library nested keyboard navigation and touch activation preserve parent fo
     assert.equal(window.document.activeElement, title);
     await api.act(() =>
       title.dispatchEvent(
-        new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+        new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })
       )
     );
     assert.equal(
       window.document.querySelectorAll('[role=menu]').length,
       2,
-      'Escape closes only the innermost portal'
+      'ArrowLeft closes only the innermost portal'
     );
     assert.equal(window.document.activeElement, sort);
     await api.act(() =>
@@ -661,6 +671,16 @@ test('Library nested keyboard navigation and touch activation preserve parent fo
     );
     assert.equal(window.document.querySelectorAll('[role=menu]').length, 0);
     assert.equal(window.choices.length, 0);
+    await api.act(() => trigger.click());
+    await api.act(() => window.document.querySelector('[data-test=view]').click());
+    const submenuItem = window.document.querySelector('[data-test=sort]');
+    await api.act(() =>
+      submenuItem.dispatchEvent(
+        new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+      )
+    );
+    assert.equal(window.document.querySelectorAll('[role=menu]').length, 0);
+    assert.equal(window.document.activeElement, trigger);
   });
 });
 

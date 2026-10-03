@@ -295,8 +295,9 @@ test('two independent exports qualify the promoted reader and do not mask defaul
     assert.doesNotMatch(source, /qualifyWebReaderLifetime|EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME/);
   assert.match(
     layout,
-    /Platform\.OS === 'web'\s*\?\s*\(\s*<Navigator router=\{WebSlotRouter\}>\s*<Navigator\.Slot \/>/
+    /Platform\.OS === 'web'\s*\?\s*\(\s*<Navigator router=\{WebSlotRouter\}>\s*<WebSlot \/>/
   );
+  assert.match(layout, /<NavigationContent>\s*<Navigator\.Slot \/>/);
   assert.match(route, /return <QualifiedWebReader routeUrl=\{url\.href\}/);
   assert.match(binding, /return installQualifiedWebNavigation\(window, adapter, setError\)/);
 });
