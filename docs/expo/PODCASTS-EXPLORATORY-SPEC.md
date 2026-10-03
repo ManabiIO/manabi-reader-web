@@ -763,6 +763,46 @@ The diagnostic result should identify whether the blocker was:
 
 The provider matrix must be refreshed from actual browser probes before release. Search results, directory metadata, old captures and provider statements are research evidence, not release evidence.
 
+### 3.6 Separate release qualification from runtime episode admission
+
+Do not turn the production catalog into a scanner that probes every enclosure.
+
+That would:
+
+- create publisher/analytics requests merely because the user browsed/searches
+- potentially mint dynamic-ad renditions the user never listens to
+- multiply request volume across large episode catalogs
+- make search/listing depend on third-party network health
+
+Use two layers:
+
+~~~text
+release/provider-shape qualification
+  scheduled/manual harness
+  representative exact publisher URLs
+  Chromium + WebKit + Android WebView evidence
+  establishes which source shapes are eligible MOSS candidates
+
+runtime exact-episode admission
+  only after the user explicitly enables local MOSS captions
+  verifies the exact selected publisher URL in the current browser/session
+  becomes the active RenditionSession authority
+~~~
+
+The generated episode manifest may carry a dated **capability hint** such as "Megaphone-style chain qualified on 2026-10-03". That hint may decide whether the UI offers local captions, but it is never sufficient to bind timed text.
+
+Runtime admission should be minimal:
+
+1. use existing playback/network evidence when safely observable
+2. perform the smallest CORS/Range/exact-size checks necessary
+3. decode only the bounded first/target MOSS window needed for admission
+4. establish same-session fingerprints as normal reads occur rather than firing a large synthetic probe burst
+5. never run the fresh-context `MOSS_REOPEN` test as ordinary user traffic
+
+Fresh-context/reopen qualification belongs in the external harness. At product reopen time, validate the specific saved transcript against bounded existing byte/PCM proofs only if timed reuse is requested.
+
+Browsing, title search and publisher-transcript text search must remain enclosure-network-free.
+
 ## 4. Browser/CORS constraint
 
 The no-proxy requirement is viable only for qualifying episodes.
@@ -1929,6 +1969,7 @@ Build a small qualification harness for real publisher media URLs:
 - playback with each candidate request mode (`no-cors` default and anonymous CORS where supported)
 - browser CORS GET for ASR
 - redirect behavior and request-Origin/redirect-taint evidence
+- explicit confirmation that these live-provider probes run only in qualification tooling, never as catalog-browse side effects
 - single Range 0-0 and another bounded range
 - same-session runtime-cache fixed-range stability
 - fresh-context/reload reopen stability
@@ -2135,8 +2176,9 @@ Do not add a large copyrighted podcast episode to the repository.
 
 Reuse existing doubles plus new audio-only integration:
 
-- opening episode does not prepare MOSS
-- enabling local captions prepares MOSS only after valid PCM exists
+- browsing/listing/searching episodes never runs enclosure capability probes
+- ordinary playback alone never prepares MOSS
+- enabling local captions performs exact-episode admission and prepares MOSS only after valid PCM exists
 - current playhead is first sparse priority
 - existing v3 jobs retain their historical whole-media scheduling semantics
 - the new podcast job version persists coverage policy explicitly
@@ -2318,6 +2360,7 @@ A first shippable Podcasts experiment should satisfy all of the following:
 - In-progress work survives supported pause/reload flows without pretending to be a verified portable Track.
 - Portable transcript publication is bound to exact ContentKey, or a separately reviewed replacement identity protocol.
 - Changed remote bytes cannot silently reuse a timed transcript.
+- Browsing/searching never performs enclosure CORS/Range qualification requests.
 - Search never downloads podcast media or starts MOSS.
 - Untimed transcript search never fabricates timestamps.
 - Feed text cannot inject HTML/script/entity-expansion/resource-fetch behavior.
