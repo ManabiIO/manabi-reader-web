@@ -29,6 +29,9 @@ const providerSpecific = new Set([
   'apps/web/src/lib/search/dictionary-providers/manabitan/adapter.ts',
   'apps/web/src/lib/search/dictionary-providers/manabitan/version.json'
 ]);
+const providerInteropSpecific = new Set([
+  'apps/web/src/lib/integrations/external-dictionary-interop.ts'
+]);
 const buildProviderSpecific = new Set([
   'scripts/dictionary-provider-selection.mjs',
   'scripts/dictionary-providers/manabitan.mjs'
@@ -77,6 +80,7 @@ for (const file of tracked) {
   if (
     file.startsWith('apps/') &&
     !providerSpecific.has(file) &&
+    !providerInteropSpecific.has(file) &&
     providerImplementationTokens.test(source)
   )
     implementationLeaks.push(file);
