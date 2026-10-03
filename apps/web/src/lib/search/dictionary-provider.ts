@@ -12,7 +12,7 @@ export interface DictionaryPreview {
 }
 
 export interface DictionaryResult {
-  version: 1;
+  contractVersion: 1;
   query: string;
   matchedQuery: string;
   /** True when the provider produced prefix-derived results. */
@@ -49,7 +49,7 @@ export interface DictionaryClient {
   ): Promise<{ summary: { title: string }; warnings: string[]; cancelledAfterCommit: boolean }>;
   deleteDictionary(title: string, options?: { signal?: AbortSignal }): Promise<DictionaryStatus>;
   setEnabled(title: string, enabled: boolean): Promise<DictionaryStatus>;
-  setDefault(choice: string, title?: string): Promise<DictionaryStatus>;
+  recordDefaultInstall(title: string): Promise<DictionaryStatus>;
   close(): Promise<void>;
 }
 
