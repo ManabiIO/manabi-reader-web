@@ -1315,6 +1315,22 @@ full
 
 The exact schema/state name is open, but it must be durable and validator-visible. Do not encode the distinction only in transient UI state.
 
+Existing version-3 sparse jobs already have durable meaning: their scheduler ultimately fills the whole media item. **Do not reinterpret existing v3 jobs.** The podcast coverage contract needs a new persisted version/shape (for example a new Job version with a separate `coveragePolicy`) while retaining the current `overlap-sparse-v2` window/seam algorithm.
+
+Keep recognition-window policy and scheduling policy separate:
+
+~~~text
+recognition policy
+  overlap-sparse-v2
+  -> how a window is decoded, reconciled and repaired
+
+coverage policy
+  playback-lead | full
+  -> which missing windows are admitted, and when the job parks
+~~~
+
+This prevents a later scheduler change from relabeling old inference/checkpoint semantics.
+
 For `playback-lead`:
 
 - prioritize current playback position
@@ -1327,7 +1343,9 @@ For `playback-lead`:
 - do not restart from zero because the user jumps forward
 - do not let an idle open episode silently consume CPU filling distant hours
 
-The current Job status/pause-reason model has no "lead satisfied" state and current sparse queue code continues until full coverage. This requires an explicit scheduler/job-state change rather than only calling `queue.prioritize()`.
+The current Job status/pause-reason model has no "lead satisfied" state and current sparse queue code continues until full coverage. This requires an explicit versioned scheduler/job-state change rather than only calling `queue.prioritize()`.
+
+Prefer a non-error parked/idle state or equivalently explicit coverage status. Do not overload `pauseReason: 'user'` or `'switch'`: lead satisfaction is successful scheduler state, and startup recovery must not present it as an abandoned/failed job.
 
 Whole-episode `full` mode, if eventually offered, must be an explicit separate action and should surface expected cost.
 
@@ -1619,7 +1637,10 @@ Reuse existing doubles plus new audio-only integration:
 - opening episode does not prepare MOSS
 - enabling local captions prepares MOSS only after valid PCM exists
 - current playhead is first sparse priority
+- existing v3 jobs retain their historical whole-media scheduling semantics
+- the new podcast job version persists coverage policy explicitly
 - playback-lead mode stops scheduling after its bounded lead is satisfied
+- lead satisfaction is not misreported as user cancellation/failure
 - satisfying a lead releases runtime/model ownership rather than filling distant windows
 - seeking into uncovered audio re-admits the same durable job and prioritizes the new region
 - whole-episode work does not begin unless full mode was explicitly selected
@@ -1889,7 +1910,7 @@ Keep each implementation PR reviewable.
 5. Shared transcript/player seam extraction with zero intended Video behavior changes.
 6. Podcasts route/category + logical EpisodeKey resume + foreground playback only.
 7. Publisher transcript display/search, with timed follow gated by timeline qualification.
-8. Versioned MOSS `playback-lead` scheduler/job state + local audio-only fixture tests.
+8. New versioned MOSS coverage-policy/job state + `playback-lead` scheduler + local audio-only fixture tests.
 9. Remote bounded local MOSS draft + rendition/audio-proof recovery.
 10. Optional exact ContentKey/full-publication path only after request/bandwidth measurement.
 11. Podcast transcript study UI and unified search integration.
