@@ -1099,13 +1099,18 @@ A transcript timed against rendition A must not be silently attached to material
 
 The first draft underweighted dynamic ad insertion.
 
-Before creating a remote provisional MOSS job, establish a `RenditionSession` (name provisional) containing the exact admitted enclosure URL, size evidence, final observed URL for diagnostics, exposed validators when available, and fixed-range byte fingerprints.
+Before creating a remote provisional MOSS job, establish a `RenditionSession` (name provisional) containing the exact admitted publisher media URL, exact-size evidence, final observed URL for diagnostics, exposed validators when available, and fixed-range byte fingerprints.
 
-The session is valid only while subsequent reads remain consistent with that evidence.
+The session is valid only while subsequent runtime reads remain consistent with that evidence.
 
-Do **not** automatically switch playback or ASR to the final CDN URL merely because `Response.url` reveals it. Doing so can bypass publisher tracking/ad delivery or rely on an expiring implementation URL. The original enclosure remains publisher authority unless a provider-specific integration explicitly permits another URL.
+Do **not** automatically switch playback or ASR to the final CDN URL merely because `Response.url` reveals it. Doing so can bypass publisher tracking/ad delivery or rely on an expiring implementation URL. The publisher-declared source remains authority unless a provider-specific integration explicitly permits another URL.
 
-If repeated reads of the original enclosure are not stable enough to bind transcript timing, v1 should classify that episode as playback-only.
+Distinguish two failures:
+
+- **intra-session mismatch** — the same active RenditionSession returns incompatible bytes/timeline for overlapping/fixed ranges. This is a hard MOSS failure: stop inference and classify that media path `UNSTABLE_SESSION`.
+- **later-session mismatch** — a fresh context/reopen gets a different but internally coherent rendition. This is expected on some monetized hosts. Current-session MOSS can still be valid; saved timed captions require evidence revalidation before reuse and may fall back to text-only history.
+
+Do not reduce both cases to playback-only.
 
 ### 6.3 Full-byte ContentKey is a compatibility path, not the default experiment
 
@@ -1176,26 +1181,29 @@ If conditional request headers would require a CORS preflight that the host does
 
 ### 6.6 Dynamic ad insertion
 
-Dynamic ads can make separate requests to the same enclosure URL return different bytes.
+Dynamic ads can make the same logical episode URL map to different byte/timeline renditions across listeners, devices or sessions.
 
-This creates two risks:
+This creates three different risks:
 
-1. Full hash stream and MOSS range reads could observe different renditions.
-2. A later playback could differ from the transcript's timing.
+1. **same-session split brain** — MOSS, hashing and playback requests accidentally observe different renditions during one active session.
+2. **reopen mismatch** — later playback is coherent but no longer aligns with saved timed captions.
+3. **cross-device mismatch** — another device receives a different ad/timeline even when the logical episode is the same.
 
 Minimum safe behavior:
 
-- during one Generate session, capture every observable validator/final URL/size signal and fixed-range fingerprints
-- fail/pause publication if a later read contradicts that session
-- preserve existing audio proofs
-- on reopen, before trusting a transcript for a remote episode whose rendition stability is uncertain, decode one or more bounded proof windows and compare their PCM digest
-- if proof differs, mark transcript/source stale rather than showing mismatched timed text as authoritative
+- during one active local-caption session, capture observable validator/final-URL/size signals and fixed-range fingerprints
+- before accepting a newly decoded window, ensure its source evidence still belongs to the active RenditionSession
+- if same-session evidence contradicts, abort/park MOSS immediately; do not merge hypotheses from two renditions
+- preserve already accepted local text/audio proofs under the old rendition evidence
+- on reopen, verify a bounded set of byte and/or decoded-PCM proofs before reactivating old timed cues
+- if reopen proof differs, keep useful transcript text/history but disable old automatic seek/follow timing for the new rendition
+- cross-device timed-caption reuse requires exact compatible content/rendition evidence; EpisodeKey alone is never enough
 - never attempt to remove, skip, normalize away, or otherwise defeat dynamically inserted advertising
 - measure whether ASR/hash range requests materially multiply publisher download/ad requests; if they do, reduce/coalesce reads or exclude the provider until an acceptable integration exists
 
-The exact proof policy needs benchmarking. Do not re-decode every saved window merely to open an episode.
+Do not assume there is an "ad-free speech window" suitable for the reopen proof. Dynamic insertion can occur at pre-, mid- and post-roll positions, and publisher custom audio can appear at arbitrary insertion points. Select proof ranges from actual saved accepted audio windows and require their decoded PCM digest to match.
 
-A sensible first check is one early non-ad-prone speech window plus one later window, but do not pretend ad placement is predictable. The next worker should design this from actual qualified providers.
+The proof count/placement needs measurement. Start small and fail closed; do not re-decode every saved window merely to open an episode.
 
 ### 6.7 Alternative future identity
 
