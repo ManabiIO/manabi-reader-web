@@ -862,19 +862,35 @@ Preferred evidence order:
 
 Do not use the `Content-Length` of a 206 response as total size; it is normally just the selected range body length. A full-response HEAD/GET `Content-Length` can be useful only if that exact response representation is demonstrably the same random-access representation.
 
-When `Content-Range` is not exposed, a declared candidate size `N` can be checked without downloading the file:
+When `Content-Range` is not exposed, a positive publisher-declared candidate size `N` can usually be checked with **one** CORS-safelisted contiguous Range:
 
 ~~~text
-Range: bytes=N-1-N-1
-  -> require 206 and exactly one readable byte
-
-Range: bytes=N-N
-  -> require a CORS-readable 416 Range Not Satisfiable
+Range: bytes=N-1-N
 ~~~
 
-If the first probe is unsatisfiable, the declaration is too large or the rendition changed. If the second returns 206, the declaration is too small or the rendition changed. If the 416 response omits CORS and therefore cannot be inspected, this fallback cannot prove the size.
+HTTP byte positions are inclusive. RFC 9110 specifies that when the requested last position extends beyond the selected representation, the server interprets the range as the remainder of the representation.
 
-Run these probes inside the same `RenditionSession` and combine them with fixed-range fingerprints; they are not a substitute for rendition-stability checks.
+Therefore:
+
+~~~text
+actual size == N
+  -> 206 with exactly 1 readable body byte (N-1)
+
+actual size > N
+  -> 206 with 2 readable body bytes (N-1 and N)
+
+actual size < N
+  -> start N-1 is unsatisfiable -> 416
+~~~
+
+For the common exact-size case, this proves the declared boundary without needing `Content-Range` exposure or a second 416 probe. It also cuts qualification traffic/analytics hits.
+
+Require the actual response status and body length. A server returning 200 ignored the Range and is not qualified. A 416 means the declaration is too large, stale, or the rendition changed; do not attempt request-heavy binary searching in v1 just to recover an unknown dynamic size.
+
+Run this boundary probe inside the same `RenditionSession` and combine it with fixed-range fingerprints; it is not a substitute for rendition-stability checks.
+
+Reference:
+https://www.rfc-editor.org/rfc/rfc9110.html#name-range
 
 RSS/feed metadata is hostile input. Require a positive safe integer within a deliberate maximum. Zero, missing, stale or contradictory lengths are not exact size evidence.
 
