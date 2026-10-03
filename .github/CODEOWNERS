@@ -11,3 +11,7 @@
 /scripts/dictionary-providers/ @aehlke
 /scripts/check-dictionary-boundary.mjs @aehlke
 /CONTRIBUTING.md @aehlke
+/AGENTS.md @aehlke
+/docs/architecture/dictionary-* @aehlke
+/.github/pull_request_template.md @aehlke
+/.github/workflows/contribution-license.yml @aehlke
