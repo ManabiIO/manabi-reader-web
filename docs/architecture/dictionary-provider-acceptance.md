@@ -25,7 +25,7 @@ Reader relies on:
 - `preferences.disabled` containing the titles currently disabled;
 - status returned after a mutation reflecting the durable post-mutation state.
 
-Provider-specific storage metadata must not leak into Reader UI contracts.
+Provider-specific storage metadata must not leak into Reader UI contracts. Adapters must construct a new Reader-owned status object rather than returning the provider's raw status object with hidden extra fields.
 
 ## Search
 
@@ -33,7 +33,7 @@ Provider-specific storage metadata must not leak into Reader UI contracts.
 
 Reader requires:
 
-- `version === 1`;
+- `contractVersion === 1`; this is Reader's contract version, not the provider's internal protocol version;
 - `query` equals the trimmed submitted query;
 - `matchedQuery` states the spelling actually matched;
 - `prefix` truthfully states whether the result is prefix-derived;
@@ -42,7 +42,7 @@ Reader requires:
 - `preview.hasMore` states whether additional preview results exist;
 - when `full === true`, `lookup` may contain an opaque provider-owned payload for the provider renderer.
 
-Reader deliberately does not define the internal structure of `lookup`.
+Reader deliberately does not define the internal structure of `lookup`. All other search fields and preview items must be copied/normalized into Reader-owned objects at the adapter boundary rather than exposing the provider's raw response object.
 
 Queries over 256 Unicode code points are rejected by Reader before provider search. A provider may enforce equal or tighter safety bounds when needed, but should not silently reinterpret accepted query text.
 
@@ -75,7 +75,7 @@ A replacement provider may use different markup and internals as long as Reader'
 
 - accepts a user-selected local dictionary archive supported by the product;
 - honors abort requests where cancellation can still win;
-- returns the committed dictionary title;
+- returns only the committed dictionary title needed by Reader;
 - reports bounded warnings separately from success/failure;
 - truthfully reports `cancelledAfterCommit` when durable publication won a cancellation race.
 
@@ -83,7 +83,7 @@ A replacement provider may use different markup and internals as long as Reader'
 
 `setEnabled(title, enabled)` durably changes whether the dictionary participates in lookup and returns fresh status.
 
-`setDefault(choice, title?)` records the user's explicit decision about the bundled/default dictionary. Provider code must not silently reinstall a default dictionary after the user declines or deletes it.
+`recordDefaultInstall(title)` records that Reader's explicit bundled/default installation completed. Provider-internal choice enums remain behind the adapter. Provider code must not silently reinstall a default dictionary after the user declines or deletes it.
 
 ## Default dictionary and recommendations
 
