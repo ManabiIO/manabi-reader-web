@@ -1,0 +1,155 @@
+# Clean-room feature approval gate
+
+Status: CLOSED BY DEFAULT
+Revision: 2026-10-03
+
+This file is the authorization gate for work derived from the clean-room competitive-reader program.
+
+## Default rule
+
+**No feature, acceptance suite, benchmark-driven fix, fixture suite, or product change is approved for implementation merely because it appears in this branch or PR #260.**
+
+The clean-room documents are research/specification inputs. They are not a standing work order.
+
+Unless an approval is recorded below, a worker may only:
+
+- review and refine the clean-room research/specification documents on this draft branch;
+- deduplicate or clarify requirements;
+- inspect authorized Manabi target code to identify overlap when the user explicitly asks for review;
+- report what would need approval.
+
+Without an approval, a worker must not:
+
+- add CR-derived test fixtures to the product test suite;
+- add CR-derived automated/browser/device tests;
+- modify product/runtime code;
+- implement a `CR-OPP-*` feature;
+- open an implementation PR based on this program;
+- mark PR #260 ready for review;
+- merge or close PR #260 as “finished”;
+- infer approval from a previous worker's activity.
+
+## Approval levels
+
+An approval must identify a bounded feature or CR ID set and one of these levels.
+
+### DISCOVERY_ONLY
+
+Default state. Research/spec refinement only. No product/test mutation is authorized.
+
+### APPROVED_FOR_TESTS
+
+Authorizes only independently authored fixtures and tests for the named feature/CR IDs.
+
+It does **not** authorize production behavior changes, even if tests fail.
+
+### APPROVED_FOR_IMPLEMENTATION
+
+Authorizes production changes only for the named feature/CR IDs and only within the stated scope.
+
+It includes the minimum tests needed for that implementation unless the approval explicitly says otherwise.
+
+### APPROVED_FOR_INTEGRATION
+
+Authorizes integration/merge work for the named implementation PR or bounded feature change.
+
+This does not authorize unrelated features.
+
+## What counts as explicit per-feature approval
+
+A valid approval must come from the user/project owner and must unambiguously identify the feature.
+
+Preferred forms:
+
+- `Approve CR-OPP-001 for implementation.`
+- `Approve CR-OPP-003 and CR-OPP-149 for a design/test prototype only.`
+- `Approve the chapter-preflight feature (CR-OPP-001) for implementation in Manabi Reader Web.`
+- `Approve CR-AT-001..006 for tests only; do not change production code.`
+
+A named feature may be accepted without the literal CR ID only when the mapping is unique and the worker records the mapped CR ID before starting.
+
+## What does not count as approval
+
+None of the following authorizes implementation:
+
+- the feature appearing in this branch;
+- the feature being marked MUST/SHOULD/MAY;
+- the feature being described as high value, strong, important, or a candidate;
+- a benchmark or acceptance test failing;
+- a prior worker creating research/spec text;
+- a prior worker creating PR #260;
+- approval of a neighboring or related feature;
+- approval of the same feature in another repository/platform;
+- generic instructions such as “continue,” “go deeper,” “review,” “refine,” “finish the clean-room work,” or “work through the backlog”;
+- a request to investigate or compare a feature;
+- an implementation worker deciding that a feature is easy or obviously beneficial.
+
+Approval is non-transitive and non-inferential.
+
+## Approval scope requirements
+
+Each approval record must state:
+
+- approval ID;
+- date;
+- feature/CR IDs;
+- approval level;
+- target repository/platform;
+- bounded deliverable;
+- explicit exclusions or constraints;
+- status: active, completed, revoked, or superseded.
+
+If any of those materially affect what can be changed and are unspecified, use the narrowest reasonable interpretation and do not expand scope.
+
+## PR #260 state gate
+
+PR #260 is a **research/specification draft**.
+
+It must remain a GitHub Draft until the user/project owner explicitly authorizes a PR-state transition referring to PR #260 or this clean-room research PR.
+
+Per-feature implementation approvals do **not** implicitly authorize marking PR #260 ready, merging it, or declaring the overall program complete.
+
+Examples of valid PR-state authorization:
+
+- `Mark PR #260 ready for review.`
+- `Merge PR #260.`
+- `Finalize the clean-room research PR.`
+
+Absent such an instruction, future workers must preserve Draft state.
+
+## Active approvals
+
+**None.**
+
+Therefore, at this revision:
+
+- no `CR-OPP-*` feature is approved for tests or implementation;
+- no correctness/acceptance suite is approved for target-code mutation under this program;
+- no implementation PR is authorized;
+- PR #260 is not authorized to leave Draft state.
+
+## Recording a future approval
+
+Append a record in this format:
+
+```text
+Approval ID: CR-AUTH-001
+Date: YYYY-MM-DD
+Feature/CR IDs: ...
+Level: APPROVED_FOR_TESTS | APPROVED_FOR_IMPLEMENTATION | APPROVED_FOR_INTEGRATION
+Target: ...
+Deliverable: ...
+Exclusions: ...
+Status: active
+Evidence of approval: concise paraphrase of the explicit user/project-owner instruction
+```
+
+Do not include competitor provenance in an approval record.
+
+## Revocation and completion
+
+The user/project owner may revoke or narrow approval at any time.
+
+When a bounded approved feature is completed, mark that approval record completed. Completion does not authorize the next feature.
+
+A new feature requires a new explicit approval.
