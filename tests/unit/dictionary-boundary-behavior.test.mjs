@@ -56,10 +56,7 @@ test('external runtime discovery is provider-name agnostic and complete', () => 
   ];
   assert.deepEqual(externalRuntimeAssets([...runtime, 'unrelated/app.js']), runtime);
   assert.deepEqual(
-    externalRuntimeAssets([
-      'incomplete/revision/manifest.json',
-      'unrelated/app.js'
-    ]),
+    externalRuntimeAssets(['incomplete/revision/manifest.json', 'unrelated/app.js']),
     []
   );
 });
