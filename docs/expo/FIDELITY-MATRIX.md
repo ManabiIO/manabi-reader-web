@@ -132,8 +132,10 @@ first shared complete composition; the eight remaining screen closures are:
    actual picker and visual typography qualification remain open.
 2. **Library:** converge the full shared screen/shell while retaining local
    import/open/delete, collections/series, selection, metadata, completion,
-   want-to-read, covers and passage search. Saved view preferences, continue/series
-   heroes, finished timeline and common search/selection composition still differ.
+   want-to-read, covers and passage search. The eight saved sort choices now use
+   shared labels/validation and the existing DOM-owned preference; layout
+   preferences, continue/series heroes, finished timeline and common
+   search/selection composition still differ.
    Native backup/export destinations and
    provider/folder access remain open. This is the largest next everyday-screen
    implementation now underway. Ordinary book-face and eight-field metadata-editor compositions and canonical

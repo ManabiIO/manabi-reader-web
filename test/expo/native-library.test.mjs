@@ -32,6 +32,18 @@ const {
   nativeBook,
   selectedLibraryTheme
 } = bundle('view-model');
+const { readLibrarySort, librarySortChoices } = (() => {
+  const outfile = join(output, 'sort-options.cjs');
+  buildSync({
+    entryPoints: [resolve('apps/web/src/features/library/sort-options.ts')],
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    outfile,
+    logLevel: 'silent'
+  });
+  return require(outfile);
+})();
 const { commitNativeCompletion } = bundle('completion');
 const org = () => ({ version: 1, collections: [], books: {} });
 function book(id = 1, extra = {}) {
@@ -79,6 +91,7 @@ function setup(books = [book()]) {
       async write(...args) {
         args[3].assertCurrent();
         args[3].signal.throwIfAborted();
+        if (args[0].type === 'sort') data.sort = readLibrarySort(args[0]);
         writes.push(args);
       }
     },
@@ -631,4 +644,85 @@ test('native Library appearance carries only the selected custom palette, not un
   result.customThemes['theme-42'].backgroundColor = '#ffffff';
   assert.equal(custom['theme-42'].backgroundColor, '#123456');
   assert.deepEqual(selectedLibraryTheme('manabi-theme', 'system', custom).customThemes, {});
+});
+
+test('all eight saved Library sort choices restore and explicit query overrides remain transient', async () => {
+  assert.equal(librarySortChoices.length, 8);
+  for (const { property } of librarySortChoices)
+    for (const direction of ['asc', 'desc']) {
+      const f = setup([book(1, { title: 'Zulu' }), book(2, { title: 'Alpha' })]);
+      const before = await f.service.state({}, f.authority);
+      await f.service.action(
+        { token: before.token, type: 'sort', property, direction },
+        f.authority
+      );
+      const restored = await f.service.state({}, f.authority);
+      assert.deepEqual(restored.sort, { property, direction });
+      const override = await f.service.state({ sort: 'id', direction: 'asc' }, f.authority);
+      assert.deepEqual(override.sort, { property: 'id', direction: 'asc' });
+      assert.equal(override.items[0].bookId, 1);
+      assert.deepEqual((await f.service.state({}, f.authority)).sort, { property, direction });
+      if (property === 'title') assert.equal(restored.items[0].bookId, direction === 'asc' ? 2 : 1);
+      assert.equal(f.writes.length, 1);
+      assert.deepEqual(f.writes[0][1], [], 'sort changes never target a book');
+    }
+});
+test('saved sorting rejects arbitrary fields, stale or reused admissions, and cancellation before write', async () => {
+  const f = setup();
+  const state = await f.service.state({}, f.authority);
+  for (const change of [
+    { property: 'contentHash', direction: 'asc' },
+    { property: 'title', direction: 'sideways' },
+    { property: 'title', direction: 'asc', key: 'book:1' },
+    { property: 'title', direction: 'asc', url: 'https://example.org' },
+    { direction: 'asc' }
+  ])
+    await assert.rejects(
+      f.service.action({ token: state.token, type: 'sort', ...change }, f.authority)
+    );
+  assert.equal(f.writes.length, 0);
+  const action = { token: state.token, type: 'sort', property: 'title', direction: 'asc' };
+  await f.service.action(action, f.authority);
+  await assert.rejects(f.service.action(action, f.authority), /expired/);
+  assert.equal(f.writes.length, 1);
+  const next = await f.service.state({}, f.authority);
+  f.hook(() => f.cancel());
+  await assert.rejects(f.service.action({ ...action, token: next.token }, f.authority));
+  assert.equal(f.writes.length, 1);
+  const g = setup();
+  const old = await g.service.state({}, g.authority);
+  g.hook(() => g.changeScope('other-account'));
+  await assert.rejects(
+    g.service.action({ ...action, token: old.token }, g.authority),
+    /account changed/
+  );
+  assert.equal(g.writes.length, 0);
+});
+test('damaged or obsolete Library preferences fall back to supported fields and directions', () => {
+  for (const value of [undefined, null, [], 'title', { property: 'url', direction: 'sideways' }])
+    assert.deepEqual(readLibrarySort(value), { property: 'lastBookOpen', direction: 'desc' });
+  assert.deepEqual(readLibrarySort({ property: 'author', direction: 'sideways' }), {
+    property: 'author',
+    direction: 'desc'
+  });
+});
+
+test('Library owns sort inheritance before a delayed repository read', async () => {
+  const f = setup();
+  f.data.sort = { property: 'author', direction: 'asc' };
+  const explicit = { sort: 'title', direction: 'desc' };
+  f.hook(() => {
+    delete explicit.sort;
+    delete explicit.direction;
+  });
+  assert.deepEqual((await f.service.state(explicit, f.authority)).sort, {
+    property: 'title',
+    direction: 'desc'
+  });
+  const inherited = {};
+  f.hook(() => Object.assign(inherited, { sort: 'id', direction: 'desc' }));
+  assert.deepEqual((await f.service.state(inherited, f.authority)).sort, {
+    property: 'author',
+    direction: 'asc'
+  });
 });

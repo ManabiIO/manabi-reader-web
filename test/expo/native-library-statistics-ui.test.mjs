@@ -29,7 +29,7 @@ export const ActivityIndicator=()=>null; export const Modal=({visible,children})
 export const Pressable=({children,onPress,disabled})=><button disabled={disabled} onClick={onPress}>{children}</button>;
 export const FlatList=({data,renderItem})=><div>{data.map(item=><div key={item.key}>{renderItem({item})}</div>)}</div>;
 export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder})=><input value={value.value} onChange={event=>onChangeText?.(event.target.value)} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=()=>null;
-export const Action=({label,onPress,disabled,theme})=><button data-seed={theme?.seedColor} disabled={disabled} onClick={onPress}>{label}</button>;
+export const Action=({label,onPress,disabled,theme,variant})=><button data-variant={variant} data-seed={theme?.seedColor} disabled={disabled} onClick={onPress}>{label}</button>;
 export const Screen=({actions,children,theme})=><main data-mode={theme?.mode} data-background={theme?.colors.background}>{actions}{children}</main>;
 export const Alert={alert:(...args)=>globalThis.libraryStatisticsUI.confirmations.push(args)};
 export const useReaderRuntime=()=>globalThis.libraryStatisticsUI.runtime;
@@ -112,13 +112,17 @@ async function mount(t, override, uiTheme) {
     routes = [],
     confirmations = [];
   let serial = 0;
+  let sort = { property: 'author', direction: 'asc' };
   const command = async (method, payload) => {
     calls.push({ method, payload });
     const changed = await override?.(method, payload);
     if (changed !== undefined) return changed;
+    if (method === 'library.action' && payload.type === 'sort')
+      sort = { property: payload.property, direction: payload.direction };
     if (method === 'library.state')
       return {
         token: 'library-' + ++serial,
+        sort,
         uiTheme,
         coverToken: 'cover',
         items: [book],
@@ -370,4 +374,114 @@ test('native metadata uses the complete shared field limits and blocks editing d
   assert.equal(field('Authors (one per line)').disabled, true);
   assert.equal(f.calls.filter((call) => call.method === 'library.action').length, 1);
   await act(async () => gate.resolve({ saved: true }));
+});
+
+test('Library restores saved sort controls, saves one choice and keeps filters open', async (t) => {
+  const f = await mount(t);
+  await click(f, 'Sort and filter');
+  const button = (label) =>
+    [...f.container.querySelectorAll('button')].find((item) => item.textContent === label);
+  assert.equal(button('Author').dataset.variant, 'filled');
+  assert.equal(button('Ascending').dataset.variant, 'filled');
+  await click(f, 'Title');
+  const writes = f.calls.filter((call) => call.method === 'library.action');
+  assert.equal(writes.length, 1);
+  assert.deepEqual(writes[0].payload, {
+    token: 'library-1',
+    type: 'sort',
+    property: 'title',
+    direction: 'asc'
+  });
+  assert.equal(button('Title').dataset.variant, 'filled');
+  await click(f, 'Descending');
+  assert.equal(button('Descending').dataset.variant, 'filled');
+  await f.render('/manage', 2);
+  await click(f, 'Sort and filter');
+  assert.equal(button('Title').dataset.variant, 'filled');
+  assert.equal(button('Descending').dataset.variant, 'filled');
+});
+test('pending sort saves reject duplicate activation and do not refresh a departed Library', async (t) => {
+  const pending = deferred();
+  const f = await mount(t, (method, payload) =>
+    method === 'library.action' && payload.type === 'sort' ? pending.promise : undefined
+  );
+  await click(f, 'Sort and filter');
+  const title = [...f.container.querySelectorAll('button')].find(
+    (item) => item.textContent === 'Title'
+  );
+  await act(async () => {
+    title.click();
+    title.click();
+  });
+  assert.equal(f.calls.filter((call) => call.method === 'library.action').length, 1);
+  assert.equal(title.disabled, true);
+  await f.render('/settings');
+  const reads = f.calls.filter((call) => call.method === 'library.state').length;
+  await act(async () => pending.resolve({ saved: true }));
+  assert.equal(f.calls.filter((call) => call.method === 'library.state').length, reads);
+});
+
+test('changing saved sorting returns to page one, reconciles errors and never replays the action', async (t) => {
+  let serial = 0;
+  const f = await mount(t, (method, payload) => {
+    if (method === 'library.action')
+      throw new Error('The sort acknowledgment was lost. Refresh to check it.');
+    if (method === 'library.state')
+      return {
+        token: 'paged-' + ++serial,
+        coverToken: 'cover',
+        sort: { property: 'author', direction: 'asc' },
+        items: [book],
+        total: 121,
+        totalBooks: 121,
+        offset: payload.offset ?? 0,
+        limit: 60,
+        collections: [],
+        sources: [],
+        trail: [],
+        counts: { finished: 0, wantToRead: 0 }
+      };
+  });
+  await click(f, 'Next');
+  assert.equal(f.calls.filter((call) => call.method === 'library.state').at(-1).payload.offset, 60);
+  await click(f, 'Sort and filter');
+  await click(f, 'Title');
+  assert.equal(f.calls.filter((call) => call.method === 'library.action').length, 1);
+  assert.equal(f.calls.filter((call) => call.method === 'library.state').at(-1).payload.offset, 0);
+  assert.match(f.container.textContent, /acknowledgment was lost/);
+  const author = [...f.container.querySelectorAll('button')].find(
+    (item) => item.textContent === 'Author'
+  );
+  assert.equal(author.dataset.variant, 'filled', 'only the owner read confirms the saved choice');
+});
+
+test('account replacement permanently retires an old sort reply without refreshing the new Library', async (t) => {
+  const pending = deferred();
+  let writes = 0;
+  const f = await mount(t, (method, payload) =>
+    method === 'library.action' && payload.type === 'sort' && ++writes === 1
+      ? pending.promise
+      : undefined
+  );
+  await click(f, 'Sort and filter');
+  await act(async () =>
+    [...f.container.querySelectorAll('button')].find((item) => item.textContent === 'Title').click()
+  );
+  await f.render('/manage', 2);
+  const reads = f.calls.filter((call) => call.method === 'library.state').length;
+  await act(async () => pending.reject(new Error('Old account sort failed')));
+  assert.equal(f.calls.filter((call) => call.method === 'library.state').length, reads);
+  assert.ok(!f.container.textContent.includes('Old account sort failed'));
+  await click(f, 'Sort and filter');
+  await click(f, 'Descending');
+  assert.equal(
+    f.calls.filter((call) => call.method === 'library.action').length,
+    2,
+    'new account remains usable'
+  );
+  assert.equal(
+    [...f.container.querySelectorAll('button')].find((item) => item.textContent === 'Descending')
+      .dataset.variant,
+    'filled'
+  );
 });

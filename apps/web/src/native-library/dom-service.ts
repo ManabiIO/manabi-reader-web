@@ -8,7 +8,9 @@
  * Import only inside the single DOM reader runtime. Native UI imports contract.ts instead.
  */
 
-import { database } from '$lib/data/store';
+import { database, booklistSortOptions$ } from '$lib/data/store';
+import { StorageKey } from '$lib/data/storage/storage-types';
+import { readLibrarySort } from '../features/library/sort-options';
 import { theme$, appearance$, customThemes$ } from '$lib/appearance/state';
 import { get } from '$lib/state/store';
 import { integrationDB, metadata } from '$lib/manabi/persistence';
@@ -122,6 +124,7 @@ export function createNativeLibraryService() {
         );
         const value = structuredClone(get(organization));
         return {
+          sort: readLibrarySort(get(booklistSortOptions$)[StorageKey.BROWSER]),
           tree: buildShelf(visible.cards, visible.links, catalogs, sources, value, get(previews)),
           organization: value,
           uiTheme: selectedLibraryTheme(get(theme$), get(appearance$), get(customThemes$)),
@@ -135,6 +138,14 @@ export function createNativeLibraryService() {
           guard.assertCurrent();
           return true;
         };
+        if (action.type === 'sort') {
+          current();
+          booklistSortOptions$.next({
+            ...get(booklistSortOptions$),
+            [StorageKey.BROWSER]: readLibrarySort(action)
+          });
+          return;
+        }
         if (action.type === 'presentation') {
           if (action.change.cover !== undefined) {
             // Check the real reader record/profile in its final readonly transaction.

@@ -94,6 +94,7 @@ import {
   type CloudSeriesPlan
 } from '$lib/library/cloud-series';
 import type { LibraryMenuModel } from '$lib/library/library-menu';
+import { librarySortChoices, readLibrarySort } from '../features/library/sort-options';
 import { continueBooks, finishedGroups, seriesReadingTarget } from '$lib/library/reading-state';
 import { ObservableController, readStore, tick } from './observable-controller';
 export class WorkspaceController extends ObservableController {
@@ -177,24 +178,8 @@ export class WorkspaceController extends ObservableController {
   alive = false;
   generation = 0;
   controller!: AbortController | undefined;
-  sortItems: {
-    property: SortOption['property'];
-    label: string;
-  }[] = [
-    { property: 'lastBookOpen', label: 'Recent' },
-    { property: 'title', label: 'Title' },
-    { property: 'author', label: 'Author' },
-    { property: 'id', label: 'Added' }
-  ];
-  moreSortItems: {
-    property: SortOption['property'];
-    label: string;
-  }[] = [
-    { property: 'progress', label: 'Progress' },
-    { property: 'characters', label: 'Characters' },
-    { property: 'lastBookModified', label: 'Last Update' },
-    { property: 'lastBookmarkModified', label: 'Bookmarked' }
-  ];
+  sortItems = librarySortChoices.slice(0, 4);
+  moreSortItems = librarySortChoices.slice(4);
   queryURL = '';
   librarySearchScope: LibrarySearchScope = 'everything';
   pendingQueryURL!: string | undefined;
@@ -268,7 +253,7 @@ export class WorkspaceController extends ObservableController {
     });
   }
   get sort() {
-    return readStore(booklistSortOptions$)[StorageKey.BROWSER];
+    return readLibrarySort(readStore(booklistSortOptions$)[StorageKey.BROWSER]);
   }
   get viewerId() {
     return readStore(localUser)?.id ?? null;

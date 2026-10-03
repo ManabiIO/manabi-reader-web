@@ -68,6 +68,9 @@ const { createRoot } = require('react-dom/client');
 // cold DatabaseService, controllers, stores, and runtime subscription owners.
 const {
   LibraryScreen,
+  createNativeLibraryService,
+  StorageKey,
+  booklistSortOptions$,
   BrowserRuntime,
   database,
   userFonts$,
@@ -232,6 +235,59 @@ for (const strict of [false, true]) {
     () => !library.bookCards.length,
     'removing the fixture returns to the empty library'
   );
+
+  const nativeLibrary = createNativeLibraryService();
+  const authority = {
+    key: 'sort-session',
+    signal: new AbortController().signal,
+    assertCurrent() {}
+  };
+  const originalSorts = structuredClone(booklistSortOptions$.getValue());
+  await act(async () => workspace.setSort('author', 'asc'));
+  assert.deepEqual((await nativeLibrary.state({}, authority)).sort, {
+    property: 'author',
+    direction: 'asc'
+  });
+  const sortAdmission = await nativeLibrary.state({}, authority);
+  await act(async () =>
+    nativeLibrary.action(
+      { token: sortAdmission.token, type: 'sort', property: 'title', direction: 'desc' },
+      authority
+    )
+  );
+  assert.deepEqual(workspace.sort, { property: 'title', direction: 'desc' });
+  assert.deepEqual(
+    JSON.parse(window.localStorage.getItem('booklistSortOptions'))[StorageKey.BROWSER],
+    workspace.sort
+  );
+  for (const provider of [StorageKey.GDRIVE, StorageKey.ONEDRIVE, StorageKey.FS])
+    assert.deepEqual(booklistSortOptions$.getValue()[provider], originalSorts[provider]);
+  nativeLibrary.dispose();
+  const remountedNativeLibrary = createNativeLibraryService();
+  assert.deepEqual((await remountedNativeLibrary.state({}, authority)).sort, workspace.sort);
+  const failedAdmission = await remountedNativeLibrary.state({}, authority);
+  const storedSorts = window.localStorage.getItem('booklistSortOptions');
+  const setItem = window.Storage.prototype.setItem;
+  window.Storage.prototype.setItem = function (key, value) {
+    if (key === 'booklistSortOptions') throw new Error('Sort persistence unavailable');
+    return setItem.call(this, key, value);
+  };
+  try {
+    await assert.rejects(
+      remountedNativeLibrary.action(
+        { token: failedAdmission.token, type: 'sort', property: 'id', direction: 'asc' },
+        authority
+      ),
+      /Sort persistence unavailable/
+    );
+    assert.equal(window.localStorage.getItem('booklistSortOptions'), storedSorts);
+    assert.deepEqual(workspace.sort, { property: 'title', direction: 'desc' });
+    assert.deepEqual((await remountedNativeLibrary.state({}, authority)).sort, workspace.sort);
+  } finally {
+    window.Storage.prototype.setItem = setItem;
+  }
+  remountedNativeLibrary.dispose();
+  await act(async () => booklistSortOptions$.next(originalSorts));
 
   await act(async () => root.unmount());
   assert.equal(library.pageAlive, false);

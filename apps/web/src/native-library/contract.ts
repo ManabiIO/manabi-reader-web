@@ -8,17 +8,8 @@ import type { UiThemeProviderProps } from '../shared-ui/theme';
 import type { BookMetadata, BookSeries } from '../lib/library/book-presentation';
 export const LIBRARY_PAGE_LIMIT = 60;
 export const LIBRARY_ACTION_LIMIT = 60;
-export const LIBRARY_SORTS = [
-  'lastBookOpen',
-  'title',
-  'author',
-  'id',
-  'progress',
-  'characters',
-  'lastBookModified',
-  'lastBookmarkModified'
-] as const;
-export type LibrarySort = (typeof LIBRARY_SORTS)[number];
+import type { LibrarySort, LibrarySortPreference } from '../features/library/sort-options';
+export { LIBRARY_SORTS, type LibrarySort } from '../features/library/sort-options';
 export interface LibraryQuery {
   query?: string;
   collection?: string;
@@ -61,6 +52,7 @@ export interface NativeLibrarySeries {
 }
 export type LibraryUiTheme = Pick<UiThemeProviderProps, 'themeId' | 'appearance' | 'customThemes'>;
 export interface NativeLibraryState {
+  sort: LibrarySortPreference;
   uiTheme?: LibraryUiTheme;
   token: string;
   coverToken: string;
@@ -82,6 +74,7 @@ export interface NativeLibraryState {
   detail?: NativeLibraryBook & { metadata: BookMetadata; direction: string };
 }
 export type LibraryAction =
+  | { type: 'sort'; property: LibrarySort; direction: 'asc' | 'desc' }
   | {
       type: 'presentation';
       keys: string[];

@@ -19,7 +19,9 @@ test('the actual browser runtime and library mount, update and remount without s
         contents: `
           export { LibraryScreen } from './apps/web/src/library-react/screen';
           export { BrowserRuntime } from './apps/web/src/runtime/BrowserRuntime';
-          export { database, userFonts$ } from './apps/web/src/lib/data/store';
+          export { createNativeLibraryService } from './apps/web/src/native-library/dom-service';
+          export { StorageKey } from './apps/web/src/lib/data/storage/storage-types';
+          export { database, userFonts$, booklistSortOptions$ } from './apps/web/src/lib/data/store';
           export { refreshLocation } from './apps/web/src/runtime/stores';
           export { installRouter, beforeNavigate } from './apps/web/src/runtime/navigation';
         `,

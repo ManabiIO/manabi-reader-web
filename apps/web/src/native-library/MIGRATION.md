@@ -50,6 +50,28 @@ Opening uses the ordinary native `open` command with `{ bookId, librarySearchTok
 
 Native controls explicitly submit Search/IME search actions rather than searching intermediate composition text. Editing a draft, changing the Library view, leaving the route or unmounting cancels old work; serial guards discard delayed starts, pages and open callbacks. The UI has loading/partial result, cancel, zero results, partial-failure, truncation, error and bounded paging states. Ordinary title/author/series search remains a separate mode.
 
+## Saved sorting
+
+The web workspace and Android Library now share the eight sort fields, labels,
+and validation in `features/library/sort-options.ts`. Native state inherits the
+existing DOM-owned `booklistSortOptions` Browser preference when the caller has
+not supplied a transient query override. It returns the effective field and
+direction with the page, so the controls reflect the owner snapshot rather than
+an assumed Recent default. Explicit query overrides do not persist.
+
+`library.action` accepts one bounded `sort` action through its existing expiring,
+single-use admission and account/runtime guards. The DOM owner changes only the
+Browser entry; OneDrive, Google Drive and filesystem choices stay intact. A
+failed storage write publishes no new preference. Native reconciles both success
+and failed acknowledgments by reading state, without replaying the action. A
+choice returns the current view to page one and leaves the filter sheet open.
+Duplicate activation, departed routes and old account replies cannot restore an
+old view. These are local controller/mounted-store guarantees; actual native
+sort control accessibility and process-restart acceptance remain unqualified.
+
+Library/series/finished layout preferences, Continue and the finished timeline
+are separate convergence work. Saved sorting does not close those gaps.
+
 ## Implemented controls
 
 - Search by title, canonical title, author, or matching series; eight sort fields; ascending/descending order; unfinished filter; list/grid layout and bounded pagination

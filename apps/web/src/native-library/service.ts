@@ -42,8 +42,10 @@ import {
   type LibraryCoverTarget
 } from './cover-service';
 import { libraryNodes, nativeBook, parseLibraryQuery } from './view-model';
+import { LIBRARY_SORTS, readLibrarySort } from '../features/library/sort-options';
 
 export interface LibraryData {
+  sort?: NativeLibraryState['sort'];
   uiTheme?: NativeLibraryState['uiTheme'];
   tree: ShelfNode[];
   organization: Organization;
@@ -81,6 +83,7 @@ function parseAction(value: unknown): LibraryActionRequest {
   if (!record(value) || typeof value.token !== 'string' || value.token.length > 128)
     throw new Error('Invalid Library action.');
   const fields: Record<string, string[]> = {
+    sort: ['property', 'direction'],
     presentation: ['keys', 'change', 'preserveSeriesIndex'],
     membership: ['keys', 'collection', 'included'],
     'collection.create': ['name', 'keys'],
@@ -96,6 +99,12 @@ function parseAction(value: unknown): LibraryActionRequest {
     )
   )
     throw new Error('Unsupported Library action.');
+  if (
+    value.type === 'sort' &&
+    (!LIBRARY_SORTS.includes(value.property as never) ||
+      !['asc', 'desc'].includes(value.direction as string))
+  )
+    throw new Error('Invalid Library sort.');
   if (
     'keys' in value &&
     (!Array.isArray(value.keys) ||
@@ -216,12 +225,17 @@ export class NativeLibraryService {
     this.covers.dispose();
     const coverGeneration = ++this.coverGeneration;
     const query = parseLibraryQuery(payload);
+    const inheritSort = record(payload) && payload.sort === undefined;
+    const inheritDirection = record(payload) && payload.direction === undefined;
     const seriesId = query.series ? this.handles.get(query.series) : '';
     const sourceId = query.source ? this.handles.get(query.source) : '';
     if ((query.series && !seriesId) || (query.source && !sourceId))
       throw new Error('The Library view expired. Return to All Books.');
     const data = await this.repository.load(authority);
     this.assert(authority);
+    const savedSort = readLibrarySort(data.sort);
+    if (inheritSort) query.sort = savedSort.property;
+    if (inheritDirection) query.direction = savedSort.direction;
     const books = allBooks(data.tree);
     const { nodes, trail } = libraryNodes(
       data.tree,
@@ -273,6 +287,7 @@ export class NativeLibraryService {
     const token = this.token();
     const coverToken = this.token();
     const response: NativeLibraryState = {
+      sort: readLibrarySort({ property: query.sort, direction: query.direction }),
       ...(data.uiTheme ? { uiTheme: structuredClone(data.uiTheme) } : {}),
       token,
       coverToken,

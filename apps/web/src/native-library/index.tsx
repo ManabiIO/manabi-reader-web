@@ -32,13 +32,17 @@ import { Screen, Action as NativeAction } from '../screens/NativeScreens';
 import { UiText as Text } from '../shared-ui/Typography';
 import { UiThemeProvider, useUiTheme, createUiTheme, type UiTheme } from '../shared-ui/theme';
 import {
-  LIBRARY_SORTS,
   type LibraryAction,
   type LibraryQuery,
   type NativeLibraryBook,
   type NativeLibraryState
 } from './contract';
 import { reconcileNativeSelection } from './selection';
+import {
+  librarySortChoices,
+  readLibrarySort,
+  type LibrarySort
+} from '../features/library/sort-options';
 import { NativeLibraryContentSearch } from './content-search';
 import { NativeBookCover } from './cover';
 import { LibraryBookFace } from '../features/library/LibraryBookFace';
@@ -162,16 +166,6 @@ function Sheet({ title, close, children }: { title: string; close(): void; child
     </Modal>
   );
 }
-const sortNames: Record<string, string> = {
-  lastBookOpen: 'Recent',
-  title: 'Title',
-  author: 'Author',
-  id: 'Added',
-  progress: 'Progress',
-  characters: 'Characters',
-  lastBookModified: 'Last update',
-  lastBookmarkModified: 'Bookmarked'
-};
 export function NativeLibraryScreen() {
   const { snapshot } = useReaderRuntime();
   return <Library key={`${snapshot.session}:${snapshot.epoch}`} />;
@@ -199,13 +193,14 @@ function Library() {
   const [query, setQuery] = useState<LibraryQuery>({
     query: '',
     collection: 'books',
-    offset: 0,
-    sort: 'lastBookOpen',
-    direction: 'desc'
+    offset: 0
   });
+  const latestQuery = useRef(query);
+  latestQuery.current = query;
   const [search, setSearch] = useState('');
   const [searchMode, setSearchMode] = useState<'metadata' | 'passages'>('metadata');
   const [state, setState] = useState<NativeLibraryState>();
+  const sort = readLibrarySort(state?.sort);
   const systemMode = useColorScheme();
   const appearance = state?.uiTheme?.appearance ?? 'system';
   const uiTheme = createUiTheme(
@@ -311,6 +306,38 @@ function Library() {
     setSelected([]);
     setSelecting(false);
     setQuery((previous) => ({ ...previous, ...change, detail: undefined, offset: 0 }));
+  }
+  async function chooseSort(property: LibrarySort, direction: 'asc' | 'desc' = sort.direction) {
+    if (
+      !state ||
+      mutationActive.current ||
+      loading ||
+      !activeRoute.current ||
+      (property === sort.property && direction === sort.direction)
+    )
+      return;
+    mutationActive.current = true;
+    const request = serial.current;
+    setBusy(true);
+    setError('');
+    try {
+      await command('library.action', { token: state.token, type: 'sort', property, direction });
+    } catch (cause) {
+      if (mounted.current && activeRoute.current && request === serial.current)
+        setError(cause instanceof Error ? cause.message : 'The sort choice could not be saved.');
+    } finally {
+      if (mounted.current && activeRoute.current) {
+        if (request === serial.current) {
+          setSelected([]);
+          setSelecting(false);
+          setQuery((previous) => ({ ...previous, detail: undefined, offset: 0 }));
+        } else {
+          await refresh(latestQuery.current);
+        }
+      }
+      mutationActive.current = false;
+      if (mounted.current) setBusy(false);
+    }
   }
   async function mutate(action: LibraryAction) {
     if (!state || mutationActive.current) return;
@@ -790,8 +817,8 @@ function Library() {
             series: query.series,
             source: query.source,
             unfinished: query.unfinished,
-            sort: query.sort,
-            direction: query.direction
+            sort: sort.property,
+            direction: sort.direction
           }}
         />
       ) : (
@@ -960,25 +987,28 @@ function Library() {
           {sheet === 'filters' && (
             <>
               <View style={styles.row}>
-                {LIBRARY_SORTS.map((sort) => (
+                {librarySortChoices.map((choice) => (
                   <Action
-                    key={sort}
-                    label={sortNames[sort]}
-                    variant={query.sort === sort ? 'filled' : 'outlined'}
-                    onPress={() => view({ sort })}
+                    key={choice.property}
+                    label={choice.label}
+                    variant={sort.property === choice.property ? 'filled' : 'outlined'}
+                    disabled={busy || loading}
+                    onPress={() => void chooseSort(choice.property)}
                   />
                 ))}
               </View>
               <View style={styles.row}>
                 <Action
                   label="Ascending"
-                  variant={query.direction === 'asc' ? 'filled' : 'outlined'}
-                  onPress={() => view({ direction: 'asc' })}
+                  variant={sort.direction === 'asc' ? 'filled' : 'outlined'}
+                  disabled={busy || loading}
+                  onPress={() => void chooseSort(sort.property, 'asc')}
                 />
                 <Action
                   label="Descending"
-                  variant={query.direction === 'desc' ? 'filled' : 'outlined'}
-                  onPress={() => view({ direction: 'desc' })}
+                  variant={sort.direction === 'desc' ? 'filled' : 'outlined'}
+                  disabled={busy || loading}
+                  onPress={() => void chooseSort(sort.property, 'desc')}
                 />
               </View>
               <Host matchContents>
