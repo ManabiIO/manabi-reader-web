@@ -62,7 +62,7 @@ When behavior must match the current provider, specify the required observable b
 
 ## Build boundary
 
-`scripts/prepare-dictionary.mjs` is provider-neutral. It validates the selected provider descriptor, provider-owned public runtime directory, output manifest, hashes, required distribution files, and explicit-install default dictionary archive.
+`scripts/prepare-dictionary.mjs` is provider-neutral. It validates the selected provider descriptor, provider-owned public runtime directory, Reader-owned runtime marker, output manifest, hashes, required distribution files, and explicit-install default dictionary archive.
 
 `scripts/dictionary-providers/manabitan.mjs` owns the Manabitan-specific work:
 
@@ -76,7 +76,7 @@ When behavior must match the current provider, specify the required observable b
 
 The generic preparation layer prunes old revisions inside the selected provider's public runtime directory and old default-dictionary archives before publication. A long-lived local/CI workspace therefore cannot silently ship stale provider/source artifacts from an earlier build.
 
-Reader intentionally keeps Manabitan at its pre-existing `/manabitan/<revision>/` public URL. Renaming that URL would make already-open tabs fail if they lazy-load the runtime after a deployment. The service worker does not know this provider name: `optional-static-assets.mjs` discovers externally built runtime trees from their `manifest.json`, `SOURCE.txt`, and `corresponding-source.tar.gz` markers and excludes those exact files from mandatory shell/font caching.
+Reader intentionally keeps Manabitan at its pre-existing `/manabitan/<revision>/` public URL. Renaming that URL would make already-open tabs fail if they lazy-load the runtime after a deployment. The service worker does not know this provider name: `prepare-dictionary.mjs` writes a small Reader-owned `reader-runtime.json` marker into the selected generated runtime tree. `optional-static-assets.mjs` discovers runtime trees from that marker plus `manifest.json` and excludes those exact files from mandatory shell/font caching. A future non-GPL provider therefore does not need to imitate GPL source-packaging conventions.
 
 `tests/unit/dictionary-source.test.mjs` verifies that the nested provider checkout cannot inherit or mutate Reader's Git repository.
 
