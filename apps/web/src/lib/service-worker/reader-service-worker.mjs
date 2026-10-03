@@ -50,7 +50,7 @@ export function registerReaderServiceWorker(worker, config) {
   const fontAssets = new Set(
     [...config.build, ...config.files]
       .map((path) => new URL(path, scope))
-      .filter((url) => inScope(url) && isPackagedFont(url))
+      .filter((url) => inScope(url) && isPackagedFont(url) && !lazyAssets.has(url.href))
       .map((url) => url.href)
   );
   const shellAssets = new Set(
