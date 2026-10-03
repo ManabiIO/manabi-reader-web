@@ -4,12 +4,12 @@ node_modules
 __pycache__/
 .cache/
 
-# Generated, pinned dictionary runtime and explicit-install dictionary archive
+# Generated, pinned provider runtime and explicit-install dictionary archive
 /.cache/dictionary-build/
-/apps/web/static/dictionary-runtime/
-/apps/web/static/dictionary-archives/
-# Legacy generated path; keep ignored so old local builds never enter Reader source.
 /apps/web/static/manabitan/
+/apps/web/static/dictionary-archives/
+# Obsolete path used while developing the provider-neutral boundary.
+/apps/web/static/dictionary-runtime/
 # Build staging and recovery files are not production assets.
 /apps/web/static/.moss-runtime-*/
 /apps/web/static/.moss-publication-lock/
