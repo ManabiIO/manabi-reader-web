@@ -4,7 +4,7 @@
   import * as Dialog from '$lib/components/ui/dialog';
   import {
     DICTIONARY_EXTENSION_MUTATION_ATTRIBUTES,
-    markPreferredDefaultDictionaryInstall,
+    PREFERRED_DEFAULT_INSTALL_BUTTON_ATTRIBUTES,
     normalizeDictionarySetupChoice,
     PREFERRED_DICTIONARY_EXTENSION_DESCRIPTION,
     PREFERRED_DICTIONARY_EXTENSION_NAME,
@@ -96,7 +96,7 @@
     <div class="grid gap-2">
       {#if bridgeReady}
         <Button
-          use:markPreferredDefaultDictionaryInstall
+          {...PREFERRED_DEFAULT_INSTALL_BUTTON_ATTRIBUTES}
           variant="secondary"
           class="min-h-11 justify-center"
           onclick={() => choose('done')}>Install Jitendex</Button
