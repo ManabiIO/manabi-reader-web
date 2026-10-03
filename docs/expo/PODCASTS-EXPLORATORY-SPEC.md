@@ -1894,15 +1894,16 @@ No product UI yet.
 Build a small qualification harness for real publisher media URLs:
 
 - normal RSS enclosure and any considered publisher alternate-enclosure URL
-- actual target environment/origin: production web origin and packaged Android DOM/WebView origin
+- actual target environments: exported web in both supported browser engines plus packaged Android DOM/WebView
 - document COOP/COEP headers and `crossOriginIsolated`
-- playback with the intended transport/request mode
+- playback with each candidate request mode (`no-cors` default and anonymous CORS where supported)
 - browser CORS GET for ASR
-- redirect behavior
-- Range 0-0
-- second random range
-- fresh-network fixed-range stability checks
-- total size evidence
+- redirect behavior and request-Origin/redirect-taint evidence
+- single Range 0-0 and another bounded range
+- same-session runtime-cache fixed-range stability
+- fresh-context/reload reopen stability
+- exact-size evidence
+- playback/ASR duration and rendition coherence
 - Mediabunny request count, metadata and audio track decode
 - 16 kHz PCM production
 - cancellation
@@ -1910,12 +1911,36 @@ Build a small qualification harness for real publisher media URLs:
 - publisher transcript availability/format/timeline behavior
 - service-worker pass-through behavior
 - repeated-request/ad/rendition stability
+- playback-before-ASR and ASR-before-playback request order
+
+For web qualification, use Playwright/network instrumentation as diagnostic tooling, not product authority. Record the real media-element and `fetch()` request chains. When an overlapping media-element Range response body is available to the harness, hash it and compare it with the corresponding ByteSource Range. If the browser tooling cannot safely read that streaming response, compare final/session URLs, validators, sizes and durations and leave `playbackAsrCoherence` unknown rather than guessing.
 
 Produce a machine-readable report.
 
 Do not make ordinary PR CI depend on external podcast hosts.
 
-A manual or scheduled qualification workflow can test live providers. Normal CI should use local fixtures that emulate their important response patterns.
+A manual or scheduled qualification workflow can test live providers. Normal CI should use local fixture origins that emulate their important response patterns.
+
+The local browser matrix should include at least:
+
+~~~text
+Manabi origin
+  -> host A 206 with ACAO: *
+  -> host A 302 ACAO:* -> host B 206 ACAO:*
+  -> host A 302 missing ACAO -> host B good
+  -> host A 302 explicit ACAO -> host B response under redirect-tainted Origin
+  -> multi-origin analytics-prefix chain
+  -> same chain with one broken intermediate hop
+  -> anonymous-CORS audio-element playback + JS Range fetch
+  -> no-CORS audio playback before JS Range fetch
+  -> JS Range fetch before no-CORS audio playback
+  -> server that varies ACAO by Origin with Vary: Origin
+  -> same server incorrectly missing Vary: Origin
+  -> dynamic server keyed differently by Sec-Fetch-Dest/audio versus fetch
+  -> session-stable but fresh-context-different rendition
+~~~
+
+Run the browser redirect/cache matrix in Chromium and WebKit. Android WebView gets its own packaged-host gate for the production source modes.
 
 ### Phase 1 — remote ByteSource
 
@@ -2020,6 +2045,17 @@ Local fixture server cases:
 
 - 206 correct one-byte range
 - correct nonzero bounded range
+- one contiguous Range remains non-preflighted
+- multiple-range request is never used by production ByteSource
+- controlled redirect A -> B succeeds only under the expected CORS behavior in each target browser
+- missing ACAO on an intermediate redirect is diagnosed
+- redirect-tainted Origin behavior is recorded, including wildcard versus explicit ACAO
+- playback-first then ASR-fetch cache ordering
+- ASR-fetch first then playback cache ordering
+- origin-varying CORS response with correct `Vary: Origin`
+- origin-varying response without `Vary: Origin` cannot be assumed safe from cache-mode poisoning
+- dynamic fixture serving different bytes for `Sec-Fetch-Dest: audio` versus JS fetch is detected as playback/ASR mismatch
+- session-stable/fresh-context-different fixture derives MOSS_SESSION_ONLY rather than UNSTABLE_SESSION
 - server ignores Range and returns 200
 - range body too short
 - range body too long
@@ -2135,24 +2171,29 @@ Assert:
 
 Maintain a small live smoke list across candidate hosts. A passing hostname is not sufficient; qualify the publisher enclosure shape actually used by the catalog.
 
-For each provider, record:
+For each provider/episode, record:
 
 - date checked
-- feed URL
-- exact enclosure URL
-- browser/origin used
-- redirect final URL
-- Range result
-- body readability
-- size source
+- feed URL and exact publisher-declared media URL
+- browser engine / app origin / Android WebView version
+- document COOP/COEP and `crossOriginIsolated`
+- playback request mode
+- redirect chain and final URL for diagnostics
+- request `Origin`, `Sec-Fetch-Mode`, `Sec-Fetch-Dest` and Range where tooling exposes them
+- response ACAO, `Vary`, CORP, exposed-header policy, Content-Encoding, ETag and range headers where observable
+- JS body readability
+- 206 Range result and exact requested body length
+- exact-size evidence
 - Mediabunny parse/decode result
-- response/version stability across repeated checks
-- fixed-range digest stability
-- number of HTTP requests/redirects required for probe, metadata, bounded decode and verification
+- same-session fixed-range digest stability under runtime cache behavior
+- fresh-context/reload evidence separately from same-session evidence
+- playback/ASR duration/session/PCM coherence evidence
+- number of HTTP requests/redirects required for probe, metadata, bounded decode and optional verification
 - whether repeated ranges appear to trigger materially different ad/personalized renditions
 - official `podcast:transcript` availability/CORS and whether it is timed enough for study
-- whether playback requires no CORS while ASR succeeds through the separate fetch path
 - any relevant provider terms reviewed
+
+Do not persist full signed/sessionized final CDN URLs in long-lived reports when a redacted origin/path class is sufficient.
 
 Do not turn one passing show into an eternal hostname allowlist.
 
@@ -2160,7 +2201,7 @@ Do not turn one passing show into an eternal hostname allowlist.
 
 - No podcast audio upload for ASR.
 - No proxy/rehost in v1.
-- credentials: omit for third-party audio/feed requests.
+- `credentials: 'omit'` for third-party audio/feed requests; do not depend on third-party cookies for rendition coherence.
 - HTTPS-only production remote media.
 - Reject credential-bearing URLs.
 - Bound all RSS/media metadata lengths.
@@ -2174,7 +2215,9 @@ Do not turn one passing show into an eternal hostname allowlist.
 - Consider image proxy/privacy separately; it is not needed for audio ASR.
 - Do not log full signed enclosure URLs if providers ever use them.
 - Do not persist third-party response credentials/tokens.
-- Treat final redirect URL as sensitive metadata if it contains tracking identifiers.
+- Treat final redirect URL as sensitive metadata if it contains tracking/session identifiers.
+- Do not log full signed query strings in ordinary telemetry.
+- Arbitrary user-entered feed/media URLs remain deferred; before adding them, separately review localhost/private-network redirect/probing risks rather than assuming the curated-source trust model applies.
 
 ## 17. Offline behavior
 
@@ -2225,7 +2268,8 @@ A first shippable Podcasts experiment should satisfy all of the following:
 - Feature is separately gated.
 - Books / Videos / Podcasts category navigation is coherent.
 - Catalog is Japanese-first and curated.
-- Every episode offered for MOSS passed actual browser byte-read/range/decode **and rendition-stability** qualification under the deployed cross-origin-isolation mode.
+- Every episode offered for timed MOSS passed actual browser body-read/range/decode, same-session stability and playback/ASR-coherence qualification under the deployed cross-origin-isolation mode.
+- Reopen-stable episodes may restore timed captions after bounded evidence validation; session-only episodes must revalidate or demote old timing rather than pretending the new rendition is identical.
 - Publisher-provided transcripts are preferred when safely usable; timed follow/replay is enabled only when their timeline is qualified for the delivered rendition.
 - Audio comes from a publisher-declared enclosure or qualified publisher-declared alternate enclosure; no Manabi audio proxy/rehost.
 - Opening an episode does not download MOSS.
