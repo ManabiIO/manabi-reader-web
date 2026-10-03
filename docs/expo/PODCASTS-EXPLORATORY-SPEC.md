@@ -1053,13 +1053,16 @@ Do not persist `observedFinalUrl` as a replacement media authority merely becaus
 
 ### 5.1 ByteSource needs a generic network/read profile first
 
-The current `identify()` implementation does not treat all non-File sources equally. It uses 4 MiB reads only when `source.cloud` is present; otherwise it hashes in 1 MiB chunks.
+There are **two** current 1 MiB fan-out paths to fix before remote podcasts:
 
-A podcast source implemented as a plain non-File/non-cloud `ByteSource` would therefore turn a 100 MiB full verification into roughly 100 network range requests before accounting for Mediabunny/MOSS reads. That is undesirable for latency, host analytics, dynamic ads, and request limits.
+1. `identify()` uses 4 MiB reads only when `source.cloud` is present; every other source hashes in 1 MiB reads.
+2. `streamedRange()` unconditionally advances by 1 MiB per pull. That means even though the Mediabunny `CustomSource` uses `prefetchProfile: 'network'` and a 4 MiB cache, a combined 4 MiB Mediabunny request can still turn into four separate `source.read()` calls — and therefore four HTTP Range requests for a remote podcast.
 
-Do not fake `source.cloud` to get the larger chunk size.
+A podcast source implemented as a plain non-File/non-cloud `ByteSource` would therefore suffer request amplification both during optional full verification and during ordinary parse/decode.
 
-Before remote podcasts use full verification, generalize the source contract with an explicit capability/profile such as:
+Do not fake `source.cloud` to get larger reads.
+
+Generalize the source contract once, for example:
 
 ~~~ts
 type ByteSourceProfile = 'local' | 'network'
@@ -1067,11 +1070,24 @@ type ByteSourceProfile = 'local' | 'network'
 interface ByteSource {
   // existing fields...
   profile?: ByteSourceProfile
+
+  // Performance hint bounded by LIMITS.rangeBytes, never permission to exceed it.
   preferredReadBytes?: number
 }
 ~~~
 
-or an equivalent owned abstraction. `identify()`, prefetch, sampling and future remote sources should consume the generic capability rather than provider-specific fields.
+or an equivalent owned abstraction.
+
+Then make all relevant consumers use the same source-owned hint:
+
+- `identify()`
+- `streamedRange()`
+- sampled/rendition fingerprint reads where batching is appropriate
+- future network sources
+
+For a network source, a 4 MiB upper chunk is the obvious first value because it already matches `LIMITS.rangeBytes` and Mediabunny's configured `maxCacheSize`. Measure it rather than hardcoding a podcast-only constant.
+
+Do not change the semantic range requested by Mediabunny; only coalesce transport reads within that requested interval. Cancellation/lifetime checks must still run between chunks if a larger requested interval is split.
 
 Keep `LIMITS.rangeBytes` as the hard upper bound.
 
@@ -2227,8 +2243,9 @@ Local fixture server cases:
 - cancellation during body
 - stale source lifetime
 - response body cleanup
-- generic network source uses coalesced/bounded remote read sizing rather than 1 MiB full-hash request fan-out
-- request count is bounded/measured for full verification
+- generic network source uses coalesced/bounded remote read sizing rather than 1 MiB `identify()` fan-out
+- `streamedRange()` uses the same bounded network read hint so a 4 MiB Mediabunny prefetch is not mechanically split into four HTTP requests
+- request count is bounded/measured separately for metadata parse, one MOSS window and optional full verification
 - credentials are omitted
 - non-HTTPS rejected in production policy
 - URL credentials rejected
@@ -2396,6 +2413,8 @@ Range count matters in addition to byte count. Podcast hosts and ad systems may 
 
 The current Mediabunny `network` prefetch profile is explicitly designed to reduce read-call count in high-latency sources. Keep that adapter path and measure it; do not replace it with hand-written MP3 seeking unless a real qualification failure requires it.
 
+But do not assume that profile alone solves HTTP request count: the current `streamedRange()` implementation re-chunks the requested stream at 1 MiB. The generic network-source refactor must preserve Mediabunny's coalescing all the way down to `ByteSource.read()`.
+
 MOSS throughput is a separate cost. Current repository evidence does not establish realtime v7 podcast transcription on representative devices. The product must remain useful when local captions build slower than playback, and playback-lead mode must stop work when its bounded target is satisfied.
 
 **Generate local captions** may cause:
@@ -2540,7 +2559,7 @@ The next worker should revise this spec and answer these before substantial impl
 Keep each implementation PR reviewable.
 
 1. Provider/deployment qualification harness + docs only.
-2. Generic ByteSource network/read-profile refactor + request-count tests.
+2. Generic ByteSource network/read-profile refactor covering both `identify()` and `streamedRange()`, with request-count tests.
 3. Remote ByteSource/RenditionSession + local fixture tests.
 4. Podcast identity/catalog/parser domain + product/MOSS feature-capability split.
 5. Shared transcript/player seam extraction with zero intended Video behavior changes.
