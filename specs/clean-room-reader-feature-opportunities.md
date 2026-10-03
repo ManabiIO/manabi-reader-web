@@ -911,3 +911,262 @@ These appear broadly useful enough to justify dedicated product-design investiga
 - CR-OPP-133 Recovery center
 
 These are exploration candidates, not a ranking or commitment.
+
+
+## 16. Second-wave learner workflow opportunities
+
+### CR-OPP-135 Difficulty preview
+
+Before opening imported material, estimate difficulty using transparent signals such as:
+- known/unknown vocabulary ratio;
+- kanji familiarity;
+- sentence length;
+- lexical frequency;
+- grammar-density heuristics;
+- text length.
+
+Requirements:
+- show the components behind the estimate;
+- do not present one opaque number as objective truth;
+- allow recalculation after the user's knowledge state changes;
+- keep the estimate local where practical.
+
+### CR-OPP-136 External knowledge-state import
+
+Allow the user to seed Reader knowledge state from explicitly connected/imported sources.
+
+Generic examples:
+- kanji level list;
+- known-vocabulary export;
+- flashcard collection;
+- user-supplied word list.
+
+Requirements:
+- source and import time are visible;
+- import can be refreshed or removed;
+- imported state remains distinguishable from Reader-inferred state;
+- conflicts follow an explicit precedence policy.
+
+### CR-OPP-137 Camera / photo OCR import
+
+Support one-shot import of Japanese text from:
+- printed books;
+- physical manga;
+- signs;
+- screenshots;
+- another device's screen.
+
+Possible output modes:
+- extracted clean text;
+- page image plus selectable overlay;
+- temporary lookup-only scan;
+- saved library item.
+
+Requirements:
+- original image remains available when saved;
+- OCR confidence/errors are editable or clearly fallible;
+- processing location (local/remote) is disclosed;
+- no silent upload when local mode is promised.
+
+### CR-OPP-138 System share/import inbox
+
+On supporting platforms, accept shared:
+- selected text;
+- webpage URL;
+- image;
+- PDF/document;
+- subtitle/media file.
+
+The receiving flow should preview what will be saved and route it to the appropriate content type.
+
+### CR-OPP-139 Mobile lookup disambiguation
+
+When a touch lands ambiguously near multiple possible token boundaries, provide a low-friction way to select the intended term.
+
+Possible target-owned interactions:
+- candidate chips;
+- drag-to-expand;
+- adjacent-term arrows;
+- touch magnifier;
+- second tap to change segmentation.
+
+Requirements:
+- avoid swallowing unrelated particles unless selected;
+- preserve direct lookup speed for unambiguous taps;
+- use touch-sized hit targets.
+
+### CR-OPP-140 Explicit action feedback
+
+Small one-tap actions such as:
+- copy;
+- save word;
+- mark known;
+- add bookmark;
+- export card;
+- download media
+
+should give immediate, non-disruptive confirmation.
+
+Feedback must not obscure reading text for long or steal keyboard focus unnecessarily.
+
+### CR-OPP-141 Familiarity from reading behavior
+
+Optionally infer vocabulary familiarity from behavior such as:
+- repeated encounters without lookup;
+- repeated successful review;
+- manual known/learning changes;
+- lookups after a period of apparent familiarity.
+
+Requirements:
+- inference rules are inspectable at a high level;
+- user can override state;
+- one accidental non-lookup does not mark a term known;
+- inferred state is distinguishable from explicit user decisions.
+
+### CR-OPP-142 Knowledge confidence
+
+Represent familiarity as more than a binary flag when useful.
+
+Possible states:
+- unseen;
+- encountered;
+- learning;
+- familiar;
+- known;
+- manually pinned.
+
+A continuous confidence score MAY exist internally or visibly, but the user must not be forced to understand a complex score to use the reader.
+
+### CR-OPP-143 Sample-content onboarding
+
+A new user can explore core interactions immediately using a small bundled/project-owned sample instead of needing to import content first.
+
+The sample should demonstrate:
+- lookup;
+- furigana controls;
+- highlight/bookmark;
+- appearance;
+- optional mining.
+
+It must be clearly removable and must not pollute real reading statistics by default.
+
+### CR-OPP-144 Daily reading recommendation
+
+If the user opts into planning, suggest a small next reading target based on:
+- current queue;
+- recent reading;
+- stated goal;
+- difficulty;
+- time available.
+
+This should guide, not lock the user into a curriculum.
+
+### CR-OPP-145 Post-session mining queue
+
+During reading/watch/listen sessions, allow lightweight marking of candidate words/sentences without interrupting flow.
+
+After the session, present a review queue where the user can:
+- discard;
+- mark known;
+- add to flashcards;
+- merge duplicate contexts;
+- choose the best source sentence/media.
+
+### CR-OPP-146 Batch i+1 review
+
+For users who want it, analyze a chapter/transcript after consumption and produce a bounded candidate list of terms that are:
+- unfamiliar;
+- high-value/frequent;
+- contextually supported by mostly known surrounding text.
+
+The system should not auto-create cards without explicit user policy.
+
+### CR-OPP-147 Shadowing mode
+
+For audio/video/podcast content, provide sentence-level shadowing controls:
+- replay;
+- adjustable delay before replay;
+- hide/reveal transcript;
+- optionally record the learner locally;
+- compare timing or pitch only when a valid measurement pipeline exists.
+
+Any pronunciation scoring must communicate uncertainty and avoid presenting a single noisy measurement as authoritative.
+
+### CR-OPP-148 Dual-text reveal modes
+
+For content with source plus translation/reference text, support:
+- source only;
+- both;
+- translation blurred;
+- translation hidden until tap;
+- temporary reveal.
+
+This can support reading or listening without making translation permanently dominant.
+
+### CR-OPP-149 Difficulty-aware furigana baseline
+
+Instead of selecting furigana only from a generic proficiency level, allow the baseline to combine:
+- explicit user level;
+- imported known kanji/vocabulary;
+- Reader familiarity state.
+
+User always retains a simple global override.
+
+### CR-OPP-150 Vocabulary export without lock-in
+
+Allow saved vocabulary/history to export in a simple documented format independently of any flashcard integration.
+
+At minimum include:
+- expression;
+- reading if known;
+- meaning/source dictionary reference where licensing permits;
+- user status;
+- optional source context;
+- timestamps.
+
+### CR-OPP-151 Source-specific privacy defaults
+
+Content types can have different default capture policies.
+
+For example:
+- ordinary EPUB text may allow source sentence retention;
+- private document may default to no cloud helper;
+- camera OCR may default to local processing;
+- streamed video may restrict screenshots/audio based on platform capability.
+
+The user should see and be able to change applicable policies rather than discovering them after export.
+
+### CR-OPP-152 Reading-flow friction telemetry — local only
+
+Optionally compute private local metrics such as:
+- lookups per 1,000 characters;
+- lookup pause time;
+- repeated lookup rate;
+- pages/characters between interruptions.
+
+Use them to help the user understand material difficulty or reading flow.
+
+No analytics upload is implied; local computation is the default product opportunity.
+
+### CR-OPP-153 Context quality chooser
+
+When multiple possible mining contexts exist, allow the user to choose among:
+- exact sentence;
+- surrounding paragraph;
+- adjacent subtitle lines;
+- cleaner example sentence from an authorized source;
+- manually edited context.
+
+The chosen context must retain provenance so the user knows whether it came from the source material or a replacement example.
+
+### CR-OPP-154 Reading-state interoperability
+
+Expose a documented portable export/import for:
+- current location;
+- progress;
+- bookmarks;
+- highlights;
+- notes;
+- reading sessions/statistics where practical.
+
+The goal is durable user ownership, not compatibility with any one external product.
