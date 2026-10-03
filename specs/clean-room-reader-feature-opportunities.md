@@ -1683,3 +1683,221 @@ This backlog does not authorize:
 - treating an observer-source update as a request to implement what was observed.
 
 The branch remains research/specification material until per-feature approval says otherwise.
+
+
+## 24. Shared-primitives dependency map
+
+This section is informative only. It identifies likely target-owned primitives that multiple opportunities may reuse.
+
+**It is not a bundle definition and does not create approval for any primitive or neighboring feature.** The minimal-shared-primitive rule in `../CLEAN_ROOM_APPROVALS.md` remains controlling.
+
+### Knowledge-state primitive
+
+Potential consumers:
+- CR-OPP-001 Chapter preflight
+- CR-OPP-002 Whole-book vocabulary forecast
+- CR-OPP-003 Adaptive furigana
+- CR-OPP-004 Learner-state text styling
+- CR-OPP-005 Inline micro-glosses
+- CR-OPP-012 Coverage projection
+- CR-OPP-061 Vocabulary browser
+- CR-OPP-062 Encounter map
+- CR-OPP-135 Difficulty preview
+- CR-OPP-136 External knowledge-state import
+- CR-OPP-141 Familiarity from reading behavior
+- CR-OPP-142 Knowledge confidence
+- CR-OPP-149 Difficulty-aware furigana baseline
+- CR-OPP-155 Personalized material difficulty
+- CR-OPP-158 New-vocabulary delta
+- CR-OPP-164 Reading readiness threshold
+- CR-OPP-178 Vocabulary occurrence timeline
+
+Approval of any one consumer authorizes only the minimum knowledge-state behavior required for that consumer.
+
+### Semantic source-text primitive
+
+Potential consumers:
+- CR-OPP-006 Proper-name assistance
+- CR-OPP-007 Context-ranked dictionary sense
+- CR-OPP-008 Grammar overlay
+- CR-OPP-053 Highlight-to-card
+- CR-OPP-063 Source-linked lookup history
+- CR-OPP-065 Update existing card
+- CR-OPP-153 Context quality chooser
+- CR-OPP-157 Order-of-appearance vocabulary list
+- CR-OPP-161 Source-first i+1 examples
+- CR-OPP-165 Scoped reading assistant
+- CR-OPP-171 Post-reading comprehension check
+- CR-OPP-177 Character/entity index
+- CR-OPP-178 Vocabulary occurrence timeline
+- CR-OPP-183 Semantic library search
+
+This should reuse existing durable text/location infrastructure where possible rather than creating a second competing text model.
+
+### Durable-location / navigation primitive
+
+Potential consumers:
+- CR-OPP-020 Book map
+- CR-OPP-021 Page/section browser
+- CR-OPP-022 Rich skim sheet
+- CR-OPP-026 Navigation history
+- CR-OPP-053 Highlight-to-card
+- CR-OPP-062 Encounter map
+- CR-OPP-063 Source-linked lookup history
+- CR-OPP-168 Highlight resurfacing
+- CR-OPP-176 Source-linked daily review
+- CR-OPP-177 Character/entity index
+- CR-OPP-179 User-facing reference anchors
+- CR-OPP-180 Deep links to reading locations
+- CR-OPP-181 Progress-linked reading journal
+
+Existing Reader locator/navigation architecture should be evaluated first.
+
+### Context-bundle / mining primitive
+
+Potential consumers:
+- CR-OPP-053 Highlight-to-card
+- CR-OPP-064 Mine from history
+- CR-OPP-065 Update existing card
+- CR-OPP-067 Idempotent media reuse
+- CR-OPP-077 Voice-activity sentence capture
+- CR-OPP-078 Multi-line context capture
+- CR-OPP-079 Media mining history
+- CR-OPP-080 Context image capture
+- CR-OPP-110 Context bundle
+- CR-OPP-111 One-action mining
+- CR-OPP-112 Mining presets
+- CR-OPP-113 Capture crop
+- CR-OPP-114 Media privacy
+- CR-OPP-145 Post-session mining queue
+- CR-OPP-146 Batch i+1 review
+- CR-OPP-153 Context quality chooser
+
+Approval of one mining workflow does not authorize a universal mining subsystem rewrite unless separately approved.
+
+### OCR document primitive
+
+Potential consumers:
+- CR-OPP-090 On-demand page OCR
+- CR-OPP-091 Region OCR
+- CR-OPP-092 Pointer-follow lookup
+- CR-OPP-093 OCR corrections
+- CR-OPP-094 OCR versions
+- CR-OPP-095 OCR improvement merge
+- CR-OPP-137 Camera/photo OCR import
+- CR-OPP-174 Multi-page camera capture
+- CR-OPP-175 Auto-detect OCR after page change
+- CR-OPP-185 Physical-book catalog entry
+
+A read-only OCR approval does not authorize editable/versioned OCR.
+
+### Timed-media / transcript primitive
+
+Potential consumers:
+- CR-OPP-070 Sentence playback modes
+- CR-OPP-071 Primed listening
+- CR-OPP-072 Condensed playback
+- CR-OPP-073 Track targeting
+- CR-OPP-074 Transcript list
+- CR-OPP-075 Transcript discovery
+- CR-OPP-076 Subtitle timing alignment
+- CR-OPP-077 Voice-activity sentence capture
+- CR-OPP-078 Multi-line context capture
+- CR-OPP-079 Media mining history
+- CR-OPP-147 Shadowing mode
+- CR-OPP-148 Dual-text reveal modes
+
+These should compose with existing target media/transcript architecture when present.
+
+### Library metadata / lifecycle primitive
+
+Potential consumers:
+- CR-OPP-010 Finish-date planner
+- CR-OPP-011 Reading queue
+- CR-OPP-013 Habit goals
+- CR-OPP-014 Time remaining
+- CR-OPP-040 Continue dashboard
+- CR-OPP-041 Rich book details
+- CR-OPP-042 Include/exclude filters
+- CR-OPP-043 Saved library views
+- CR-OPP-047 Favourites and collections
+- CR-OPP-048 External tracking
+- CR-OPP-049 Local/remote placeholders
+- CR-OPP-144 Daily reading recommendation
+- CR-OPP-159 Next-material recommender
+- CR-OPP-181 Progress-linked reading journal
+- CR-OPP-184 Paused / did-not-finish state
+- CR-OPP-185 Physical-book catalog entry
+- CR-OPP-186 Reading report
+
+Adding one lifecycle field must not silently require redesigning the entire library model.
+
+### Ingestion / source-link primitive
+
+Potential consumers:
+- CR-OPP-044 Watched folders
+- CR-OPP-045 Relink missing books
+- CR-OPP-049 Local/remote placeholders
+- CR-OPP-100 Web article/read-later import
+- CR-OPP-101 Web novel import
+- CR-OPP-102 External catalog connector
+- CR-OPP-103 Catalog feed browsing
+- CR-OPP-104 Universal import inbox
+- CR-OPP-137 Camera/photo OCR import
+- CR-OPP-138 System share/import inbox
+- CR-OPP-173 Feed subscriptions
+- CR-OPP-174 Multi-page camera capture
+- CR-OPP-185 Physical-book catalog entry
+
+Each source type retains explicit provenance and capability; generic ingestion must not collapse logical identity into provider path.
+
+### Assistance / model boundary primitive
+
+Potential consumers:
+- CR-OPP-006 Proper-name assistance
+- CR-OPP-007 Context-ranked dictionary sense
+- CR-OPP-008 Grammar overlay
+- CR-OPP-165 Scoped reading assistant
+- CR-OPP-166 Permissioned assistant actions
+- CR-OPP-167 User-defined reading actions
+- CR-OPP-171 Post-reading comprehension check
+- CR-OPP-183 Semantic library search
+
+Read-only retrieval, generative explanation, and write-capable actions are distinct approval surfaces.
+
+### Presentation / scaffolding primitive
+
+Potential consumers:
+- CR-OPP-003 Adaptive furigana
+- CR-OPP-004 Learner-state text styling
+- CR-OPP-005 Inline micro-glosses
+- CR-OPP-008 Grammar overlay
+- CR-OPP-030 Per-book reader presets
+- CR-OPP-031 Named global presets
+- CR-OPP-032 Sentence/block reading mode
+- CR-OPP-033 Reading ruler / line guide
+- CR-OPP-121 Theme typography bundle
+- CR-OPP-122 Per-language font profiles
+- CR-OPP-149 Difficulty-aware furigana baseline
+- CR-OPP-169 Scaffolding intensity control
+- CR-OPP-170 Translation reveal density
+
+A high-level scaffolding control should compose existing presentation features rather than create duplicate settings authorities.
+
+## 25. Approval dependency rule
+
+When an approved opportunity has a dependency on another CR-OPP:
+
+- the dependency does not become approved automatically;
+- if the approved feature can be delivered with a narrow internal primitive that exposes no dependent user-facing feature, the minimal-shared-primitive rule may permit that internal work;
+- if delivery requires the dependent opportunity's user-visible behavior, separate approval is required;
+- if the dependency changes privacy, durable data, migration, platform reach, or external integrations, treat it as material and require explicit approval unless already included in the original bounded scope.
+
+Before implementation, record dependencies in the per-feature scope packet as:
+
+- `required internal primitive`;
+- `existing target primitive`;
+- `approved dependent feature`;
+- or `unapproved dependency / blocker`.
+
+Do not convert an unapproved dependency into a broad prerequisite project.
