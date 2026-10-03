@@ -1969,6 +1969,36 @@ Initial episode screen should include:
 
 Do not add podcast-specific visual gimmicks before the core path is qualified.
 
+Do not describe local MOSS as "live transcription" or imply it will continuously stay ahead of playback. The current Video player already has truthful buffering semantics worth extracting:
+
+- `Wait for captions`
+- `Play without captions`
+- current caption lead
+- estimated wait for required coverage
+- explicit notice when recognition is slower than playback and may buffer again
+- waiting-for-another-tab/model-owner state
+
+Podcast should reuse those concepts through the shared transcript/player seam.
+
+When a user has selected Local MOSS captions as the active timed transcript and playback reaches unready coverage:
+
+~~~text
+follow local captions ON
+  -> pause/wait at the safe boundary
+  -> continue building bounded lead
+  -> automatically resume only if this wait originated from active playback
+  -> user may choose Play without captions
+
+follow local captions OFF
+or user explicitly bypasses
+  -> audio continues
+  -> transcript does not pretend missing coverage exists
+~~~
+
+A seek into an uncovered region may require a wait before timed text becomes available. Never jump playback backward merely to follow where MOSS has already completed.
+
+Publisher timed captions that are already rendition-compatible do not need this generation buffer.
+
 ### 10.4 No video overlay controls
 
 Remove/omit for podcast:
@@ -2063,6 +2093,16 @@ Prefer a non-error parked/idle state or equivalently explicit coverage status. D
 Persist durable window coverage, not a promise that the prior Worker/model is still resident. Warm-grace state is ephemeral and must never change recovery correctness.
 
 Whole-episode `full` mode, if eventually offered, must be an explicit separate action and should surface expected cost.
+
+"Lead" is a scheduling target, not a throughput promise. If measured warm recognition factor is greater than 1x realtime, no finite high-water target can make indefinite uninterrupted playback sustainable. The existing Video ETA model should remain authoritative:
+
+- measure decode + warm inference for completed cores
+- estimate time needed to build the selected lead
+- state explicitly when recognition is slower than playback
+- allow buffering/waiting or bypassing generated captions
+- never hide repeated buffer events behind optimistic progress wording
+
+Do not dynamically shrink MOSS windows merely to make the progress UI appear more responsive unless recognition quality/seam behavior is requalified under a new policy.
 
 ### 11.4 Podcast speech/music/noise behavior
 
@@ -2539,6 +2579,11 @@ Cover:
 - pause-after-line
 - model-download disclosure
 - bounded lead generation/progress/park/resume
+- Wait for captions / Play without captions behavior
+- slower-than-playback warning is shown from measured throughput rather than a fixed assumption
+- a wait caused by active playback resumes playback when sufficient coverage arrives; an explicitly paused episode stays paused
+- seeking into missing coverage never fabricates cues or jumps playback backward
+- bypassing generated captions lets audio continue without marking missing regions caption-ready
 - cancel/resume
 - Reader typography/background
 - no video-only overlay controls
@@ -2699,6 +2744,7 @@ A first shippable Podcasts experiment should satisfy all of the following:
 - Repeated remote reads cannot silently mix different ad/personalized renditions into one transcript.
 - Sparse inference prioritizes the current playhead.
 - Default podcast inference is bounded playback-lead work and does not silently fill the full episode.
+- The UI does not promise live/realtime transcription; measured slow recognition leads to truthful wait/bypass behavior.
 - Satisfying the lead stops inference scheduling; any warm model retention is bounded, explicitly owned and eventually released.
 - In-progress work survives supported pause/reload flows without pretending to be a verified portable Track.
 - Portable transcript publication is bound to exact ContentKey, or a separately reviewed replacement identity protocol.
