@@ -1382,14 +1382,23 @@ episode manifest
 
 Use a separate catalog-refresh command/job to fetch the reviewed feed set, validate it, and produce bounded inert JSON.
 
-Refresh publisher feeds politely:
+Refresh publisher feeds politely **and treat the refresher as a network-security boundary**:
 
 - conditional GET with feed ETag / Last-Modified when available
 - bounded concurrency and per-host request rate
 - stable User-Agent identifying Manabi's catalog refresher
-- redirect limits and reviewed feed-URL alias updates
 - last-known-good feed/manifest retention on transient failure
 - record fetchedAt/source feed URL for diagnostics without turning fetch time into episode identity
+- HTTPS-only seed/feed URLs for the curated v1
+- reject URL userinfo, fragments and non-HTTP(S) schemes
+- manually follow a small bounded redirect count so **every hop** can be revalidated before connecting
+- resolve/revalidate each destination as public Internet space; reject loopback, link-local, private RFC1918, carrier-grade NAT, IPv6 ULA/link-local, unspecified/multicast and cloud-instance-metadata destinations
+- defend against DNS rebinding by tying the validated resolution to the actual connection or using an HTTP client/resolver policy that does so; a preflight DNS check followed by an unconstrained second resolution is insufficient
+- reject redirects from an approved public feed into a private/non-public destination
+- stream and cap the **decoded** response body before XML parsing; Content-Length alone does not protect against gzip/brotli decompression bombs
+- cap redirect-response bodies as well even though they are discarded
+- fetch only the RSS document during refresh; do not recursively fetch artwork, transcript or enclosure URLs just because XML references them
+- publisher feed redirect/alias changes are recorded only after ShowKey continuity checks described below
 
 Do **not** assume "put the generated episode JSON in Expo public/" solves this cross-platform. The current Expo migration explicitly embeds public assets in the Android binary and disables EAS Update; a frequently changing packaged episode manifest would require a new binary to refresh.
 
@@ -2314,6 +2323,7 @@ Acceptance:
 Add:
 
 - safe parser/catalog types and curated Japanese manifest
+- hardened catalog-refresh fetcher: public-network-only redirect/DNS policy, decoded-byte limits and conditional GET
 - stable ShowKey/EpisodeKey rules
 - separate Podcasts product flag
 - derived shared MOSS/media capability
@@ -2391,6 +2401,29 @@ Choices:
 Do not let Phase 7 block a useful local-first experiment.
 
 ## 15. Testing plan
+
+### 15.0 Catalog refresh security tests
+
+Use a local resolver/HTTP harness; do not depend on real cloud-metadata endpoints.
+
+Cover:
+
+- reviewed HTTPS feed succeeds
+- HTTP/non-HTTP scheme rejected for curated v1
+- URL userinfo rejected
+- direct localhost / RFC1918 / link-local / IPv6 ULA destination rejected
+- public URL redirecting to private destination rejected before connection
+- public hostname whose later resolution rebinds private cannot escape the validated connection policy
+- redirect loops and redirect-count exhaustion
+- oversized encoded feed body
+- small compressed response that expands past decoded feed-byte limit
+- misleading/absent Content-Length
+- slow/truncated body cancellation
+- conditional 304 retains previous validated feed snapshot
+- transient 5xx/timeout keeps last-known-good manifest
+- directory-discovered candidate does not become an implicitly trusted fetch target
+- feed XML referencing localhost artwork/transcript/enclosure does not cause the refresh parser to fetch that resource
+- conflicting `podcast:guid` after feed redirect blocks automatic ShowKey migration
 
 ### 15.1 Remote source unit tests
 
@@ -2580,6 +2613,9 @@ Do not turn one passing show into an eternal hostname allowlist.
 - Treat final redirect URL as sensitive metadata if it contains tracking/session identifiers.
 - Do not log full signed query strings in ordinary telemetry.
 - Arbitrary user-entered feed/media URLs remain deferred; before adding them, separately review localhost/private-network redirect/probing risks rather than assuming the curated-source trust model applies.
+- The scheduled catalog refresher is itself an SSRF surface even with a curated seed: every DNS result and redirect hop must remain public-network-only, and decoded response bytes must be bounded before parsing.
+- Directory-discovered feed URLs are untrusted candidates. Never let Podcast Index/Apple/etc. automatically expand the server-side fetch allowlist without the same URL/DNS/redirect policy and ShowKey review.
+- Do not fetch feed-referenced artwork/transcript/media during the normalization pass merely to validate markup. Resource qualification is a separately owned operation with its own limits.
 
 ## 17. Offline behavior
 
