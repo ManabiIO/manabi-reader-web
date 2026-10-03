@@ -401,6 +401,16 @@ class ReaderBrowser(unittest.TestCase):
     def test_video_release_gate_keeps_default_build_dormant(self):
         self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+        # Qualify the real offline worker before replacing this document.
+        # WebKit otherwise reports cancellation of its pending registration as
+        # an engine page error, even when register() handles the rejection.
+        self.page.wait_for_function('''async () => Boolean(
+          (await navigator.serviceWorker.getRegistration('/reader-web/'))?.active
+        )''', timeout=15000)
+        # The empty Library also starts its optional catalog independently.
+        # Fence that real request before this video-gate document replacement.
+        expect(self.page.get_by_role('heading', name="Editor's Picks", exact=True)).to_be_visible()
+        expect(self.page.get_by_text('Loading books…', exact=True)).to_have_count(0)
         # CI retains these original default-off assertions in its independent
         # regression export; the full web inventory explicitly enables video.
         if os.environ.get('EXPO_PUBLIC_ENABLE_VIDEO_LEARNING') == 'true':

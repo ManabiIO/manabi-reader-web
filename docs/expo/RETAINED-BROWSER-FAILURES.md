@@ -13,8 +13,19 @@ Local repairs described below are present in the combined working source as of
 2026-10-03, **awaiting browser qualification on the exact published head**.
 None of these entries is closed by a unit test, a changed fixture, an export, or
 an older-head pass. Preserve the original behavioral assertions and rerun the
-complete selected suites in the full gate. The WebKit teardown failure remains
-under investigation; it is neither waived nor counted as fixed.
+complete selected suites in the full gate. The WebKit registration/navigation
+failure now has a positive worker-readiness fixture repair; it remains blocking
+until the final full gate passes, with the original no-page-error assertion intact.
+
+Full [run 37096298886](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37096298886)
+on `53d4534c` passed Android, the full data-safety dispatcher and production
+Snippets. The retained web inventory had one WebKit registration/navigation
+error (case 8 below); default-route acceptance had one new Settings history-test
+failure. A throttled Chromium replay reproduced the latter: the test observed
+the temporary outgoing Reader entry during guarded Forward, before the original
+Settings entry was replayed. It now waits for the focused Settings screen before
+checking the unchanged entry-ID equality assertion. Both-engine lifetime suites
+and eight throttled repetitions pass locally; final full CI remains required.
 
 ## The 15 failing cases
 
@@ -63,8 +74,15 @@ under investigation; it is neither waived nor counted as fixed.
    ([inherited case](../../tests/browser/test_static_reader.py),
    [Rhea suite](../../tests/browser/test_rhea_ui.py)). Teardown recorded a
    `service-worker.js` access-control error. This traceback does not establish a
-   video-gate assertion failure. Lifecycle/teardown diagnostics are ongoing;
-   cause and resolution remain unconfirmed. Keep this case blocking.
+   video-gate assertion failure. The newer lifecycle trace places the error at
+   immediate hard navigation from Library to Videos, while real worker
+   registration is pending. WebKit emits this engine error even though the
+   registration rejection is caught. The fixture now positively asserts a real
+   active offline worker and waits for the independently loaded optional catalog
+   before replacing the document. The worker-only replay exposed the same WebKit
+   cancellation diagnostic for the catalog, so both actual startup operations
+   are fenced. The fixture neither suppresses errors nor changes video-gate
+   assertions. Final full qualification is pending.
 
 9. **Admitted TTU source and labels** — `test_migration_entrypoint_and_google_drive_labels_use_official_names`
    ([case](../../tests/browser/test_ttu_migration.py)). `Import from Yatsu Reader`

@@ -25,8 +25,9 @@ cached-face Blob loading across reload/process restart. Actual font-picker
 import, typography visual parity and device accessibility remain unqualified.
 
 The [finite retained failure ledger](RETAINED-BROWSER-FAILURES.md) records all
-15 distinct failing browser cases, local repairs and the unresolved WebKit
-service-worker teardown diagnostic. The combined shared Library presentation,
+15 distinct failing browser cases, local repairs and the WebKit
+service-worker registration/navigation diagnostic with its positive readiness
+fixture repair awaiting final full qualification. The combined shared Library presentation,
 metadata, appearance and retained-flow repairs await qualification on their
 exact published head. No older pass closes these current browser/device gates.
 
