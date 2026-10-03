@@ -99,7 +99,10 @@ settings workspace. Imported or explicitly selected fonts remain available.
 Closing the sheet returns focus to its live trigger or the persistent reading
 control if outside dismissal has already collapsed the toolbar. The backdrop
 handles fast touch taps directly, without depending on delayed outside-click
-registration in the dialog library.
+registration in the dialog library. A native non-passive backdrop `touchend`
+listener cancels the delayed compatibility click before it can activate a newly
+exposed toolbar action. The ref owns listener setup and teardown; gestures on
+controls inside the dialog remain available.
 
 ## Enlarged-text refinement
 

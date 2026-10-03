@@ -55,6 +55,32 @@ copy. The existing zoom journey additionally verifies the metric size; no prior
 assertion was removed. This canceled run is partial evidence, not qualification
 of the later repair.
 
+## Later touch-dismissal race
+
+The full [256a5242 run](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37118260894)
+passed all three jobs. The same-head [PR-event attempt 2](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37118264604)
+then failed the Chromium default-route
+`test_touch_reading_appearance_fits_and_outside_dismissal_restores_controls`.
+Its focus assertion observed the Library screen after an outside tap at (20, 20).
+The earlier frame-delayed backdrop removal did not cancel the browser's delayed
+compatibility click, which could activate the Library button newly exposed there.
+
+Reader modals now synchronously bind a native, non-passive `touchend` listener
+on their backdrop ref. It cancels outside touch completion before a compatibility
+click can be generated; controls inside the dialog retain their native gestures.
+Ref teardown removes the listener. The existing browser journey retains every
+original geometry, text-size and focus-return assertion, and additionally records
+the final native event cancellation. That assertion fails `[True] != [False]`
+on the frozen 256a5242 export, even when its original focus checks happen to pass.
+Ten consecutive actual touch journeys per engine pass locally after the repair.
+The same PR-event Android job built the APK and passed its emitted-worker check,
+but SDK setup then failed to unpack the downloaded API 35 Google APIs x86_64
+system-image ZIP (`Error on ZipFile unknown archive`). Instrumentation never
+started in that attempt, so it supplies no native runtime qualification. The
+full run's earlier runtime pass remains specific to its own disposable host.
+The passing full run and failed PR-event attempt remain separate historical
+evidence; the subsequent repair requires its own exact-head qualification.
+
 ## The 15 observed cases and original repair requirements
 
 1. **Series count spacing** — `test_recursive_series_covers_filters_and_readonly_scanning`

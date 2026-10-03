@@ -272,9 +272,22 @@ class RheaReader(previous.RefinedAppearance):
             self.assertLessEqual(box['x'] + box['width'], 390)
             panel.get_by_role('button', name='Increase text size', exact=True).tap()
             self.page.wait_for_function('localStorage.getItem("fontSize") === "21"')
+            self.page.evaluate('''() => {
+              window.backdropTouchEnds = [];
+              document.addEventListener('touchend', event => {
+                if (event.target instanceof Element &&
+                    event.target.classList.contains('reader-modal-backdrop')) {
+                  // Inspect the final native cancellation after all listeners.
+                  setTimeout(() => window.backdropTouchEnds.push(event.defaultPrevented), 0);
+                }
+              }, {capture: true, passive: true});
+            }''')
             self.page.touchscreen.tap(20, 20)
             expect(panel).to_have_count(0)
             expect(self.page.get_by_role('button', name='Themes & Settings', exact=True)).to_be_focused()
+            self.page.wait_for_function('window.backdropTouchEnds.length === 1')
+            self.assertEqual([True], self.page.evaluate('window.backdropTouchEnds'),
+                             'Outside touch must cancel its delayed compatibility click')
             reveal_reader_controls(self.page)
             self.page.get_by_role('button', name='Themes & Settings', exact=True).tap()
             close = panel.get_by_role('button', name='Close reading appearance', exact=True)
