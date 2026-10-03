@@ -1082,11 +1082,13 @@ Remote reads should:
 - run through the existing `assertRange` budget
 - fetch the publisher-admitted media URL, not an inferred final CDN URL
 - send exactly one byte `Range`
-- use `credentials: 'omit'`
+- use `mode: 'cors'` and `credentials: 'omit'`
 - use `referrerPolicy: 'no-referrer'` for JavaScript ASR reads unless provider qualification demonstrates a requirement for referrer delivery
+- do **not** try to set `Accept-Encoding`: it is browser-controlled, and the Fetch standard automatically appends `Accept-Encoding: identity` for an HTTP Range request specifically to avoid content-coding/range failures
 - avoid cache-busting query parameters
 - prefer normal/default runtime HTTP caching; do **not** copy the cloud source's `cache: 'no-store'` behavior by default, because that would multiply publisher requests and defeat useful CDN/browser caching
 - validate 206 status and exact body length
+- require effective identity range semantics; if a server/CDN still returns non-identity `Content-Encoding` for the ranged response, reject it unless a separate browser qualification proves that JS-visible body offsets still match the requested representation
 - never accept a full 200 response for a bounded random range and silently buffer the whole episode
 - cancel discarded bodies
 - fence all results by source lifetime/generation
@@ -1105,6 +1107,13 @@ type RemoteReadMode =
 ~~~
 
 Do not use `cache: 'no-store'` for every production chunk. That defeats useful HTTP caching and can cause a dynamic-ad host to mint more renditions/measurements than a normal podcast player would.
+
+Why the content-coding rule matters: Fetch decodes supported `Content-Encoding` before exposing body bytes to script, while range offsets and representation metadata concern the selected HTTP representation. Fetch normally prevents this mismatch by requesting identity encoding for Range. If an origin violates that expectation, a `ByteSource.read(start,end)` cannot safely treat the decoded ArrayBuffer as bytes `start...end`.
+
+References:
+
+- Fetch Range request behavior: https://fetch.spec.whatwg.org/
+- Content-Encoding representation semantics: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Encoding
 
 ### 5.3 playback()
 
@@ -2130,7 +2139,8 @@ Local fixture server cases:
 - server ignores Range and returns 200
 - range body too short
 - range body too long
-- observed non-identity Content-Encoding / transformed range behavior is rejected unless exact random-access semantics are separately proven
+- browser request carries Range and the network layer uses identity content coding as expected
+- server nonetheless returns non-identity Content-Encoding / transformed range behavior -> reject unless exact JS-visible random-access semantics are separately proven
 - missing/zero/invalid declared source size
 - boundary probe `bytes=N-1-N` returns exactly one byte for exact declared size
 - boundary probe returns two bytes when declared size is too small
