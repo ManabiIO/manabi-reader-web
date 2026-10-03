@@ -153,3 +153,61 @@ The user/project owner may revoke or narrow approval at any time.
 When a bounded approved feature is completed, mark that approval record completed. Completion does not authorize the next feature.
 
 A new feature requires a new explicit approval.
+
+
+## Approval validation checklist
+
+Before target-side work, a worker must validate all of the following:
+
+1. the approval record exists in this file;
+2. its status is active;
+3. the requested CR ID/feature is explicitly covered;
+4. the requested action is permitted by the approval level;
+5. the target repository/platform matches;
+6. the requested deliverable fits the bounded deliverable text;
+7. no exclusion forbids the requested change;
+8. the approval has not been superseded by a narrower/later record.
+
+If any check fails, target-side work is not authorized.
+
+## Per-feature scope packet
+
+Before starting an approved feature, the worker should state a compact scope packet in its implementation PR or working notes:
+
+- Approval ID
+- CR IDs
+- target repo/platform
+- existing target primitive(s) reused
+- user-visible behavior being changed
+- data/storage migrations, if any
+- privacy/network effect, if any
+- test/benchmark IDs in scope
+- explicit non-goals
+- adjacent CR IDs discovered but not approved
+
+The scope packet is derived only from the sanitized handoff plus authorized target code.
+
+## Minimal shared-primitive rule
+
+An approved feature may require a shared target-owned primitive.
+
+That does not create authority to implement other features that could also use the primitive.
+
+A worker may add/refine a shared primitive only when all of these are true:
+
+- it is necessary for the approved behavior;
+- its API/scope is the minimum coherent target-owned abstraction needed;
+- it does not expose unrelated new user-visible features;
+- it does not pre-implement unapproved feature-specific behavior;
+- its tests are limited to the primitive's contract and the approved feature;
+- adjacent opportunities are recorded for later approval rather than bundled in.
+
+A broad refactor justified mainly by future unapproved CR-OPP entries requires separate approval.
+
+## No batch approval by implication
+
+Even if several CR entries share one subsystem, approval remains per named feature/suite.
+
+For example, approval of one audio mode does not authorize every `CR-OPP-070..` media feature; approval of one OCR feature does not authorize the entire OCR opportunity section.
+
+A user/project owner may explicitly approve a bounded bundle, but the bundle must be named or enumerated. Workers may not construct the bundle themselves.
