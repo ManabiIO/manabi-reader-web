@@ -1,9 +1,9 @@
 # Clean-room implementation handoff manifest
 
 Status: SEALED RESEARCH HANDOFF — NO ACTIVE IMPLEMENTATION APPROVALS
-Revision: 2026-10-03 approval-gated refinement
+Revision: 2026-10-03 approval-gated refinement 2
 
-PR #260 is a research/specification Draft. This manifest identifies the clean documents a future worker may read. **It does not authorize that worker to implement, test, prototype, integrate, mark ready, merge, or finish any feature.**
+PR #260 is a research/specification Draft. This manifest identifies clean documents a future worker may read. **It does not authorize that worker to design, implement, test, prototype, integrate, mark ready, merge, or finish any feature.**
 
 ## Approval gate comes first
 
@@ -11,15 +11,15 @@ Before doing any CR-derived target work, read:
 
 | Path | Git blob SHA | Purpose |
 | --- | --- | --- |
-| `CLEAN_ROOM_APPROVALS.md` | `fd6b1ea7c76097bf81b5a456fc8eaa0951681cae` | explicit per-feature/work-level authorization ledger |
+| `CLEAN_ROOM_APPROVALS.md` | `233c10acda33879c36b829d23b8492ac7de1f413` | explicit per-feature/work-level authorization ledger |
 
-At this revision, `CLEAN_ROOM_APPROVALS.md` states **Active approvals: None**.
+At this revision, `CLEAN_ROOM_APPROVALS.md` states **Active approvals: None** and records **no delegated approval authority**.
 
-Therefore no target fixtures/tests, production changes, implementation PRs, integration, or PR #260 finalization are authorized by this clean-room program.
+Therefore no target design, fixtures/tests, production changes, implementation PRs, integration, or PR #260 finalization are authorized by this clean-room program.
 
 ## Sanitized research inputs
 
-Subject to the approval gate above, the worker may receive these documents plus ordinary authorized target-repository material:
+Subject to the approval gate above, a future worker may receive these documents plus ordinary authorized target-repository material:
 
 | Path | Git blob SHA | Purpose |
 | --- | --- | --- |
@@ -27,6 +27,14 @@ Subject to the approval gate above, the worker may receive these documents plus 
 | `specs/clean-room-reader-competitive-spec.md` | `fd1269b0426ce7b526a99f985c15b4192634fcdd` | behavior contracts, fixtures, acceptance tests, benchmarks |
 | `specs/clean-room-reader-adversarial-qualification.md` | `b4249481022cb010cfcee89d5263c3766201208b` | adversarial, sync, cache, fuzz, soak, cross-engine qualification |
 | `specs/clean-room-reader-feature-opportunities.md` | `0563e33fe230eb627210c839ed1cc80b8a17c00e` | DISCOVERY_ONLY optional feature registry |
+
+Research reviewers may also use:
+
+| Path | Git blob SHA | Purpose |
+| --- | --- | --- |
+| `CLEAN_ROOM_REVIEW.md` | `6066bbcd69a9512b57a58d232156140fc0deef3e` | research-only consistency/review checklist |
+
+The review checklist is not an implementation authority or approval source.
 
 ## Default worker authority
 
@@ -36,9 +44,22 @@ With no active approval, a worker may only do research/specification work that t
 - deduplicate requirements;
 - identify target-side overlap;
 - refine acceptance criteria;
+- audit approval/manifest consistency;
 - report which feature/CR IDs would need approval.
 
-The worker must not create target fixtures/tests or modify product/runtime code from these documents.
+The worker must not create target design deliverables, fixtures/tests, or modify product/runtime code from these documents.
+
+## Approval levels
+
+Only `CLEAN_ROOM_APPROVALS.md` defines authority. Current levels are:
+
+- `DISCOVERY_ONLY`
+- `APPROVED_FOR_DESIGN`
+- `APPROVED_FOR_TESTS`
+- `APPROVED_FOR_IMPLEMENTATION`
+- `APPROVED_FOR_INTEGRATION`
+
+A higher level is not inferred from a lower one. Design does not authorize tests; tests do not authorize production fixes; implementation does not authorize integration.
 
 ## Per-feature approval rule
 
@@ -47,9 +68,11 @@ A target-side action requires an active approval that names:
 - the feature/CR IDs;
 - approval level;
 - target repository/platform;
-- bounded deliverable.
+- bounded deliverable;
+- approval basis/spec revision or equivalent explicit scope;
+- exclusions/constraints.
 
-Approval is non-transitive.
+Approval is non-transitive and cannot be self-created by a worker.
 
 In particular:
 
@@ -59,7 +82,8 @@ In particular:
 - approval of tests is not approval of fixes;
 - approval of one feature is not approval of an adjacent feature;
 - approval on one platform is not approval on another;
-- a generic instruction such as “continue,” “go deeper,” “review,” or “finish” is not per-feature implementation approval.
+- a generic instruction such as “continue,” “go deeper,” “review,” “refine,” “finish,” or “work through the backlog” is not per-feature implementation approval;
+- a later material spec expansion is not automatically covered by an older approval.
 
 ## PR #260 state gate
 
@@ -94,21 +118,24 @@ Before any target-side work:
 1. verify the approval-ledger blob SHA and read it;
 2. verify the sanitized research blob SHAs above;
 3. confirm an active approval exactly covers the requested CR IDs and work level;
-4. if no matching approval exists, stop target-side execution and report the required approval;
-5. do not perform external competitor research;
-6. inspect current target-owned architecture for overlap only within the user's requested review scope;
-7. preserve existing working primitives rather than rebuilding them to resemble another product.
+4. verify that the approval basis still matches the current relevant spec revision/scope;
+5. if no matching approval exists, stop target-side execution and report the required approval;
+6. do not perform external competitor research;
+7. inspect current target-owned architecture for overlap only within the user's requested review/approved scope;
+8. preserve existing working primitives rather than rebuilding them to resemble another product.
 
 ## Approved-work execution
 
 Only after a matching approval exists:
 
-1. restate the approval ID, CR IDs, work level, target, deliverable and exclusions;
-2. if approved for tests, create only independently authored fixtures/tests and stop at reported failures;
-3. if approved for implementation, make only the bounded target-owned changes needed for the approved IDs;
-4. if adjacent unapproved work is discovered, report it rather than “finishing it while here”;
-5. run only the qualification/benchmark/device work included in approval;
-6. mark the approval record completed when the bounded work is done.
+1. restate the approval ID, CR IDs, work level, target, approval basis, deliverable and exclusions;
+2. if approved for design, stop after the bounded design deliverable;
+3. if approved for tests, create only independently authored fixtures/tests and stop at reported failures;
+4. if approved for implementation, make only the bounded target-owned changes needed for the approved IDs;
+5. if adjacent unapproved work is discovered, report it rather than “finishing it while here”;
+6. obey the minimal-shared-primitive rule in the approval ledger;
+7. run only qualification/benchmark/device work included in approval;
+8. mark the approval record completed when the bounded work is done.
 
 ## Worker completion attestation
 
@@ -118,6 +145,8 @@ An implementation PR for an approved feature should include a statement equivale
 
 ## Manifest updates
 
-Any change to the approval ledger or one of the four sanitized research documents changes its blob SHA and requires a new manifest revision before handoff.
+Any change to the approval ledger, research-review checklist, or one of the four sanitized research documents changes its blob SHA and requires a new manifest revision before handoff.
+
+A stale manifest is invalid for clean implementation handoff.
 
 This manifest itself contains no external source provenance and may be supplied to a future worker.
