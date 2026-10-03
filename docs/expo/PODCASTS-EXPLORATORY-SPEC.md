@@ -113,6 +113,14 @@ EXPO_PUBLIC_ENABLE_PODCASTS=true
 
 The shared section switcher should render the enabled categories based on capabilities. Do not create separate contradictory tab definitions for Svelte, React web, and native long-term; the Expo migration direction is one shared composition with bounded platform leaves.
 
+There is already duplication to remove:
+
+- React `LibraryTabs()` renders Books / Videos and hardcodes Books as current
+- `VideoWorkspace` constructs a separate DOM Books / Videos nav and marks Videos current
+- the retained Svelte reference has its own tab markup
+
+Do **not** add a fourth Podcasts-specific switcher. Extract one host-owned section-navigation model/view with an explicit current category and enabled categories. VideoWorkspace should no longer own site/library navigation as part of its eventual domain/view split.
+
 ### 2.3 Existing media source seam is already useful
 
 apps/web/src/lib/media/sources.ts defines ByteSource:
@@ -1063,6 +1071,17 @@ Recommended direction:
 - leave existing video sync kinds untouched initially
 - decide separately whether podcast resume/transcripts are local-only in MVP or need new backend kinds
 
+The existing `MediaStore` has a useful local-only seam: its IndexedDB `local` object store accepts arbitrary string kinds and is not part of the strict `Replica.Kind = video_*` sync protocol. A thin podcast-local repository may reuse that transaction/lifetime machinery for namespaced keys such as episode resume and draft metadata without a database schema bump.
+
+But do not use it unchanged as though it were already generic:
+
+- database/error text still says Video
+- its public subscription invalidation is only the legacy `captionsChanged, metadataChanged` boolean pair
+- ordinary `putLocal()` writes notify with neither flag, so current unified media search would not learn that a podcast search projection changed
+- loading every `jobs` record is not an acceptable substitute for a compact podcast transcript-search projection
+
+Either generalize those local-store error/invalidation semantics while preserving Video behavior, or wrap the store with a podcast-specific typed invalidation layer. Do not create a second IndexedDB database merely to avoid doing that small ownership work unless isolation has a measured benefit.
+
 ### 9.3 Suggested podcast metadata and local transcript documents
 
 Conceptual only:
@@ -1396,6 +1415,8 @@ The existing video search path intentionally scans only complete published Track
 Do not solve this by forcing bounded drafts into complete Track publication.
 
 Instead, add a bounded/disposable **local podcast transcript search projection** derived from durable publisher documents and accepted MOSS cues. It may be rebuilt, and it is never transcript authority. Avoid making unified search deserialize every full MOSS Job/sparse hypothesis merely to find text.
+
+Cross-tab invalidation for that projection must be explicit; current `MediaStore.putLocal()` notifications do not mark either legacy Video search revision flag.
 
 Suggested result classes:
 
