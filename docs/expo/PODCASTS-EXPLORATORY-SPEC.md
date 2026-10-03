@@ -330,24 +330,99 @@ Update `prepare-expo.mjs` to package MOSS when **either** product needs it. Refa
 
 Do not make Podcasts depend on turning Videos on.
 
-### 2.12 Cross-origin isolation can change playback rules
+### 2.12 Web and packaged Android have different CORS origins
 
-`MossClient` selects the threaded WASM runtime only when `globalThis.crossOriginIsolated` and `SharedArrayBuffer` are available. The Reader repository itself does not currently establish a universal COOP/COEP deployment contract; production/server headers remain part of runtime qualification.
+Do not use Expo's generic "release DOM components use file://" behavior as the Manabi Android model.
 
-That matters for podcasts. Under `Cross-Origin-Embedder-Policy: require-corp`, a cross-origin media element requested in normal `no-cors` mode can be blocked unless the response opts into CORP. A CORS-mode media request can instead pass COEP if the media host actually permits CORS. Under `credentialless`, no-cors behavior is different again and cannot be assumed across the entire supported matrix.
+This branch carries an exact `@expo/dom-webview@57.0.1` Android patch. It rewrites the packaged DOM entry onto AndroidX WebViewAssetLoader's reserved secure origin:
 
-Therefore "playback works without CORS" is only true in the ordinary non-COEP case.
+~~~text
+https://appassets.androidplatform.net/www.bundle/<hash>.html
+~~~
 
-Provider qualification must record:
+and explicitly disables:
 
-- actual web response headers for the Manabi document
+- file access
+- content access
+- file-origin access
+- universal file-origin access
+- mixed content
+
+External HTTP(S) fetches are **not** native-proxied; the patch returns them to ordinary WebView/browser networking and CORS.
+
+Therefore the two production CORS origins that matter are conceptually:
+
+~~~text
+web
+  -> actual deployed Reader HTTPS origin
+
+packaged Android DOM
+  -> https://appassets.androidplatform.net
+~~~
+
+A provider may work on one and fail on the other if it uses an explicit ACAO allowlist. `Access-Control-Allow-Origin: *` with `credentials: 'omit'` is especially attractive because it covers both origins and redirect-tainted `Origin: null` states without provider-specific Manabi registration.
+
+Phase 0 must record the exact outgoing `Origin` in packaged Android WebView network evidence; do not infer it solely from `location.origin`.
+
+Repo evidence:
+
+- `patches/reader-dom/README.md`
+- `patches/reader-dom/expo-dom-webview-57.0.1.patch`
+- `tests/android/PackagedReaderTest.java`
+- `tests/android/probe.js`
+
+Expo's upstream generic DOM-component documentation is still relevant background, but Manabi's patched production host is authoritative for this branch:
+https://docs.expo.dev/guides/dom-components/
+
+### 2.13 Cross-origin isolation and Android MOSS runtime
+
+`MossClient` selects the threaded WASM runtime only when:
+
+~~~ts
+globalThis.crossOriginIsolated &&
+typeof SharedArrayBuffer !== 'undefined'
+~~~
+
+The current patched Android asset loader returns packaged resources with:
+
+~~~text
+X-Content-Type-Options: nosniff
+Cache-Control: no-cache
+~~~
+
+and does **not** currently add COOP/COEP response headers.
+
+Therefore do not assume packaged Android Reader is cross-origin isolated or will run threaded MOSS. The likely fail-safe path is the existing single-threaded runtime, but this must be measured in the actual release WebView.
+
+That matters materially because current repository evidence already shows the single-threaded MOSS path is slower than the threaded path on its small CI fixture.
+
+Android podcast qualification must record from the actual packaged trusted root:
+
+- `location.origin === 'https://appassets.androidplatform.net'`
+- `isSecureContext`
 - `crossOriginIsolated`
-- COEP/COOP mode
-- whether playback succeeds with the transport's default/no-CORS request
-- whether playback succeeds with anonymous CORS when necessary
-- whether MOSS Range fetches remain readable
+- presence/absence of `SharedArrayBuffer`
+- WebView version
+- module Worker startup
+- Web Locks
+- selected MOSS runtime variant
+- model preparation
+- one real bounded MOSS inference window
+- memory/process behavior while the model is resident
 
-Do not globally enable or change COOP/COEP merely to speed up podcast MOSS without requalifying the rest of Reader and third-party media. MDN reference:
+Do not change the Android asset-loader headers to add COOP/COEP merely to gain threads. That is a separate Reader-wide security/runtime change and could alter cross-origin media, workers, iframes and other DOM behavior. It requires its own qualification.
+
+For ordinary web deployment, COOP/COEP likewise remains an actual-deployment property. Under `COEP: require-corp`, a cross-origin media element in normal `no-cors` mode can be blocked unless the response opts into CORP; a CORS-mode media request can pass when the media host permits CORS. Under `credentialless`, behavior differs again.
+
+Provider qualification must therefore record separately for web and Android:
+
+- document isolation state
+- playback request mode
+- playback success
+- MOSS Range body readability
+- selected MOSS CPU runtime
+
+MDN reference:
 https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cross-Origin-Embedder-Policy
 
 ## 3. Product scope
@@ -2296,7 +2371,8 @@ Build a small qualification harness for real publisher media URLs:
 
 - normal RSS enclosure and any considered publisher alternate-enclosure URL
 - actual target environments: exported web in both supported browser engines plus packaged Android DOM/WebView
-- document COOP/COEP headers and `crossOriginIsolated`
+- exact document origin: deployed web origin versus Android `https://appassets.androidplatform.net`
+- document COOP/COEP headers where HTTP-served, `crossOriginIsolated` and `SharedArrayBuffer`
 - playback with each candidate request mode (`no-cors` default and anonymous CORS where supported)
 - browser CORS GET for ASR
 - redirect behavior and request-Origin/redirect-taint evidence
@@ -2590,6 +2666,8 @@ Cover:
 - deep-link to episode/time only when a real timed cue exists
 - route replacement while reads/inference are pending
 - ordinary no-COEP playback and the actual qualified COEP deployment mode
+- packaged Android canonical appassets origin and actual outgoing CORS Origin
+- packaged Android single/threaded MOSS runtime selection is measured, never assumed
 
 ### 15.5 Search tests
 
@@ -2615,8 +2693,8 @@ For each provider/episode, record:
 
 - date checked
 - feed URL and exact publisher-declared media URL
-- browser engine / app origin / Android WebView version
-- document COOP/COEP and `crossOriginIsolated`
+- browser engine / exact app origin / Android WebView version
+- document COOP/COEP where applicable, `crossOriginIsolated`, `SharedArrayBuffer` and selected MOSS runtime
 - playback request mode
 - redirect chain and final URL for diagnostics
 - request `Origin`, `Sec-Fetch-Mode`, `Sec-Fetch-Dest` and Range where tooling exposes them
@@ -2756,6 +2834,8 @@ A first shippable Podcasts experiment should satisfy all of the following:
 - No existing Video behavior is regressed.
 - No existing video_* sync record is silently reinterpreted as podcast data.
 - A Podcasts-only build packages MOSS correctly without enabling Videos.
+- Packaged Android qualification records canonical appassets origin, isolation state and actual MOSS runtime variant.
+- Android local MOSS is not advertised if the selected runtime/device fails the required performance/memory gate.
 - A Videos-only build keeps its current behavior.
 - A build with neither feature does not package MOSS merely because shared media code exists.
 - Android/web product state moves toward shared composition rather than adding another permanent divergent page.
