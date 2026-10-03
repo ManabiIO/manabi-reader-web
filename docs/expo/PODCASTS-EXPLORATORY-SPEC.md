@@ -1337,15 +1337,23 @@ For `playback-lead`:
 - request only the predecessor/current/future windows needed for a bounded lead
 - repair seams required for that lead
 - checkpoint accepted windows normally
-- when the lead is satisfied, **park the job and release MOSS/model ownership**
-- when playback/seek approaches missing coverage, re-admit the same durable job
+- use a measured high-water/low-water lead rather than scheduling one window on every `timeupdate`
+- stop inference scheduling when the high-water lead is satisfied
+- as playback approaches the low-water mark, re-admit/restart bounded work for the same durable job
 - preserve accepted windows on cancel/close
 - do not restart from zero because the user jumps forward
 - do not let an idle open episode silently consume CPU filling distant hours
+- a reload/new workspace never auto-starts MOSS merely because a saved playback-lead job or selected local draft exists; the user must explicitly resume local captions for that session
+
+Model lifetime needs hysteresis too. Loading the verified model into a Worker is expensive even when its bytes are cached. Do not unload/reload on every small lead transition, but also do not keep 648 MB resident indefinitely merely because an episode stays open.
+
+The implementation should measure a bounded **warm grace** for an active local-caption session. While the model is resident, retain the existing origin Web Lock ownership rule. After pause/inactivity/route departure or grace expiry, retire the runtime exactly as the current queue does.
 
 The current Job status/pause-reason model has no "lead satisfied" state and current sparse queue code continues until full coverage. This requires an explicit versioned scheduler/job-state change rather than only calling `queue.prioritize()`.
 
 Prefer a non-error parked/idle state or equivalently explicit coverage status. Do not overload `pauseReason: 'user'` or `'switch'`: lead satisfaction is successful scheduler state, and startup recovery must not present it as an abandoned/failed job.
+
+Persist durable window coverage, not a promise that the prior Worker/model is still resident. Warm-grace state is ephemeral and must never change recovery correctness.
 
 Whole-episode `full` mode, if eventually offered, must be an explicit separate action and should surface expected cost.
 
@@ -1639,10 +1647,12 @@ Reuse existing doubles plus new audio-only integration:
 - current playhead is first sparse priority
 - existing v3 jobs retain their historical whole-media scheduling semantics
 - the new podcast job version persists coverage policy explicitly
-- playback-lead mode stops scheduling after its bounded lead is satisfied
+- playback-lead mode stops inference scheduling after its bounded high-water lead is satisfied
 - lead satisfaction is not misreported as user cancellation/failure
-- satisfying a lead releases runtime/model ownership rather than filling distant windows
-- seeking into uncovered audio re-admits the same durable job and prioritizes the new region
+- bounded warm grace avoids pathological unload/reload churn without retaining the model indefinitely
+- origin Web Lock remains held for exactly the lifetime of any resident shared MOSS runtime
+- reload/reopen never auto-starts MOSS from a saved lead job
+- seeking into uncovered audio during an explicitly active local-caption session re-admits the same durable job and prioritizes the new region
 - whole-episode work does not begin unless full mode was explicitly selected
 - cancel preserves accepted windows
 - route switch pauses owned job
@@ -1800,7 +1810,7 @@ A first shippable Podcasts experiment should satisfy all of the following:
 - Repeated remote reads cannot silently mix different ad/personalized renditions into one transcript.
 - Sparse inference prioritizes the current playhead.
 - Default podcast inference is bounded playback-lead work and does not silently fill the full episode.
-- Satisfying the lead parks/releases inference resources.
+- Satisfying the lead stops inference scheduling; any warm model retention is bounded, explicitly owned and eventually released.
 - In-progress work survives supported pause/reload flows without pretending to be a verified portable Track.
 - Portable transcript publication is bound to exact ContentKey, or a separately reviewed replacement identity protocol.
 - Changed remote bytes cannot silently reuse a timed transcript.
@@ -1875,29 +1885,30 @@ The next worker should revise this spec and answer these before substantial impl
 
 ### UX
 22. Hide playback-only episodes or show them without local-caption capability?
-23. What bounded caption lead should playback-lead mode target?
-24. Should a separate "Transcribe full episode" action exist at all in v1?
-25. Do we expose optional full-byte verification progress separately from recognition progress?
-26. What should happen if the user seeks into an untranscribed region while MOSS is far behind?
-27. Should a valid **timeline-compatible** publisher transcript suppress local MOSS by default?
-28. How should a timed-but-rendition-uncertain publisher transcript be presented without implying exact seek alignment?
+23. What measured high-water/low-water caption lead should playback-lead mode target?
+24. What bounded warm-model grace avoids load thrash without retaining 648 MB unnecessarily?
+25. Should a separate "Transcribe full episode" action exist at all in v1?
+26. Do we expose optional full-byte verification progress separately from recognition progress?
+27. What should happen if the user seeks into an untranscribed region while MOSS is far behind?
+28. Should a valid **timeline-compatible** publisher transcript suppress local MOSS by default?
+29. How should a timed-but-rendition-uncertain publisher transcript be presented without implying exact seek alignment?
 
 ### Expo
-29. Should Podcasts wait for Video transcript/player domain extraction, or perform that extraction as its first enabling refactor?
-30. Should the shared playback port use Expo Audio on both platforms or Expo Audio on Android plus a DOM audio leaf on web?
-31. What COOP/COEP policy is actually deployed for Reader web and packaged Android DOM, and how does that change media request mode?
-32. What is the bounded Android DOM/media/ASR leaf?
-33. Which exact shared screen/controller owns episode state?
-34. What exact product flags and derived MOSS capability replace the current video-only gate without changing released defaults?
-35. Should the first slice remain foreground-playback-only, preserving current `enableBackgroundPlayback: false`?
-36. If background playback is later enabled, what lifecycle contract reconciles native playback with foreground-only/suspendable DOM MOSS work?
+30. Should Podcasts wait for Video transcript/player domain extraction, or perform that extraction as its first enabling refactor?
+31. Should the shared playback port use Expo Audio on both platforms or Expo Audio on Android plus a DOM audio leaf on web?
+32. What COOP/COEP policy is actually deployed for Reader web and packaged Android DOM, and how does that change media request mode?
+33. What is the bounded Android DOM/media/ASR leaf?
+34. Which exact shared screen/controller owns episode state?
+35. What exact product flags and derived MOSS capability replace the current video-only gate without changing released defaults?
+36. Should the first slice remain foreground-playback-only, preserving current `enableBackgroundPlayback: false`?
+37. If background playback is later enabled, what lifecycle contract reconciles native playback with foreground-only/suspendable DOM MOSS work?
 
 ### Provider/legal
-37. Which catalog/provider terms need explicit approval?
-38. Can generated transcripts sync privately, or should v1 keep them on-device?
-39. Which SoundCloud usage path, if any, is acceptable without relying on a restricted proprietary API?
-40. Do repeated range/hash requests distort host analytics, downloads, dynamic-ad accounting or monetization enough to require provider-specific limits/exclusion?
-41. Does using a publisher-declared alternate enclosure preserve the host's intended measurement/monetization path for that show?
+38. Which catalog/provider terms need explicit approval?
+39. Can generated transcripts sync privately, or should v1 keep them on-device?
+40. Which SoundCloud usage path, if any, is acceptable without relying on a restricted proprietary API?
+41. Do repeated range/hash requests distort host analytics, downloads, dynamic-ad accounting or monetization enough to require provider-specific limits/exclusion?
+42. Does using a publisher-declared alternate enclosure preserve the host's intended measurement/monetization path for that show?
 
 ## 22. Suggested first engineering PR sequence
 
