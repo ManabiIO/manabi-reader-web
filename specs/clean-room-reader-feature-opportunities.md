@@ -1280,3 +1280,229 @@ Let users define a personal threshold such as:
 - “show material one difficulty band above my recent average.”
 
 Thresholds should remain user-facing filters, not claims that one number determines comprehension.
+
+
+## 18. Contextual assistance and review opportunities
+
+### CR-OPP-165 Scoped reading assistant
+
+Offer an optional assistant whose scope is explicit:
+
+- selected word or phrase;
+- selected passage;
+- current chapter/document;
+- whole personal library.
+
+Possible tasks:
+- explain grammar;
+- define a cultural/reference term;
+- simplify an explanation;
+- compare two passages;
+- summarize what has been read;
+- answer a question using source passages.
+
+Requirements:
+- answers cite or link back to the source passages used where possible;
+- the UI clearly shows the active scope;
+- library-wide mode cannot silently mix unrelated private sources;
+- network/model use follows explicit privacy settings.
+
+### CR-OPP-166 Permissioned assistant actions
+
+If an assistant can change user data, separate read and write permissions.
+
+Potential write actions:
+- add/remove tags;
+- create a note;
+- save a highlight;
+- edit local metadata;
+- add an item to a reading queue.
+
+Each action can be configured as:
+- allowed;
+- confirm each time;
+- disabled.
+
+The assistant must not mutate reading state merely because it answered a question.
+
+### CR-OPP-167 User-defined reading actions
+
+Allow reusable user-authored actions on a word, passage or document.
+
+Examples:
+- explain this grammar at my level;
+- give two contrasting examples;
+- identify names in this paragraph;
+- produce a short chapter recap;
+- extract unresolved questions;
+- create a study note from this highlight.
+
+Actions should be portable/exportable as plain configuration where possible and should declare whether they use local or network processing.
+
+### CR-OPP-168 Highlight resurfacing
+
+Optionally resurface saved highlights/notes after reading using a lightweight spaced-review flow.
+
+This is distinct from vocabulary SRS.
+
+Requirements:
+- users can disable it;
+- source book/location is always visible;
+- deleting the review item does not delete the underlying highlight unless explicitly chosen;
+- review scheduling is independent from reading statistics.
+
+### CR-OPP-169 Scaffolding intensity control
+
+Provide a simple session-level control for how much assistance is visible.
+
+A target-owned design could vary some combination of:
+- generated furigana;
+- inline micro-glosses;
+- translation reveal;
+- grammar hints;
+- learner-state color;
+- audio prompts.
+
+Requirements:
+- each underlying assistance type remains independently configurable;
+- the high-level control must not silently override permanent preferences;
+- changing assistance intensity does not change source text or durable location.
+
+### CR-OPP-170 Translation reveal density
+
+For bilingual or translated content, allow the learner to choose how often translation is shown by default.
+
+Possible policies:
+- source only;
+- translation only on request;
+- selected sentences/panels translated;
+- mixed/scaffolded mode;
+- full parallel text.
+
+The user can reveal the original/translation for any individual unit regardless of the default policy.
+
+### CR-OPP-171 Post-reading comprehension check
+
+After a chapter/session, optionally generate or present a small active-recall check.
+
+Possible prompts:
+- factual comprehension;
+- who/what/where;
+- sequence of events;
+- meaning of a phrase in context;
+- short summary.
+
+Requirements:
+- every answer can be traced to the source passage;
+- generated questions are clearly identified as generated;
+- this never blocks continuing the book;
+- the user can disable automatic prompts entirely.
+
+### CR-OPP-172 Layered annotation packs
+
+Treat explanatory annotations as a separate layer from the book bytes.
+
+Potential layers:
+- personal notes;
+- teacher/editor notes;
+- grammar/culture explanations;
+- shared study-group notes.
+
+Requirements:
+- each layer can be enabled/disabled;
+- provenance is visible;
+- annotations cannot silently rewrite source text;
+- imported/shared packs have a version/identity independent of the book.
+
+### CR-OPP-173 Feed subscriptions
+
+Optional read-later subscriptions can bring recurring content into the library from explicitly subscribed feeds.
+
+Examples:
+- RSS/Atom;
+- newsletters through an authorized connector;
+- user-selected publication feeds.
+
+Requirements:
+- subscription content is clearly distinguishable from owned local books;
+- unsubscribe stops future import without deleting prior saved items unless chosen;
+- feed fetch failure cannot damage the main library.
+
+### CR-OPP-174 Multi-page camera capture
+
+Extend one-shot camera OCR into a batch flow for a physical chapter/article.
+
+Possible workflow:
+1. capture/import several photos;
+2. reorder/retake;
+3. deskew/crop;
+4. OCR;
+5. review uncertain text;
+6. save as temporary study set or library item.
+
+Original images remain available if the user saves the result.
+
+### CR-OPP-175 Auto-detect OCR after page change
+
+For a user-authorized live screen/camera OCR mode, optionally detect that the page has settled and refresh OCR automatically.
+
+Requirements:
+- repeated failures pause rather than retry forever;
+- the user can stop auto-detect immediately;
+- stale OCR from the prior page cannot overlay the new page;
+- capture/privacy permissions remain explicit.
+
+### CR-OPP-176 Source-linked daily review
+
+Provide an optional daily review combining a bounded sample of:
+- difficult highlights;
+- pinned trouble words;
+- saved source sentences;
+- recent notes.
+
+Every item links back to its original book/media location when still available.
+
+This is a review surface over existing user data, not a duplicate copy of the library.
+
+## 19. Target overlap guard
+
+The following capabilities are already implemented, already specified, or have an established target-side data model in the current Reader repository. They must not be treated as greenfield competitive features merely because they also appear in this opportunity catalog.
+
+### Already target-specified / existing
+
+- reader-scoped search;
+- bookmarks and resume state;
+- highlights and passage notes;
+- book-wide notes;
+- return navigation / durable jump history foundation;
+- scrubber/navigation foundation;
+- Line Guide;
+- reading statistics and reading goals;
+- local-first annotation/account data;
+- annotation export/import paths;
+- local/provider library and folder organization;
+- direct WebDAV support;
+- snippets and stable source-selection capture;
+- optional video/transcript learning stack;
+- dictionary search with frequency/media presentation;
+- reading progress/completion state.
+
+### Opportunity entries that are extensions, not new primitives
+
+- CR-OPP-013 expands existing goals into broader habit goals.
+- CR-OPP-022 expands existing navigation/scrubbing into a richer skim surface.
+- CR-OPP-026 expands existing jump/return concepts into explicit Back/Forward history.
+- CR-OPP-033 overlaps the already-specified Line Guide; use the existing Line Guide contract rather than building a second feature.
+- CR-OPP-035 overlaps existing book-wide notes; only additional UX should be considered.
+- CR-OPP-051 extends existing annotation export with additional portable formats/fields.
+- CR-OPP-052 extends existing annotation storage with optional connectors.
+- CR-OPP-053 extends existing highlights into a later mining action.
+- CR-OPP-070 through CR-OPP-080 should compose with the existing video/transcript/audio architecture rather than introduce a parallel media stack.
+- CR-OPP-133 should orchestrate existing backup/recovery/sync surfaces rather than duplicate their underlying stores.
+
+Before selecting any CR-OPP for implementation, the worker must inspect current target-owned architecture and determine whether the correct work is:
+- no work;
+- test coverage;
+- UX exposure;
+- extension of an existing primitive;
+- or a genuinely new primitive.
