@@ -4,7 +4,7 @@ Manabi Reader for Web is licensed under the BSD 3-Clause License. By submitting 
 
 You also represent that you have the right to provide those portions under that license and that you have identified any third-party material the contribution contains.
 
-Human pull requests must affirm the BSD-3-Clause contribution grant in the pull-request checklist. The `Contribution license acknowledgement / acknowledgement` check reports failure when that acknowledgement is missing; dependency/update bots are exempt. Repository administrators must configure that check as required on every branch that accepts contributions. Without a required-check branch rule, the workflow records the failure but GitHub may still permit a merge.
+Human pull requests must affirm the BSD-3-Clause contribution grant in the pull-request checklist. The `Contribution license acknowledgement / acknowledgement` check reports failure when that acknowledgement is missing; dependency/update bots are exempt. Repository administrators must configure that check as required on every branch that accepts contributions. Without a required-check branch rule, the workflow records the failure but GitHub may still permit a merge. Because the gate uses `pull_request_target`, repository/organization Actions policy must also permit that event; the workflow deliberately performs no checkout and executes no pull-request code.
 
 This policy is a copyright-license grant. BSD-3-Clause does not contain an express patent grant. If Reader later needs an explicit contributor patent grant or a broader contributor agreement for proprietary distribution, establish that separately with qualified counsel rather than assuming this policy supplies it.
 
