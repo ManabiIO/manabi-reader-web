@@ -1,7 +1,7 @@
 # Clean-room implementation handoff manifest
 
 Status: sealed implementation input manifest
-Revision: 2026-10-03 feature-discovery pass 2
+Revision: 2026-10-03 feature-discovery pass 3
 
 The implementation worker is authorized to receive exactly the clean-room documents listed below plus ordinary authorized target-repository material.
 
@@ -10,7 +10,7 @@ The implementation worker is authorized to receive exactly the clean-room docume
 | `CLEAN_ROOM_COMPETITIVE_RESEARCH.md` | `8a54cd241a587c1a3ba4b5d30280c02f55ced45c` | process boundary, evidence rules, taint handling |
 | `specs/clean-room-reader-competitive-spec.md` | `3f2b0909fec61669774063cc3305abb81b18a2d3` | behavior, fixtures, acceptance tests, benchmarks |
 | `specs/clean-room-reader-adversarial-qualification.md` | `5a12dad34cae1c3632c959c23e49f665d4afbcac` | adversarial, sync, cache, fuzz, soak, cross-engine qualification |
-| `specs/clean-room-reader-feature-opportunities.md` | `3bb774cc210ba15dbfc521b1359a418ad1dff7ec` | optional sanitized feature backlog; not release requirements |
+| `specs/clean-room-reader-feature-opportunities.md` | `30d87355d138e808d7952b2b588f22fc9261468c` | optional sanitized feature backlog; not release requirements |
 
 ## Scope distinction
 
