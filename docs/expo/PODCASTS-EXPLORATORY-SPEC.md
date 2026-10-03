@@ -1308,28 +1308,35 @@ That is a larger protocol/schema decision and should not be smuggled into the fi
 
 ## 7. Catalog and RSS strategy
 
-### 7.1 Do not require a podcast backend for v1
+### 7.1 Publisher RSS is authority; directories are discovery only
 
 A useful first catalog can remain frontend/static.
 
-Recommended starting architecture:
+Recommended authority chain:
 
 ~~~text
-checked-in/generated curated catalog manifest
-          |
-          +-- show metadata
-          +-- feed URL
-          +-- native/learner category
-          +-- editorial tags
-          +-- source-family hint
-          |
-          v
-client fetches feed only when CORS-qualified
-or consumes generated recent-episode metadata from the manifest
-          |
-          v
-exact enclosure qualification in browser
+reviewed curated show seed
+  stable ShowKey
+  publisher RSS URL + reviewed aliases
+  editorial Japanese/native tags
+        |
+        v
+scheduled catalog refresh
+  fetch publisher RSS
+  validate/normalize items
+  preserve publisher-declared enclosure/transcript URLs
+        |
+        v
+versioned static episode manifest
+        |
+        v
+Reader browse/search
+        |
+        +-- playback uses publisher-declared media URL
+        +-- local MOSS admission probes exact media URL only on explicit action
 ~~~
+
+The **publisher feed is source-of-truth** for episode identity, media URLs, transcript resources and current metadata. Search directories may help discover a show/feed, but they must not silently replace current feed metadata or enclosure authority.
 
 This avoids introducing an audio proxy or account backend merely to discover episodes.
 
@@ -1353,6 +1360,15 @@ episode manifest
 
 Use a separate catalog-refresh command/job to fetch the reviewed feed set, validate it, and produce bounded inert JSON.
 
+Refresh publisher feeds politely:
+
+- conditional GET with feed ETag / Last-Modified when available
+- bounded concurrency and per-host request rate
+- stable User-Agent identifying Manabi's catalog refresher
+- redirect limits and reviewed feed-URL alias updates
+- last-known-good feed/manifest retention on transient failure
+- record fetchedAt/source feed URL for diagnostics without turning fetch time into episode identity
+
 Do **not** assume "put the generated episode JSON in Expo public/" solves this cross-platform. The current Expo migration explicitly embeds public assets in the Android binary and disables EAS Update; a frequently changing packaged episode manifest would require a new binary to refresh.
 
 Preferred long-term shape:
@@ -1367,25 +1383,77 @@ Preferred long-term shape:
 
 If the project does not want a separately updateable static-data publication path yet, state the tradeoff honestly: web deployment/app release cadence becomes the catalog refresh cadence.
 
+### 7.2.1 Optional directory/discovery inputs
+
+Directories can help seed or audit the curated show list, but none should become runtime episode authority.
+
+**Podcast Index**
+
+Podcast Index is useful for discovery and feed lookup, but not as a direct browser dependency:
+
+- its API uses developer key/secret authentication
+- its terms require developer credentials to remain confidential
+- the PodcastIndex web UI itself keeps API credentials server-side and reverse-proxies API calls through its own origin specifically to avoid browser CORS issues
+
+Therefore, if Manabi uses Podcast Index, use it only in a controlled catalog-refresh/discovery job with secrets stored outside the client bundle. Never put Podcast Index key/secret in `EXPO_PUBLIC_*`, static JavaScript or a generated public manifest.
+
+The job may use Podcast Index to discover candidate Japanese feeds or cross-check feed moves. It must still fetch the publisher RSS and make that feed authoritative before publication.
+
+References:
+
+- Podcast Index API docs: https://podcastindex-org.github.io/docs-api/
+- official web UI architecture/CORS proxy: https://github.com/Podcastindex-org/web-ui
+- credentials/terms: https://github.com/Podcastindex-org/legal/blob/main/TermsOfService.md
+
+**Apple legacy iTunes Search API**
+
+Apple's archived Search API documentation still describes podcast search and historically returns feed/catalog metadata, but it is a legacy surface:
+
+- the documentation is in Apple's archive and was last revised in 2017
+- its cross-site guidance uses JSONP/dynamic script callbacks rather than a modern fetch-first contract
+- Apple documents an approximate 20-calls/minute limit
+- Apple Developer Forums recorded a `/search` 404 outage on April 16, 2026
+
+Use it, if at all, as best-effort discovery/cross-check input in the catalog-refresh tooling. Do not make Reader startup, search, feed identity or catalog freshness depend on it.
+
+References:
+
+- https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI/
+- https://developer.apple.com/library/archive/documentation/AudioVideo/Conceptual/iTuneSearchAPI/Searching.html
+- https://developer.apple.com/forums/thread/823171
+
+**No directory-derived media authority**
+
+Whether the discovery source is Podcast Index, Apple, another directory or a hand-curated list:
+
+~~~text
+directory result
+  -> candidate publisher feed URL
+  -> fetch + validate publisher RSS
+  -> assign/reconcile ShowKey
+  -> only then publish episode/media metadata
+~~~
+
+Do not play/transcribe an enclosure copied from a directory record if the current publisher feed supplies a different URL.
+
 The next worker should choose and document one:
 
-A. Checked-in manifest, manually refreshed.
-- Simplest.
-- Best for a small editorial Japanese catalog.
-- Stale unless maintained.
+A. Checked-in **show seed** + separately generated episode manifest.
+- Recommended.
+- Reviewed identity/editorial input stays small.
+- Episode freshness is automated without making builds/live UI fetch arbitrary feeds.
 
-B. Build/CI-generated manifest from public RSS.
-- Still no runtime audio proxy.
-- Keeps static deployment.
-- Must avoid unreviewed network-derived metadata becoming trusted HTML/code.
-- CI fetch licensing/terms still need review.
+B. Entire episode manifest checked in/manually refreshed.
+- Simplest infrastructure.
+- Acceptable for an initial prototype.
+- Stale unless maintained and awkward for Android release cadence.
 
-C. Client-side feed fetch.
+C. Client-side publisher-feed refresh.
 - Most decentralized.
 - Only works when the feed itself allows CORS.
-- Arbitrary user-entered RSS cannot be guaranteed.
+- Creates runtime parser/network variability and is unnecessary for the curated MVP.
 
-A + B is the stronger default for the curated Japanese MVP: keep a reviewed source list in-repo and generate bounded episode metadata during a controlled build/update step. Optional direct client refresh can be added only for feeds whose CORS behavior is qualified.
+A is the stronger default. Podcast Index/Apple/etc. may feed the **refresh/discovery tooling**, not Reader runtime. Optional direct client feed refresh can be added only when it produces a clear product benefit and the feed's CORS/lifetime behavior is qualified.
 
 Do not make production app startup **or application build determinism** depend on a live feed update succeeding. A catalog-refresh failure must leave the last validated static manifest publishable/usable.
 
