@@ -15,3 +15,7 @@
 /docs/architecture/dictionary-* @aehlke
 /.github/pull_request_template.md @aehlke
 /.github/workflows/contribution-license.yml @aehlke
+/package.json @aehlke
+/.github/workflows/ci.yml @aehlke
+/apps/web/src/service-worker.ts @aehlke
+/apps/web/src/lib/service-worker/optional-static-assets.mjs @aehlke
