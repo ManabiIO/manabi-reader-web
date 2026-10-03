@@ -478,6 +478,8 @@ This is materially stronger than merely observing that the final CDN has ACAO, b
 
 It is still **not target-origin JavaScript proof**. urlscan/network captures can show headers from a media-element request whose response body would remain opaque to script. Megaphone stays the best Phase-0 candidate, not an already-qualified provider.
 
+The wildcard ACAO on both observed hops is nevertheless especially promising for Manabi's redirect shape: the Fetch standard can redirect-taint a cross-origin chain so later requests serialize Origin as `null`; credentialless `ACAO: *` remains compatible with that state. The executable browser probe must confirm Chromium/WebKit/WebView behavior.
+
 One remaining header issue is important for ByteSource: the capture does not establish Access-Control-Expose-Headers: Content-Range. JavaScript must not assume it can read the total merely because a network trace can see Content-Range. Use the exact-size proof described in section 4.4 when necessary.
 
 Megaphone final URLs are sessionized and the response includes ad/session metadata, so repeated fixed-range stability still needs qualification before transcript timing is treated as durable.
@@ -513,6 +515,8 @@ https://support.redcircle.com/articles/2362676166-understanding-programmatic-ads
 
 That is encouraging for one listening session, but it is not proof that independent credentialless byte Range requests from Manabi receive an identical byte/timeline rendition. Test fixed ranges repeatedly from the actual application.
 
+If the RedCircle rendition is coherent during one active browser/app session but changes in a fresh context later, classify it `MOSS_SESSION_ONLY`, not unsupported. Saved text can survive; old timed behavior must revalidate before reuse.
+
 Second, RedCircle lets creators prepend third-party analytics prefixes directly into the RSS enclosure. Current supported prefixes include Spotify Ad Analytics / Podsights, Podtrac, Podscribe, Claritas and Magellan:
 
 https://support.redcircle.com/articles/6155114893-how-to-add-a-third-party-prefix-to-your-podcast
@@ -529,6 +533,8 @@ pdst.fm
 ~~~
 
 Even if audio4.redcircle.com is perfect, any earlier redirect can break browser fetch CORS.
+
+Multi-provider prefix chains are also exposed to redirect-origin taint. After the first cross-origin redirect, later requests can carry an Origin serialized as `null` under the Fetch model. Wildcard ACAO is the simplest robust behavior for a credentialless chain; an intermediate/final service that only mirrors the original Manabi origin can fail later in the chain.
 
 Do not strip those prefixes to reach RedCircle directly. They are publisher-selected measurement/monetization infrastructure.
 
@@ -577,7 +583,7 @@ Spotify also has a separate rendition-stability problem. Current Spotify Partner
 Source:
 https://support.spotify.com/pk-en/creators/article/spotify-partner-program/
 
-So even after CORS passes, monetized Spotify-hosted episodes need the same fixed-range/timeline stability tests as RedCircle.
+So even after CORS passes, monetized Spotify-hosted episodes need the same two-tier stability tests as RedCircle: coherence during the active playback/ASR session, then separate reopen compatibility. A fresh-session ad change does not by itself forbid session-bound MOSS.
 
 Working status:
 
