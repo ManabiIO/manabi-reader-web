@@ -427,6 +427,284 @@ Useful external starting points:
 
 The next worker should refresh this matrix with actual browser probes. Search results, old curl captures, and provider statements are research leads, not release evidence.
 
+
+### 3.4 Dated provider CORS investigation — 2026-10-03
+
+This checkpoint separates four kinds of evidence:
+
+- current wire evidence: a captured real HTTP response/redirect
+- current provider documentation: what the hosting platform says it does
+- current directory/feed evidence: the URL shape publishers are actually distributing
+- historical evidence: useful for identifying failure classes, but not a release pass
+
+Do not turn this table into a hostname allowlist. The exact publisher-declared media URL remains the release-admission unit.
+
+| Provider family | Feed/discovery | Actual audio CORS | Range | Main blocker |
+| --- | --- | --- | --- | --- |
+| Megaphone | green | **green, current wire evidence** | **green, current wire evidence** | exact-size header exposure and rendition/session stability |
+| RedCircle | likely green | **likely green at RedCircle core** | unproven | third-party prefix chain + dynamic insertion stability |
+| Spotify for Creators / Anchor | green public RSS | **unproven; historical negative evidence** | unproven | Anchor wrapper/final CloudFront CORS chain + dynamic ads |
+| SoundCloud | feed historically poor | **green on current final CDN evidence** | **green on final CDN evidence** | exact RSS enclosure chain + signed URL/terms |
+| Omny/Triton | green-ish | historically promising | historically promising | needs current exact Japanese enclosure probe |
+| Podbean | feed green | unproven | unproven | feed CORS is not media CORS |
+| Simplecast | feed green | unproven | unproven | feed CORS is not media CORS |
+| Libsyn | feed green | unproven | unproven | feed CORS is not media CORS |
+| ART19 | n/a | historical redirect failure class | n/a | first 302 can block before a CORS-friendly final CDN |
+
+#### Megaphone — strongest current candidate
+
+A February 23, 2026 capture of a real traffic.megaphone.fm MP3 shows the complete publisher-facing chain cooperating with CORS:
+
+~~~text
+traffic.megaphone.fm/<episode>.mp3
+  302
+  Access-Control-Allow-Origin: *
+        |
+        v
+dcs-spotify.megaphone.fm/...session...
+  audio/mpeg
+  Access-Control-Allow-Origin: *
+~~~
+
+The same capture shows the browser issuing a Range media request and the final response returning Content-Range plus Access-Control-Allow-Origin: *.
+
+Evidence:
+https://urlscan.io/result/019c89d9-9b3d-76dd-83f3-cb53883514af/
+
+This is materially stronger than merely observing that the final CDN supports CORS, because the original tracking redirect also cooperates.
+
+One remaining header issue is important for ByteSource: the capture does not establish Access-Control-Expose-Headers: Content-Range. JavaScript must not assume it can read the total merely because a network trace can see Content-Range. Use the exact-size proof described in section 4.4 when necessary.
+
+Megaphone final URLs are sessionized and the response includes ad/session metadata, so repeated fixed-range stability still needs qualification before transcript timing is treated as durable.
+
+Working status:
+
+~~~text
+redirect CORS        green
+audio body CORS      green
+Range                green
+exact size exposure  yellow
+rendition stability  yellow
+~~~
+
+#### RedCircle — core CORS looks promising; the actual enclosure chain is the trap
+
+A RedCircle representative stated publicly in September/October 2024 that CORS had been enabled on RedCircle feeds and, when specifically asked about audio, said it should work on audio*.redcircle.com URLs:
+
+https://www.reddit.com/r/podcasting/comments/1frmvpy/
+
+Current public Japanese examples still use the expected direct RedCircle media form. Japanese with Shun / Oyasumi Japanese with Shun episodes are exposed through audio4.redcircle.com/.../stream.mp3 in current podcast directory metadata. These should be first Phase-0 RedCircle probes.
+
+Core RedCircle CORS is therefore not the only question. There are two larger blockers.
+
+First, RedCircle Dynamic Insertion explicitly creates a listener-specific audio version on the fly. Two listeners can receive different copies. Current RedCircle support documentation also says it maintains one listener's audio for 24 hours so returning playback does not splice different ads, and programmatic-ad troubleshooting describes the stable window in terms of the same application and IP address.
+
+Sources:
+https://support.redcircle.com/articles/1930996965-what-is-dynamic-insertion
+https://support.redcircle.com/articles/3315965613-troubleshooting-dynamic-insertion
+https://support.redcircle.com/articles/2362676166-understanding-programmatic-ads-in-rap
+
+That is encouraging for one listening session, but it is not proof that independent credentialless byte Range requests from Manabi receive an identical byte/timeline rendition. Test fixed ranges repeatedly from the actual application.
+
+Second, RedCircle lets creators prepend third-party analytics prefixes directly into the RSS enclosure. Current supported prefixes include Spotify Ad Analytics / Podsights, Podtrac, Podscribe, Claritas and Magellan:
+
+https://support.redcircle.com/articles/6155114893-how-to-add-a-third-party-prefix-to-your-podcast
+
+A RedCircle-hosted show can therefore expose a chain like:
+
+~~~text
+pdst.fm
+ -> dts.podtrac.com
+ -> pscrb.fm
+ -> claritaspod.com
+ -> mgln.ai
+ -> audio4.redcircle.com
+~~~
+
+Even if audio4.redcircle.com is perfect, any earlier redirect can break browser fetch CORS.
+
+Do not strip those prefixes to reach RedCircle directly. They are publisher-selected measurement/monetization infrastructure.
+
+Working status:
+
+~~~text
+RedCircle feed CORS       likely green
+direct RedCircle audio    likely green from provider statement
+Range                     unproven
+dynamic rendition         yellow
+third-party prefix chain  per-show unknown
+~~~
+
+The right admission key is therefore not redcircle.com. It is the exact RSS/publisher media URL for that show/episode.
+
+#### Spotify for Creators / legacy Anchor — do not admit yet
+
+Spotify explicitly supports public RSS distribution for Spotify-hosted shows. Its current help center says Spotify-hosted podcasts receive an RSS feed containing audio file links and can submit that feed to external podcast applications.
+
+Sources:
+https://support.spotify.com/us/creators/article/distributing-your-show-to-other-platforms/
+https://support.spotify.com/ag/creators/article/finding-and-enabling-your-rss-feed/
+
+Current Japanese Spotify-hosted shows continue to use legacy Anchor-style RSS and media infrastructure. Public directory metadata for shows such as YUYU and COTEN continues to point at anchor.fm feeds, and current Spotify-hosted episode metadata still uses the Anchor play-wrapper / d3ctxlq1ktw2nl.cloudfront.net delivery family.
+
+That establishes normal podcast distribution. It does **not** establish browser-readable audio bytes.
+
+This investigation did not find sufficiently current wire evidence proving all of the following on the actual Anchor RSS enclosure:
+
+- Access-Control-Allow-Origin on the Anchor play-wrapper redirect
+- Access-Control-Allow-Origin on the final CloudFront MP3
+- 206 Range with browser-readable response body
+- exact-size evidence usable by JavaScript
+
+The explicit browser failure found for this same Anchor/CloudFront architecture is historical: a 2019 report shows the audio request being blocked because Access-Control-Allow-Origin was absent. That cannot prove the 2026 path is still broken, but in the absence of current positive wire evidence it remains a release blocker, not a green host.
+
+Historical failure:
+https://sonaar.ticksy.com/ticket/1905730/
+
+Do not decode the CloudFront URL embedded inside an Anchor wrapper and use it directly as a workaround. The wrapper is the publisher-distributed authority and may carry measurement/ad semantics.
+
+Spotify also has a separate rendition-stability problem. Current Spotify Partner Program documentation says targeted ads can be delivered when Spotify-hosted episodes are streamed on Spotify **or downloaded on another podcast listening platform**.
+
+Source:
+https://support.spotify.com/pk-en/creators/article/spotify-partner-program/
+
+So even after CORS passes, monetized Spotify-hosted episodes need the same fixed-range/timeline stability tests as RedCircle.
+
+Working status:
+
+~~~text
+public RSS/distribution  green
+feed CORS                historically positive; current app probe needed
+audio redirect CORS      unknown — release blocker
+final audio CORS         unknown — release blocker
+Range                    unknown
+dynamic rendition        yellow/red on monetized shows
+~~~
+
+For v1, treat Spotify for Creators as unsupported for MOSS until the actual target-origin browser probe succeeds.
+
+#### SoundCloud — final CDN is technically strong, but that is not the whole chain
+
+A September 2026 captured response from cf-media.sndcdn.com shows:
+
+~~~text
+Access-Control-Allow-Origin: *
+Access-Control-Allow-Methods: GET
+Accept-Ranges: bytes
+Content-Type: audio/mpeg
+ETag: ...
+Content-Length: ...
+~~~
+
+The current evidence is in a recent yt-dlp issue containing the signed SoundCloud CDN response:
+https://github.com/yt-dlp/yt-dlp/issues/17651
+
+That makes the final media CDN technically attractive for Manabi.
+
+However, the Podcast Standards Project's host survey found SoundCloud podcast feeds did not broadly enable CORS in its 2023 sample, and signed CDN URLs are implementation/session URLs. The generated catalog removes the need for runtime feed CORS, but it does not justify manufacturing or scraping a signed CDN URL instead of following the publisher's actual enclosure.
+
+Working status:
+
+~~~text
+feed CORS            historical red
+final CDN CORS       green, current wire evidence
+final CDN Range      green, current wire evidence
+RSS enclosure chain  unknown
+terms/API boundary   separate review
+~~~
+
+#### Omny/Triton — promising but needs a current Japanese probe
+
+Observed podcast redirect chains have used:
+
+~~~text
+tracking prefix
+ -> traffic.omny.fm
+ -> *.mc.tritondigital.com
+~~~
+
+with CORS-friendly redirects in historical captures. Triton also documents Podtrac-prefix integration and dynamic monetization delivery.
+
+References:
+https://help.tritondigital.com/docs/integrating-your-podcast-cms-and-monetizing
+https://gist.github.com/voltagex/4f0188fbb74cb7568438aaab565471b4
+
+This is worth prioritizing for Japanese broadcaster/news content, but it does not yet have Megaphone-level current wire evidence in this review.
+
+#### Podbean, Simplecast and Libsyn — feed CORS is not audio CORS
+
+The Podcast Standards Project's 2023 survey found broad feed CORS on feed.podbean.com, feeds.simplecast.com and feeds.libsyn.com, as well as Omny, Megaphone and Anchor feeds.
+
+Survey:
+https://github.com/Podcast-Standards-Project/PSP-1-Podcast-RSS-Specification/discussions/7
+
+That survey measured RSS feed responses, not the enclosure path required for JavaScript MOSS. No sufficiently current exact-enclosure Range+CORS evidence was found for Podbean, Simplecast or Libsyn in this pass. Keep them in the qualification set, not the supported set.
+
+#### ART19 — canonical redirect-hop failure class
+
+A documented ART19 browser case demonstrates why final-CDN CORS is insufficient:
+
+~~~text
+rss.art19.com/episodes/...mp3
+  302 without usable ACAO
+        |
+        v
+content.production.cdn.art19.com/...mp3
+  final CDN has CORS
+~~~
+
+The browser fails at the redirect before JavaScript can use the final object.
+
+Historical reference:
+https://stackoverflow.com/questions/62567373/frontend-javascript-request-gets-302-redirected-but-ultimately-fails
+
+This is not a current 2026 ART19 verdict. It is the regression class the Phase-0 harness must reproduce locally.
+
+### 3.5 Exact Phase-0 outcome model
+
+For each exact catalog media URL, from the production Manabi web origin and packaged Android DOM/WebView origin, run the Range/body probe described in section 4.
+
+Record one of:
+
+~~~text
+CORS_BODY_READABLE
+  fetch resolves
+  response is non-opaque
+  status is 206
+  requested body byte(s) are readable
+
+PLAYBACK_ONLY
+  transport can play the source
+  JS Range fetch is blocked or unusable
+
+UNSUPPORTED_RANGE
+  CORS works
+  server ignores/rejects bounded Range
+
+UNKNOWN_SIZE
+  body/ranges work
+  exact ByteSource size cannot be proved
+
+UNSTABLE_RENDITION
+  ranges work
+  fresh repeated fixed ranges do not return stable bytes/timeline
+~~~
+
+For failures, the browser qualification artifact should capture the network redirect chain and response headers. JavaScript itself cannot reliably inspect a CORS-blocked redirect after the fetch has failed.
+
+The diagnostic result should identify whether the blocker was:
+
+- publisher host
+- RedCircle/other third-party analytics prefix
+- redirect response
+- final CDN
+- COEP/CORP policy
+- Range semantics
+- exact-size/header exposure
+- dynamic-rendition instability
+
+The provider matrix must be refreshed from actual browser probes before release. Search results, directory metadata, old captures and provider statements are research evidence, not release evidence.
+
 ## 4. Browser/CORS constraint
 
 The no-proxy requirement is viable only for qualifying episodes.
