@@ -25,7 +25,8 @@ test('mounted Library routes own their series, shallow search and return navigat
           export { refreshLocation } from './apps/web/src/runtime/stores';
           export { installRouter, goto, beforeNavigate } from './apps/web/src/runtime/navigation';
           export { account } from './apps/web/src/lib/manabi/client';
-          export { snippetItems } from './apps/web/src/lib/snippets/service';
+          export { commitSnippet, reloadSnippets } from './apps/web/src/lib/snippets/service';
+          export { createSnippet, plainContent } from './apps/web/src/lib/snippets/document';
           export { RouteParams } from 'expo-router';
         `,
         resolveDir: process.cwd()

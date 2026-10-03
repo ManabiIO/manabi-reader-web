@@ -106,10 +106,11 @@ for (const platform of ['android', 'web'])
         inputs.some((file) => file.endsWith(`/features/statistics/${shared}`)),
         `${platform} must execute the same production Statistics ${shared}`
       );
-    assert.ok(
-      inputs.some((file) => file.endsWith('/features/settings/SettingsFieldGroup.tsx')),
-      `${platform} Settings must use the common field-card composition`
-    );
+    for (const shared of ['SettingsFieldGroup.tsx', 'SettingsWorkspace.tsx', 'workspace-state.ts'])
+      assert.ok(
+        inputs.some((file) => file.endsWith(`/features/settings/${shared}`)),
+        `${platform} Settings must use the common ${shared}`
+      );
     for (const oldPresentation of [
       '/statistics-react/statistics-screen.tsx',
       '/statistics-react/native-screen.tsx'

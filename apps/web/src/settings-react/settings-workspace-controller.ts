@@ -6,7 +6,7 @@
 
 import { afterNavigate, goto } from '$app/navigation';
 import { resolve } from '$app/paths';
-import { writable } from '$lib/state/store';
+import { createSettingsWorkspaceState } from '../features/settings/workspace-state';
 import { SETTINGS_FILTER } from '../lib/components/settings/settings-context';
 import {
   ReaderController,
@@ -30,12 +30,15 @@ export function createSettingsWorkspace(
   let $filter: StoreValue<typeof filter> = undefined as never;
   const categories = settingCategories;
   const initialCategory = typeof location === 'undefined' ? '' : location.hash.slice(1);
-  const filter = writable({
-    category: categories.some((item) => item.id === initialCategory)
-      ? initialCategory
-      : 'appearance',
-    query: ''
-  });
+  const workspace = createSettingsWorkspaceState(initialCategory);
+  const filter = {
+    subscribe(run: (value: ReturnType<typeof workspace.getSnapshot>) => void) {
+      run(workspace.getSnapshot());
+      return workspace.subscribe(() => run(workspace.getSnapshot()));
+    },
+    set: workspace.set,
+    update: workspace.update
+  };
   componentContext.setContext(SETTINGS_FILTER, filter);
   let root: HTMLElement | null = null;
   let visibleCount = 0;

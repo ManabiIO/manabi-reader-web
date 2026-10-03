@@ -66,7 +66,10 @@ const {
   goto,
   beforeNavigate,
   account,
-  snippetItems,
+  commitSnippet,
+  reloadSnippets,
+  createSnippet,
+  plainContent,
   RouteParams
 } = require(process.argv[2]);
 const strict = process.argv[3] === 'true';
@@ -399,22 +402,15 @@ try {
     });
     await render(screens());
     await act(async () => {
-      snippetItems.set([
-        {
-          key: 'local/route-snippet',
-          owner: 'local',
-          id: 'route-snippet',
-          revision: 'one',
-          title: 'Route target',
-          excerpt: '',
-          createdAt: 1,
-          modifiedAt: 1,
-          dirty: false,
-          progressDirty: false,
-          conflicts: 0,
-          locations: []
-        }
-      ]);
+      // Seed the real persisted owner. Injecting snippetItems directly races the
+      // live BrowserRuntime's legitimate asynchronous IndexedDB refresh and can
+      // lose this synthetic row before the unchanged navigation assertion.
+      await commitSnippet(
+        createSnippet(plainContent('Route fixture content'), 'Route target'),
+        null,
+        undefined
+      );
+      await reloadSnippets();
     });
     await settle(
       () => container.querySelector('#incoming button[aria-label="Read snippet Route target"]'),

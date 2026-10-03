@@ -138,3 +138,17 @@ Both web export jobs now include all original Settings controls and editor
 usability cases, alongside unchanged Statistics and reader lifetime gates.
 Browser geometry and native control accessibility still require execution;
 server-render and module-graph assertions alone do not establish parity.
+
+The next Settings workspace slice moves the search/category/introduction/content
+composition into `features/settings/SettingsWorkspace.tsx`, consumed by both
+presentations. The same visit-local filter state supplies stable React snapshots
+and the existing browser store adapter. Browser links retain modified-click and
+Back/Forward/hash semantics; native categories remain Compose actions. Native
+search uses the existing Expo TextInput boundary. Both retain their specialized
+editor children and platform-specific save guidance.
+
+This removes duplicated workspace structure and search/category state, but does
+not yet unify every scalar editor, action controller or specialized flow. Browser
+field/filter metadata and native account/blur mutation ownership remain at their
+existing boundaries. No new preference persistence or route-global filter is
+introduced. A common wrapper is not counted as complete screen parity.
