@@ -1,12 +1,17 @@
 # Clean-room reader feature opportunities
 
-Status: sanitized optional product backlog
+Status: DISCOVERY_ONLY sanitized optional product backlog
 Revision: 2026-10-03
 External product provenance: intentionally absent
+Authorization: **none of the CR-OPP entries in this document are approved for tests or implementation by inclusion here. `../CLEAN_ROOM_APPROVALS.md` currently controls promotion.**
 
-This document contains product opportunities discovered through behavior-only competitive research. None of these are release requirements unless separately promoted into a scoped implementation plan.
+This document contains product opportunities discovered through behavior-only competitive research. It is an idea registry, not a roadmap, queue, work order, or release plan.
 
-The purpose is to preserve useful ideas without forcing the implementation worker to inspect external products.
+The purpose is to preserve useful ideas without forcing an implementation worker to inspect external products.
+
+Every CR-OPP entry defaults to DISCOVERY_ONLY. A future worker may refine an entry when explicitly asked to review this research PR, but must not create target tests, prototypes, production changes, or implementation PRs for it unless a separate explicit per-feature approval names that entry (or an unambiguous mapped feature) and approval level.
+
+Order in this file, section placement, detail level, mention in a “candidate” subset, or overlap with current target primitives does not imply priority or approval.
 
 ## 1. Learning-aware reading
 
@@ -883,9 +888,9 @@ Evaluate an opportunity on:
 
 A feature with strong value but large new product scope should remain in this optional backlog rather than entering a current implementation PR by accident.
 
-## 15. Particularly strong candidates for separate exploration
+## 15. Cross-cutting candidates retained for possible separate exploration
 
-These appear broadly useful enough to justify dedicated product-design investigation:
+These entries touch reusable target primitives and may be worth discussing separately **if the user explicitly selects them for further product-design investigation**. This section is not an approval list or priority ranking:
 
 - CR-OPP-001 Chapter preflight
 - CR-OPP-003 Adaptive furigana
@@ -1641,3 +1646,40 @@ Generate a private per-book or period report from existing data:
 - completion date.
 
 Reports should reflect existing statistics rather than inventing a second accounting system.
+
+
+## 22. Promotion rules
+
+A CR-OPP item can move out of DISCOVERY_ONLY only through an explicit approval recorded in `../CLEAN_ROOM_APPROVALS.md`.
+
+Promotion is granular:
+
+- approving one CR-OPP does not approve adjacent entries;
+- approving design exploration does not approve tests;
+- approving tests does not approve production implementation;
+- approving implementation does not approve integration/merge;
+- approving a feature for one platform/repository does not automatically approve another;
+- approving an existing primitive's extension does not authorize replacing that primitive.
+
+When a selected feature overlaps existing Reader architecture, the approved worker must first state which category applies:
+
+1. already satisfied — no target change;
+2. missing qualification — tests/evidence only if approved;
+3. UX exposure of an existing primitive;
+4. bounded extension of an existing primitive;
+5. genuinely new primitive.
+
+If the category itself is unclear, report that uncertainty before changing target code.
+
+## 23. Non-goals for this backlog
+
+This backlog does not authorize:
+
+- implementing all 186 ideas;
+- converging Manabi toward a competitor's aggregate feature set;
+- recreating a competitor's workflow wholesale;
+- replacing current target architecture because another product uses a different model;
+- starting a feature because a future worker believes it is obvious, easy, or valuable;
+- treating an observer-source update as a request to implement what was observed.
+
+The branch remains research/specification material until per-feature approval says otherwise.
