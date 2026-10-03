@@ -1169,6 +1169,7 @@ The podcast domain needs at least three identities with different semantics:
 ~~~text
 ShowKey
   stable Manabi/catalog identity for one subscribed/curated show
+  prefer canonical channel-level podcast:guid when present
 
 EpisodeKey
   logical episode identity
@@ -1183,7 +1184,12 @@ ContentKey
   existing portable SHA-256 identity for one exact complete byte representation
 ~~~
 
-An RSS GUID is not globally unique by itself; scope it to the show/feed identity. When GUID is missing, the Podcasting 2.0 recommendations allow enclosure URL as a fallback, but that fallback must remain a logical locator identity, not a claim that the audio bytes can never change.
+At the **show** level, prefer a valid channel-level `podcast:guid` when present. Podcasting 2.0 defines it as a UUIDv5 intended to follow the podcast for its lifetime even when the feed URL changes; if a feed supplies it, that value is canonical for the open ecosystem. Keep reviewed feed URLs/redirect aliases as locators, not show identity.
+
+Reference:
+https://podcasting2.org/docs/podcast-namespace/tags/guid
+
+At the **episode** level, an RSS item GUID is not globally unique by itself; scope it to `ShowKey`. When item GUID is missing, the Podcasting 2.0 recommendations allow enclosure URL (or namespaced UUIDv5 of it) as a fallback, but that fallback must remain a logical locator identity, not a claim that the audio bytes can never change.
 
 Do not use title + publication date as the primary episode key.
 
@@ -1486,7 +1492,7 @@ Requirements:
 - parse XML without executing markup
 - pre-reject `<!DOCTYPE` / `<!ENTITY` declarations for this feed subset rather than accepting feed-supplied entity definitions
 - set explicit parser depth/entity limits supported by the pinned `fast-xml-parser` version
-- retain namespace prefixes so `podcast:transcript`, `podcast:alternateEnclosure`, `itunes:duration` and similarly named unrelated tags cannot collapse together
+- retain/resolve XML namespace identity so `podcast:guid`, `podcast:transcript`, `podcast:alternateEnclosure`, `itunes:duration` and similarly named unrelated tags cannot collapse together; do not assume the publisher literally uses the prefix `podcast`, because the namespace spec permits alternate prefixes
 - avoid automatic scalar coercion for GUIDs, IDs, durations and numeric-looking titles; normalize fields deliberately after parse
 - force known repeated structures (`item`, `podcast:transcript`, alternate-enclosure/source collections) into predictable arrays
 - never inject description HTML with `innerHTML`; extract/sanitize plain display text separately
@@ -1536,10 +1542,14 @@ The namespace semantics matter:
 The catalog parser may retain them, but v1 should only automatically consider:
 
 - HTTPS `podcast:source` URIs
-- finite directly addressable audio files
-- a decodable MIME/codec
+- finite directly addressable audio files, not live/segmented streams
+- an audio-ish declared MIME/codec or a safely probeable generic MIME
 - the default/enclosure content group
 - separately qualified CORS/range/rendition behavior
+
+Treat declared MIME, file extension and `codecs` as **hints**, not decoder authority. Feeds and CDNs are frequently mislabeled. The existing media runtime already asks the actual track whether it `canDecode()`; use successful Mediabunny container detection + actual decodable audio track as the admission authority.
+
+Do not reject a valid MP3 merely because the feed says `application/octet-stream`. Conversely, do not accept bytes merely because the feed says `audio/mpeg`.
 
 A non-default relation can be surfaced only as an explicit user-visible alternate with its own logical/timeline semantics.
 
@@ -1548,6 +1558,47 @@ Do not silently choose IPFS, torrents, onion URLs, HLS/live playlists or other t
 Do not automatically pick the lowest bitrate: alternate encodes can differ in quality and ASR behavior. Prefer the publisher's standard/default source unless another declared source is intentionally qualified.
 
 If `podcast:integrity` supplies SRI for an alternate enclosure, retain it as useful publisher-declared integrity evidence. It does not become an existing `ContentKey` without a reviewed mapping/verification rule.
+
+### 7.5.1 Container/codec qualification
+
+Mediabunny can parse MP3, ISOBMFF/M4A, Ogg, ADTS/AAC, FLAC and other formats, but actual compressed-audio decode availability depends on the browser/WebCodecs implementation.
+
+The podcast path should start with a deliberately small production support target based on observed Japanese feeds, likely:
+
+- MP3
+- M4A/MP4 with AAC
+- optionally Ogg/Opus once target-browser evidence justifies it
+
+Do not promise every `ALL_FORMATS` input merely because the video runtime bundles all demuxers.
+
+Phase 0 should record:
+
+- detected container, not just declared MIME
+- detected audio codec
+- `canDecode()` in Chromium, WebKit and Android WebView
+- channel count/sample rate
+- metadata parse request count
+- random decode request count near beginning, middle and late episode
+- duration agreement between parsed media and feed hint
+
+Add hostile/realistic fixtures for:
+
+- CBR MP3
+- VBR MP3 with Xing/VBRI-style indexing
+- large ID3v2 metadata/artwork before audio frames
+- M4A with metadata/moov placement requiring tail reads
+- AAC/ADTS
+- Ogg/Opus if enabled
+- misleading MIME/extension
+- truncated/corrupt files
+- huge but bounded metadata that must not explode memory/request count
+
+The current `Bunny` adapter deliberately hides third-party objects. If qualification needs container/codec diagnostics, extend that typed adapter with the minimum detected-format/codec fields rather than importing Mediabunny implementation types throughout Podcasts.
+
+Mediabunny references:
+
+- https://mediabunny.dev/guide/input-formats
+- https://mediabunny.dev/guide/supported-formats-and-codecs
 
 References:
 https://podcasting2.org/docs/podcast-namespace/tags/alternate-enclosure
@@ -1656,6 +1707,7 @@ Conceptual only:
 ~~~ts
 interface PodcastShow {
   key: ShowKey
+  podcastGuid?: string
   feedUrl: string
   feedAliases?: string[]
   title: string
@@ -1723,7 +1775,9 @@ interface EpisodeTranscriptDocument {
 }
 ~~~
 
-`ShowKey` must survive reviewed feed URL migrations/aliases. `EpisodeKey` is scoped to the show and normally derives from the stable, case-sensitive RSS GUID; a missing-GUID fallback needs an explicit versioned rule. Podcasting 2.0's consumer recommendation permits falling back to enclosure URL (or a namespaced UUIDv5 of it), but that should be treated as legacy compatibility because standards-compliant RSS expects a stable GUID.
+`ShowKey` must survive reviewed feed URL migrations/aliases. Prefer a valid publisher `podcast:guid` as its durable external identity when present; otherwise use a Manabi-owned stable key plus reviewed feed aliases rather than recomputing the key every time a feed URL moves.
+
+`EpisodeKey` is scoped to the show and normally derives from the stable, case-sensitive RSS item GUID; a missing-GUID fallback needs an explicit versioned rule. Podcasting 2.0's consumer recommendation permits falling back to enclosure URL (or a namespaced UUIDv5 of it), but that should be treated as legacy compatibility because standards-compliant RSS expects a stable GUID.
 
 `EpisodeTranscriptDocument` is intentionally not an existing portable `Track`. It gives local search/read UI somewhere honest to persist publisher transcript content before rendition binding.
 
