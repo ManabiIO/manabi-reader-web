@@ -65,7 +65,7 @@ The first implementation should be deliberately narrow:
 9. Do not overload RSS GUIDs or enclosure URLs as existing ContentKey values.
 10. Do not redesign the synced video record protocol in the first implementation.
 11. Treat native Android presentation as gated by the same domain/view separation still required for Videos on the Expo branch.
-12. Treat sources with personalized/dynamic bytes that cannot satisfy rendition checks as playback-only in v1, not as something to paper over with weak identity.
+12. Treat intra-session rendition mismatch as a hard timed-MOSS failure. A host that is coherent within one session but changes on reopen may still support session-bound local captions; do not paper over either case with weak identity.
 
 The largest implementation risk is not only MOSS accuracy. It is keeping logical episode identity, delivered rendition identity, transcript timeline, and exact byte identity separate while avoiding unbounded CPU/network work. The current video system correctly treats ContentKey as a full-byte SHA-256 identity. Podcast media can be large, redirect through analytics/ad infrastructure, and may be dynamically personalized. That must remain explicit.
 
@@ -565,7 +565,7 @@ This investigation did not find sufficiently current wire evidence proving all o
 - 206 Range with browser-readable response body
 - exact-size evidence usable by JavaScript
 
-The explicit browser failure found for this same Anchor/CloudFront architecture is historical: a 2019 report shows the audio request being blocked because Access-Control-Allow-Origin was absent. That cannot prove the 2026 path is still broken, but in the absence of current positive wire evidence it remains a release blocker, not a green host.
+The explicit browser failure found for this same Anchor/CloudFront architecture is historical: a 2019 report shows the audio request being blocked because Access-Control-Allow-Origin was absent. That cannot prove the 2026 path is still broken, but in the absence of current positive **target-origin browser-fetch evidence** it remains a release blocker, not a green host.
 
 Historical failure:
 https://sonaar.ticksy.com/ticket/1905730/
@@ -2331,7 +2331,7 @@ The next worker should revise this spec and answer these before substantial impl
 ### Identity
 1. Is the first MOSS release intentionally local-draft-only, avoiding full-byte identity until portable publication is requested?
 2. If portable publication is required, is lazy full-byte hashing acceptable after measuring duplicate requests, bandwidth and main-thread cost?
-3. Should dynamically personalized/unstable enclosures simply be excluded from MOSS?
+3. What evidence threshold promotes a host from MOSS_SESSION to MOSS_REOPEN, and how long may that qualification remain cached before re-probing?
 4. Which remote validator signals are actually exposed by qualified hosts?
 5. How should fixed-range fingerprints and decoded audio proofs divide responsibility?
 6. How should dynamic-ad renditions be detected on reopen?
