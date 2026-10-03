@@ -74,3 +74,98 @@ The attestation is process evidence, not a claim that automation can prove copyr
 This protocol does not replace the repository's existing license notices, contribution provenance rules, or dictionary-provider boundary. Third-party components already present in the target remain governed by their own licenses and repository policy.
 
 This document defines the additional separation required for competitive behavior research.
+
+
+## Evidence classification
+
+Observer notes must distinguish how a behavior was learned:
+
+- **documented** — explicitly stated in public end-user documentation, store copy, or release notes;
+- **reported** — described by a user or maintainer as externally visible behavior in a public issue;
+- **observed** — reproduced through ordinary black-box use of a released build or hosted product;
+- **inconclusive** — attempted but not reliably reproducible or blocked by environment/device/account requirements.
+
+A documented or reported behavior must never be rewritten as “observed” unless a black-box run actually reproduced it.
+
+The sanitizer may promote an edge case into an acceptance requirement even when it is only documented/reported, but the implementation contract must describe the independently chosen desired behavior rather than claiming the external product actually demonstrated it.
+
+## Screenshot and video rule
+
+Screenshots and demo videos may be used by the observer to understand:
+
+- available controls;
+- user-visible state transitions;
+- information hierarchy;
+- interaction sequence;
+- error/empty/loading states;
+- responsive or device-specific behavior.
+
+They must not be used to reproduce distinctive visual expression. The sanitizer must translate screenshot evidence into functional requirements and generic usability constraints, not pixel dimensions, proprietary icons, exact copy, distinctive animation choreography, artwork, or a copied menu hierarchy.
+
+An implementation should follow the target product's own design system even when the behavior was prompted by screenshot evidence.
+
+## Black-box test boundary
+
+Ordinary-user testing may exercise public controls and inputs, create synthetic content, record externally visible output, and measure wall-clock latency.
+
+The observer must not use:
+
+- decompilation or package extraction;
+- debugger or symbol inspection;
+- source maps intended for development rather than ordinary users;
+- private/internal APIs discovered by reverse engineering;
+- DOM/source inspection whose purpose is to reveal implementation rather than verify visible semantics;
+- network interception to infer private internal protocols.
+
+Publicly documented interoperability APIs may be tested as APIs, but their request/response contract must be recorded separately from any client implementation.
+
+## Observation record minimum fields
+
+Each observer record should contain:
+
+1. evidence ID;
+2. product/build/version when known;
+3. platform/browser/device;
+4. evidence class;
+5. public source or black-box preconditions;
+6. user-visible input;
+7. user action;
+8. visible output;
+9. uncertainty/limitations;
+10. sanitized acceptance-family IDs, if any.
+
+Implementation workers must not receive this record.
+
+## Taint handling
+
+If prohibited implementation material is accidentally exposed to an observer note:
+
+1. mark that note contaminated;
+2. do not sanitize from it;
+3. independently reacquire the behavior from an allowed user-facing source or black-box run;
+4. create a new observation record without copying language from the contaminated note;
+5. only then derive or restore the sanitized acceptance requirement.
+
+If an implementer is exposed to prohibited competitor implementation material for a feature, that worker must not continue as the clean-room implementer for that feature. Preserve target-side work only if its independent provenance can be established by project owners/review.
+
+## Clarification firewall
+
+Implementer questions must reference sanitized requirement IDs and ask only about desired observable behavior, for example:
+
+- “For CR-AT-104, should punctuation remain part of sentence context?”
+- “For CR-SYNC-006, should a same-revision conflict prefer local, remote, or explicit user choice?”
+
+The observer/sanitizer response must not name the motivating competitor or explain its mechanism. It should answer with a target-owned behavioral decision or state that the requirement remains unspecified.
+
+## Similarity review
+
+Before merging a competitively motivated UI change, reviewers should separately check:
+
+- the functional requirement is traceable to the sanitized contract;
+- wording is target-authored;
+- visual treatment follows the target design system;
+- icons/artwork are target-owned or properly licensed;
+- control grouping is justified by target workflows rather than copied arrangement;
+- test fixtures and example content are independently authored.
+
+Clean-room process protects implementation provenance; it is not permission to copy protected visual expression.
