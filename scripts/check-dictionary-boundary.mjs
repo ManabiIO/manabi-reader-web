@@ -94,7 +94,11 @@ if (implementationLeaks.length) {
 }
 
 const genericBuildLeaks = [];
-for (const file of ['scripts/prepare-dictionary.mjs', 'scripts/dictionary-source.mjs']) {
+for (const file of [
+  'scripts/prepare-dictionary.mjs',
+  'scripts/dictionary-source.mjs',
+  'scripts/dictionary-generated-paths.mjs'
+]) {
   const source = await fs.readFile(file, 'utf8');
   if (providerTokens.test(source) || providerImplementationTokens.test(source))
     genericBuildLeaks.push(file);
