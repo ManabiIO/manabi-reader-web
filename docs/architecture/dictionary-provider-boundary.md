@@ -30,7 +30,7 @@ External-extension interoperability:
 
 Separately licensed GPL material:
 
-- The generated `apps/web/static/dictionary-runtime/<revision>/` runtime.
+- The generated `apps/web/static/manabitan/<revision>/` runtime. The public directory is provider-owned build metadata, not a generic Reader dependency.
 - Its bundled GPL license and exact corresponding source archive.
 - Manabitan/Yomitan/Yomichan implementation source in the separate Manabitan repository.
 
@@ -62,7 +62,7 @@ When behavior must match the current provider, specify the required observable b
 
 ## Build boundary
 
-`scripts/prepare-dictionary.mjs` is provider-neutral. It validates the selected provider descriptor, output manifest, hashes, required distribution files, and explicit-install default dictionary archive.
+`scripts/prepare-dictionary.mjs` is provider-neutral. It validates the selected provider descriptor, provider-owned public runtime directory, output manifest, hashes, required distribution files, and explicit-install default dictionary archive.
 
 `scripts/dictionary-providers/manabitan.mjs` owns the Manabitan-specific work:
 
@@ -74,7 +74,9 @@ When behavior must match the current provider, specify the required observable b
 6. packages the GPL license/corresponding source files declared by that provider descriptor; and
 7. declares obsolete generated public paths so the generic build can remove legacy provider output.
 
-The generic preparation layer prunes old runtime revisions and old default-dictionary archives before publication. A long-lived local/CI workspace therefore cannot silently ship stale provider/source artifacts from an earlier build.
+The generic preparation layer prunes old revisions inside the selected provider's public runtime directory and old default-dictionary archives before publication. A long-lived local/CI workspace therefore cannot silently ship stale provider/source artifacts from an earlier build.
+
+Reader intentionally keeps Manabitan at its pre-existing `/manabitan/<revision>/` public URL. Renaming that URL would make already-open tabs fail if they lazy-load the runtime after a deployment. The service worker does not know this provider name: `optional-static-assets.mjs` discovers externally built runtime trees from their `manifest.json`, `SOURCE.txt`, and `corresponding-source.tar.gz` markers and excludes those exact files from mandatory shell/font caching.
 
 `tests/unit/dictionary-source.test.mjs` verifies that the nested provider checkout cannot inherit or mutate Reader's Git repository.
 
