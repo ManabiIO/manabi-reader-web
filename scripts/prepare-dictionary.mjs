@@ -4,30 +4,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { selectedDictionaryProvider } from './dictionary-provider-selection.mjs';
+import {
+  ensureGeneratedDirectory,
+  pruneGeneratedDirectory,
+  safeRelativePath
+} from './dictionary-generated-paths.mjs';
 
 const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
-
-function safeRelativePath(value) {
-  return (
-    typeof value === 'string' &&
-    !!value &&
-    !path.isAbsolute(value) &&
-    !value.includes('\\') &&
-    value.split('/').every((part) => part && part !== '.' && part !== '..')
-  );
-}
-
-async function ensureGeneratedDirectory(directory) {
-  try {
-    const metadata = await fs.lstat(directory);
-    if (!metadata.isDirectory() || metadata.isSymbolicLink())
-      throw new Error(`Generated dictionary path must be a real directory: ${directory}`);
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-    await fs.mkdir(directory, { recursive: true });
-  }
-}
-
 const provider = await selectedDictionaryProvider(root);
 if (
   !provider ||
@@ -52,11 +35,7 @@ const cache = path.join(root, '.cache/dictionary-build', provider.id, provider.r
 for (const obsolete of provider.obsoletePublicPaths)
   await fs.rm(path.join(assets, obsolete), { recursive: true, force: true });
 
-await ensureGeneratedDirectory(runtimeRoot);
-for (const entry of await fs.readdir(runtimeRoot, { withFileTypes: true })) {
-  if (entry.name === provider.revision) continue;
-  await fs.rm(path.join(runtimeRoot, entry.name), { recursive: true, force: true });
-}
+await pruneGeneratedDirectory(runtimeRoot, new Set([provider.revision]));
 
 async function filesUnder(directory, base = directory) {
   const result = [];
@@ -141,11 +120,7 @@ if (
   throw new Error('Invalid dictionary descriptor.');
 
 const archives = path.join(assets, 'dictionary-archives');
-await ensureGeneratedDirectory(archives);
-for (const entry of await fs.readdir(archives, { withFileTypes: true })) {
-  if (entry.name === dictionary.fileName) continue;
-  await fs.rm(path.join(archives, entry.name), { recursive: true, force: true });
-}
+await pruneGeneratedDirectory(archives, new Set([dictionary.fileName]));
 const archivePath = path.join(archives, dictionary.fileName);
 const matches = (bytes) =>
   bytes.byteLength === dictionary.bytes &&
