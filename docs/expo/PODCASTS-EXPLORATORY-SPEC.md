@@ -429,11 +429,11 @@ A tracking redirect can make a CORS fetch fail before JavaScript receives usable
 
 ### 4.3 Proposed ASR capability probe
 
-For an episode enclosure:
+For a selected publisher-declared media source:
 
 1. Require HTTPS in production.
 2. Use `credentials: 'omit'`.
-3. Use the exact publisher enclosure URL and `redirect: 'follow'`.
+3. Use the exact publisher-declared URL and `redirect: 'follow'`; never substitute an inferred CDN URL.
 4. Attempt GET with **one** bounded byte Range such as `bytes=0-0`.
 5. A single `Range` request is CORS-safelisted and should not itself require a preflight; the server still must opt into CORS for the response body.
 6. A CORS failure is a hard ASR failure.
@@ -1305,10 +1305,11 @@ Keep that invariant unless deliberately redesigned.
 
 For provisional remote jobs:
 
-- in-progress cues may render locally
-- completed portable Track publication waits for exact ContentKey
-- a failed full hash must not silently turn provisional cues into a portable transcript
-- user-visible state should explain that recognized windows were kept locally when applicable
+- in-progress/accepted bounded cues may render and remain useful locally
+- a playback-lead job may park successfully without becoming a complete Track
+- ordinary portable Track publication waits for exact ContentKey unless a separately reviewed rendition identity protocol replaces that invariant
+- if the optional full-verification/publication path fails, local accepted cues must not be silently promoted or destroyed
+- user-visible state should distinguish Local MOSS captions from a complete portable transcript
 
 ## 12. Search integration
 
@@ -1708,9 +1709,9 @@ A first shippable Podcasts experiment should satisfy all of the following:
 - Publisher-provided transcripts are preferred when safely usable; timed follow/replay is enabled only when their timeline is qualified for the delivered rendition.
 - Audio comes from a publisher-declared enclosure or qualified publisher-declared alternate enclosure; no Manabi audio proxy/rehost.
 - Opening an episode does not download MOSS.
-- Opening an episode does not full-hash the complete enclosure.
-- Playback begins independently of transcript generation.
-- Generate is explicit.
+- Opening an episode does not full-hash the selected media rendition.
+- Playback begins independently of local transcript generation.
+- **Generate local captions** is explicit; whole-episode completion is not implied.
 - MOSS uses the existing verified model/runtime/cache.
 - MOSS receives bounded 16 kHz mono PCM through MediaPipeline.
 - Remote verification does not explode into 1 MiB network-range request fan-out.
