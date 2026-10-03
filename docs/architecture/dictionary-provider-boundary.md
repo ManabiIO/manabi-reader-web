@@ -20,8 +20,13 @@ Reader-owned BSD code:
 Provider adapter:
 
 - `apps/web/src/lib/search/dictionary-providers/manabitan/adapter.ts`: a small Reader-owned adapter to the versioned public Manabitan web-runtime surface.
-- `apps/web/src/lib/search/dictionary-providers/manabitan/version.json`: the exact source revision Reader expects.
+- `apps/web/src/lib/search/dictionary-providers/manabitan/version.json`: the exact source revision and source-branch/PR provenance Reader expects.
 - `scripts/dictionary-providers/manabitan.mjs`: Manabitan-specific checkout/build/licensing packaging for the external runtime.
+
+External-extension interoperability:
+
+- `apps/web/src/lib/integrations/external-dictionary-interop.ts`: the only Reader application source allowed to contain public Manabitan/Yomitan/Yomichan DOM markers, popup selectors, setup URL/copy, and legacy setup-choice migration.
+- This is black-box interoperability with separately installed extensions. It is not the local dictionary provider and contains no extension implementation code.
 
 Separately licensed GPL material:
 
@@ -35,7 +40,11 @@ Generated provider files are ignored and must not be committed to Reader.
 
 Reader UI and application logic depend on `DictionaryRuntime` and `DictionaryClient`. They must not import Manabitan modules, source paths, classes, or types.
 
-The provider-selection module chooses an adapter. The adapter may load the pinned runtime through its published static-module contract. The GPL runtime must not import Reader source or become a source-code dependency of Reader modules.
+The provider-selection module chooses an adapter. The adapter may load the pinned runtime through its published static-module contract. The adapter validates and normalizes status/search/import objects into new Reader-owned objects; raw provider objects do not cross into generic UI, except for the deliberately opaque full-lookup payload that is handed back only to the same provider renderer. Provider protocol details such as Manabitan's internal response `version` field and default-choice enum are translated into Reader-owned semantics at the adapter.
+
+The GPL runtime must not import Reader source or become a source-code dependency of Reader modules.
+
+Separately, generic Reader components consume neutral functions/constants from `external-dictionary-interop.ts`. Provider/extension names and DOM compatibility identifiers must not spread back into generic components.
 
 This boundary is about source ownership and replaceability. It does not make a legal conclusion about whether distributing multiple components together creates obligations under a particular license.
 
@@ -61,8 +70,11 @@ When behavior must match the current provider, specify the required observable b
 2. checks out that revision into an independent nested Git repository under the ignored cache,
 3. requires an exact clean source commit,
 4. runs Manabitan's own build,
-5. copies only the generated static artifact into the ignored public-assets directory, and
-6. packages the GPL license/corresponding source files declared by that provider descriptor.
+5. copies only the generated static artifact into the ignored public-assets directory;
+6. packages the GPL license/corresponding source files declared by that provider descriptor; and
+7. declares obsolete generated public paths so the generic build can remove legacy provider output.
+
+The generic preparation layer prunes old runtime revisions and old default-dictionary archives before publication. A long-lived local/CI workspace therefore cannot silently ship stale provider/source artifacts from an earlier build.
 
 `tests/unit/dictionary-source.test.mjs` verifies that the nested provider checkout cannot inherit or mutate Reader's Git repository.
 
@@ -74,10 +86,12 @@ A replacement should require only:
 2. update `dictionary-provider-selection.ts`,
 3. add/select a replacement build-provider module in `scripts/dictionary-providers/`,
 4. replace provider-specific version metadata,
-5. remove the Manabitan runtime adapter/build-provider module and GPL distribution assets, and
+5. remove the Manabitan runtime adapter/build-provider module and GPL distribution assets; and
 6. update provider-specific acceptance tests and user-facing notices.
 
 Reader UI and provider-neutral lifecycle should not need a rewrite.
+
+External extension support is independent. If the product should continue interoperating with separately installed Yomitan/Manabitan extensions, the black-box interop module can remain. If Manabitan branding/bridge support should disappear entirely, remove its constants/markers from that one interop module without touching the local provider contract.
 
 ## Review checklist
 
