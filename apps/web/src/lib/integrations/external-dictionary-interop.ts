@@ -48,6 +48,6 @@ export function normalizeDictionarySetupChoice(value: string | null): Dictionary
     : null;
 }
 
-export function markPreferredDefaultDictionaryInstall(node: HTMLElement) {
-  node.dataset.manabitanInstallJitendex = 'true';
-}
+export const PREFERRED_DEFAULT_INSTALL_BUTTON_ATTRIBUTES = {
+  'data-manabitan-install-jitendex': 'true'
+} as const;
