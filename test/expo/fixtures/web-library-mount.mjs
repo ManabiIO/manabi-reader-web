@@ -286,6 +286,61 @@ for (const strict of [false, true]) {
   } finally {
     window.Storage.prototype.setItem = setItem;
   }
+  const layoutKeys = ['manabi-library-layout', 'manabi-series-layout', 'manabi-finished-layout'];
+  const previousLayouts = layoutKeys.map((key) => window.localStorage.getItem(key));
+  try {
+    await act(async () => workspace.setLayout('list'));
+    assert.equal((await remountedNativeLibrary.state({}, authority)).layout, 'list');
+    const layoutAdmission = await remountedNativeLibrary.state({}, authority);
+    await remountedNativeLibrary.action(
+      { token: layoutAdmission.token, type: 'layout', value: 'grid' },
+      authority
+    );
+    assert.equal(window.localStorage.getItem(layoutKeys[0]), 'grid');
+    assert.equal(window.localStorage.getItem(layoutKeys[1]), previousLayouts[1]);
+    assert.equal(window.localStorage.getItem(layoutKeys[2]), previousLayouts[2]);
+    const restarted = createNativeLibraryService();
+    assert.equal((await restarted.state({}, authority)).layout, 'grid');
+    const finished = await restarted.state({ collection: 'finished' }, authority);
+    await restarted.action({ token: finished.token, type: 'layout', value: 'list' }, authority);
+    assert.equal(
+      window.localStorage.getItem(layoutKeys[2]),
+      'timeline',
+      'native list preserves the web timeline choice'
+    );
+    assert.equal(window.localStorage.getItem(layoutKeys[0]), 'grid');
+    const failedLayout = await restarted.state({}, authority);
+    window.Storage.prototype.setItem = function (key, value) {
+      if (key === layoutKeys[0]) throw new Error('Layout persistence unavailable');
+      return setItem.call(this, key, value);
+    };
+    try {
+      await assert.rejects(
+        restarted.action({ token: failedLayout.token, type: 'layout', value: 'list' }, authority),
+        /Layout persistence unavailable/
+      );
+      assert.equal((await restarted.state({}, authority)).layout, 'grid');
+    } finally {
+      window.Storage.prototype.setItem = setItem;
+    }
+    const getItem = window.Storage.prototype.getItem;
+    window.Storage.prototype.getItem = function (key) {
+      if (layoutKeys.includes(key)) throw new Error('Layout read unavailable');
+      return getItem.call(this, key);
+    };
+    try {
+      assert.equal((await restarted.state({}, authority)).layout, 'grid');
+    } finally {
+      window.Storage.prototype.getItem = getItem;
+    }
+    restarted.dispose();
+  } finally {
+    layoutKeys.forEach((key, index) =>
+      previousLayouts[index] === null
+        ? window.localStorage.removeItem(key)
+        : window.localStorage.setItem(key, previousLayouts[index])
+    );
+  }
   remountedNativeLibrary.dispose();
   await act(async () => booklistSortOptions$.next(originalSorts));
 

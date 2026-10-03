@@ -11,6 +11,7 @@
 import { database, booklistSortOptions$ } from '$lib/data/store';
 import { StorageKey } from '$lib/data/storage/storage-types';
 import { readLibrarySort } from '../features/library/sort-options';
+import { libraryLayoutKeys, loadLibraryLayouts } from '../features/library/layout-preferences';
 import { theme$, appearance$, customThemes$ } from '$lib/appearance/state';
 import { get } from '$lib/state/store';
 import { integrationDB, metadata } from '$lib/manabi/persistence';
@@ -125,6 +126,7 @@ export function createNativeLibraryService() {
         const value = structuredClone(get(organization));
         return {
           sort: readLibrarySort(get(booklistSortOptions$)[StorageKey.BROWSER]),
+          layouts: loadLibraryLayouts(localStorage),
           tree: buildShelf(visible.cards, visible.links, catalogs, sources, value, get(previews)),
           organization: value,
           uiTheme: selectedLibraryTheme(get(theme$), get(appearance$), get(customThemes$)),
@@ -138,6 +140,14 @@ export function createNativeLibraryService() {
           guard.assertCurrent();
           return true;
         };
+        if (action.type === 'layout') {
+          current();
+          localStorage.setItem(
+            libraryLayoutKeys[action.scope],
+            action.scope === 'finished' && action.value === 'list' ? 'timeline' : action.value
+          );
+          return;
+        }
         if (action.type === 'sort') {
           current();
           booklistSortOptions$.next({

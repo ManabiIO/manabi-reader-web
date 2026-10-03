@@ -27,8 +27,8 @@ export const Text=({children})=><span>{children}</span>; export const StyleSheet
 export const Platform={OS:"android"}; export const useColorScheme=()=>"light";
 export const ActivityIndicator=()=>null; export const Modal=({visible,children})=>visible?<section>{children}</section>:null;
 export const Pressable=({children,onPress,disabled})=><button disabled={disabled} onClick={onPress}>{children}</button>;
-export const FlatList=({data,renderItem})=><div>{data.map(item=><div key={item.key}>{renderItem({item})}</div>)}</div>;
-export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder})=><input value={value.value} onChange={event=>onChangeText?.(event.target.value)} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=()=>null;
+export const FlatList=({data,renderItem,numColumns})=><div data-columns={numColumns}>{data.map(item=><div key={item.key}>{renderItem({item})}</div>)}</div>;
+export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder})=><input value={value.value} onChange={event=>onChangeText?.(event.target.value)} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=({label,value,onValueChange,disabled})=><input type="checkbox" aria-label={label} checked={value} disabled={disabled} onChange={event=>onValueChange(event.target.checked)}/>;
 export const Action=({label,onPress,disabled,theme,variant})=><button data-variant={variant} data-seed={theme?.seedColor} disabled={disabled} onClick={onPress}>{label}</button>;
 export const Screen=({actions,children,theme})=><main data-mode={theme?.mode} data-background={theme?.colors.background}>{actions}{children}</main>;
 export const Alert={alert:(...args)=>globalThis.libraryStatisticsUI.confirmations.push(args)};
@@ -113,16 +113,19 @@ async function mount(t, override, uiTheme) {
     confirmations = [];
   let serial = 0;
   let sort = { property: 'author', direction: 'asc' };
+  let layout = 'grid';
   const command = async (method, payload) => {
     calls.push({ method, payload });
     const changed = await override?.(method, payload);
     if (changed !== undefined) return changed;
     if (method === 'library.action' && payload.type === 'sort')
       sort = { property: payload.property, direction: payload.direction };
+    if (method === 'library.action' && payload.type === 'layout') layout = payload.value;
     if (method === 'library.state')
       return {
         token: 'library-' + ++serial,
         sort,
+        layout,
         uiTheme,
         coverToken: 'cover',
         items: [book],
@@ -484,4 +487,86 @@ test('account replacement permanently retires an old sort reply without refreshi
       .dataset.variant,
     'filled'
   );
+});
+
+test('saved layout controls restore after remount and change the actual list column count', async (t) => {
+  const f = await mount(t);
+  await click(f, 'Sort and filter');
+  const toggle = () => f.container.querySelector('[aria-label="Grid layout"]');
+  assert.equal(toggle().checked, true);
+  assert.equal(f.container.querySelector('[data-columns]').dataset.columns, '2');
+  await act(async () => toggle().click());
+  assert.equal(toggle().checked, false);
+  assert.equal(f.container.querySelector('[data-columns]').dataset.columns, '1');
+  assert.deepEqual(f.calls.filter((call) => call.method === 'library.action').at(-1).payload, {
+    token: 'library-1',
+    type: 'layout',
+    value: 'list'
+  });
+  await f.render('/manage', 2);
+  await click(f, 'Sort and filter');
+  assert.equal(toggle().checked, false);
+  assert.equal(f.container.querySelector('[data-columns]').dataset.columns, '1');
+});
+
+test('layout saves retain the current page and selection and reconcile a lost acknowledgment without replay', async (t) => {
+  let serial = 0,
+    layout = 'grid';
+  const f = await mount(t, (method, payload) => {
+    if (method === 'library.action' && payload.type === 'layout') {
+      layout = payload.value;
+      throw new Error('Layout acknowledgment lost');
+    }
+    if (method === 'library.state')
+      return {
+        token: 'paged-' + ++serial,
+        coverToken: 'cover',
+        layout,
+        sort: { property: 'title', direction: 'asc' },
+        items: [book],
+        total: 121,
+        totalBooks: 121,
+        offset: payload.offset ?? 0,
+        limit: 60,
+        collections: [],
+        sources: [],
+        trail: [],
+        counts: { finished: 0, wantToRead: 0 }
+      };
+  });
+  await click(f, 'Next');
+  await click(f, 'Select');
+  await click(f, 'Select page');
+  await click(f, 'Sort and filter');
+  await act(async () => f.container.querySelector('[aria-label="Grid layout"]').click());
+  assert.equal(f.calls.filter((call) => call.method === 'library.action').length, 1);
+  assert.equal(f.calls.filter((call) => call.method === 'library.state').at(-1).payload.offset, 60);
+  assert.equal(f.container.querySelector('[aria-label="Grid layout"]').checked, false);
+  assert.match(f.container.textContent, /Layout acknowledgment lost/);
+  assert.match(f.container.textContent, /1 selected on this page/);
+});
+
+test('pending layout saves disable the switch and retire replies on route or account departure', async (t) => {
+  for (const [path, epoch] of [
+    ['/settings', 1],
+    ['/manage', 2]
+  ]) {
+    const pending = deferred();
+    const f = await mount(t, (method, payload) =>
+      method === 'library.action' && payload.type === 'layout' ? pending.promise : undefined
+    );
+    await click(f, 'Sort and filter');
+    const toggle = f.container.querySelector('[aria-label="Grid layout"]');
+    await act(async () => {
+      toggle.click();
+      toggle.click();
+    });
+    assert.equal(f.calls.filter((call) => call.method === 'library.action').length, 1);
+    assert.equal(toggle.disabled, true);
+    await f.render(path, epoch);
+    const reads = f.calls.filter((call) => call.method === 'library.state').length;
+    await act(async () => pending.reject(new Error('Departed layout failure')));
+    assert.equal(f.calls.filter((call) => call.method === 'library.state').length, reads);
+    assert.ok(!f.container.textContent.includes('Departed layout failure'));
+  }
 });

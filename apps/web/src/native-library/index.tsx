@@ -214,7 +214,7 @@ function Library() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [selecting, setSelecting] = useState(false);
-  const [grid, setGrid] = useState(false);
+  const grid = state?.layout === 'grid';
   const [catalogVisible, setCatalogVisible] = useState(false);
   const [sheet, setSheet] = useState<
     'filters' | 'collections' | 'membership' | 'series' | 'completion' | 'metadata'
@@ -316,21 +316,39 @@ function Library() {
       (property === sort.property && direction === sort.direction)
     )
       return;
+    await savePreference({ type: 'sort', property, direction }, true);
+  }
+  async function chooseLayout(value: boolean) {
+    if (!state || mutationActive.current || loading || !activeRoute.current || value === grid)
+      return;
+    await savePreference({ type: 'layout', value: value ? 'grid' : 'list' }, false);
+  }
+  async function savePreference(
+    action: Extract<LibraryAction, { type: 'sort' | 'layout' }>,
+    resetPage: boolean
+  ) {
+    if (!state) return;
     mutationActive.current = true;
     const request = serial.current;
     setBusy(true);
     setError('');
     try {
-      await command('library.action', { token: state.token, type: 'sort', property, direction });
+      await command('library.action', { token: state.token, ...action });
     } catch (cause) {
       if (mounted.current && activeRoute.current && request === serial.current)
-        setError(cause instanceof Error ? cause.message : 'The sort choice could not be saved.');
+        setError(
+          cause instanceof Error ? cause.message : 'The Library preference could not be saved.'
+        );
     } finally {
       if (mounted.current && activeRoute.current) {
         if (request === serial.current) {
-          setSelected([]);
-          setSelecting(false);
-          setQuery((previous) => ({ ...previous, detail: undefined, offset: 0 }));
+          if (resetPage) {
+            setSelected([]);
+            setSelecting(false);
+            setQuery((previous) => ({ ...previous, detail: undefined, offset: 0 }));
+          } else {
+            await refresh(latestQuery.current);
+          }
         } else {
           await refresh(latestQuery.current);
         }
@@ -1017,7 +1035,12 @@ function Library() {
                   value={!!query.unfinished}
                   onValueChange={(unfinished) => view({ unfinished })}
                 />
-                <Switch label="Grid layout" value={grid} onValueChange={setGrid} />
+                <Switch
+                  label="Grid layout"
+                  value={grid}
+                  disabled={!state || busy || loading}
+                  onValueChange={(value) => void chooseLayout(value)}
+                />
               </Host>
               <Text style={styles.title}>Sources</Text>
               <Action label="All sources" onPress={() => view({ source: '' })} />

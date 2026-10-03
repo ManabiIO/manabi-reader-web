@@ -95,6 +95,7 @@ import {
 } from '$lib/library/cloud-series';
 import type { LibraryMenuModel } from '$lib/library/library-menu';
 import { librarySortChoices, readLibrarySort } from '../features/library/sort-options';
+import { libraryLayoutKeys, loadLibraryLayouts } from '../features/library/layout-preferences';
 import { continueBooks, finishedGroups, seriesReadingTarget } from '$lib/library/reading-state';
 import { ObservableController, readStore, tick } from './observable-controller';
 export class WorkspaceController extends ObservableController {
@@ -687,11 +688,13 @@ export class WorkspaceController extends ObservableController {
     }
     try {
       localStorage.setItem(
-        this.collectionId === 'finished' && !this.series
-          ? 'manabi-finished-layout'
-          : this.series
-            ? 'manabi-series-layout'
-            : 'manabi-library-layout',
+        libraryLayoutKeys[
+          this.collectionId === 'finished' && !this.series
+            ? 'finished'
+            : this.series
+              ? 'series'
+              : 'library'
+        ],
         value
       );
     } catch {
@@ -1287,11 +1290,10 @@ export class WorkspaceController extends ObservableController {
         if (this.alive) this.previewFailures++;
       });
       try {
-        this.layout = localStorage.getItem('manabi-library-layout') === 'list' ? 'list' : 'grid';
-        this.seriesLayout =
-          localStorage.getItem('manabi-series-layout') === 'grid' ? 'grid' : 'list';
-        this.finishedLayout =
-          localStorage.getItem('manabi-finished-layout') === 'grid' ? 'grid' : 'timeline';
+        const layouts = loadLibraryLayouts(localStorage);
+        this.layout = layouts.library;
+        this.seriesLayout = layouts.series;
+        this.finishedLayout = layouts.finished;
         this.finishedOrder =
           localStorage.getItem('manabi-finished-order') === 'asc' ? 'asc' : 'desc';
       } catch {

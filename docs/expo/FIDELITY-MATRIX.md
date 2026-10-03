@@ -133,8 +133,13 @@ first shared complete composition; the eight remaining screen closures are:
 2. **Library:** converge the full shared screen/shell while retaining local
    import/open/delete, collections/series, selection, metadata, completion,
    want-to-read, covers and passage search. The eight saved sort choices now use
-   shared labels/validation and the existing DOM-owned preference; layout
-   preferences, continue/series heroes, finished timeline and common
+   shared labels/validation and the existing DOM-owned preference. Shelf layout
+   keys/defaults now share one definition; native grid/list saves use the admitted
+   Library/series/Finished destination and restore from the existing DOM storage
+   owner on remount. Finished preserves the web grid/timeline preference, with a
+   native list fallback until the timeline composition is implemented. Actual
+   packaged layout-control/process-restart and accessibility acceptance remain
+   unqualified. Continue/series heroes, finished timeline and common
    search/selection composition still differ.
    Native backup/export destinations and
    provider/folder access remain open. This is the largest next everyday-screen

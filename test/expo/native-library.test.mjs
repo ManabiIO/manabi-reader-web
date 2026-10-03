@@ -92,6 +92,13 @@ function setup(books = [book()]) {
         args[3].assertCurrent();
         args[3].signal.throwIfAborted();
         if (args[0].type === 'sort') data.sort = readLibrarySort(args[0]);
+        if (args[0].type === 'layout') {
+          const { scope, value } = args[0];
+          data.layouts = {
+            ...data.layouts,
+            [scope]: scope === 'finished' && value === 'list' ? 'timeline' : value
+          };
+        }
         writes.push(args);
       }
     },
@@ -725,4 +732,74 @@ test('Library owns sort inheritance before a delayed repository read', async () 
     property: 'author',
     direction: 'asc'
   });
+});
+
+test('layout saves use the admitted view and preserve the other shelf choices', async () => {
+  const f = setup([book(1, { progress: 1 })]);
+  const books = f.data.tree;
+  f.data.tree = [
+    {
+      kind: 'series',
+      id: 'series-1',
+      directoryId: '',
+      name: 'Set',
+      personal: true,
+      books: books.map((node) => node.book),
+      children: books
+    }
+  ];
+  assert.equal((await f.service.state({}, f.authority)).layout, 'grid');
+  const all = await f.service.state({}, f.authority);
+  const series = all.items.find((item) => item.kind === 'series').key;
+  for (const [query, scope, initial, value, stored] of [
+    [{}, 'library', 'grid', 'list', 'list'],
+    [{ series }, 'series', 'list', 'grid', 'grid'],
+    [{ collection: 'finished' }, 'finished', 'list', 'grid', 'grid'],
+    [{ collection: 'finished' }, 'finished', 'grid', 'list', 'timeline'],
+    [{ collection: 'finished', series }, 'series', 'grid', 'list', 'list']
+  ]) {
+    const state = await f.service.state(query, f.authority);
+    assert.equal(state.layout, initial);
+    const baseline = structuredClone(f.data.layouts ?? {});
+    // A later navigation must not retarget a retained admission.
+    await f.service.state({ collection: 'want-to-read' }, f.authority);
+    const action = { token: state.token, type: 'layout', value };
+    await f.service.action(action, f.authority);
+    assert.deepEqual(f.data.layouts, { ...baseline, [scope]: stored });
+    assert.equal((await f.service.state(query, f.authority)).layout, value);
+    assert.equal(f.writes.at(-1)[0].scope, scope);
+    assert.deepEqual(f.writes.at(-1)[1], []);
+    await assert.rejects(f.service.action(action, f.authority), /expired/);
+  }
+});
+
+test('layout rejects forged storage scopes, stale accounts, expired admissions and cancellation', async () => {
+  const f = setup();
+  const before = await f.service.state({}, f.authority);
+  for (const change of [
+    { value: 'timeline' },
+    { value: true },
+    {},
+    { value: 'list', scope: 'series' },
+    { value: 'list', keys: [] },
+    { value: 'list', storageKey: 'session' }
+  ])
+    await assert.rejects(
+      f.service.action({ token: before.token, type: 'layout', ...change }, f.authority)
+    );
+  assert.equal(f.writes.length, 0);
+  f.tick(10 * 60 * 1000 + 1);
+  await assert.rejects(
+    f.service.action({ token: before.token, type: 'layout', value: 'list' }, f.authority),
+    /expired/
+  );
+  for (const retire of [(current) => current.cancel(), (current) => current.changeScope('other')]) {
+    const g = setup();
+    const state = await g.service.state({}, g.authority);
+    g.hook(() => retire(g));
+    await assert.rejects(
+      g.service.action({ token: state.token, type: 'layout', value: 'list' }, g.authority)
+    );
+    assert.equal(g.writes.length, 0);
+  }
 });

@@ -44,7 +44,15 @@ import {
 import { libraryNodes, nativeBook, parseLibraryQuery } from './view-model';
 import { LIBRARY_SORTS, readLibrarySort } from '../features/library/sort-options';
 
+import {
+  libraryLayoutScope,
+  readLibraryLayouts,
+  type LibraryLayouts,
+  type LibraryLayoutScope
+} from '../features/library/layout-preferences';
+
 export interface LibraryData {
+  layouts?: LibraryLayouts;
   sort?: NativeLibraryState['sort'];
   uiTheme?: NativeLibraryState['uiTheme'];
   tree: ShelfNode[];
@@ -53,11 +61,14 @@ export interface LibraryData {
   /** DOM-only canonical identities, captured with saved covers. */
   coverIdentities?: Record<number, string>;
 }
-export type LibraryWriteRequest =
+type LibraryOperation =
   | Exclude<LibraryActionRequest, { type: 'presentation' }>
   | (Omit<Extract<LibraryActionRequest, { type: 'presentation' }>, 'change'> & {
       change: PresentationChange;
     });
+export type LibraryWriteRequest =
+  | Exclude<LibraryOperation, { type: 'layout' }>
+  | (Extract<LibraryOperation, { type: 'layout' }> & { scope: LibraryLayoutScope });
 export interface LibraryRepository {
   cover?: RenderLibraryCover;
   load(authority: LibraryAuthority): Promise<LibraryData>;
@@ -69,6 +80,7 @@ export interface LibraryRepository {
   ): Promise<void>;
 }
 interface Admission {
+  layoutScope: LibraryLayoutScope;
   key: string;
   created: number;
   targets: Map<string, ShelfBook>;
@@ -84,6 +96,7 @@ function parseAction(value: unknown): LibraryActionRequest {
     throw new Error('Invalid Library action.');
   const fields: Record<string, string[]> = {
     sort: ['property', 'direction'],
+    layout: ['value'],
     presentation: ['keys', 'change', 'preserveSeriesIndex'],
     membership: ['keys', 'collection', 'included'],
     'collection.create': ['name', 'keys'],
@@ -105,6 +118,8 @@ function parseAction(value: unknown): LibraryActionRequest {
       !['asc', 'desc'].includes(value.direction as string))
   )
     throw new Error('Invalid Library sort.');
+  if (value.type === 'layout' && !['grid', 'list'].includes(value.value as string))
+    throw new Error('Invalid Library layout.');
   if (
     'keys' in value &&
     (!Array.isArray(value.keys) ||
@@ -225,6 +240,7 @@ export class NativeLibraryService {
     this.covers.dispose();
     const coverGeneration = ++this.coverGeneration;
     const query = parseLibraryQuery(payload);
+    const layoutScope = libraryLayoutScope(query);
     const inheritSort = record(payload) && payload.sort === undefined;
     const inheritDirection = record(payload) && payload.direction === undefined;
     const seriesId = query.series ? this.handles.get(query.series) : '';
@@ -288,6 +304,7 @@ export class NativeLibraryService {
     const coverToken = this.token();
     const response: NativeLibraryState = {
       sort: readLibrarySort({ property: query.sort, direction: query.direction }),
+      layout: readLibraryLayouts(data.layouts)[layoutScope] === 'grid' ? 'grid' : 'list',
       ...(data.uiTheme ? { uiTheme: structuredClone(data.uiTheme) } : {}),
       token,
       coverToken,
@@ -334,6 +351,7 @@ export class NativeLibraryService {
       throw new Error('This Library view is too large. Use a narrower view.');
     this.assert(authority);
     this.admissions.set(token, {
+      layoutScope,
       key: authority.key,
       created: this.now(),
       targets,
@@ -468,7 +486,7 @@ export class NativeLibraryService {
     return this.performAction(parseAction(payload), authority);
   }
   private async performAction(
-    action: LibraryWriteRequest,
+    action: LibraryOperation,
     authority: LibraryAuthority
   ): Promise<{ saved: true }> {
     this.bind(authority);
@@ -527,7 +545,12 @@ export class NativeLibraryService {
         )
       )
         throw new Error('This collection changed. Refresh before saving.');
-      await this.repository.write(action, structuredClone(targets), admitted.expected, authority);
+      await this.repository.write(
+        action.type === 'layout' ? { ...action, scope: admitted.layoutScope } : action,
+        structuredClone(targets),
+        admitted.expected,
+        authority
+      );
       return { saved: true };
     } finally {
       this.busy = false;

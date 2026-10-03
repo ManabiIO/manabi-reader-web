@@ -53,6 +53,8 @@ export interface NativeLibrarySeries {
 export type LibraryUiTheme = Pick<UiThemeProviderProps, 'themeId' | 'appearance' | 'customThemes'>;
 export interface NativeLibraryState {
   sort: LibrarySortPreference;
+  /** Finished uses a list until the shared timeline composition is implemented. */
+  layout: 'grid' | 'list';
   uiTheme?: LibraryUiTheme;
   token: string;
   coverToken: string;
@@ -74,6 +76,7 @@ export interface NativeLibraryState {
   detail?: NativeLibraryBook & { metadata: BookMetadata; direction: string };
 }
 export type LibraryAction =
+  | { type: 'layout'; value: 'grid' | 'list' }
   | { type: 'sort'; property: LibrarySort; direction: 'asc' | 'desc' }
   | {
       type: 'presentation';
