@@ -1506,3 +1506,138 @@ Before selecting any CR-OPP for implementation, the worker must inspect current 
 - UX exposure;
 - extension of an existing primitive;
 - or a genuinely new primitive.
+
+
+## 20. Deep-reference and entity navigation opportunities
+
+### CR-OPP-177 Character and entity index
+
+Build a book-scoped reference view for recurring entities such as:
+- characters;
+- places;
+- organizations;
+- named events;
+- user-pinned terms.
+
+For each entity, optionally show:
+- short user-authored/imported description;
+- first occurrence;
+- recent occurrence;
+- all occurrence locations;
+- aliases/readings;
+- user notes.
+
+Requirements:
+- extracted/inferred entity identity is editable;
+- generated descriptions are labeled;
+- source occurrences link back to exact passages;
+- no external biography/knowledge lookup is required for the basic local feature.
+
+### CR-OPP-178 Vocabulary occurrence timeline
+
+For a selected word/kanji, show where it has appeared across:
+- the current chapter;
+- current book;
+- optionally the user's library.
+
+Potential signals:
+- first encounter;
+- lookup events;
+- saved/mined events;
+- later unassisted encounters.
+
+This can support familiarity decisions without automatically changing them.
+
+### CR-OPP-179 User-facing reference anchors
+
+Expose a stable human-shareable reference for a passage in addition to internal durable locators.
+
+Possible forms:
+- chapter + paragraph reference;
+- resource + paragraph ordinal;
+- target-owned opaque reference token.
+
+Requirements:
+- remains resolvable across ordinary reflow;
+- clearly fails or degrades when the underlying edition/text changed too much;
+- never exposes a private filesystem/provider path;
+- copy/share is explicit.
+
+### CR-OPP-180 Deep links to reading locations
+
+Allow a target-owned link/reference to reopen a book at a saved location when the recipient/device has authorized access to the same logical book.
+
+Potential uses:
+- lesson notes;
+- personal notes;
+- study-group discussion;
+- external knowledge-base links.
+
+The link must not grant access to book bytes the recipient does not already have permission to read.
+
+### CR-OPP-181 Progress-linked reading journal
+
+Let users record freeform journal entries associated with:
+- a point in the book;
+- a progress percentage;
+- a chapter;
+- a reading session;
+- the whole book.
+
+Journal entries remain separate from passage highlights so the user can log reactions without selecting text.
+
+### CR-OPP-182 Spoiler-aware shared discussion
+
+If social/shared annotations are ever added, gate visibility by reading progress.
+
+Possible policy:
+- comments attached beyond the user's current position are hidden;
+- user can explicitly reveal later discussion;
+- current-position discussion is visible.
+
+Shared discussion must be opt-in and must not upload private book content beyond what the user explicitly shares.
+
+### CR-OPP-183 Semantic library search
+
+Complement literal full-text search with optional concept-level retrieval across the user's library.
+
+Requirements:
+- every result cites the originating book and passage;
+- literal search remains separately available;
+- local embedding/indexing is preferred when feasible;
+- remote semantic processing is explicit;
+- deleting a book removes its semantic index without affecting other books.
+
+## 21. Library lifecycle and physical-book bridge opportunities
+
+### CR-OPP-184 Paused / did-not-finish state
+
+Distinguish:
+- actively reading;
+- paused;
+- finished;
+- did not finish.
+
+This is separate from deleting the book or resetting progress.
+
+### CR-OPP-185 Physical-book catalog entry
+
+Optionally let users add a metadata-only physical book via:
+- ISBN/barcode scan;
+- manual metadata.
+
+A physical entry may link to camera OCR sessions/notes without pretending that full digital book bytes are available.
+
+### CR-OPP-186 Reading report
+
+Generate a private per-book or period report from existing data:
+- time read;
+- reading days;
+- progress;
+- speed trend;
+- lookups;
+- highlights/notes;
+- difficult terms;
+- completion date.
+
+Reports should reflect existing statistics rather than inventing a second accounting system.
