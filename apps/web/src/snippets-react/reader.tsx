@@ -81,7 +81,7 @@ export function SnippetReader(props: ReaderProps & ReaderViewProps) {
         aria-label={'Snippet content'}
         html={c.html}
         className={[c.vertical && 'vertical', 'snippet-reading'].filter(Boolean).join(' ')}
-        style={{ fontSize: `${c.fontSize}px` }}
+        style={{ fontSize: `${c.fontSize / 16}rem` }}
       ></Dom>
     </ReaderScope>
   );

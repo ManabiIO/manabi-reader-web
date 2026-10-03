@@ -125,3 +125,18 @@ Shared button labels use the same scalable text primitive, including numeric
 font overrides on Heatmap streak/goal summaries. A real browser assertion checks
 that a 12px compact metric becomes 24px at 200% root text, while native retains
 RN font scaling and its existing line height.
+
+## Populated Snippets review
+
+Saved snippet text uses rem sizing, preserving the chosen reading size while
+following browser root-text enlargement in horizontal and vertical reading.
+At 200% root text, the default 20px text becomes 40px; the size controls still
+change the underlying reading preference in 2px steps. Returning to normal
+browser text leaves that preference intact.
+
+Phone snippet cards keep physical 16px insets and an 8px selection gap. This
+preserves room for enlarged titles and excerpts beside the 44px checkbox target.
+At 320px and 200% text, selected copy has 202px of width instead of 140px,
+without horizontal document overflow. The production browser journey checks
+actual text sizing in both orientations, the size controls, copy width and
+selection target reachability.

@@ -593,6 +593,11 @@ form.snippet-scope-workspace label:where(.snippet-scope-workspace) {
   gap: 0.4rem;
 }
 @media (max-width: 640px) {
+  .snippet-card.snippet-scope-shelf {
+    // Bound the chrome so selected cards retain reading width at enlarged text.
+    padding: 16px;
+    gap: 8px;
+  }
   .secondary-actions-wide.snippet-scope-workspace,
   .reader-add-wide {
     display: none;

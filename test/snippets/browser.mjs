@@ -257,11 +257,26 @@ try {
   await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText('京都');
   passed('create, durable native IndexedDB save and reader reload');
 
+  const readingArticle = page.getByRole('article', { name: 'Snippet content' });
+  const readerFont = () =>
+    readingArticle.evaluate((node) => parseFloat(window.getComputedStyle(node).fontSize));
+  const defaultReaderFont = await readerFont();
+  assert.equal(defaultReaderFont, 20);
+
   // Stress the actual reader controls and vertical layout at enlarged UI text.
   await page.setViewportSize({ width: 320, height: 480 });
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '200%';
   });
+  assert.equal(
+    await readerFont(),
+    defaultReaderFont * 2,
+    'Saved snippet text must scale with the browser root font'
+  );
+  await page.getByRole('button', { name: 'Larger text', exact: true }).click();
+  await expect.poll(readerFont).toBe((defaultReaderFont + 2) * 2);
+  await page.getByRole('button', { name: 'Smaller text', exact: true }).click();
+  await expect.poll(readerFont).toBe(defaultReaderFont * 2);
   const moreActions = page.getByRole('button', { name: 'More actions', exact: true });
   await expect(moreActions).toBeVisible();
   const readingToolbar = page.getByRole('toolbar', { name: 'Snippet reading controls' });
@@ -333,7 +348,11 @@ try {
   );
   await verticalToggle.click();
   await expect(verticalToggle).toHaveAttribute('aria-pressed', 'true');
-  const readingArticle = page.getByRole('article', { name: 'Snippet content' });
+  assert.equal(
+    await readerFont(),
+    defaultReaderFont * 2,
+    'Vertical snippet text must retain browser font scaling'
+  );
   assert.equal(
     await readingArticle.evaluate((node) => window.getComputedStyle(node).writingMode),
     'vertical-rl'
@@ -359,7 +378,12 @@ try {
     document.documentElement.style.fontSize = '';
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  passed('reader controls and vertical mode reflow at 200% text');
+  assert.equal(
+    await readerFont(),
+    defaultReaderFont,
+    'Removing browser scaling must retain the selected reading size'
+  );
+  passed('reader text, controls and vertical mode reflow at 200% text');
 
   // Stress the real TipTap toolbar and annotation form, not a substitute editor.
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -461,6 +485,23 @@ try {
     'Snippet selection target must remain at least 44x44 CSS px'
   );
   await selectionTarget.click({ trial: true });
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+  const selectedCopy = page.locator('.snippet-card.selected .content');
+  assert(
+    (await selectedCopy.boundingBox()).width >= 192,
+    'Selected snippet cards must retain readable copy width at 320px / 200% text'
+  );
+  assert((await page.locator('html').evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1);
+  const enlargedSelectionBox = await selectionTarget.boundingBox();
+  assert(enlargedSelectionBox.width >= 43.5 && enlargedSelectionBox.height >= 43.5);
+  await selectionTarget.click({ trial: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '';
+  });
   await page.getByRole('button', { name: 'Done selecting', exact: true }).click();
   passed('modifier-click enters visible selection mode');
   const search = page.getByRole('searchbox', { name: 'Search snippets' });

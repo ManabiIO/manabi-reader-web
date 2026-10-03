@@ -405,7 +405,7 @@ test('reader restores explicit locator, preserves source markup and persists onl
   await click(button('Vertical reading'));
   assert(ui.host.querySelector('.snippet-reading.vertical'));
   await click(button('A+'));
-  assert.equal(ui.host.querySelector('article').style.fontSize, '22px');
+  assert.equal(ui.host.querySelector('article').style.fontSize, '1.375rem');
 });
 
 test('reader teardown saves the last deliberate reading position and removes listeners', async () => {
