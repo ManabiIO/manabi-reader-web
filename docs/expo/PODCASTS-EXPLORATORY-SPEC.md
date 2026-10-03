@@ -880,11 +880,37 @@ This avoids introducing an audio proxy or account backend merely to discover epi
 
 ### 7.2 Catalog freshness options
 
-For this project, prefer a **static generated catalog** over runtime arbitrary-feed fetching unless a concrete reason favors client RSS.
+For this project, prefer a **generated static catalog data plane** over runtime arbitrary-feed fetching unless a concrete reason favors client RSS.
 
-Use a separate catalog-refresh command/job to fetch a reviewed list of public feeds, validate them, and produce bounded inert JSON. Check in or otherwise pin that generated manifest before an application build. The normal production build should consume the validated manifest without depending on live podcast hosts or network availability.
+There are two different freshness classes:
 
-That avoids runtime feed-CORS dependence while preserving the core no-backend/no-audio-proxy architecture: users still fetch audio directly from publishers.
+~~~text
+curated show seed
+  stable ShowKey + feed URL/aliases + editorial tags
+  small and reviewable
+  safe to check in / bundle
+
+episode manifest
+  recent EpisodeKey + publisher metadata + media/transcript resource descriptors
+  changes frequently
+  should be refreshable independently of an Android binary
+~~~
+
+Use a separate catalog-refresh command/job to fetch the reviewed feed set, validate it, and produce bounded inert JSON.
+
+Do **not** assume "put the generated episode JSON in Expo public/" solves this cross-platform. The current Expo migration explicitly embeds public assets in the Android binary and disables EAS Update; a frequently changing packaged episode manifest would require a new binary to refresh.
+
+Preferred long-term shape:
+
+- bundle/check in the small curated show seed
+- publish the validated current episode manifest as a versioned **static data file** on an updateable Manabi-controlled HTTPS origin
+- this is static metadata hosting, not an audio proxy or transcription backend
+- web can use same-origin delivery when deployed that way
+- packaged Android/DOM must qualify the manifest's CORS/origin path explicitly
+- validate the complete manifest before atomically replacing the last-known-good local copy
+- keep the last valid manifest for offline/retry behavior
+
+If the project does not want a separately updateable static-data publication path yet, state the tradeoff honestly: web deployment/app release cadence becomes the catalog refresh cadence.
 
 The next worker should choose and document one:
 
@@ -906,9 +932,11 @@ C. Client-side feed fetch.
 
 A + B is the stronger default for the curated Japanese MVP: keep a reviewed source list in-repo and generate bounded episode metadata during a controlled build/update step. Optional direct client refresh can be added only for feeds whose CORS behavior is qualified.
 
-Do not make production app startup **or production build determinism** depend on GitHub Actions or a live feed update succeeding. Ship the last validated manifest.
+Do not make production app startup **or application build determinism** depend on a live feed update succeeding. A catalog-refresh failure must leave the last validated static manifest publishable/usable.
 
 The generated catalog may retain publisher metadata and URLs needed for discovery. It should not copy/bundle episode audio or full publisher transcript bodies into Manabi merely to avoid runtime CORS.
+
+Version the manifest schema independently of the application bundle. Reject an unsupported or partially downloaded manifest instead of half-applying it.
 
 ### 7.3 RSS parsing
 
@@ -1776,7 +1804,8 @@ Do not turn one passing show into an eternal hostname allowlist.
 
 Initial expectation:
 
-- the validated static catalog manifest can remain available with the application shell
+- the small curated show seed may be bundled with the application
+- the last fully validated episode manifest is persisted as local data after a successful static-manifest fetch
 - saved transcript text remains readable/searchable
 - logical `EpisodeKey` resume remains local
 - remote episode audio is unavailable offline unless the user agent/platform independently retained usable network cache
@@ -1785,6 +1814,8 @@ Initial expectation:
 An explicit "download episode" feature is out of scope and has different storage/licensing implications.
 
 The current Reader service worker already passes through Range and unrelated-origin requests and excludes public audio from required shell assets. Preserve that behavior; add tests rather than a new audio caching path.
+
+Also avoid accidentally turning a potentially large/changing podcast episode manifest into a mandatory shell install dependency. Current public JSON is otherwise eligible as a required public shell asset. Either keep the current episode manifest outside the packaged shell or add an explicit optional/lazy classification with regression tests.
 
 ## 18. Performance, bandwidth and publisher-request expectations
 
