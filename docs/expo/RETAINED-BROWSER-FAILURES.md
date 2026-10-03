@@ -226,3 +226,21 @@ import, Shared libraries and Optional video, plus Statistics native flow gates
 and reader/device qualification. Preserve the reader/dictionary DOM boundary and
 neutral interfaces. Follow [CI coverage](CI-COVERAGE.md) for affected versus full
 scope, exact-head evidence and the existing three-job/no-artifact policy.
+
+## Enlarged Library list readability
+
+The saved-sort comparison on `a473f19c` exposed an existing list-layout failure
+in both Expo and the Svelte baseline: the page had no horizontal overflow, but
+artwork and trailing actions consumed the space needed for enlarged titles.
+A new production browser case reproduces the frozen Expo failure at 320px and
+390px with 200% text. At 320px, its English title had only 1.6px of width and
+was nearly 1,600px tall. An overflow assertion alone could not detect this.
+
+The compact list now keeps artwork bounded, gives copy the row width, and puts
+actions on a separate line. Selected labels stay within the cover column and
+icon-only actions retain a 44px target. The regression checks readable title
+width and height, action separation/targets, keyboard selection, selected-badge
+bounds and document overflow at 320/390/640px and 100/200% text. All eight
+previously selected shelf/editor cases remain; this ninth case runs in both
+engines and both production export modes. This is a web layout refinement, not
+native whole-screen parity or physical-device qualification.

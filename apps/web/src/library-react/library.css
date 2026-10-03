@@ -455,11 +455,49 @@
   }
 }
 @media (max-width: 560px) {
+  .library-react .library-workspace {
+    --library-gutter: clamp(16px, 1.5rem, 24px);
+  }
   .library-react .shelf-list .shelf-item {
     gap: 0.4rem;
   }
   .library-react .shelf-list .book-open {
     gap: 0.8rem;
+  }
+}
+@container (max-width: 18rem) {
+  .library-react .shelf-list .shelf-item {
+    flex-wrap: wrap;
+    column-gap: 8px;
+    row-gap: 4px;
+  }
+  .library-react .shelf-list .book-open {
+    flex-basis: 100%;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .library-react .shelf-list .book-thumbnail {
+    width: 64px;
+  }
+  .library-react .shelf-list .book-copy {
+    flex: 1;
+  }
+  .library-react .shelf-list .book-status {
+    margin-inline-start: auto;
+  }
+  .library-react .shelf-list .book-status button {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .library-react .shelf-list .selection-label {
+    top: 0;
+    right: 0;
+    max-width: 100%;
+    padding: 4px;
+    border-radius: 3px;
+    overflow-wrap: anywhere;
   }
 }
 @media (prefers-reduced-motion: no-preference) {

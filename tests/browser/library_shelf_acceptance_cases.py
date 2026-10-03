@@ -19,10 +19,11 @@ CASES = (
     'test_library_parity.LibraryParityBrowser.test_metadata_cancel_and_concurrent_tab_edits_do_not_overwrite_each_other',
     'test_library_parity.LibraryParityBrowser.test_modifiers_ranges_and_keyboard_in_grid_and_list',
     'test_books_library.BooksLibraryBrowser.test_responsive_shelf_grows_then_adds_columns_without_clipping_covers',
+    'test_library_grid_labels.LibraryGridLabels.test_enlarged_list_keeps_titles_readable_and_actions_separate',
 )
 
 def validate():
-    assert len(CASES) == len(set(CASES)) == 8
+    assert len(CASES) == len(set(CASES)) == 9
     for case in CASES:
         module, class_name, method = case.split('.')
         tree = ast.parse((Path(__file__).parent / (module + '.py')).read_text())
@@ -38,7 +39,7 @@ if __name__ == '__main__':
     if args.list:
         print(json.dumps(CASES))
     elif args.validate:
-        print('Eight retained Library shelf/editor cases validated')
+        print('Eight retained Library shelf/editor cases and enlarged-list regression validated')
     else:
         suite = unittest.defaultTestLoader.loadTestsFromNames(CASES)
         assert suite.countTestCases() == len(CASES)

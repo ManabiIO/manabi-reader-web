@@ -225,7 +225,8 @@ required enabled MOSS bytes.
 
 ### Shared Library shelf and metadata editor
 
-Both independent exports now execute the same eight retained shelf/editor cases
+Both independent exports execute the same eight retained shelf/editor cases plus
+the enlarged-list readability regression
 in Chromium and WebKit, selected by `library_shelf_acceptance_cases.py`: same-cover
 identity, enlarged grid labels, enlarged selection toolbar, real theme contrast,
 metadata identity preservation, cancel/concurrent-edit isolation, keyboard/range

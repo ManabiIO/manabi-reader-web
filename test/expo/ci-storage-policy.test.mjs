@@ -521,7 +521,12 @@ test('both production exports retain the same exact shared Library shelf/editor 
   );
   assert.equal(result.status, 0, result.stderr);
   const cases = JSON.parse(result.stdout);
-  assert.equal(cases.length, 8);
+  assert.equal(cases.length, 9);
+  assert.ok(
+    cases.some((value) =>
+      value.endsWith('test_enlarged_list_keeps_titles_readable_and_actions_separate')
+    )
+  );
   assert.ok(
     cases.some((value) =>
       value.endsWith('test_metadata_cancel_and_concurrent_tab_edits_do_not_overwrite_each_other')
