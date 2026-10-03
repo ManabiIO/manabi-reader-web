@@ -111,7 +111,7 @@ async function fixture(run) {
   });
   const route = production('screens/routes/b.web.tsx', {
     'expo-router': {
-      useLocalSearchParams: () => routeState.params,
+      useRoute: () => ({ params: routeState.params }),
       useIsFocused: () => routeState.focused
     },
     '../../runtime/paths': paths,
@@ -159,6 +159,17 @@ test('the mounted web reader starts from route-local URL before Expo commits bro
       '1',
       'a later global refresh cannot change the admitted route snapshot'
     );
+  });
+});
+
+test('web reader query values keep literal percent escapes after route admission', async () => {
+  await fixture(async ({ render, observed, routeState }) => {
+    routeState.params['library-search'] = '猫%20and%2F100%25';
+    routeState.params.note = ['literal%20space', 'literal%2Fslash'];
+    await render();
+    const url = new URL(observed[0].routeUrl);
+    assert.equal(url.searchParams.get('library-search'), '猫%20and%2F100%25');
+    assert.deepEqual(url.searchParams.getAll('note'), ['literal%20space', 'literal%2Fslash']);
   });
 });
 

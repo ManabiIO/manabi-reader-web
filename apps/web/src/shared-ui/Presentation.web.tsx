@@ -13,6 +13,7 @@ export function UiPresentation() {
 }
 [data-ui-heading] { overflow-wrap: normal; word-break: normal; }
 [data-ui-button] { transition: color 150ms, background-color 150ms, border-color 150ms; }
+[data-ui-button][data-section-link]:not([aria-disabled='true']):hover { background-color: var(--muted) !important; }
 [data-ui-button][data-variant='default']:not([aria-disabled='true']):hover { background-color: color-mix(in srgb, var(--primary), var(--primary-foreground) 8%) !important; }
 [data-ui-button][data-variant='secondary']:not([aria-disabled='true']):hover { background-color: color-mix(in oklch, var(--secondary), var(--foreground) 5%) !important; }
 [data-ui-button][data-variant='secondary'][aria-expanded='true']:not([aria-disabled='true']) { background-color: var(--secondary) !important; }

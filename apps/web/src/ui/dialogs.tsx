@@ -469,7 +469,7 @@ export function DialogHost() {
       role={current ? 'dialog' : undefined}
       aria-modal={current ? true : undefined}
       aria-labelledby="manabi-dialog-title"
-      className="m-auto max-h-[90dvh] w-[min(96vw,48rem)] max-w-[calc(100vw-16px)] overflow-hidden rounded-2xl border border-border bg-background p-0 pt-[60px] text-foreground shadow-xl backdrop:bg-black/40"
+      className="m-auto max-h-[90dvh] w-[min(96vw,48rem)] max-w-[calc(100vw-16px)] overflow-hidden rounded-2xl border border-border bg-background p-0 pt-[60px] text-foreground shadow-xl writing-horizontal-tb backdrop:bg-black/40"
       onCancel={(e) => {
         e.preventDefault();
         if (!current?.disableCloseOnClick) close();

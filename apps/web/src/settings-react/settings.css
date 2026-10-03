@@ -151,7 +151,7 @@
   font-weight: 650;
   margin-bottom: 0.4rem;
 }
-.react-settings-connections-screen section {
+.react-settings-connections-screen .connections-page > section {
   border: 1px solid var(--border);
   background: var(--card);
   border-radius: 16px;
@@ -162,7 +162,7 @@
 .react-settings-connections-screen p {
   margin: 0.6rem 0;
 }
-.react-settings-connections-screen a {
+.react-settings-connections-screen .connections-page a:not([data-slot=button]) {
   color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 0.16em;
@@ -267,7 +267,7 @@
   .react-settings-connections-screen .connections-page {
     padding: 16px 12px;
   }
-  .react-settings-connections-screen section {
+  .react-settings-connections-screen .connections-page > section {
     padding: 16px;
   }
   .react-settings-connections-screen .file-entry {
@@ -321,7 +321,7 @@
 
 .react-settings-import-ttu-screen .migration-page {
   max-width: 60rem;
-  margin: auto;
+  margin: 0 auto;
   padding: 24px 16px;
   line-height: 1.55;
   writing-mode: horizontal-tb;
@@ -540,7 +540,7 @@
 
 .react-settings-shared-library-screen main {
   max-width: 64rem;
-  margin: auto;
+  margin: 0 auto;
   padding: 24px 16px;
   writing-mode: horizontal-tb;
   line-height: 1.6;

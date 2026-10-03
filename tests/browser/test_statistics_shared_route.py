@@ -130,8 +130,30 @@ class SharedStatisticsBrowser(LibraryBase):
         expect(details).to_be_visible()
         self.page.keyboard.press('Escape')
         expect(day).to_be_focused()
+        # A previously opened book adds Resume reading to the toolbar. Keep
+        # that real navigation state when checking enlarged text and hit areas.
+        self.go_library()
+        self.import_book('Statistics resume geometry')
+        self.page.get_by_role('button', name='Read Statistics resume geometry', exact=True).click()
+        expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy', 'false')
+        self.page.goto(self.origin + '/reader-web/statistics')
+        expect(self.page.get_by_role('link', name='Resume reading', exact=True)).to_be_visible()
         self.page.set_viewport_size({'width': 320, 'height': 568})
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.page.wait_for_function('document.documentElement.scrollWidth - innerWidth <= 1')
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth - innerWidth'), 1)
+        for role, name in [('link', 'Resume reading'), ('button', 'Navigate')]:
+            control = self.page.get_by_role(role, name=name, exact=True)
+            control.scroll_into_view_if_needed()
+            expect(control).to_be_in_viewport()
+            bounds = control.bounding_box()
+            self.assertGreaterEqual(bounds['x'], -1)
+            self.assertLessEqual(bounds['x'] + bounds['width'], 321)
+            self.assertTrue(control.evaluate('''e => {
+              const r = e.getBoundingClientRect();
+              const hit = document.elementFromPoint(r.left + r.width/2, r.top + r.height/2);
+              return !!hit && (hit === e || e.contains(hit));
+            }'''))
         panel = self.options()
         expect(panel.get_by_role('heading', name='Statistics options', exact=True)).to_be_visible()
         close = panel.get_by_role('button', name='Close statistics options', exact=True)

@@ -37,6 +37,9 @@ defaults:
 jobs:
   regression:
     name: Retained regression, CI policy and default web
+    env:
+      # The retained full inventory includes actual video/transcript search.
+      EXPO_PUBLIC_ENABLE_VIDEO_LEARNING: ${{ github.event_name == 'workflow_dispatch' && inputs.qualification_scope == 'full' && 'true' || 'false' }}
     # Missing/private visibility fails closed; no runner is allocated.
     if: >-
       github.event.repository.visibility == 'public' &&
@@ -203,6 +206,8 @@ jobs:
           git diff --exit-code
   web:
     name: Full web export with colocated qualification
+    env:
+      EXPO_PUBLIC_ENABLE_VIDEO_LEARNING: ${{ github.event_name == 'workflow_dispatch' && inputs.qualification_scope == 'full' && 'true' || 'false' }}
     # Missing/private visibility fails closed; no runner is allocated.
     if: >-
       github.event.repository.visibility == 'public' &&

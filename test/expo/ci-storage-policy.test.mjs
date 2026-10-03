@@ -162,6 +162,14 @@ test('affected qualification is explicit and the complete final gate remains sel
   }
 });
 
+test('full web inventories enable video search while automatic affected exports keep the default', () => {
+  const flag =
+    "${{ github.event_name == 'workflow_dispatch' && inputs.qualification_scope == 'full' && 'true' || 'false' }}";
+  for (const job of [migration.jobs.regression, migration.jobs.web])
+    assert.equal(job.env.EXPO_PUBLIC_ENABLE_VIDEO_LEARNING, flag);
+  assert.equal(migration.jobs.android.env?.EXPO_PUBLIC_ENABLE_VIDEO_LEARNING, undefined);
+});
+
 test('executing jobs cannot upload artifacts, save remote caches or hide composite actions', () => {
   const allowed = new Set([
     'actions/checkout@v4',

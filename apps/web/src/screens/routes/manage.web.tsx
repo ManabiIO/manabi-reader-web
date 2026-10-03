@@ -4,12 +4,14 @@
  * All rights reserved.
  */
 
-import { useLocalSearchParams } from 'expo-router';
+import { useRoute } from 'expo-router';
 import { LibraryScreen } from '../../library-react';
 import { base } from '../../runtime/paths';
 
 export default function ManageRoute() {
-  const params = useLocalSearchParams();
+  // Expo query params are already decoded by URLSearchParams. The local
+  // search hook decodes them again, corrupting percent-bearing identities.
+  const params = useRoute().params ?? {};
   // Incoming and retained Expo screens own their parameters independently of
   // the browser history update, which can still describe the outgoing screen.
   const url = new URL(

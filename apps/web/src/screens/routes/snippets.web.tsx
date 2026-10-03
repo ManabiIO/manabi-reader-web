@@ -4,12 +4,14 @@
  * All rights reserved.
  */
 
-import { useLocalSearchParams } from 'expo-router';
+import { useRoute } from 'expo-router';
 import { SnippetsScreen } from '../../snippets-react';
 import { base } from '../../runtime/paths';
 
 export default function SnippetsRoute() {
-  const params = useLocalSearchParams();
+  // Expo query params are already decoded by URLSearchParams. The local
+  // search hook decodes them again, corrupting percent-bearing identities.
+  const params = useRoute().params ?? {};
   // Expo admits this screen before its history listener updates window.location.
   // Retained screens must also keep their own snippet/draft and return target.
   const url = new URL(

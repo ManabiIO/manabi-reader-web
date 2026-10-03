@@ -115,6 +115,12 @@ still separate, always-selected job steps. No scope changes runner classes,
 number of exports/jobs, artifacts, caches, assertions, failure aggregation or
 existing whole-job timeouts.
 
+Full-scope web exports enable the existing video-learning feature flag because
+retained unified-search cases exercise video titles and published transcripts.
+Automatic affected exports keep the default disabled flag. A disabled-feature
+export cannot qualify those video acceptance cases; matching Svelte failures
+with that flag disabled are configuration failures, not migration regressions.
+
 Full-scope gated-export coverage:
 
 - Both Chromium and WebKit: web reader lifetime; Books Library UI; Library parity,

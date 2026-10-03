@@ -882,7 +882,7 @@ export function createSession(
     }
   );
   __readerController.effect(
-    () => [bookCharCount],
+    () => [bookCharCount, exploredCharCount],
     () => {
       if (browser && bookCharCount) {
         document.dispatchEvent(new CustomEvent(PAGE_CHANGE, { detail: { exploredCharCount } }));
@@ -890,7 +890,7 @@ export function createSession(
     }
   );
   __readerController.effect(
-    () => [],
+    () => [bookCharCount],
     () => {
       if (browser) {
         document.dispatchEvent(new CustomEvent(PAGE_CHANGE, { detail: { bookCharCount } }));

@@ -81,6 +81,11 @@ export function StatisticsHeatmap({
     setActiveDate(undefined);
   }, [displayYear]);
   useEffect(() => {
+    if (!gridWidth || !data?.today.startsWith(String(displayYear))) return;
+    const today = navigationDays.find((day) => day.dateString === data.today);
+    if (today) calendar.current?.revealColumn(today.heatmapColumn, true);
+  }, [gridWidth, cellSize, data?.today, displayYear, navigationDays]);
+  useEffect(() => {
     if (!highlighted.size) return;
     const date = [...highlighted][0];
     const day = navigationDays.find((day) => day.dateString === date);

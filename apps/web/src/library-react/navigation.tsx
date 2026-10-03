@@ -196,6 +196,13 @@ export function AppNav({
           data-side={iconOnly ? 'left' : 'right'}
           className="app-navigation-sheet"
           showCloseButton={false}
+          onOpenAutoFocus={(event: { preventDefault(): void }) => {
+            event.preventDefault();
+            document
+              .getElementById(dialogId)
+              ?.querySelector<HTMLButtonElement>('.app-navigation-close')
+              ?.focus({ preventScroll: true });
+          }}
           onCloseAutoFocus={(event: { preventDefault(): void }) => {
             if (!trigger.current?.isConnected) return;
             event.preventDefault();

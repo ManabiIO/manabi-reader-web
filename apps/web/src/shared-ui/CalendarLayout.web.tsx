@@ -44,10 +44,17 @@ export const CalendarLayout = forwardRef<CalendarHandle, CalendarLayoutProps>(
           node.scrollBy({ left: (direction * node.clientWidth) / 2, behavior: 'smooth' });
           return false;
         },
-        revealColumn(column) {
+        revealColumn(column, center = false) {
           const node = grid.current;
           if (!node) return;
           const left = (column - 1) * (cellSize + 1);
+          if (center) {
+            node.scrollTo({
+              left: Math.max(0, left + cellSize / 2 - node.clientWidth / 2),
+              behavior: 'auto'
+            });
+            return;
+          }
           if (
             left < node.scrollLeft + 2 * (cellSize + 1) ||
             left + cellSize > node.scrollLeft + node.clientWidth

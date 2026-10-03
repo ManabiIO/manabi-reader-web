@@ -58,7 +58,7 @@ test('mounted Library routes own their series, shallow search and return navigat
               contents: `
                 import { createContext, useContext } from 'react';
                 export const RouteParams = createContext({});
-                export const useLocalSearchParams = () => useContext(RouteParams);
+                export const useRoute = () => ({ params: useContext(RouteParams) });
               `,
               loader: 'js'
             }));

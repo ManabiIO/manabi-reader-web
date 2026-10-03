@@ -4,12 +4,14 @@
  * All rights reserved.
  */
 
-import { useLocalSearchParams } from 'expo-router';
+import { useRoute } from 'expo-router';
 import { base } from '../../runtime/paths';
 import { QualifiedWebReader } from '../../reader-react/web-qualified-reader';
 
 export default function ReaderRoute() {
-  const params = useLocalSearchParams();
+  // Expo query params are already decoded by URLSearchParams. The local
+  // search hook decodes them again, corrupting percent-bearing identities.
+  const params = useRoute().params ?? {};
   // Route-local params are ready during the new screen's first render. The
   // browser address bar can still describe the outgoing screen at this point.
   const url = new URL(

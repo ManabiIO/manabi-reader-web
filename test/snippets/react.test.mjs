@@ -314,6 +314,34 @@ test('destination picker preserves loading/empty folder feedback and source-swit
   controller.controller.destroy();
 });
 
+test('the destination remember checkbox retains a deliberate click and passes it to the chosen folder', async () => {
+  fixture.memory.sources = [source('remember')];
+  let controller, chosen;
+  const ui = await mount(DestinationPicker, {
+    guard() {},
+    choose(destination, remember) {
+      chosen = { destination, remember };
+    },
+    bindings: {
+      this: (value) => {
+        controller = value;
+      }
+    }
+  });
+  await waitFor(
+    () => ui.host.querySelector('label.remember input'),
+    'remember-location checkbox mounts'
+  );
+  const checkbox = ui.host.querySelector('label.remember input');
+  assert.equal(checkbox.checked, false);
+  await click(checkbox);
+  assert.equal(checkbox.checked, true);
+  assert.equal(controller.remember, true);
+  await click(button('Use this folder'));
+  assert.equal(chosen.remember, true);
+  assert.equal(chosen.destination.source.id, 'remember');
+});
+
 test('folder creation keeps the modal write fence active through navigation and releases it on teardown', async () => {
   const a = source('first'),
     busy = [];

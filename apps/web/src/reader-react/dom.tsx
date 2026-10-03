@@ -59,6 +59,8 @@ import {
 import { buttonVariants } from '../snippets-react/button-styles';
 import { cn } from '$lib/utils';
 import { HtmlReadiness } from './html-readiness';
+import { focusModalStart } from '$lib/hooks/focus-modal-start';
+import { cycleModalTab } from '$lib/hooks/cycle-modal-tab';
 import { readerMenuPosition } from './menu-position';
 import type { ControlledReader } from './controller';
 
@@ -511,10 +513,7 @@ function ModalContent({
     if (ownedElement) activeModalElements.push(ownedElement);
     const event = new Event('openAutoFocus', { cancelable: true });
     live.current.onOpenAutoFocus?.(event);
-    if (!event.defaultPrevented)
-      node.current
-        ?.querySelector<HTMLElement>('input,button,textarea,select,[tabindex="0"]')
-        ?.focus({ preventScroll: true });
+    if (!event.defaultPrevented && ownedElement) focusModalStart(event, ownedElement);
     const key = (event: KeyboardEvent) => {
       if (activeModalElements.at(-1) !== ownedElement || document.querySelector('dialog[open]'))
         return;
@@ -524,22 +523,6 @@ function ModalContent({
         event.preventDefault();
         event.stopPropagation();
         if (!live.current.closeDisabled) live.current.modal.close();
-      }
-      if (event.key === 'Tab') {
-        const stops = Array.from(
-          node.current?.querySelectorAll<HTMLElement>(
-            'button:not([disabled]),a[href],input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex="0"]'
-          ) ?? []
-        ).filter((el) => el.getClientRects().length);
-        const first = stops[0],
-          last = stops.at(-1);
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last?.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first?.focus();
-        }
       }
     };
     document.addEventListener('keydown', key, true);
@@ -576,8 +559,20 @@ function ModalContent({
         aria-describedby={modal.descriptionId}
         data-slot={side === 'center' ? 'dialog-content' : 'sheet-content'}
         aria-modal="true"
+        data-modal-close-button={showCloseButton ? '' : undefined}
         tabIndex={-1}
         data-side={side}
+        onKeyDown={(event: React.KeyboardEvent<HTMLElement>) => {
+          props.onKeyDown?.(event);
+          if (!event.defaultPrevented) cycleModalTab(event.nativeEvent, event.currentTarget);
+        }}
+        onScroll={(event: React.UIEvent<HTMLElement>) => {
+          event.currentTarget.style.setProperty(
+            '--dialog-close-scroll-offset',
+            `${event.currentTarget.scrollTop}px`
+          );
+          props.onScroll?.(event);
+        }}
         className={`reader-modal reader-modal-${side} ${className}`}
         elementRef={(el: HTMLElement) => {
           node.current = el;
@@ -585,16 +580,17 @@ function ModalContent({
           live.current.bindings?.ref?.(el);
         }}
       >
+        {children}
         {showCloseButton && (
           <CloseButton
             disabled={closeDisabled}
-            className="absolute top-4 right-4"
+            className="absolute top-[16px] right-[16px]"
+            style={{ transform: 'translateY(var(--dialog-close-scroll-offset, 0px))' }}
             onClick={() => {
               if (!live.current.closeDisabled) modal.close();
             }}
           />
         )}
-        {children}
       </Dom>
     </div>,
     document.body
@@ -604,7 +600,12 @@ const div = ({ children, ...props }: ControlProps) => <Dom {...props}>{children}
 const ModalTitle = ({ children, className = '', ...props }: ControlProps) => {
   const modal = useContext(ModalContext);
   return (
-    <Dom as="h2" id={modal.titleId} {...props} className={`text-lg font-semibold ${className}`}>
+    <Dom
+      as="h2"
+      id={modal.titleId}
+      {...props}
+      className={cn('text-lg leading-snug font-semibold', className)}
+    >
       {children}
     </Dom>
   );
@@ -625,7 +626,13 @@ const ModalDescription = ({ children, className = '', ...props }: ControlProps) 
 export const Sheet = {
   Root: ModalRoot,
   Content: (props: ControlProps) => <ModalContent side="right" {...props} />,
-  Header: div,
+  Header: (props: ControlProps) => (
+    <Dom
+      {...props}
+      data-slot="sheet-header"
+      className={cn('flex flex-col gap-1.5', props.className)}
+    />
+  ),
   Title: (props: ControlProps) => <ModalTitle {...props} data-slot="sheet-title" />,
   Description: (props: ControlProps) => (
     <ModalDescription {...props} data-slot="sheet-description" />
@@ -635,6 +642,13 @@ export const Sheet = {
 export const Dialog = {
   ...Sheet,
   Content: ModalContent,
+  Header: (props: ControlProps) => (
+    <Dom
+      {...props}
+      data-slot="dialog-header"
+      className={cn('flex flex-col gap-1.5', props.className)}
+    />
+  ),
   Title: (props: ControlProps) => <ModalTitle {...props} data-slot="dialog-title" />,
   Description: (props: ControlProps) => (
     <ModalDescription {...props} data-slot="dialog-description" />
