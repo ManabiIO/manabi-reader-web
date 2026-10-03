@@ -785,6 +785,20 @@ Probe the exact media URL supplied by the publisher. For ordinary RSS this is th
 
 A tracking redirect can make a CORS fetch fail before JavaScript receives usable media, even when the final CDN would otherwise be readable. Do not treat a final CDN hostname as an app-facing API or synthesize a direct CDN URL from observed redirects.
 
+There are two redirect-specific reasons to test the exact chain in the real browsers rather than reasoning only from the final headers:
+
+1. Fetch performs a CORS check on a CORS-tainted network response before following the redirect. An intermediate 3xx can therefore fail the request before the final CDN matters.
+2. The Fetch standard's redirect-taint rules can serialize the request Origin as `null` after cross-origin redirects. With `credentials: 'omit'`, `Access-Control-Allow-Origin: *` remains robust to that taint. A provider that emits an explicit original Manabi origin instead of wildcard/appropriate redirected-origin handling may behave differently after a multi-origin chain.
+
+MDN also documents browser-specific CORS redirect failure cases and lingering redirect limitations around preflighted requests. Manabi intentionally keeps the media Range request non-preflighted, but Chromium, WebKit and packaged Android WebView still need an executable redirect matrix.
+
+References:
+
+- Fetch redirect/CORS algorithm: https://fetch.spec.whatwg.org/#http-redirect-fetch
+- Fetch redirect-tainted Origin: https://fetch.spec.whatwg.org/#concept-request-tainted-origin
+- MDN CORS redirects: https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS#preflighted_requests_and_redirects
+- MDN external-redirect error class: https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS/Errors/CORSExternalRedirectNotAllowed
+
 ### 4.3 Proposed ASR capability probe
 
 For a selected publisher-declared media source:
@@ -792,22 +806,30 @@ For a selected publisher-declared media source:
 1. Require HTTPS in production.
 2. Use `credentials: 'omit'`.
 3. Use the exact publisher-declared URL and `redirect: 'follow'`; never substitute an inferred CDN URL.
-4. Attempt GET with **one** bounded byte Range such as `bytes=0-0`.
-5. A single `Range` request is CORS-safelisted and should not itself require a preflight; the server still must opt into CORS for the response body.
-6. A CORS failure is a hard ASR failure.
-7. Require HTTP 206 for the v1 random-access MOSS path.
-8. Consume/cancel the tiny body and require exactly the requested bytes.
-9. Establish a safe total byte size.
-10. Verify at least one nonzero range.
-11. Repeat a small set of fixed ranges within the same qualification session and compare byte digests. The **qualification** repeat must force a fresh network validation rather than merely re-reading the browser HTTP cache; otherwise cache hits can falsely make a dynamic source look stable.
-12. If identical fresh requests produce different bytes without an explicit rendition/version transition, mark the source unstable for MOSS.
-13. Run the same source through Mediabunny metadata/audio-track discovery and bounded decode before allowing MOSS.
-14. Record request count/redirect count as part of qualification; excessive range fan-out is a publisher-analytics and performance concern, not merely an implementation detail.
-15. Record whether the document is cross-origin isolated and whether its COEP mode changes playback behavior.
+4. Attempt GET with **one contiguous** byte Range such as `bytes=0-0`.
+5. A single-byte-range `Range` header is CORS-safelisted and should not itself require a preflight; the server still must opt into CORS for the response body.
+6. Never combine disjoint reads into a multi-range header such as `bytes=0-99,1000-1099`. Multiple ranges are not CORS-safelisted, can trigger preflight behavior, and return multipart semantics the current ByteSource does not need.
+7. A CORS failure is a hard failure for that readable-byte path.
+8. Require HTTP 206 for the v1 random-access MOSS path.
+9. Consume/cancel the tiny body and require exactly the requested bytes.
+10. Establish a safe total byte size.
+11. Verify at least one nonzero range.
+12. Test **same-session coherence** with the same runtime-equivalent request/cache policy Manabi will use in production. Repeated fixed ranges used by one active RenditionSession must agree.
+13. Separately test **reopen stability** from a fresh browser context/network validation without changing the publisher URL. A changed later rendition does not invalidate MOSS_SESSION if the active session itself was coherent; it limits timed-caption reuse across sessions.
+14. For the explicit fresh-network qualification check, prefer a browser cache mode such as `reload` or an equivalent new context. Do not append cache-busting query parameters and do not use a different publisher URL, because that can change ad/session routing and no longer tests the real enclosure.
+15. If identical reads disagree **inside one active rendition session**, classify it UNSTABLE_SESSION and do not run MOSS.
+16. Run the same source through Mediabunny metadata/audio-track discovery and bounded decode before allowing MOSS.
+17. Record request count/redirect count and request `Origin` values where browser instrumentation exposes them; excessive range fan-out is a publisher-analytics and performance concern, not merely an implementation detail.
+18. Record whether the document is cross-origin isolated and whether its COEP mode changes playback behavior.
 
 Do not use HEAD as the sole authority. Some media origins implement GET/Range and HEAD differently.
 
 Do not require a custom request header for qualification. Keeping the request in the simple-CORS path materially increases compatibility.
+
+Do not switch to `credentials: 'include'` merely to obtain sticky dynamic ads. Wildcard ACAO cannot authorize credentialed CORS reads, third-party cookie behavior is increasingly restricted, and cross-device/session semantics would become browser-policy dependent. If one provider requires cookies/authentication to keep separate Range reads coherent, mark that path unsupported for the proxyless v1 rather than weakening the request model.
+
+MDN confirms that `Range` is CORS-safelisted only for a single byte range:
+https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Range
 
 ### 4.4 Establishing exact source size
 
@@ -988,7 +1010,19 @@ Remote reads should:
 - fence all results by source lifetime/generation
 - detect observable source-version changes
 
-Qualification may deliberately bypass/revalidate cache to test source stability. Production reading and qualification stability testing are different policies and should not share one opaque `fetch` helper without an explicit mode.
+Qualification may deliberately revalidate cache to test **reopen** stability. Production reading and same-session coherence testing should use runtime-equivalent/default cache behavior.
+
+Production reading and qualification stability testing are different policies and should not share one opaque `fetch` helper without an explicit mode.
+
+Suggested distinction:
+
+~~~ts
+type RemoteReadMode =
+  | 'runtime'            // normal browser cache semantics
+  | 'qualify-reopen'     // fresh/revalidated evidence, same publisher URL
+~~~
+
+Do not use `cache: 'no-store'` for every production chunk. That defeats useful HTTP caching and can cause a dynamic-ad host to mint more renditions/measurements than a normal podcast player would.
 
 ### 5.3 playback()
 
