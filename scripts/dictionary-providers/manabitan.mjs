@@ -22,6 +22,7 @@ export async function createManabitanDictionaryProvider(root) {
     id: 'manabitan',
     revision: version.revision,
     requiredDistributionFiles: ['LICENSE', 'corresponding-source.tar.gz', 'SOURCE.txt'],
+    obsoletePublicPaths: ['manabitan'],
 
     async build({ destination, cache }) {
       await fs.mkdir(cache, { recursive: true });
