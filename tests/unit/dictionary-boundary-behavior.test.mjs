@@ -8,10 +8,8 @@ import {
   preferredDictionaryExtensionPresent,
   preferredDictionaryReaderBridgeReady
 } from '../../apps/web/src/lib/integrations/external-dictionary-interop.ts';
-import {
-  isPackagedFont,
-  isShellAsset
-} from '../../apps/web/src/lib/service-worker/reader-service-worker.mjs';
+import { isShellAsset } from '../../apps/web/src/lib/service-worker/reader-service-worker.mjs';
+import { externalRuntimeAssets } from '../../apps/web/src/lib/service-worker/optional-static-assets.mjs';
 
 test('legacy external-dictionary choice migrates behind the neutral setup contract', () => {
   assert.equal(normalizeDictionarySetupChoice('manabitan'), 'preferred');
@@ -48,15 +46,27 @@ test('default-install interop marker is isolated to provider-specific forwarded 
   });
 });
 
-test('generated dictionary runtime never becomes mandatory shell or packaged-font cache state', () => {
+test('external runtime discovery is provider-name agnostic and complete', () => {
+  const runtime = [
+    'arbitrary-provider/revision/manifest.json',
+    'arbitrary-provider/revision/SOURCE.txt',
+    'arbitrary-provider/revision/corresponding-source.tar.gz',
+    'arbitrary-provider/revision/web/client.js',
+    'arbitrary-provider/revision/css/structured-content.css',
+    'arbitrary-provider/revision/data/font.ttf'
+  ];
+  assert.deepEqual(externalRuntimeAssets([...runtime, 'unrelated/app.js']), runtime);
+  assert.deepEqual(
+    externalRuntimeAssets([
+      'incomplete/revision/manifest.json',
+      'incomplete/revision/SOURCE.txt',
+      'unrelated/app.js'
+    ]),
+    []
+  );
+});
+
+test('dictionary archives remain outside the mandatory shell independently of provider name', () => {
   const root = 'https://reader.example/reader-web/';
-  for (const path of [
-    'dictionary-runtime/revision/web/client.js',
-    'dictionary-runtime/revision/css/structured-content.css',
-    'dictionary-runtime/revision/data/font.ttf',
-    'dictionary-archives/default.zip'
-  ]) {
-    assert.equal(isShellAsset(new URL(path, root)), false, path);
-  }
-  assert.equal(isPackagedFont(new URL('dictionary-runtime/revision/data/font.ttf', root)), false);
+  assert.equal(isShellAsset(new URL('dictionary-archives/default.zip', root)), false);
 });
