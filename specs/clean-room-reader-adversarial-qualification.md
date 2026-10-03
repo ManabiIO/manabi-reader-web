@@ -3,6 +3,7 @@
 Status: sanitized implementation input
 Revision: 2026-10-02 deep pass
 External source provenance: intentionally absent
+Authorization: **qualification work in this document is dormant unless the relevant feature/suite is explicitly approved in `../CLEAN_ROOM_APPROVALS.md`.**
 
 This document supplements `clean-room-reader-competitive-spec.md`. It turns broad behavior requirements into adversarial, metamorphic, cross-engine, state-transition, and scale tests. It does not prescribe implementation.
 
@@ -747,9 +748,11 @@ Do not place external competitor source/provenance in this record.
 
 ## 12. Release gate
 
-A release candidate should not claim the clean-room program is complete merely because the new tests exist.
+This gate applies only to a feature/suite that has explicit approval at the required work level. It does not authorize testing, implementation, integration, or release work by itself.
 
-For each currently shipped feature area, completion requires:
+A release candidate should not claim an approved clean-room scope is complete merely because tests exist.
+
+For each approved shipped feature area, completion requires:
 - relevant deterministic acceptance tests pass;
 - applicable cross-engine matrix passes;
 - soak tests have no unbounded lifecycle defect;
@@ -758,3 +761,17 @@ For each currently shipped feature area, completion requires:
 - sync/provider destructive cases have a documented policy;
 - fixture provenance is project-owned;
 - implementation review confirms no prohibited external implementation material entered the worker context.
+
+
+## 13. Stop conditions
+
+A worker must stop target-side execution for a CR area when:
+
+- no active approval names that feature/suite;
+- the approval is tests-only and a production failure is discovered;
+- resolving the failure would require an adjacent unapproved feature;
+- the worker would need external competitor research to clarify behavior;
+- device qualification is required but unavailable;
+- the approved scope has been completed.
+
+The worker should report the finding and the CR IDs that would require a new approval. It must not “finish nearby work while here.”
