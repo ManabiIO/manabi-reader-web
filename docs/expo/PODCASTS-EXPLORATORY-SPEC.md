@@ -319,6 +319,11 @@ Useful external starting points:
 - RedCircle show example: https://redcircle.com/shows/japanese-with-shun
 - Donguri FM distribution note: https://donguri.fm/n/nfe10f5b247fc
 - Podcast Standards Project CORS discussion: https://github.com/Podcast-Standards-Project/PSP-1-Podcast-RSS-Specification/discussions/7
+- Podcast Standards Project RSS specification: https://github.com/Podcast-Standards-Project/PSP-1-Podcast-RSS-Specification
+- Podcasting 2.0 transcript tag: https://podcasting2.org/docs/podcast-namespace/tags/transcript
+- Podcasting 2.0 transcript format details: https://podcasting2.org/docs/podcast-namespace/examples/transcripts/transcripts
+- MDN Range/CORS behavior: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Range
+- MDN exposed CORS response headers: https://developer.mozilla.org/en-US/docs/Glossary/CORS-safelisted_response_header
 - Podcast Standards certification list: https://github.com/Podcast-Standards-Project/Certification
 
 The next worker should refresh this matrix with actual browser probes. Search results, old curl captures, and provider statements are research leads, not release evidence.
@@ -510,6 +515,8 @@ Do not create a Manabi media copy.
 
 For web, an audio element is the natural playback primitive. The MOSS ByteSource and playback element may use separate requests, so remote-rendition stability must be considered; see the identity section below.
 
+Readable playback-element bytes are not required because ASR uses the separate ByteSource path. If the web transport uses `<audio>` or Expo Audio, do not set `crossOrigin="anonymous"` / `crossOrigin: 'anonymous'` merely for MOSS. Forcing CORS on the playback element can make otherwise playable publisher audio fail. Set it only if the playback implementation itself needs CORS-readable media.
+
 ### 5.4 Do not leak Manabi authority
 
 Third-party media requests should not send:
@@ -671,7 +678,9 @@ This avoids introducing an audio proxy or account backend merely to discover epi
 
 For this project, prefer a **static generated catalog** over runtime arbitrary-feed fetching unless a concrete reason favors client RSS.
 
-A build/CI step can fetch a reviewed list of public feeds, validate them, and emit inert JSON into the static app. That avoids runtime feed-CORS dependence while preserving the core no-backend/no-audio-proxy architecture: users still fetch audio directly from publishers.
+Use a separate catalog-refresh command/job to fetch a reviewed list of public feeds, validate them, and produce bounded inert JSON. Check in or otherwise pin that generated manifest before an application build. The normal production build should consume the validated manifest without depending on live podcast hosts or network availability.
+
+That avoids runtime feed-CORS dependence while preserving the core no-backend/no-audio-proxy architecture: users still fetch audio directly from publishers.
 
 The next worker should choose and document one:
 
@@ -693,7 +702,9 @@ C. Client-side feed fetch.
 
 A + B is the stronger default for the curated Japanese MVP: keep a reviewed source list in-repo and generate bounded episode metadata during a controlled build/update step. Optional direct client refresh can be added only for feeds whose CORS behavior is qualified.
 
-Do not make production app startup depend on GitHub Actions or a live feed update succeeding. Ship the last validated manifest.
+Do not make production app startup **or production build determinism** depend on GitHub Actions or a live feed update succeeding. Ship the last validated manifest.
+
+The generated catalog may retain publisher metadata and URLs needed for discovery. It should not copy/bundle episode audio or full publisher transcript bodies into Manabi merely to avoid runtime CORS.
 
 ### 7.3 RSS parsing
 
@@ -987,9 +998,7 @@ For ordinary podcast enclosures with exactly one decodable, non-commentary audio
 
 If multiple plausible audio tracks exist, retain the existing explicit-choice principle rather than guessing.
 
-Still preserve the current principle that metadata is not magical speech detection. A bad feed language tag must not silently force an incompatible behavior.
-
-The first UI can simplify the video multi-audio-track selector because most podcast enclosures have one audio track, but MediaPipeline should still verify and select a decodable track rather than assuming track ID 0.
+Still preserve the current principle that metadata is not magical speech detection. A bad feed language tag must not silently force an incompatible behavior. MediaPipeline must still verify the chosen track rather than assuming track ID 0.
 
 ### 11.3 Sparse-first behavior
 
@@ -1099,6 +1108,7 @@ No product UI yet.
 Build a small qualification harness for real enclosure URLs:
 
 - exact publisher RSS enclosure URL
+- actual target environment/origin: production web origin and packaged Android DOM/WebView origin
 - browser CORS GET
 - redirect behavior
 - Range 0-0
@@ -1320,7 +1330,8 @@ For each provider, record:
 - fixed-range digest stability
 - number of HTTP requests/redirects required for probe, metadata, bounded decode and verification
 - whether repeated ranges appear to trigger materially different ad/personalized renditions
-- official `podcast:transcript` availability/CORS
+- official `podcast:transcript` availability/CORS and whether it is timed enough for study
+- whether playback requires no CORS while ASR succeeds through the separate fetch path
 - any relevant provider terms reviewed
 
 Do not turn one passing show into an eternal hostname allowlist.
