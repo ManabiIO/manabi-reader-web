@@ -680,13 +680,18 @@ For each exact catalog media URL, from the production Manabi web origin and pack
 ~~~ts
 interface PodcastMediaQualification {
   playback: 'works' | 'fails' | 'unknown'
+  playbackRequestMode: 'no-cors' | 'anonymous-cors' | 'unknown'
   corsBody: 'readable' | 'blocked' | 'unknown'
   range: 'single-range-206' | 'unsupported' | 'unknown'
   exactSize: 'proved' | 'unknown'
 
-  // Can separate Range reads used during one active listening/ASR session be
-  // trusted as one coherent byte/timeline rendition?
-  sessionStability: 'stable' | 'unstable' | 'unknown'
+  // Can separate Range reads used by ASR during one active session be trusted
+  // as one coherent byte/timeline rendition?
+  asrSessionStability: 'stable' | 'unstable' | 'unknown'
+
+  // Does the playback transport receive the same effective timeline that the
+  // ByteSource/MOSS path is transcribing?
+  playbackAsrCoherence: 'proved' | 'mismatch' | 'unknown'
 
   // After a fresh network/context later, does the same publisher URL still map
   // to evidence compatible with saved timed captions?
@@ -703,7 +708,8 @@ PLAYBACK_ONLY
 
 MOSS_SESSION
   CORS body + Range + exact size pass
-  same-session rendition is stable
+  ASR Range reads are stable within the session
+  playback/ASR timeline coherence is proved
   timed local captions are valid for the active RenditionSession
 
 MOSS_REOPEN
@@ -718,13 +724,19 @@ MOSS_SESSION_ONLY
   automatically drive the new audio
 
 UNSTABLE_SESSION
-  separate reads during one active rendition disagree
-  do not run MOSS against that source
+  ASR reads disagree during one active rendition, or playback and ASR receive
+  incompatible timelines
+  do not present timed MOSS captions against that playback session
 ~~~
 
 This distinction is particularly important for RedCircle/Spotify dynamic ads. A host that deliberately changes ads between listeners or later sessions is **not automatically unusable for local MOSS** if it gives one coherent rendition during the active session.
 
-The hard failure is instability **inside** the rendition session.
+However, "all fetch ranges agree" is not enough. A host may key dynamic delivery on request metadata such as user agent, IP, fetch destination, media-element request mode or other application signals. The browser playback request and the MOSS fetch request can therefore receive different ad/timeline variants.
+
+The hard failure is either:
+
+- instability among ASR reads inside one session, or
+- a playback/ASR timeline mismatch inside that session.
 
 On reopen, revalidate bounded byte/PCM evidence before restoring timed behavior. If it differs, demote the prior transcript to text-only/history rather than silently seeking against the new timeline.
 
@@ -1030,11 +1042,13 @@ Playback should use the selected publisher-declared media URL (normally the stan
 
 Do not create a Manabi media copy.
 
-For web, an audio element is the natural playback primitive. The MOSS ByteSource and playback element may use separate requests, so remote-rendition stability must be considered; see the identity section below.
+For web, an audio element is the natural playback primitive. The MOSS ByteSource and playback element use separate network requests, so remote-rendition stability must include **playback/ASR timeline coherence**; see the identity section below.
 
-Readable playback-element bytes are not required because ASR uses the separate ByteSource path. In an ordinary non-COEP document, do not set `crossOrigin="anonymous"` / `crossOrigin: 'anonymous'` merely for MOSS: forcing CORS can make otherwise playable publisher audio fail.
+Readable playback-element bytes are not required by the production ASR path. In an ordinary non-COEP document, do not globally set `crossOrigin="anonymous"` / `crossOrigin: 'anonymous'` for every podcast: forcing CORS can make otherwise playable publisher audio fail.
 
-This is conditional, not absolute. If the deployed document uses `COEP: require-corp`, a MOSS-capable source may need anonymous CORS on the playback transport too. The playback port should choose/qualify request mode from the actual deployment policy rather than hardcoding one global setting.
+For an episode already qualified as MOSS-capable, anonymous-CORS playback is worth testing and may be preferable because it brings playback closer to the credentialless CORS request model used by ASR and also works with `COEP: require-corp` when the host permits it. This is a per-qualified-source playback capability, not a global setting.
+
+If anonymous-CORS playback fails but ordinary no-CORS playback works while JS Range fetches also work, that source needs a stronger playback/ASR coherence test before timed MOSS is enabled.
 
 ### 5.4 Do not leak Manabi authority
 
@@ -1192,8 +1206,10 @@ This creates three different risks:
 Minimum safe behavior:
 
 - during one active local-caption session, capture observable validator/final-URL/size signals and fixed-range fingerprints
+- record the qualified playback request mode and decoded/playback duration
 - before accepting a newly decoded window, ensure its source evidence still belongs to the active RenditionSession
-- if same-session evidence contradicts, abort/park MOSS immediately; do not merge hypotheses from two renditions
+- where dynamic delivery is possible, qualify playback/ASR timeline coherence rather than assuming the audio element and fetch receive the same inserted audio
+- if same-session ASR evidence contradicts or playback/ASR coherence fails, abort/park timed MOSS immediately; do not merge hypotheses from two renditions
 - preserve already accepted local text/audio proofs under the old rendition evidence
 - on reopen, verify a bounded set of byte and/or decoded-PCM proofs before reactivating old timed cues
 - if reopen proof differs, keep useful transcript text/history but disable old automatic seek/follow timing for the new rendition
