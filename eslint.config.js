@@ -17,8 +17,10 @@ module.exports = (async () => {
     {
       ignores: [
         '**/.cache/**',
-        'apps/web/static/manabitan/**',
+        'apps/web/static/dictionary-runtime/**',
         'apps/web/static/dictionary-archives/**',
+        // Legacy generated path from pre-boundary builds.
+        'apps/web/static/manabitan/**',
         'apps/web/static/moss/**',
         '**/build/*',
         '**/test-results/**',
