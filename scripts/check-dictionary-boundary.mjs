@@ -113,6 +113,15 @@ for (const file of buildProviderSpecific) {
   if (!tracked.includes(file))
     throw new Error(`Missing provider-owned dictionary build module: ${file}`);
 }
+
+for (const file of [
+  'AGENTS.md',
+  'CONTRIBUTING.md',
+  '.github/pull_request_template.md',
+  '.github/workflows/contribution-license.yml'
+]) {
+  if (!tracked.includes(file)) throw new Error(`Missing dictionary provenance policy file: ${file}`);
+}
 if (gplSources.length) {
   throw new Error(
     `GPL-licensed source must not be committed as tracked Reader code:\n${gplSources.join('\n')}`
