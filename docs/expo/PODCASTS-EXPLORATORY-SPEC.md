@@ -1567,7 +1567,74 @@ The generated catalog may retain publisher metadata and URLs needed for discover
 
 Version the manifest schema independently of the application bundle. Reject an unsupported or partially downloaded manifest instead of half-applying it.
 
-### 7.2.2 Rolling feeds, corrections and local episode retention
+### 7.2.2 Static manifest publication contract
+
+The refreshable episode manifest is app-owned metadata, so make its delivery simpler and more deterministic than third-party podcast media.
+
+Recommended static publication shape:
+
+~~~text
+/podcasts/catalog/latest.json
+  small mutable pointer
+  -> schema
+  -> revision
+  -> generatedAt
+  -> manifestUrl
+  -> manifestSha256
+  -> manifestBytes
+
+/podcasts/catalog/<revision>.json
+  immutable normalized episode manifest
+  long-cacheable
+~~~
+
+Reader update flow:
+
+1. fetch `latest.json` with `cache: 'no-cache'`
+2. validate strict schema/size/revision fields before following its manifest URL
+3. require the manifest URL to stay on the configured Manabi catalog origin/path prefix
+4. fetch the immutable manifest with a hard decoded-byte cap
+5. verify exact byte length and SHA-256 from the pointer
+6. parse/validate the entire normalized structure into a fresh in-memory snapshot
+7. commit pointer metadata + manifest atomically to local storage
+8. only then notify Library/search
+9. on any failure, keep the prior last-known-good revision intact
+
+This protects against partial CDN/cache mixups and makes update commits deterministic. It is not a substitute for HTTPS/origin security: if the Manabi publication origin itself is compromised, a hash served by the same compromised origin is not an independent signature.
+
+Do not add public-key signing unless there is a concrete threat/deployment need. A signature adds key-rotation/recovery ownership that the current static catalog does not otherwise require.
+
+Catalog delivery CORS should be intentionally boring:
+
+~~~text
+Access-Control-Allow-Origin: *
+GET only
+no credentials
+immutable revision files
+~~~
+
+Wildcard ACAO lets both deployed web and the packaged Android `https://appassets.androidplatform.net` origin read the same static metadata without origin-specific configuration.
+
+The mutable pointer should use revalidation/no-cache semantics. Immutable revision files can use content-addressed/long-lived caching.
+
+Manifest validation must cap:
+
+- total decoded bytes
+- shows
+- episodes per manifest and per show
+- media candidates per episode
+- transcript resources per episode
+- every text/URL field
+- nested object depth
+- duplicate ShowKey/EpisodeKey/resource IDs
+
+A newer fetched revision may legitimately omit rolling-feed episodes; local user-owned episode snapshots remain governed by the retention rules below.
+
+Do not silently roll local state backward merely because a CDN serves an older pointer. Keep the highest successfully committed revision/generation marker seen for the configured catalog channel unless an explicit catalog reset/migration says rollback is intentional.
+
+The exact revision format can be a monotonic generation plus content digest; do not use wall-clock timestamps alone as ordering authority.
+
+### 7.2.3 Rolling feeds, corrections and local episode retention
 
 Do not equate "not present in the newest feed snapshot" with "delete the episode."
 
@@ -1609,7 +1676,7 @@ Feed refresh must not garbage-collect local transcript/resume authority merely b
 
 A local snapshot's last enclosure URL is a **locator fallback**, not guaranteed current authority. Prefer the current manifest/feed candidate when available; if only the old locator remains, any new playback/MOSS session still goes through normal admission.
 
-### 7.2.3 Feed redirects and ShowKey continuity
+### 7.2.4 Feed redirects and ShowKey continuity
 
 Follow ordinary HTTP redirects while refreshing reviewed feed URLs, but do not let a redirect silently hijack a curated ShowKey.
 
@@ -2537,6 +2604,12 @@ Cover:
 - slow/truncated body cancellation
 - conditional 304 retains previous validated feed snapshot
 - transient 5xx/timeout keeps last-known-good manifest
+- mutable catalog pointer with malformed revision/hash/size rejected
+- manifest URL escaping configured Manabi catalog origin/path rejected
+- immutable manifest byte length/hash mismatch rejected before parse/commit
+- valid newer manifest atomically replaces local catalog and emits one invalidation
+- interrupted/invalid newer manifest leaves prior revision untouched
+- stale lower catalog generation does not silently roll back committed state
 - directory-discovered candidate does not become an implicitly trusted fetch target
 - feed XML referencing localhost artwork/transcript/enclosure does not cause the refresh parser to fetch that resource
 - conflicting `podcast:guid` after feed redirect blocks automatic ShowKey migration
@@ -2739,13 +2812,15 @@ Do not turn one passing show into an eternal hostname allowlist.
 - The scheduled catalog refresher is itself an SSRF surface even with a curated seed: every DNS result and redirect hop must remain public-network-only, and decoded response bytes must be bounded before parsing.
 - Directory-discovered feed URLs are untrusted candidates. Never let Podcast Index/Apple/etc. automatically expand the server-side fetch allowlist without the same URL/DNS/redirect policy and ShowKey review.
 - Do not fetch feed-referenced artwork/transcript/media during the normalization pass merely to validate markup. Resource qualification is a separately owned operation with its own limits.
+- The Android appassets origin must never need credentials/cookies to read the Manabi static catalog; catalog metadata uses explicit public GET CORS, independent of podcast-provider CORS.
+- Validate manifest URLs against one configured Manabi catalog origin/path before fetching; a compromised pointer must not turn the client into an arbitrary URL fetcher.
 
 ## 17. Offline behavior
 
 Initial expectation:
 
 - the small curated show seed may be bundled with the application
-- the last fully validated episode manifest is persisted as local data after a successful static-manifest fetch
+- the last fully validated, hash-checked episode manifest revision is atomically persisted as local data after a successful static-manifest fetch
 - saved transcript text remains readable/searchable
 - logical `EpisodeKey` resume remains local
 - remote episode audio is unavailable offline unless the user agent/platform independently retained usable network cache
