@@ -4,11 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { selectedDictionaryProvider } from './dictionary-provider-selection.mjs';
-import {
-  ensureGeneratedDirectory,
-  pruneGeneratedDirectory,
-  safeRelativePath
-} from './dictionary-generated-paths.mjs';
+import { pruneGeneratedDirectory, safeRelativePath } from './dictionary-generated-paths.mjs';
 
 const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const provider = await selectedDictionaryProvider(root);
