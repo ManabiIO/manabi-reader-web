@@ -35,7 +35,7 @@ This is evidence about the repository paths and patches reviewed here. It does n
 
 The current external provider pin is Manabitan revision `4db879b7b5bcb749f90042a313669526ef2f57f4`.
 
-Manabitan is GPL-3.0-or-later and derives from Yomitan/Yomichan. Its implementation remains in the separate Manabitan repository. Reader's build checks out that exact revision into an ignored independent repository, invokes Manabitan's own build, and publishes only the generated runtime plus the provider-declared distribution files under the ignored `apps/web/static/dictionary-runtime/` path.
+Manabitan is GPL-3.0-or-later and derives from Yomitan/Yomichan. Its implementation remains in the separate Manabitan repository. Reader's build checks out that exact revision into an ignored independent repository, invokes Manabitan's own build, and publishes only the generated runtime plus the provider-declared distribution files under the ignored `apps/web/static/manabitan/` provider directory.
 
 ## Future replacement rule
 
