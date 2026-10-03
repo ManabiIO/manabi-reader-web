@@ -119,7 +119,7 @@ const { outputFiles } = await build({
         builder.onLoad({ filter: /.*/, namespace: 'settings-route' }, () => ({
           contents: `
       export const useLocalSearchParams = () => window.routeParams ?? {};
-      export const useRoute = () => ({ key: window.routeKey ?? 'settings-visit-1' });
+      export const useRoute = () => ({ key: window.routeKey ?? 'settings-visit-1', params: window.routeParams ?? {} });
     `,
           loader: 'js'
         }));

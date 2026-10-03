@@ -1586,7 +1586,6 @@
   }
 }
 
-
 .react-reader-scrubber {
   .reader-scrubber-sheet {
     display: grid;
@@ -1595,8 +1594,8 @@
     margin-inline: auto;
     max-width: 48rem;
     max-height: calc(100dvh - max(16px, env(safe-area-inset-top)));
-    padding: 16px;
-    padding-bottom: max(16px, env(safe-area-inset-bottom));
+    padding: 20px;
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
     overflow: hidden;
     border-radius: 24px 24px 0 0;
     writing-mode: horizontal-tb;

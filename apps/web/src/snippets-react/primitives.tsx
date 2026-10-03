@@ -153,10 +153,17 @@ export function Dom({
     props.value ??= '';
     props.onChange ??= () => {};
   }
-  if (bindings.checked) {
-    chain('change', (event) => bindings.checked(event.currentTarget.checked));
-    props.checked ??= false;
-    props.onChange ??= () => {};
+  if (bindings.checked) props.checked ??= false;
+  if (as === 'input' && props.checked !== undefined) {
+    // React restores controlled checkbox state during click, before the native
+    // change event. Update its owner in React's change handler so native change
+    // cannot read the restored old value and undo the user's choice.
+    const change = handlers.change;
+    delete handlers.change;
+    props.onChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+      bindings.checked?.(event.currentTarget.checked);
+      change?.(event);
+    };
   }
   if (props.value !== undefined || props.checked !== undefined) props.onChange ??= () => {};
   const ref = (node: HTMLElement | null) => {

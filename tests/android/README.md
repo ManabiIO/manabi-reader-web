@@ -132,3 +132,20 @@ offline gates remain separate before Android runtime readiness is declared.
 - [Local WebView content and HTTPS asset loading](https://developer.android.com/develop/ui/views/layout/webapps/load-local-content)
 
 - [GitHub-supported Android virtualization and its explicit host permission setup](https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/)
+
+### Native Settings font-manager journey
+
+Both process phases also traverse the actual RN/Compose accessibility hierarchy:
+Library → Settings → Fonts & text → primary font manager → Library. The test
+requires the real cache-read empty state from the DOM owner. It selects no font
+file and changes no built-in preference. Evidence must include
+`settings-typography-font-cache-read-and-close`; importing a component or merely
+finding a bridge shim is insufficient. This read-only UI journey complements
+the original synthetic storage/origin probes. It is not proof of the Android
+system file picker, physical-device typography, TalkBack or IME parity.
+
+The storage probe also copies one actual packaged font into its random, test-owned
+CacheStorage namespace, loads it through a Blob URL using the WebView FontFace API,
+and repeats that load after reload and process restart. It removes only its own
+cache at cleanup. This qualifies cached-font loading in the host, not a document
+picker import, visual font comparison, or modifications to the user's font catalog.

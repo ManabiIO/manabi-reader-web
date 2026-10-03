@@ -248,7 +248,13 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
         </Text>
       )}
       {!data?.rows.length ? (
-        <Text role="status" style={[styles.empty, { color: colors.foreground }]}>
+        <Text
+          role="status"
+          style={[
+            data?.allTitles?.length ? styles.emptyRange : styles.empty,
+            { color: colors.foreground }
+          ]}
+        >
           No Data found for {data?.dateRangeLabel ?? rangeLabel(q)}
         </Text>
       ) : (
@@ -411,5 +417,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center'
   },
+  emptyRange: { fontSize: 16, lineHeight: 24, padding: 8 },
   empty: { fontSize: 36, lineHeight: 40, textAlign: 'center', padding: 24 }
 });

@@ -82,6 +82,8 @@ function harness({ workerReply = 'not_open', secure = true } = {}) {
     assets: [entry('web/worker.js', workerBytes), entry('lib/sqlite/sqlite3.wasm', wasmBytes)]
   };
   const calls = [];
+  const fontCaches = new Map([['unrelated-user-fonts', new Map()]]);
+  const fontFaces = new Set();
   const window = {};
   Object.defineProperty(window, 'ReactNativeWebView', {
     value: { postMessage() {} },
@@ -90,6 +92,37 @@ function harness({ workerReply = 'not_open', secure = true } = {}) {
   });
   const context = vm.createContext({
     window,
+    document: {
+      getElementById: () => ({ textContent: '@font-face{src:url("./assets/fixture.woff2")}' }),
+      fonts: fontFaces
+    },
+    FontFace: class {
+      constructor(family, source) {
+        assert.match(source, /^url\("blob:/);
+        this.status = 'unloaded';
+      }
+      async load() {
+        this.status = 'loaded';
+        return this;
+      }
+    },
+    caches: {
+      async open(key) {
+        if (!fontCaches.has(key)) fontCaches.set(key, new Map());
+        const cache = fontCaches.get(key);
+        return {
+          async put(key, value) {
+            cache.set(key, value.clone());
+          },
+          async match(key) {
+            return cache.get(key)?.clone();
+          }
+        };
+      },
+      async delete(key) {
+        return fontCaches.delete(key);
+      }
+    },
     indexedDB: new IDBFactory(),
     DOMException,
     navigator: {
@@ -135,6 +168,8 @@ function harness({ workerReply = 'not_open', secure = true } = {}) {
     },
     async fetch(url) {
       calls.push(String(url));
+      if (String(url).endsWith('/assets/fixture.woff2'))
+        return new Response('synthetic harness font bytes');
       if (String(url).endsWith('/manifest.json')) return Response.json(manifest);
       if (String(url).endsWith('/web/worker.js'))
         return new Response(workerBytes, { headers: { 'content-type': 'text/javascript' } });
@@ -147,6 +182,8 @@ function harness({ workerReply = 'not_open', secure = true } = {}) {
     invoke: (operation) =>
       vm.runInContext(source, context)({ id, dictionaryRevision: revision, operation }),
     directories,
+    fontCaches,
+    fontFaces,
     calls
   };
 }
@@ -199,8 +236,13 @@ test('probe really writes/reads its synthetic namespace and cleans only that nam
   assert.ok(fixture.directories.has(name));
   const verify = await fixture.invoke('verify');
   assert.equal(verify.opfs, 'read-committed-sentinel');
+  assert.equal(seed.cachedFont, 'cached-packaged-face-loaded-via-blob');
+  assert.equal(verify.cachedFont, seed.cachedFont);
+  assert.equal(fixture.fontFaces.size, 0);
   assert.equal((await fixture.invoke('cleanup')).cleaned, name);
   assert.equal(fixture.directories.has(name), false);
+  assert.equal(fixture.fontCaches.has(name), false);
+  assert.ok(fixture.fontCaches.has('unrelated-user-fonts'));
   assert.equal(fixture.directories.get('unrelated-user-data').get('keep'), 'untouched');
   await assert.rejects(fixture.invoke('verify'));
 });
@@ -238,6 +280,7 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     target: 'io.manabi.reader',
     targetDebuggable: false,
     nativeRoundTrip: 'snapshot-route-and-library-state-reply',
+    nativeFontManager: 'settings-typography-font-cache-read-and-close',
     entry: 'https://appassets.androidplatform.net/www.bundle/' + 'a'.repeat(32) + '.html',
     nativeSettings: { webViewVersion: 'fixture-version', fileOriginBypass: false }
   };
@@ -246,17 +289,26 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     phase: 'seed',
     initial: {
       secureContext: true,
+      cachedFont: 'cached-packaged-face-loaded-via-blob',
       moduleWorker: 'real-packaged-worker-replied-not_open-without-storage-open',
       wasm: 'real-packaged-sqlite-streaming-compile-only',
       webLocks: 'exclusive-contention-and-reacquisition'
     },
-    afterReload: { indexedDB: 'read-committed-sentinel', opfs: 'read-committed-sentinel' },
+    afterReload: {
+      indexedDB: 'read-committed-sentinel',
+      opfs: 'read-committed-sentinel',
+      cachedFont: 'cached-packaged-face-loaded-via-blob'
+    },
     navigation: Array.from({ length: 9 }, () => ({ rootRetained: true }))
   };
   const verify = {
     ...base,
     phase: 'verify',
-    afterProcessRestart: { indexedDB: 'read-committed-sentinel', opfs: 'read-committed-sentinel' },
+    afterProcessRestart: {
+      indexedDB: 'read-committed-sentinel',
+      opfs: 'read-committed-sentinel',
+      cachedFont: 'cached-packaged-face-loaded-via-blob'
+    },
     cleanup: { cleaned: name }
   };
   for (const evidence of [seed, verify]) {
@@ -267,6 +319,18 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     assert.throws(() =>
       verifyEvidence({ ...evidence, targetDebuggable: true }, evidence.phase, id)
     );
+    for (const nativeFontManager of [undefined, 'component-imported', false])
+      assert.throws(() => verifyEvidence({ ...evidence, nativeFontManager }, evidence.phase, id));
+    for (const key of evidence.phase === 'seed'
+      ? ['initial', 'afterReload']
+      : ['afterProcessRestart'])
+      assert.throws(() =>
+        verifyEvidence(
+          { ...evidence, [key]: { ...evidence[key], cachedFont: undefined } },
+          evidence.phase,
+          id
+        )
+      );
   }
 });
 

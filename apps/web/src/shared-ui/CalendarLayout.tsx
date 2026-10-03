@@ -9,7 +9,7 @@ import { ScrollView, Text, View, type StyleProp, type ViewStyle } from 'react-na
 import { useUiTheme } from './theme';
 export interface CalendarHandle {
   movePeriod(direction: -1 | 1): boolean;
-  revealColumn(column: number): void;
+  revealColumn(column: number, center?: boolean): void;
 }
 export interface CalendarLayoutProps {
   children: ReactNode;
@@ -35,9 +35,14 @@ export const CalendarLayout = forwardRef<CalendarHandle, CalendarLayoutProps>(
           });
           return false;
         },
-        revealColumn(column) {
+        revealColumn(column, center = false) {
           scroll.current?.scrollTo({
-            x: Math.max(0, (column - 4) * (cellSize + 1)),
+            x: Math.max(
+              0,
+              center
+                ? (column - 1) * (cellSize + 1) + cellSize / 2 - metrics.current.width / 2
+                : (column - 4) * (cellSize + 1)
+            ),
             animated: false
           });
         }

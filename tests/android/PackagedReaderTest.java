@@ -15,6 +15,7 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.TextView;
@@ -80,6 +81,7 @@ public final class PackagedReaderTest {
       entry = readUrl();
       awaitReady();
       awaitNativeLibraryReply();
+      qualifyNativeFontManager();
       evidence.put("entry", entry).put("nativeSettings", nativeSettings());
       if (phase.equals("verify")) {
         evidence.put("afterProcessRestart", runProbe("verify"));
@@ -191,6 +193,63 @@ public final class PackagedReaderTest {
       SystemClock.sleep(200);
     }
     throw new AssertionError("Native Library never received its empty saved-state reply: " + last);
+  }
+
+  /** Read-only product UI smoke on the actual RN/Compose hierarchy. No real font
+   * file is selected and no built-in preference is changed by this journey. */
+  private void qualifyNativeFontManager() throws Exception {
+    clickAccessibleText("Settings");
+    clickAccessibleText("Fonts & text");
+    clickAccessibleText("Manage Primary / Serif font files");
+    awaitAccessibleText("No stored custom fonts. Built-in fonts remain available in Settings.");
+    clickAccessibleText("Close font manager");
+    clickAccessibleText("Library");
+    awaitNativeLibraryReply();
+    evidence.put("nativeFontManager", "settings-typography-font-cache-read-and-close");
+  }
+
+  private void clickAccessibleText(String text) throws Exception {
+    long deadline = SystemClock.uptimeMillis() + 45000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
+      if (root != null) {
+        for (AccessibilityNodeInfo match : root.findAccessibilityNodeInfosByText(text)) {
+          if (!text.contentEquals(match.getText() == null ? "" : match.getText()) &&
+              !text.contentEquals(match.getContentDescription() == null ? "" : match.getContentDescription())) continue;
+          match.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+          AccessibilityNodeInfo action = match;
+          for (int depth = 0; action != null && depth < 6; depth++, action = action.getParent()) {
+            if (action.isVisibleToUser() && action.isEnabled() && action.isClickable() &&
+                action.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return;
+          }
+        }
+        scrollNativeForward(root);
+      }
+      SystemClock.sleep(200);
+    }
+    throw new AssertionError("Actual native control was not reachable: " + text);
+  }
+
+  private void awaitAccessibleText(String text) throws Exception {
+    long deadline = SystemClock.uptimeMillis() + 45000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
+      if (root != null) for (AccessibilityNodeInfo match : root.findAccessibilityNodeInfosByText(text)) {
+        if (match.isVisibleToUser() && text.contentEquals(match.getText() == null ? "" : match.getText())) return;
+      }
+      SystemClock.sleep(200);
+    }
+    throw new AssertionError("Actual native state was not displayed: " + text);
+  }
+
+  private boolean scrollNativeForward(AccessibilityNodeInfo node) {
+    if (!node.isVisibleToUser() || "android.webkit.WebView".contentEquals(node.getClassName() == null ? "" : node.getClassName())) return false;
+    if (node.isScrollable() && node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) return true;
+    for (int i = 0; i < node.getChildCount(); i++) {
+      AccessibilityNodeInfo child = node.getChild(i);
+      if (child != null && scrollNativeForward(child)) return true;
+    }
+    return false;
   }
 
   private void collectNativeText(View view, List<String> text) {

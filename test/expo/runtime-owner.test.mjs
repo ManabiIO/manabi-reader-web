@@ -1090,3 +1090,69 @@ for (const method of ['statistics.read', 'statistics.action'])
     assert.equal(effects, 0);
     assert.equal(f.sessions.length, 0);
   });
+
+test('font manager bridge reads and actions receive the current native owner', async (t) => {
+  const f = await runtimeOwner(t);
+  const observed = [];
+  f.fontRead = async (payload, authority) => {
+    authority.assertCurrent();
+    observed.push(['read', payload, authority]);
+    return { kind: 'font-read' };
+  };
+  f.fontAction = async (payload, authority) => {
+    authority.assertCurrent();
+    observed.push(['action', payload, authority]);
+    return { kind: 'font-action' };
+  };
+  assert.deepEqual(success(await f.command('settings.fonts.read', {})), { kind: 'font-read' });
+  assert.deepEqual(
+    success(
+      await f.command('settings.fonts.action', {
+        type: 'select',
+        token: 'snapshot',
+        key: 'font_0',
+        family: 'primary'
+      })
+    ),
+    { kind: 'font-action' }
+  );
+  assert.equal(observed.length, 2);
+  assert.equal(observed[0][2].key, `${f.scope.session}:${f.scope.epoch}`);
+  await f.changeAccount('font-user');
+  assert.equal(observed[0][2].signal.aborted, true);
+  assert.throws(observed[0][2].assertCurrent);
+});
+
+test('font import dispatch carries exact transferred bytes and private purpose into the existing owner', async (t) => {
+  const f = await runtimeOwner(t);
+  const calls = [];
+  f.fontImport = async (target, file, authority) => {
+    authority.assertCurrent();
+    calls.push({ target, name: file.name, bytes: [...new Uint8Array(await file.arrayBuffer())] });
+    return { saved: true };
+  };
+  success(
+    await f.command('import.begin', {
+      transferId: 'font_upload_test',
+      name: 'sample.woff',
+      size: 3,
+      font: { name: 'Sample' }
+    })
+  );
+  success(
+    await f.command('import.chunk', { transferId: 'font_upload_test', sequence: 0, data: 'AQID' })
+  );
+  assert.deepEqual(success(await f.command('import.commit', { transferId: 'font_upload_test' })), {
+    saved: true
+  });
+  assert.deepEqual(calls, [{ target: { name: 'Sample' }, name: 'sample.woff', bytes: [1, 2, 3] }]);
+  const invalid = await f.command('import.begin', {
+    transferId: 'mixed_upload_test',
+    name: 'sample.woff',
+    size: 3,
+    font: { name: 'Sample' },
+    cover: {}
+  });
+  assert.equal(invalid.ok, false);
+  assert.match(invalid.error, /both a font and a cover/);
+});

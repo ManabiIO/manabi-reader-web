@@ -10,6 +10,9 @@ if (
 const { getDefaultConfig } = require('expo/metro-config');
 const path = require('node:path');
 const config = getDefaultConfig(__dirname);
+// Metro persists transformed public constants between consecutive exports.
+// Keep default and video-enabled qualification builds in distinct cache namespaces.
+config.cacheVersion = `${config.cacheVersion ?? ''}:video-learning=${process.env.EXPO_PUBLIC_ENABLE_VIDEO_LEARNING === 'true'}`;
 config.resolver.sourceExts.push('mjs');
 config.resolver.assetExts.push('onnx', 'wasm', 'epub', 'woff', 'woff2');
 config.resolver.extraNodeModules = { $lib: path.resolve(__dirname, 'src/lib') };

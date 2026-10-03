@@ -527,9 +527,9 @@ test('DOM adapters preserve tracker seconds and exact reading-point reset values
       }
     ])
   );
-  subjects.userFonts$.value = [
-    { name: 'Imported font', path: 'secret-path', fileName: 'secret-file' }
-  ];
+  subjects.userFonts$ = {
+    value: [{ name: 'Imported font', path: 'secret-path', fileName: 'secret-file' }]
+  };
   subjects.yuKyokashoAvailable$.value = false;
   subjects.viewMode$.value = 'continuous';
   subjects.customReadingPointEnabled$.value = true;
@@ -580,7 +580,16 @@ test('DOM adapters preserve tracker seconds and exact reading-point reset values
   })('native-settings/service');
   let state = imported.readNativeSettingsState({});
   assert.equal(state.fields.find((field) => field.key === 'trackerIdleMinutes').value, 1.5);
-  assert.ok(state.fonts.primary.includes('Imported font'));
+  assert.equal(
+    state.fonts.primary.includes('Imported font'),
+    false,
+    'imported faces are selected through the cache-verified manager, not the built-in picker'
+  );
+  assert.equal(
+    subjects.userFonts$.value[0].name,
+    'Imported font',
+    'reading Settings never prunes stored font metadata'
+  );
   assert.equal(state.fonts.primary.includes('YuKyokasho'), false);
   assert.doesNotMatch(JSON.stringify(state), /secret-path|secret-file/);
   imported.dispatchNativeSettingsAction(set('trackerIdleMinutes', 2.5, 1.5));

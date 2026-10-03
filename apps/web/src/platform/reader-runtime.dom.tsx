@@ -55,6 +55,7 @@ import { createNativeLibraryContentSearchService } from '../native-library/conte
 import { clearLibraryLocation, queueLibraryLocation } from '$lib/library/search-navigation';
 import type { BookAccessIdentity } from '$lib/data/database/books-db/book-identity';
 import { readNativeSettingsState, dispatchNativeSettingsAction } from '../native-settings/service';
+import { createNativeFontService } from '../native-settings/font-service.dom';
 import type { NativeStatisticsAction } from '../statistics-react/native-contract';
 import '../app.css';
 import '../app.generated.css';
@@ -103,6 +104,7 @@ export default function ReaderRuntime({
     setExpectedBook(undefined);
     setBookId(undefined);
   };
+  const fonts = useMemo(() => createNativeFontService(), []);
   const library = useMemo(() => createNativeLibraryService(), []);
   const catalog = useMemo(() => createNativeCatalogService(), []);
   const contentSearch = useMemo(() => createNativeLibraryContentSearchService(library), [library]);
@@ -123,6 +125,7 @@ export default function ReaderRuntime({
       lifetime: new AbortController(),
       transfer: new ImportTransfer(),
       bookImport: false,
+      fontSave: undefined as { id: string; key: string; controller: AbortController } | undefined,
       coverSave: undefined as { id: string; key: string; controller: AbortController } | undefined
     }),
     []
@@ -293,6 +296,10 @@ export default function ReaderRuntime({
                 return readNativeSettingsState(payload);
               case 'settings.action':
                 return dispatchNativeSettingsAction(payload);
+              case 'settings.fonts.read':
+                return fonts.read(payload, libraryAuthority);
+              case 'settings.fonts.action':
+                return fonts.action(payload, libraryAuthority);
               case 'snippets.state':
                 return snippets.state(payload, libraryAuthority);
               case 'snippets.action': {
@@ -473,6 +480,18 @@ export default function ReaderRuntime({
               }
               case 'import.begin':
                 if (state.bookImport) throw new Error('Another book import is still in progress.');
+                if (payload.cover !== undefined && payload.font !== undefined)
+                  throw new Error('A transfer cannot be both a font and a cover.');
+                if (payload.font !== undefined) {
+                  state.transfer.beginFont(
+                    scope(),
+                    payload.transferId as string,
+                    payload.name as string,
+                    payload.size as number,
+                    payload.font
+                  );
+                  return null;
+                }
                 if (payload.cover !== undefined) {
                   const cover = library.admitCover(payload.cover, libraryAuthority);
                   state.transfer.beginCover(
@@ -511,6 +530,11 @@ export default function ReaderRuntime({
                   throw new Error('A transfer identity is required to cancel an upload.');
                 state.transfer.retire(scope(), payload.transferId);
                 if (
+                  state.fontSave?.id === payload.transferId &&
+                  state.fontSave.key === libraryAuthority.key
+                )
+                  state.fontSave.controller.abort();
+                if (
                   state.coverSave?.id === payload.transferId &&
                   state.coverSave.key === libraryAuthority.key
                 )
@@ -523,6 +547,23 @@ export default function ReaderRuntime({
                   transfer.name,
                   transfer.cover ? { type: transfer.cover.type } : undefined
                 );
+                if (transfer.font) {
+                  if (state.fontSave) throw new Error('Another font is still being saved.');
+                  const pending = {
+                    id: payload.transferId as string,
+                    key: libraryAuthority.key,
+                    controller: new AbortController()
+                  };
+                  state.fontSave = pending;
+                  try {
+                    return await fonts.import(transfer.font, file, {
+                      ...libraryAuthority,
+                      signal: AbortSignal.any([libraryAuthority.signal, pending.controller.signal])
+                    });
+                  } finally {
+                    if (state.fontSave === pending) state.fontSave = undefined;
+                  }
+                }
                 if (transfer.cover) {
                   if (state.coverSave) throw new Error('Another cover image is still being saved.');
                   const pending = {
@@ -679,6 +720,7 @@ export default function ReaderRuntime({
         state.accountLifetime = new AbortController();
         state.transfer.cancel();
         retireBook();
+        fonts.dispose();
         contentSearch.dispose();
         catalog.dispose();
         library.dispose();
@@ -732,6 +774,7 @@ export default function ReaderRuntime({
           state.lifetime.abort();
           state.accountLifetime.abort();
           state.transfer.cancel();
+          fonts.dispose();
           contentSearch.dispose();
           catalog.dispose();
           library.dispose();

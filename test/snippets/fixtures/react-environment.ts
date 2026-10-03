@@ -107,6 +107,7 @@ export const commitSnippet = async (
   return record;
 };
 export const useLocalSearchParams = () => memory.routeParams;
+export const useRoute = () => ({ params: memory.routeParams });
 export const currentTransfer = async () => undefined;
 export const moveSnippet = async () => {};
 export const resumeTransfer = async () => {};

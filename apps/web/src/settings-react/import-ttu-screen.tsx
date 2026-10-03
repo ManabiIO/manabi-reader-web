@@ -81,10 +81,7 @@ export function ImportTtuScreen(
               {'← Library'}
             </Button>
           </Dom>
-          <Dom as="h1">
-            {'Import from '}
-            {c.yatsu ? 'Yatsu Reader' : 'Ttu Ebook Reader'}
-          </Dom>
+          <Dom as="h1">{`Import from ${c.yatsu ? 'Yatsu Reader' : 'Ttu Ebook Reader'}`}</Dom>
           {!c.yatsu ? (
             <>
               <Dom as="section" aria-labelledby={'export-instructions'}>

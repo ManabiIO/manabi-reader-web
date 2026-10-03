@@ -12,7 +12,7 @@ const temp = mkdtempSync(join(tmpdir(), 'manabi-native-settings-types-'));
 const runtime = join(temp, 'runtime.d.ts');
 writeFileSync(
   runtime,
-  `export declare function useReaderRuntime(): { snapshot: { session: string; epoch: number }; command(method: 'settings.state' | 'settings.action', payload?: Record<string, unknown>): Promise<unknown> };`
+  `export declare function useReaderRuntime(): { snapshot: { session: string; epoch: number }; importFont(name: string, signal: AbortSignal): Promise<boolean>; command(method: 'settings.state' | 'settings.action' | 'settings.fonts.read' | 'settings.fonts.action', payload?: Record<string, unknown>): Promise<unknown> };`
 );
 const options = {
   strict: true,

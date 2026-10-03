@@ -210,8 +210,18 @@ export function StatisticsView({
               shape="rounded"
               selected={state.view === 'summary'}
               style={{
+                minHeight: 44,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderWidth: 0,
+                borderRadius: 0,
+                backgroundColor: 'transparent',
                 borderBottomWidth: 2,
                 borderBottomColor: state.view === 'summary' ? colors.primary : 'transparent'
+              }}
+              textStyle={{
+                fontWeight: '500',
+                color: state.view === 'summary' ? colors.primary : colors.mutedForeground
               }}
               dataSet={{ sectionLink: '' }}
               disabled={state.busy}
@@ -224,8 +234,18 @@ export function StatisticsView({
               shape="rounded"
               selected={state.view === 'overview'}
               style={{
+                minHeight: 44,
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderWidth: 0,
+                borderRadius: 0,
+                backgroundColor: 'transparent',
                 borderBottomWidth: 2,
                 borderBottomColor: state.view === 'overview' ? colors.primary : 'transparent'
+              }}
+              textStyle={{
+                fontWeight: '500',
+                color: state.view === 'overview' ? colors.primary : colors.mutedForeground
               }}
               dataSet={{ sectionLink: '' }}
               disabled={state.busy}
@@ -568,7 +588,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 8
   },
-  navigation: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
+  navigation: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    minWidth: 0,
+    maxWidth: '100%',
+    flexShrink: 1,
+    gap: 4
+  },
   primaryNav: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   toolbar: {
     width: '100%',
@@ -588,7 +616,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     minWidth: 0,
     maxWidth: '100%',
-    gap: 4
+    gap: 4,
+    paddingVertical: 4
   },
   content: { minWidth: 0, width: '100%', alignSelf: 'center', paddingVertical: 24 },
   loading: { padding: 24, alignItems: 'center', gap: 12 },

@@ -7,6 +7,8 @@
 /** Only trusted shell ↔ trusted reader host traffic uses this contract.
  * EPUB/dictionary documents never receive this capability or native actions.
  */
+import { parseFontImportTarget, type FontImportTarget } from '../native-settings/font-contract.ts';
+
 export const BRIDGE_VERSION = 1 as const;
 export const MAX_BRIDGE_BYTES = 768 * 1024;
 export const MAX_IMPORT_BYTES = 256 * 1024 * 1024;
@@ -77,6 +79,8 @@ export const bridgeMethods = [
   'library.catalog.cancel',
   'settings.state',
   'settings.action',
+  'settings.fonts.read',
+  'settings.fonts.action',
   'snippets.state',
   'snippets.action',
   'open',
@@ -104,6 +108,7 @@ export const readOnlyBridgeMethods: readonly BridgeMethod[] = [
   'library.cover.read',
   'library.catalog.read',
   'settings.state',
+  'settings.fonts.read',
   'snippets.state',
   'statistics.read'
 ];
@@ -378,6 +383,7 @@ export class ImportTransfer {
     chunks: Uint8Array[];
     scope: BridgeScope;
     cover?: CoverImportTarget;
+    font?: FontImportTarget;
   };
   begin(scope: BridgeScope, id: string, name: string, size: number) {
     if (!/\.(epub|htmlz|txt)$/i.test(name))
@@ -389,12 +395,19 @@ export class ImportTransfer {
     if (size > MAX_COVER_IMPORT_BYTES) throw new Error('Choose a cover image smaller than 32 MB.');
     this.start(scope, id, name, size, cover);
   }
+  beginFont(scope: BridgeScope, id: string, name: string, size: number, input: unknown) {
+    const font = parseFontImportTarget(input);
+    if (!/\.(woff2?|ttf|otf)$/i.test(name))
+      throw new Error('Choose a WOFF2, WOFF, TTF, or OTF font file.');
+    this.start(scope, id, name, size, undefined, font);
+  }
   private start(
     scope: BridgeScope,
     id: string,
     name: string,
     size: number,
-    cover?: CoverImportTarget
+    cover?: CoverImportTarget,
+    font?: FontImportTarget
   ) {
     if (this.current) throw new Error('Finish or cancel the current import first.');
     if (
@@ -422,7 +435,8 @@ export class ImportTransfer {
       admittedSequence: -1,
       chunks: [],
       scope: { ...scope },
-      ...(cover ? { cover } : {})
+      ...(cover ? { cover } : {}),
+      ...(font ? { font } : {})
     };
   }
   admitChunk(scope: BridgeScope, id: string, sequence: number) {
@@ -457,7 +471,8 @@ export class ImportTransfer {
       name: current.name,
       size: current.size,
       chunks: current.chunks,
-      ...(current.cover ? { cover: current.cover } : {})
+      ...(current.cover ? { cover: current.cover } : {}),
+      ...(current.font ? { font: current.font } : {})
     };
   }
   cancel() {

@@ -36,10 +36,11 @@ test('Metro preserves the legacy video release flag while preferring explicit Ex
     [{ VITE_ENABLE_VIDEO_LEARNING: 'false', EXPO_PUBLIC_ENABLE_VIDEO_LEARNING: 'true' }, 'true']
   ]) {
     const env = { ...initial };
+    const output = { exports: {} };
     vm.runInNewContext(text('apps/web/metro.config.cjs'), {
       process: { env },
       __dirname: '/app/apps/web',
-      module: { exports: {} },
+      module: output,
       require(name) {
         if (name === 'node:process') return { env };
         if (name === 'expo/metro-config')
@@ -49,6 +50,7 @@ test('Metro preserves the legacy video release flag while preferring explicit Ex
         return require(name);
       }
     });
+    assert.equal(output.exports.cacheVersion, `:video-learning=${expected === 'true'}`);
     assert.equal(env.EXPO_PUBLIC_ENABLE_VIDEO_LEARNING, expected);
     assert.equal(env.VITE_ENABLE_VIDEO_LEARNING, initial.VITE_ENABLE_VIDEO_LEARNING);
   }

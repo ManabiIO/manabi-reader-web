@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { useLocalSearchParams, useRoute } from 'expo-router';
+import { useRoute } from 'expo-router';
 import { SettingsScreen } from '../../settings-react';
 import { readNavigationArrival } from '../../runtime/navigation';
 import { base } from '../../runtime/paths';
@@ -15,8 +15,9 @@ function SettingsVisit({ routeUrl }: { routeUrl: string }) {
   return <SettingsScreen previousPage={arrival?.from} />;
 }
 export default function SettingsRoute() {
-  const params = useLocalSearchParams();
   const route = useRoute();
+  // Preserve the once-decoded values, including percent-bearing return queries.
+  const params = route.params ?? {};
   const url = new URL(
     `${base}/settings`,
     typeof window === 'undefined' ? 'https://reader.invalid' : window.location.origin

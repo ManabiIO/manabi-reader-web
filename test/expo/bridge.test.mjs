@@ -691,3 +691,21 @@ test('permanent receipt capacity is unchanged and completed outcomes are never e
   assert.equal(count, 2048);
   assert.equal(authority.outcomes.size, 2048);
 });
+
+test('font state accepts a read identity but font actions cannot mutate through read identities', () => {
+  assert.equal(
+    parseBridgeRequest(request({ id: 'read_font_state', method: 'settings.fonts.read' })).method,
+    'settings.fonts.read'
+  );
+  assert.throws(
+    () =>
+      parseBridgeRequest(
+        request({
+          id: 'read_font_mutation',
+          method: 'settings.fonts.action',
+          payload: { type: 'remove' }
+        })
+      ),
+    /Read-only/
+  );
+});

@@ -26,6 +26,7 @@ import { useController } from './use-controller';
 import { LegacyBookList } from './legacy-book-list';
 import { Button, Dialog } from './primitives';
 import { EditorsPicks } from './editors-picks';
+import { CaretRight } from '@phosphor-icons/react';
 import './library.css';
 import '$lib/library/library-menu.css';
 export interface LibraryScreenProps {
@@ -196,20 +197,40 @@ export function LibraryScreen({ routeUrl, onOpenBook, onReady }: LibraryScreenPr
             Add books
           </h3>
           <div className="mt-3 grid gap-2">
-            <Button onClick={h.openFilePicker}>Import File(s)</Button>
+            <Button size="lg" className="min-h-11 w-full" onClick={h.openFilePicker}>
+              Import File(s)
+            </Button>
             {!mobile && (
-              <Button variant="outline" onClick={h.openFolderPicker}>
+              <Button
+                variant="outline"
+                className="min-h-11 w-full justify-start"
+                onClick={h.openFolderPicker}
+              >
                 Import Folder(s)
               </Button>
             )}
-            <Button variant="outline" onClick={h.openBackupPicker}>
+            <Button
+              variant="outline"
+              className="min-h-11 w-full justify-start"
+              onClick={h.openBackupPicker}
+            >
               Import Backup
             </Button>
-            <Button variant="link" href={resolve('/import-ttu')}>
-              Import from Ttu Ebook Reader
+            <Button
+              variant="link"
+              className="min-h-11 w-full justify-start"
+              href={resolve('/import-ttu')}
+            >
+              <span>Import from Ttu Ebook Reader</span>
+              <CaretRight className="size-4 rtl:rotate-180" aria-hidden="true" />
             </Button>
-            <Button variant="link" href={resolve('/import-ttu?source=yatsu')}>
-              Import from Yatsu Reader
+            <Button
+              variant="link"
+              className="min-h-11 w-full justify-start"
+              href={resolve('/import-ttu?source=yatsu')}
+            >
+              <span>Import from Yatsu Reader</span>
+              <CaretRight className="size-4 rtl:rotate-180" aria-hidden="true" />
             </Button>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">You can also drop ebook files here.</p>
@@ -223,6 +244,7 @@ export function LibraryScreen({ routeUrl, onOpenBook, onReady }: LibraryScreenPr
               <Button
                 key={name}
                 variant="secondary"
+                className="min-h-11 w-full justify-start"
                 href={resolve(`/connections#${index ? 'cloud' : 'local'}-heading`)}
               >
                 {name}

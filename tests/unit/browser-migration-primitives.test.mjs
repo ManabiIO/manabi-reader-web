@@ -199,6 +199,9 @@ test('Library menu mounts as a fixed layered portal before accepting selection',
     assert.equal(menu.parentElement, window.document.body);
     assert.equal(menu.style.position, 'fixed');
     assert.equal(menu.style.zIndex, '70');
+    assert.match(menu.style.left, /clamp.*var\(--library-menu-left\).*100vw/);
+    assert.match(menu.style.top, /clamp.*var\(--library-menu-top\).*100dvh/);
+    assert.equal(menu.style.maxWidth, 'calc(100vw - 16px)');
     assert.equal(window.document.activeElement, menu.querySelector('[role=menuitem]'));
     await api.act(() => menu.querySelector('[role=menuitem]').click());
     assert.equal(window.selections, 1);
@@ -268,12 +271,23 @@ for (const compactLibrary of [false, true]) {
         'menu must have its trigger before first placement'
       );
       assert.equal(menu.style.zIndex, '70');
-      assert.equal(menu.style.top, '92px');
-      assert.equal(menu.style.left, '104px', 'end alignment uses the actual captured trigger');
+      assert.match(menu.style.left, /clamp.*var\(--library-menu-left\).*100vw/);
+      assert.match(menu.style.top, /clamp.*var\(--library-menu-top\).*100dvh/);
+      assert.equal(menu.style.maxWidth, 'calc(100vw - 16px)');
+      assert.equal(menu.style.getPropertyValue('--library-menu-top'), '92px');
+      assert.equal(
+        menu.style.getPropertyValue('--library-menu-left'),
+        '104px',
+        'end alignment uses the actual captured trigger'
+      );
       anchor = { ...anchor, left: 400, right: 444, bottom: 108 };
       await api.act(() => window.dispatchEvent(new window.Event('resize')));
-      assert.equal(menu.style.top, '112px');
-      assert.equal(menu.style.left, '204px', 'resizing repositions from the live anchor');
+      assert.equal(menu.style.getPropertyValue('--library-menu-top'), '112px');
+      assert.equal(
+        menu.style.getPropertyValue('--library-menu-left'),
+        '204px',
+        'resizing repositions from the live anchor'
+      );
       const select = [...menu.querySelectorAll('[role=menuitem]')].find(
         (item) => item.textContent === 'Select Books'
       );
@@ -508,12 +522,12 @@ test('Library submenu hover opens one sibling, retains portals and closes the tr
     await api.act(() => pointer(window, viewTrigger));
     assert.equal(window.document.querySelectorAll('[role=menu]').length, 2);
     const submenu = window.document.querySelectorAll('[role=menu]')[1];
-    assert.equal(submenu.style.left, '404px');
-    assert.equal(submenu.style.top, '80px');
+    assert.equal(submenu.style.getPropertyValue('--library-menu-left'), '404px');
+    assert.equal(submenu.style.getPropertyValue('--library-menu-top'), '80px');
     window.innerWidth = 500;
     await api.act(() => window.dispatchEvent(new window.Event('resize')));
     assert.equal(
-      submenu.style.left,
+      submenu.style.getPropertyValue('--library-menu-left'),
       '36px',
       'a right submenu flips before overflowing the viewport'
     );

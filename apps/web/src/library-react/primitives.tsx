@@ -25,6 +25,8 @@ import { X } from 'lucide-react';
 import { buttonVariants } from '../snippets-react/button-styles';
 import { cn } from '$lib/utils';
 import { goto } from '$app/navigation';
+import { focusModalStart } from '$lib/hooks/focus-modal-start';
+import { cycleModalTab } from '$lib/hooks/cycle-modal-tab';
 type AnyProps = Record<string, any> & {
   children?: ReactNode;
   className?: string;
@@ -180,7 +182,8 @@ function DialogContent({
   showCloseButton = true,
   onOpenAutoFocus,
   onCloseAutoFocus,
-  side: _side,
+  side,
+  contentSlot = 'dialog-content',
   ...props
 }: AnyProps) {
   const context = useContext(DialogContext)!;
@@ -200,12 +203,7 @@ function DialogContent({
         prevented = true;
       }
     });
-    if (!prevented)
-      (
-        dialog.querySelector(
-          '[autofocus],input:not([type=checkbox]),button,[href]'
-        ) as HTMLElement | null
-      )?.focus({ preventScroll: true });
+    if (!prevented) focusModalStart(new Event('openAutoFocus', { cancelable: true }), dialog);
     return () => {
       dialog.close();
       let prevented = false;
@@ -225,8 +223,29 @@ function DialogContent({
       ref={ref}
       aria-labelledby={context.title}
       aria-describedby={context.description}
-      data-slot="dialog-content"
-      className={`library-react-dialog m-auto max-h-[90dvh] w-[min(96vw,36rem)] overflow-y-auto rounded-2xl border border-border bg-background p-6 text-foreground shadow-xl backdrop:bg-black/40 ${className}`}
+      role="dialog"
+      aria-modal="true"
+      tabIndex={-1}
+      data-modal-close-button={showCloseButton ? '' : undefined}
+      data-slot={contentSlot}
+      data-side={side ?? props['data-side']}
+      className={cn(
+        'library-react-dialog m-auto grid max-h-[calc(100dvh-32px)] w-full max-w-[calc(100vw-32px)] grid-cols-[minmax(0,1fr)] gap-[24px] overflow-y-auto overscroll-contain rounded-[24px] border border-border bg-popover p-[24px] text-sm text-popover-foreground shadow-xl backdrop:bg-black/40 sm:max-w-md',
+        side === 'bottom' && 'fixed inset-x-0 top-auto bottom-0 mb-0 w-full rounded-b-none',
+        contentSlot === 'sheet-content' && 'flex max-w-full flex-col gap-0',
+        className
+      )}
+      onScroll={(event) => {
+        event.currentTarget.style.setProperty(
+          '--dialog-close-scroll-offset',
+          `${event.currentTarget.scrollTop}px`
+        );
+        props.onScroll?.(event);
+      }}
+      onKeyDown={(event) => {
+        props.onKeyDown?.(event);
+        if (!event.defaultPrevented) cycleModalTab(event.nativeEvent, event.currentTarget);
+      }}
       onCancel={(event) => {
         event.preventDefault();
         if (!closeDisabled) context.change(false);
@@ -243,15 +262,16 @@ function DialogContent({
           context.change(false);
       }}
     >
+      {children}
       {showCloseButton && (
         <CloseButton
-          className="absolute top-3 right-3"
+          className="absolute top-[16px] right-[16px]"
+          style={{ transform: 'translateY(var(--dialog-close-scroll-offset, 0px))' }}
           data-slot="dialog-close"
           disabled={closeDisabled}
           onClick={() => context.change(false)}
         />
-      )}{' '}
-      {children}
+      )}
     </dialog>,
     document.body
   );
@@ -260,41 +280,49 @@ const block = (tag: string, slot: string, defaults = '') =>
   function Block({ children, className = '', ...props }: AnyProps) {
     return createElement(
       tag,
-      { ...props, 'data-slot': slot, className: `${defaults} ${className}` },
+      { ...props, 'data-slot': slot, className: cn(defaults, className) },
       children
     );
   };
-function DialogTitle(props: AnyProps) {
+function DialogTitle({ titleSlot = 'dialog-title', ...props }: AnyProps) {
   const context = useContext(DialogContext)!;
   return (
     <h2
       {...props}
       id={context.title}
-      data-slot="dialog-title"
-      className={`pr-8 text-xl font-semibold ${props.className ?? ''}`}
+      data-slot={titleSlot}
+      className={cn('text-lg leading-snug font-semibold', props.className)}
     />
   );
 }
-function DialogDescription(props: AnyProps) {
+function DialogDescription({ descriptionSlot = 'dialog-description', ...props }: AnyProps) {
   const context = useContext(DialogContext)!;
   return (
     <p
       {...props}
       id={context.description}
-      data-slot="dialog-description"
-      className={`mt-2 text-sm text-muted-foreground ${props.className ?? ''}`}
+      data-slot={descriptionSlot}
+      className={cn('text-sm text-muted-foreground', props.className)}
     />
   );
 }
 export const Dialog = {
   Root: DialogRoot,
   Content: DialogContent,
-  Header: block('header', 'dialog-header', 'mb-5'),
+  Header: block('header', 'dialog-header', 'flex flex-col gap-1.5'),
   Footer: block('footer', 'dialog-footer', 'mt-5 flex flex-wrap justify-end gap-2'),
   Title: DialogTitle,
   Description: DialogDescription
 };
-export const Sheet = { ...Dialog };
+export const Sheet = {
+  ...Dialog,
+  Content: (props: AnyProps) => <DialogContent {...props} contentSlot="sheet-content" />,
+  Header: block('header', 'sheet-header', 'flex flex-col gap-1.5'),
+  Description: (props: AnyProps) => (
+    <DialogDescription {...props} descriptionSlot="sheet-description" />
+  ),
+  Title: (props: AnyProps) => <DialogTitle {...props} titleSlot="sheet-title" />
+};
 type MenuState = {
   open: boolean;
   setOpen(open: boolean): void;
@@ -399,14 +427,21 @@ function MenuContent({
       setStyle({
         position: 'fixed',
         zIndex: 70,
-        top: Math.max(8, Math.min(inline ? r.top : r.bottom + 4, window.innerHeight - height - 8)),
-        left: Math.max(8, Math.min(left, window.innerWidth - width - 8)),
+        // CSS viewport bounds stay current during touch viewport resizes, before
+        // the resize event refreshes the trigger's measured coordinates.
+        '--library-menu-top': `${inline ? r.top : r.bottom + 4}px`,
+        '--library-menu-left': `${left}px`,
+        top: `clamp(8px, var(--library-menu-top), calc(100dvh - ${height}px - 8px))`,
+        left: `clamp(8px, var(--library-menu-left), calc(100vw - ${width}px - 8px))`,
+        maxWidth: 'calc(100vw - 16px)',
         maxHeight: '80dvh',
         overflowY: 'auto'
-      });
+      } as CSSProperties);
     };
     position();
-    (menu.querySelector('[role^=menuitem]:not([disabled])') as HTMLElement | null)?.focus();
+    (menu.querySelector('[role^=menuitem]:not([disabled])') as HTMLElement | null)?.focus({
+      preventScroll: true
+    });
     const outside = (event: Event) => {
       const target = event.target as Node;
       if (
@@ -433,7 +468,7 @@ function MenuContent({
       ref={ref}
       role="menu"
       data-menu-root={context.root}
-      data-slot="dropdown-menu-content"
+      data-slot={context.submenu ? 'dropdown-menu-sub-content' : 'dropdown-menu-content'}
       className={`library-menu rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-lg ${className}`}
       style={style}
       onKeyDown={(event) => {

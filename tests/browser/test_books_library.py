@@ -617,7 +617,11 @@ class BooksLibraryBrowser(LibraryBase):
             self.assertEqual('dark', self.page.locator('html').evaluate(
                 'element => getComputedStyle(element).colorScheme'))
             trigger = self.page.get_by_role('button', name='Library actions', exact=True)
+            scroll_before_menu = self.page.evaluate('[scrollX, scrollY]')
             trigger.tap()
+            expect(self.page.get_by_role('menu')).to_be_visible()
+            self.assertEqual(scroll_before_menu, self.page.evaluate('[scrollX, scrollY]'),
+                             'opening a portal menu must not scroll the underlying Library')
             self.page.get_by_role('menuitem', name='View Options', exact=True).tap()
             submenu = self.page.locator('[data-slot="dropdown-menu-sub-content"]')
             expect(submenu).to_be_visible()
