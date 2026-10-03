@@ -9,7 +9,6 @@ import { Link, type Href } from 'expo-router';
 import {
   Platform,
   Pressable,
-  Text,
   type PressableProps,
   type StyleProp,
   type TextStyle,
@@ -20,6 +19,7 @@ import { useUiTheme } from './theme';
 import { UiPresentation } from './Presentation';
 import { ControlTone } from './ControlTone';
 import { useActionRef } from './useActionRef';
+import { UiText } from './Typography';
 export type ActionVariant = 'default' | 'outline' | 'secondary' | 'ghost' | 'destructive' | 'link';
 export type ActionSize =
   | 'default'
@@ -52,6 +52,7 @@ export interface ActionButtonProps extends Omit<PressableProps, 'style' | 'child
     stopPropagation(): void;
   }) => void;
   'aria-pressed'?: boolean;
+  'aria-current'?: 'page';
   'aria-expanded'?: boolean;
   'aria-controls'?: string;
   'aria-haspopup'?: boolean | 'menu' | 'dialog' | 'listbox';
@@ -123,11 +124,14 @@ export const ActionButton = forwardRef<View, ActionButtonProps>(function ActionB
         {...(Platform.OS === 'web'
           ? { title, dataSet: { uiButton: '', slot: 'button', variant, size, shape, ...dataSet } }
           : {})}
-        aria-pressed={props['aria-pressed'] ?? selected}
+        aria-pressed={role === 'link' ? undefined : (props['aria-pressed'] ?? selected)}
+        aria-current={role === 'link' && selected ? 'page' : props['aria-current']}
         accessibilityState={{
           ...props.accessibilityState,
           disabled: disabled ?? undefined,
-          ...(selected === undefined ? {} : { selected })
+          ...(selected === undefined || (Platform.OS === 'web' && role === 'link')
+            ? {}
+            : { selected })
         }}
         style={(state) => {
           const hover = (state as typeof state & { hovered?: boolean }).hovered;
@@ -174,7 +178,7 @@ export const ActionButton = forwardRef<View, ActionButtonProps>(function ActionB
             <ControlTone.Provider value={color}>
               {Children.map(children, (child) =>
                 typeof child === 'string' || typeof child === 'number' ? (
-                  <Text
+                  <UiText
                     style={[
                       {
                         color,
@@ -192,7 +196,7 @@ export const ActionButton = forwardRef<View, ActionButtonProps>(function ActionB
                     ]}
                   >
                     {child}
-                  </Text>
+                  </UiText>
                 ) : (
                   child
                 )
@@ -215,7 +219,7 @@ export function Heading({ children, level = 2, style, id }: HeadingProps) {
   const font = level === 1 ? 18 : level === 2 ? 20 : 16;
   const lineHeight = level === 3 ? 24 : 28;
   return (
-    <Text
+    <UiText
       role="heading"
       aria-level={level}
       nativeID={id}
@@ -224,9 +228,8 @@ export function Heading({ children, level = 2, style, id }: HeadingProps) {
         {
           color: colors.foreground,
           fontFamily: Platform.OS === 'web' ? 'var(--font-sans, system-ui)' : undefined,
-          fontSize: Platform.OS === 'web' ? (`${font / 16}rem` as unknown as number) : font,
-          lineHeight:
-            Platform.OS === 'web' ? (`${lineHeight / 16}rem` as unknown as number) : lineHeight,
+          fontSize: font,
+          lineHeight,
           fontWeight: '600',
           flexShrink: 1
         },
@@ -234,7 +237,7 @@ export function Heading({ children, level = 2, style, id }: HeadingProps) {
       ]}
     >
       {children}
-    </Text>
+    </UiText>
   );
 }
 export interface NavLinkProps extends Omit<ActionButtonProps, 'onPress' | 'role'> {

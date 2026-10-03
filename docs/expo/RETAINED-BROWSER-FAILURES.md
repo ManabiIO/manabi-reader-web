@@ -9,14 +9,104 @@ The inventory below contains **15 distinct failing test names**, deduplicated
 across repeated suites, engines and overlapping traceback excerpts. It is not a
 count of failed executions or fifteen proven independent product defects.
 
-Local repairs described below are present in the combined working source as of
-2026-10-03, **awaiting browser qualification on the exact published head**.
-None of these entries is closed by a unit test, a changed fixture, an export, or
-an older-head pass. Preserve the original behavioral assertions and rerun the
-complete selected suites in the full gate. The WebKit teardown failure remains
-under investigation; it is neither waived nor counted as fixed.
+All 15 observed cases below were subsequently repaired and qualified in full
+[run 37099596037](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37099596037)
+on `5ac1225b737fbeb7e6e7b2535ae68ea1fc24d5a9`. All three jobs passed.
+The entries preserve the original failures, diagnoses and acceptance requirements;
+their pending language describes the earlier repair checkpoint. The failed runs
+remain failed evidence, and no original application assertion was weakened.
 
-## The 15 failing cases
+Intermediate full [run 37096298886](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37096298886)
+on `53d4534c` passed Android, full data safety and production Snippets, but exposed
+a WebKit startup/navigation diagnostic and a Settings history-test synchronization
+failure. The history fixture now waits for the admitted focused Settings screen
+before its unchanged entry-ID assertion. The video fixture positively waits for
+both real worker activation and optional-catalog completion before replacing the
+document. Both-engine local replays and the later full checkpoint passed.
+
+Later design/reflow refinements need their own exact-head qualification; consult
+the PR's current full run and [fidelity matrix](FIDELITY-MATRIX.md). This historical
+failure ledger does not close the outstanding native/shared screen inventory.
+
+## October 3 refinement checkpoint
+
+Full [run 37107287438](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37107287438)
+on `d3b0c26c2856233760d869299d48df35439d64e3` passed regression/default web,
+Android, full data safety, production Snippets and source-unchanged checks. Its
+retained full-web inventory failed one Chromium case:
+`test_yatsu_manifest_mismatch_is_rejected_before_any_book_write`.
+The screen briefly rendered the manifest error and `Inspecting ZIPs…` as two
+live statuses while refreshing destination choices. The unchanged error locator
+could encounter that intermediate state. A MutationObserver on the frozen export
+reproduced two simultaneous statuses even when the original final-state check
+passed. The import screen now uses one global status, replacing the inspecting
+message with the error. The existing case additionally observes intermediate DOM
+updates and requires at most one status through completion; manifest rejection
+and the original no-book-write assertion remain. Exact-head CI qualification is
+required after this repair; this failed run remains failure evidence.
+
+The subsequent `226dd96f` full [run 37111223208](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37111223208)
+passed its regression/default-web job. It was canceled before the full-web and
+Android jobs completed after source review found numeric Heatmap button-label
+font overrides bypassing root text scaling. The added real-browser zoom assertion
+failed on its frozen export: 12px remained 12px instead of becoming 24px. Shared
+button labels now use the same scalable text primitive as headings and body
+copy. The existing zoom journey additionally verifies the metric size; no prior
+assertion was removed. This canceled run is partial evidence, not qualification
+of the later repair.
+
+## Later touch-dismissal race
+
+The full [256a5242 run](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37118260894)
+passed all three jobs. The same-head [PR-event attempt 2](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37118264604)
+then failed the Chromium default-route
+`test_touch_reading_appearance_fits_and_outside_dismissal_restores_controls`.
+Its focus assertion observed the Library screen after an outside tap at (20, 20).
+The earlier frame-delayed backdrop removal did not cancel the browser's delayed
+compatibility click, which could activate the Library button newly exposed there.
+
+Reader modals now synchronously bind a native, non-passive `touchend` listener
+on their backdrop ref. It cancels outside touch completion before a compatibility
+click can be generated; controls inside the dialog retain their native gestures.
+Ref teardown removes the listener. The existing browser journey retains every
+original geometry, text-size and focus-return assertion, and additionally records
+the final native event cancellation. That assertion fails `[True] != [False]`
+on the frozen 256a5242 export, even when its original focus checks happen to pass.
+Ten consecutive actual touch journeys per engine pass locally after the repair.
+The same PR-event Android job built the APK and passed its emitted-worker check,
+but SDK setup then failed to unpack the downloaded API 35 Google APIs x86_64
+system-image ZIP (`Error on ZipFile unknown archive`). Instrumentation never
+started in that attempt, so it supplies no native runtime qualification. The
+full run's earlier runtime pass remains specific to its own disposable host.
+The passing full run and failed PR-event attempt remain separate historical
+evidence; the subsequent repair requires its own exact-head qualification.
+
+## Guarded Back/Forward fixture readiness
+
+Full [run 37122361275](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37122361275)
+on `52fea4ebdbd4c2486c4081582f8506b7adc1ee52` passed regression/default web,
+Android packaged-host runtime, full data safety, production Snippets and source
+integrity. The retained browser step failed one Chromium execution of
+`test_failed_back_keeps_original_reader_and_retries_without_replacing_entries`:
+its final Forward assertion remained in Library. The same case passed in the
+later complete Chromium group and both WebKit groups; the failed execution
+remains failure evidence.
+
+The original fixture accepted the first provisional Library URL from Back,
+then waited for the Reader to disappear. Retirement removes the Reader before
+the guarded native replay settles, so that pair of observations does not prove
+a committed Library arrival. A passive history trace on the frozen application
+observed the outgoing Reader URL, no Reader and no Library immediately before
+Forward. Throttled Chromium reproduces eight failures in ten complete original
+journeys. The fixture now additionally waits for the actual visible Library
+toolbar before issuing Forward. Every existing failure, identity, history-length,
+bookmark, scroll and Back/Forward assertion remains. The same unchanged frozen
+application passes ten amended journeys per engine, including 6× CPU throttling
+in Chromium. This is an interactive readiness correction; application navigation
+and its history/save guards are unchanged. The amended fixture requires its own
+exact-head CI qualification.
+
+## The 15 observed cases and original repair requirements
 
 1. **Series count spacing** — `test_recursive_series_covers_filters_and_readonly_scanning`
    ([case](../../tests/browser/test_books_library.py)). Expected `Series · 1 Book`;
@@ -63,8 +153,15 @@ under investigation; it is neither waived nor counted as fixed.
    ([inherited case](../../tests/browser/test_static_reader.py),
    [Rhea suite](../../tests/browser/test_rhea_ui.py)). Teardown recorded a
    `service-worker.js` access-control error. This traceback does not establish a
-   video-gate assertion failure. Lifecycle/teardown diagnostics are ongoing;
-   cause and resolution remain unconfirmed. Keep this case blocking.
+   video-gate assertion failure. The newer lifecycle trace places the error at
+   immediate hard navigation from Library to Videos, while real worker
+   registration is pending. WebKit emits this engine error even though the
+   registration rejection is caught. The fixture now positively asserts a real
+   active offline worker and waits for the independently loaded optional catalog
+   before replacing the document. The worker-only replay exposed the same WebKit
+   cancellation diagnostic for the catalog, so both actual startup operations
+   are fenced. The fixture neither suppresses errors nor changes video-gate
+   assertions. Final full qualification is pending.
 
 9. **Admitted TTU source and labels** — `test_migration_entrypoint_and_google_drive_labels_use_official_names`
    ([case](../../tests/browser/test_ttu_migration.py)). `Import from Yatsu Reader`

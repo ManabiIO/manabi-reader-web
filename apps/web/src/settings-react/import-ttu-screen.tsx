@@ -151,10 +151,10 @@ export function ImportTtuScreen(
             <ImportTtuFilePicker owner={c} />
           </Dom>
           <Dom as="p">{'Imports stay on this device. No sign-in or cloud access is required.'}</Dom>
-          {c.message ? (
+          {c.message || (c.busy && !c.rows.length) ? (
             <>
               <Dom as="p" role={'status'}>
-                {c.message}
+                {c.message || 'Inspecting ZIPs…'}
               </Dom>
             </>
           ) : null}
@@ -399,9 +399,6 @@ export function ImportTtuScreen(
               {' '}
               {c.busy ? (
                 <>
-                  <Dom as="p" role={'status'}>
-                    {'Inspecting ZIPs…'}
-                  </Dom>
                   <Button variant={'outline'} onClick={c.cancel}>
                     {'Stop inspecting'}
                   </Button>

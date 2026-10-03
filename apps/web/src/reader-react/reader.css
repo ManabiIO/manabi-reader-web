@@ -626,6 +626,11 @@
 .react-reader-header .reader-toolbar [aria-label="Reading tools"] {
   min-height: 44px;
 }
+.react-reader-header .reader-toolbar .reader-icon {
+  inline-size: 20px;
+  block-size: 20px;
+  stroke-width: 1.8;
+}
 @media (max-width: 639px) {
   .react-reader-header {
     /* Five icon actions must remain reachable with enlarged reader text. Keep
@@ -1310,8 +1315,15 @@
   pointer-events: none;
 }
 .react-reader-session .reader-controls {
-  right: max(1rem, env(safe-area-inset-right));
+  width: 44px;
+  height: 44px;
+  right: max(16px, env(safe-area-inset-right));
   bottom: calc(4.5rem + env(safe-area-inset-bottom));
+}
+.react-reader-session .reader-controls svg,
+.react-reader-session .reader-footer button svg {
+  width: 20px;
+  height: 20px;
 }
 .react-reader-session .reader-controls:focus-visible {
   outline: 2px solid var(--ring);
@@ -1335,7 +1347,13 @@
   }
 }
 .react-reader-session .reader-footer button {
+  min-height: 44px;
   pointer-events: auto;
+}
+.react-reader-session .reader-footer button[aria-label] {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
 }
 .react-reader-session .reader-footer.foliate-chrome-hidden {
   visibility: hidden;
@@ -1367,7 +1385,8 @@
   padding: 0.5rem 0.75rem;
   border-radius: 1rem;
   background: var(--background);
-  max-width: calc(100% - 2rem);
+  left: calc(50% - 30px);
+  max-width: calc(100% - 100px);
   width: max-content;
 }
 .react-reader-session .progress-details {

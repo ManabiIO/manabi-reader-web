@@ -11,8 +11,11 @@ import {
   BehaviorSubject,
   combineLatest,
   debounceTime,
-  filter,
+  distinctUntilChanged,
+  EMPTY,
   map,
+  merge,
+  Observable,
   switchMap,
   of,
   ReplaySubject,
@@ -436,12 +439,24 @@ export function createBookReader(
     mutationObserver.disconnect();
     releaseWakeLock();
   });
-  const computedStyle$ = combineLatest([
-    containerEl$.pipe(filter((el): el is HTMLElement => !!el)),
-    combineLatest([width$, height$]).pipe(startWith(0))
-  ]).pipe(
+  const computedStyle$ = containerEl$.pipe(
+    switchMap((el) => {
+      if (!el) return EMPTY;
+      // Text zoom changes rem padding without a window resize. Observe the
+      // border box: the content box can stay unchanged while padding grows.
+      // switchMap and refCount retire the observer with its mounted frame.
+      const frameResize$ = new Observable<void>((subscriber) => {
+        const observer = new ResizeObserver(() => subscriber.next());
+        observer.observe(el, { box: 'border-box' });
+        return () => observer.disconnect();
+      });
+      return merge(combineLatest([width$, height$]), frameResize$).pipe(
+        startWith(0),
+        map(() => el)
+      );
+    }),
     debounceTime(0, animationFrameScheduler),
-    map(([el]) => getComputedStyle(el)),
+    map((el) => getComputedStyle(el)),
     shareReplay({ refCount: true, bufferSize: 1 })
   );
   const contentEl$ = new ReplaySubject<HTMLElement>(1);
@@ -455,14 +470,16 @@ export function createBookReader(
             ? convertRemToPixels(window, 1.75)
             : 0)
       )
-    )
+    ),
+    distinctUntilChanged()
   );
   const contentViewportHeight$ = computedStyle$.pipe(
     map((style) =>
       getAdjustedHeight(
         height - parsePx(style.paddingTop) - parsePx(style.paddingBottom) - heightModifer
       )
-    )
+    ),
+    distinctUntilChanged()
   );
   // Content and font reflows replace the listener lifetime; accumulating
   // subscriptions here makes one ruby click toggle twice after a late font.

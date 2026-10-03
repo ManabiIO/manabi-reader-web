@@ -340,6 +340,11 @@ test('shared navigation retains the original external User guide destination and
   const fixture = await mount(port);
   try {
     await press('Navigate');
+    const current = dialog('Manabi Reader').querySelector('a[aria-current="page"]');
+    assert.ok(current);
+    assert.match(current.textContent, /Statistics/);
+    assert.equal(current.hasAttribute('aria-pressed'), false);
+    assert.equal(current.hasAttribute('aria-selected'), false);
     const guide = dialog('Manabi Reader').querySelector('a[aria-label="User guide"]');
     assert.ok(guide);
     assert.equal(guide.getAttribute('href'), '/Manabi-Web/Docs/');
@@ -503,6 +508,13 @@ test('shared tabs wrap at enlarged text and real calendar buttons keep their mea
     }
 
     await press('Heatmap');
+    // Numeric textStyle overrides use the same root-scalable text path as
+    // ordinary button labels. The browser case verifies actual 200% sizing.
+    const streak = [...fixture.container.querySelectorAll('button')].find((button) =>
+      textOf(button).startsWith('Longest Streak')
+    );
+    assert.ok(streak);
+    assert.equal(window.getComputedStyle(streak.firstElementChild).fontSize, '0.75rem');
     const grid = fixture.container.querySelector('.heatmap-calendar');
     for (const measuredWidth of [1500, 168]) {
       Object.defineProperty(grid, 'clientWidth', { configurable: true, value: measuredWidth });

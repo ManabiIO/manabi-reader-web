@@ -105,6 +105,7 @@ class WebReaderLifetime(LibraryBase):
         reader_url = self.read_book('Settings lifetime')
         self.tool('Settings')
         expect(self.page.get_by_role('heading', name='Settings', exact=True)).to_be_visible()
+        expect(self.page).to_have_url(self.origin + '/reader-web/settings')
         expect(self.page.locator('.book-content')).to_have_count(0)
         settings_url = self.page.url
         settings_id = self.page.evaluate('history.state.id')
@@ -112,6 +113,10 @@ class WebReaderLifetime(LibraryBase):
         expect(self.page).to_have_url(reader_url)
         self.assert_reader()
         self.page.go_forward()
+        # The guarded traversal first visits the URL, restores the outgoing
+        # Reader while it saves, then replays the admitted Settings entry.
+        # Observe the focused screen before inspecting the committed identity.
+        expect(self.page.get_by_role('heading', name='Settings', exact=True)).to_be_visible()
         expect(self.page).to_have_url(settings_url)
         expect(self.page.locator('.book-content')).to_have_count(0)
         self.assertEqual(settings_id, self.page.evaluate('history.state.id'))
@@ -146,6 +151,10 @@ class WebReaderLifetime(LibraryBase):
         self.page.go_back()
         expect(self.page).to_have_url(self.origin + '/reader-web/manage')
         expect(self.page.locator('.book-content')).to_have_count(0)
+        # Retirement removes the Reader before the guarded native Back replay
+        # settles. Its provisional URL is not a committed Library arrival;
+        # wait for that actual screen before issuing the next traversal.
+        expect(self.page.get_by_role('banner', name='Library toolbar', exact=True)).to_be_visible()
         self.page.go_forward()
         expect(self.page).to_have_url(reader_url)
         self.assert_reader()

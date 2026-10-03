@@ -13,22 +13,28 @@ model, owned branded RN/RNW tokens and geometry, suitable SDK 57 Expo UI control
 and small platform/system leaves. The reader and Yomitan are intentionally DOM
 surfaces. Android and web are the only Expo targets.
 
-**Qualified checkpoint:** `616f2846e99f1b4a48a340ddb3406fd06585f02a` passes all three CI jobs: complete retained unit/domain/type/lint checks, both web exports with the selected Statistics/Settings/reader/offline cases in Chromium and WebKit, and actual Android packaged-host seed/restart verification. This is affected-route and synthetic-host evidence, not whole-app/native UI parity. Statistics is the common nonreader screen. Settings shares its field cards, category inventory, workspace composition and visit-local filter state, but specialized editors/action owners are not fully converged.
+**Published full checkpoint:** `5ac1225b737fbeb7e6e7b2535ae68ea1fc24d5a9`
+passed all three jobs in [run 37099596037](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37099596037):
+regression/default web, full web and Android. Both independent web exports passed
+their selected Chromium/WebKit assertions; the full export passed the complete
+shared/local data-safety dispatcher and production Snippets. Actual Android
+packaged-host seed/reload/process-restart, cached-font loading and native Settings
+font-cache read/close passed. This is the defined full migration gate, not
+whole-app/native UI parity. All 589 original browser names remain; the current
+inventory has 600. Specialized legacy matrices outside the gate remain unrun.
 
-The ledger below retains the feature-level acceptance obligations. Native font
-management was published in `d8177880`; concurrent web-parity repairs advanced
-through `5608e3d3` to `ce5e91103bf2f349568ae583d25f498d3612c2b2`.
-Its [full run 37090080266](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37090080266)
-finished with regression/default-web and Android **passing**, and full web
-**failing**. The real APK qualified native Settings font-cache read/close and
-cached-face Blob loading across reload/process restart. Actual font-picker
+The [retained failure ledger](RETAINED-BROWSER-FAILURES.md) preserves failed runs
+and their repairs; those 15 observed cases closed at the full checkpoint above.
+Statistics shares its nonreader composition. Settings shares its workspace,
+field cards, category inventory and visit-local filter; specialized action owners
+and the remaining screens below still need convergence. Actual native font-picker
 import, typography visual parity and device accessibility remain unqualified.
 
-The [finite retained failure ledger](RETAINED-BROWSER-FAILURES.md) records all
-15 distinct failing browser cases, local repairs and the unresolved WebKit
-service-worker teardown diagnostic. The combined shared Library presentation,
-metadata, appearance and retained-flow repairs await qualification on their
-exact published head. No older pass closes these current browser/device gates.
+The subsequent October 3 refinement fixes real 200% Reader inset measurement,
+Continue-card label compression, Statistics hierarchy and current-link semantics.
+Its source-position Return and focused geometry/Statistics cases pass locally in
+Chromium and WebKit. These edits require another full run on their exact published
+head; older green results do not qualify them. The PR records that run's outcome.
 
 Each screen must qualify these seven dimensions on its final source:
 

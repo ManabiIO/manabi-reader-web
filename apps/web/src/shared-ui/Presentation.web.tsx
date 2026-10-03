@@ -19,7 +19,7 @@ export function UiPresentation() {
 [data-ui-button][data-variant='secondary'][aria-expanded='true']:not([aria-disabled='true']) { background-color: var(--secondary) !important; }
 [data-ui-button][data-variant='link']:hover { text-decoration: underline; }
 [data-ui-field] select { width: 100%; min-width: 0; height: auto; min-height: 44px; padding: 8px 36px 8px 10px; border: 1px solid var(--input); border-radius: 10px; background: var(--background); color: var(--foreground); font: inherit; font-size: 1rem; box-shadow: none; }
-[data-ui-control='picker'][data-compact='true'] select { border: 0; background: transparent; border-radius: 0; min-height: 32px; padding: 0 20px 0 0; font-size: 1rem; }
+[data-ui-control='picker'][data-compact='true'] select { border: 0; background: transparent; border-radius: 0; min-height: 32px; padding: 0 20px 0 0; font-size: 0.875rem; }
 [data-ui-control='picker'][data-compact='true'] svg { right: 4px; }
 [data-ui-toggle] label { min-height: 44px; width: 100%; }
 [data-ui-toggle] label > div:last-child { min-width: 0; overflow-wrap: anywhere; }

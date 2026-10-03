@@ -8,6 +8,7 @@ import './primitives.css';
 import React, {
   createContext,
   createElement,
+  useCallback,
   useContext,
   useEffect,
   useId,
@@ -23,7 +24,7 @@ import {
   ChevronLeft,
   ChevronRight,
   List,
-  Type,
+  CaseSensitive,
   AlignLeft,
   AlignJustify,
   Search,
@@ -394,7 +395,7 @@ const icons: Record<string, React.ComponentType<any>> = {
   ChevronLeft,
   ChevronRight,
   List,
-  TextAa: Type,
+  TextAa: CaseSensitive,
   TextAlignLeft: AlignLeft,
   TextAlignJustify: AlignJustify,
   MagnifyingGlass: Search,
@@ -506,6 +507,27 @@ function ModalContent({
     elementRef,
     bindings
   });
+  const backdrop = useRef<HTMLDivElement | null>(null);
+  const cancelBackdropTouchClick = useCallback(
+    (event: TouchEvent) => {
+      if (event.target === backdrop.current && !live.current.closeDisabled) {
+        // React's delegated touch listeners are passive. Cancel the native gesture
+        // so its delayed compatibility click cannot hit newly exposed controls.
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    },
+    [live]
+  );
+  const setBackdrop = useCallback(
+    (element: HTMLDivElement | null) => {
+      backdrop.current?.removeEventListener('touchend', cancelBackdropTouchClick);
+      backdrop.current = element;
+      // Bind during the ref commit, before a fast tap can precede passive effects.
+      element?.addEventListener('touchend', cancelBackdropTouchClick, { passive: false });
+    },
+    [cancelBackdropTouchClick]
+  );
   useEffect(() => {
     if (!modal.open) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -540,6 +562,7 @@ function ModalContent({
   if (!modal.open) return null;
   return createPortal(
     <div
+      ref={setBackdrop}
       className={[
         'reader-modal-backdrop',
         ...scopes,

@@ -16,9 +16,43 @@ around it. The Library refinement is PR #26; this is a separate reader follow-up
   reading appearance stays in the book; width determines whether a spread fits.
   Font, appearance mode and layout are separate choices.
 
-Apple's version selector is explicitly 26. Preserve the Rhea/shadcn foundations:
-opaque surfaces, restrained dividers, existing theme tokens, Phosphor icons,
-Bits UI keyboard behavior and a web-appropriate Library back action.
+Apple's version selector is explicitly 26. Preserve Manabi's identity, theme
+preferences, Japanese typography, keyboard behavior and Library back action.
+The Expo migration targets web and Android. Stock shadcn styling is not a design
+requirement: Expo UI controls can use their platform styling. The Svelte version
+is a behavioral reference, not the ceiling for design quality.
+
+## Actual app screenshots inspected on October 3, 2026
+
+These are Apple's published app screenshots, not screenshots of the marketing
+page. The source guides select iOS 26 or macOS Tahoe 26; Apple can reuse guide
+images across releases, so these are not claimed as fresh device captures.
+
+- [Mac Library and sidebar](https://help.apple.com/assets/67DB47E269E8D943E20D7C8C/67DB47E569E8D943E20D7C92/en_US/7343d8866dcbd4df865352e28de172ce.png),
+  from the [Tahoe guide](https://support.apple.com/en-ca/guide/books/welcome/8.0/mac/26).
+  Cover-led shelves, quiet progress and grouped navigation. Manabi must keep
+  visible title/author labels for imported books and ambiguous covers.
+- [Mac Reader](https://help.apple.com/assets/67DB47E269E8D943E20D7C8C/67DB47E569E8D943E20D7C92/en_US/1ef8e0ea7267fdfbd26bafbb10a8823e.png),
+  from [Read books](https://support.apple.com/en-ca/guide/books/ibks5f526382/8.0/mac/26).
+  Centered context, compact control clusters, generous margins and quiet progress.
+- [iOS Library](https://help.apple.com/assets/69F8EBBDF3B89A4F6E0C704C/69F8EBC43862495245036393/en_US/35fbd046f165a08d5dfcbfb4f31730db.png),
+  from [Organize books](https://support.apple.com/en-ca/guide/iphone/organize-books-iphab219b91/26/ios/26).
+  Clear heading hierarchy, corner actions and stable cover alignment.
+- [iOS Themes & Settings](https://help.apple.com/assets/69F8EBBDF3B89A4F6E0C704C/69F8EBC43862495245036393/en_US/1daaeb078fd1bb92cf18ab82e6a74d07.png),
+  from the [iOS reader guide](https://support.apple.com/en-ca/guide/iphone/iphc1af7c57/26/ios/26).
+  Grouped size controls, six visual theme tiles, distinct close action and reading
+  context behind the sheet. Retain 44px targets and 200% text reflow.
+- [Refreshed App Store Connect dashboard](https://developer.apple.com/app-store-connect/analytics/images/screen-hero-large_2x.png).
+  Apple's [March 25, 2026 announcement](https://developer.apple.com/news/?id=hh6v4b55)
+  explicitly describes a refreshed user experience and publishes a matching
+  dashboard example. Borrow its grouped navigation, restrained cards, aligned
+  date/filter controls and strong measurement hierarchy for Statistics.
+
+[Current apple.com](https://www.apple.com/) and its [Books page](https://www.apple.com/apple-books/)
+are secondary references for clear typography, deliberate spacing and restrained
+primary actions. The Books marketing page contains older images; the versioned
+app screenshots above are the stronger product references. Prefer these hierarchy
+and interaction principles over reproducing Apple-only materials or adding iOS.
 
 ## Implementation
 
@@ -65,4 +99,47 @@ settings workspace. Imported or explicitly selected fonts remain available.
 Closing the sheet returns focus to its live trigger or the persistent reading
 control if outside dismissal has already collapsed the toolbar. The backdrop
 handles fast touch taps directly, without depending on delayed outside-click
-registration in the dialog library.
+registration in the dialog library. A native non-passive backdrop `touchend`
+listener cancels the delayed compatibility click before it can activate a newly
+exposed toolbar action. The ref owns listener setup and teardown; gestures on
+controls inside the dialog remain available.
+
+## Enlarged-text refinement
+
+The October 3 review applies text scaling after every route transition and
+records the computed root font size with each screenshot. Navigation can reset
+a temporary root style; an intended 200% capture is not evidence without that
+measurement. Both Svelte and Expo captures use the corrected sequence.
+
+Reader page insets are observed at their actual border box, so rem padding
+changes without a window resize reach the pagination engine. Unchanged content
+dimensions do not trigger another pagination pass. Source-coordinate Return
+journeys retain their reading and statistics snapshots through this reflow.
+Corner and footer icon controls retain 44px targets with 20px glyphs; expanded
+progress wraps clear of the corner control. Continue artwork remains a 48×72px
+thumbnail so enlarged title, author and progress labels retain usable width.
+
+Statistics Summary uses aligned date/data columns, a quiet range caption,
+compact measurement selectors and row actions at the end. Styled shared headings
+use the same scalable typography path as their labels. Current web navigation
+uses `aria-current="page"`; selected button semantics remain on buttons.
+
+Shared button labels use the same scalable text primitive, including numeric
+font overrides on Heatmap streak/goal summaries. A real browser assertion checks
+that a 12px compact metric becomes 24px at 200% root text, while native retains
+RN font scaling and its existing line height.
+
+## Populated Snippets review
+
+Saved snippet text uses rem sizing, preserving the chosen reading size while
+following browser root-text enlargement in horizontal and vertical reading.
+At 200% root text, the default 20px text becomes 40px; the size controls still
+change the underlying reading preference in 2px steps. Returning to normal
+browser text leaves that preference intact.
+
+Phone snippet cards keep physical 16px insets and an 8px selection gap. This
+preserves room for enlarged titles and excerpts beside the 44px checkbox target.
+At 320px and 200% text, selected copy has 202px of width instead of 140px,
+without horizontal document overflow. The production browser journey checks
+actual text sizing in both orientations, the size controls, copy width and
+selection target reachability.

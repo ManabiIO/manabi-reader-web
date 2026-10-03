@@ -556,6 +556,17 @@ class BooksLibraryBrowser(LibraryBase):
         expect(content.locator('[data-manabi-spine-index="1"]')).to_be_attached()
         self.assertEqual(baseline, self.stores('books', ['bookmark', 'readerStatistic']))
 
+        # Browser text scaling does not dispatch a viewport resize. Re-measure
+        # real rem insets while preserving the pending source-coordinate Return.
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.page.wait_for_function('''() => {
+          const frame = document.querySelector('.reader-page-frame').getBoundingClientRect();
+          return frame.left >= -1 && frame.right <= innerWidth + 1 &&
+            document.documentElement.scrollWidth <= innerWidth + 1;
+        }''')
+        expect(content).to_have_attribute('aria-busy', 'false')
+        self.assertEqual(baseline, self.stores('books', ['bookmark', 'readerStatistic']))
+
         return_button.click()
         expect(return_button).to_have_count(0)
         expect(content.locator('[data-manabi-spine-index="0"]')).to_be_attached(timeout=30000)
@@ -984,6 +995,17 @@ class BooksLibraryBrowser(LibraryBase):
                 cover = card.locator('.cover-surface').bounding_box()
                 self.assertGreaterEqual(cover['y'] - box['y'], 12)
                 self.assertGreaterEqual(box['y'] + box['height'] - cover['y'] - cover['height'], 12)
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        for card in self.page.locator('.continue-card').all():
+            title_box = card.locator('.continue-title').bounding_box()
+            self.assertGreaterEqual(title_box['width'], 96,
+                                    'Enlarged Continue titles must retain readable width')
+            progress = card.locator('.continue-progress')
+            self.assertLessEqual(progress.bounding_box()['height'],
+                                progress.evaluate('e => parseFloat(getComputedStyle(e).lineHeight)') + 1)
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 321)
+        self.page.evaluate('document.documentElement.style.fontSize = "100%"')
         self.choose_view('List')
         for width in (320, 390, 1440):
             self.page.set_viewport_size({'width': width, 'height': 844})
