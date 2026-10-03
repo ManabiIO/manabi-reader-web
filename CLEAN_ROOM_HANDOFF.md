@@ -11,7 +11,7 @@ Before doing any CR-derived target work, read:
 
 | Path | Git blob SHA | Purpose |
 | --- | --- | --- |
-| `CLEAN_ROOM_APPROVALS.md` | `d1f24f6bff15663474b40e68fdc8e63772c3ba0d` | explicit per-feature/work-level authorization ledger |
+| `CLEAN_ROOM_APPROVALS.md` | `fd6b1ea7c76097bf81b5a456fc8eaa0951681cae` | explicit per-feature/work-level authorization ledger |
 
 At this revision, `CLEAN_ROOM_APPROVALS.md` states **Active approvals: None**.
 
