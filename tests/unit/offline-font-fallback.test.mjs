@@ -87,7 +87,6 @@ test('font fallback does not disguise a missing mandatory shell resource', async
   await assert.rejects(h.request(h.scope), /Load failed/);
 });
 
-
 test('lazy packaged font is not claimed by shell or packaged-font caching', () => {
   const h = harness({ lazy: true });
   assert.equal(h.request(), undefined);
