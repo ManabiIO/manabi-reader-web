@@ -44,6 +44,7 @@ import {
 import { libraryNodes, nativeBook, parseLibraryQuery } from './view-model';
 
 export interface LibraryData {
+  uiTheme?: NativeLibraryState['uiTheme'];
   tree: ShelfNode[];
   organization: Organization;
   sources: SourceDescriptor[];
@@ -272,6 +273,7 @@ export class NativeLibraryService {
     const token = this.token();
     const coverToken = this.token();
     const response: NativeLibraryState = {
+      ...(data.uiTheme ? { uiTheme: structuredClone(data.uiTheme) } : {}),
       token,
       coverToken,
       items,

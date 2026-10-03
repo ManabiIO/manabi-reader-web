@@ -293,7 +293,10 @@ test('two independent exports qualify the promoted reader and do not mask defaul
   const binding = read('apps/web/src/runtime/router-binding.tsx');
   for (const source of [layout, route, binding])
     assert.doesNotMatch(source, /qualifyWebReaderLifetime|EXPO_PUBLIC_QUALIFY_WEB_READER_LIFETIME/);
-  assert.match(layout, /Platform\.OS === 'web'\s*\?\s*\(\s*<Slot/);
+  assert.match(
+    layout,
+    /Platform\.OS === 'web'\s*\?\s*\(\s*<Navigator router=\{WebSlotRouter\}>\s*<Navigator\.Slot \/>/
+  );
   assert.match(route, /return <QualifiedWebReader routeUrl=\{url\.href\}/);
   assert.match(binding, /return installQualifiedWebNavigation\(window, adapter, setError\)/);
 });
@@ -391,6 +394,14 @@ for (const [label, mode] of [
           );
         }
         const selected = result.stdout.split('\n').filter((line) => line.startsWith('SELECTED|'));
+        for (const engine of ['chromium', 'webkit'])
+          assert.equal(
+            selected.includes(
+              `SELECTED|${engine}|tests/browser/retained_failure_acceptance_cases.py`
+            ),
+            scope === 'affected',
+            'The bounded regression selection runs automatically; full scope uses original suites'
+          );
         if (scope === 'full' && mode === 'gated') {
           for (const engine of ['chromium', 'webkit'])
             assert.ok(
@@ -484,4 +495,40 @@ test('only the Android job contains the approved KVM setup and existing fresh-AV
   const report = android.steps.at(-1);
   assert.match(report.run, /RUNTIME_OUTCOME.*success/);
   assert.match(report.run, /Android runtime is UNQUALIFIED/);
+});
+
+test('both production exports retain the same exact shared Library shelf/editor browser cases', () => {
+  for (const [job, label] of [
+    [migration.jobs.regression, 'default'],
+    [migration.jobs.web, 'gated']
+  ]) {
+    const script = job.steps.find((step) =>
+      step.name?.includes(
+        label === 'default' ? 'Core default-route acceptance' : 'Retained actual-app assertions'
+      )
+    ).run;
+    assert.ok(
+      script.includes(
+        `run_suite "${label}-shared-library-shelf-$engine" python tests/browser/library_shelf_acceptance_cases.py`
+      )
+    );
+  }
+  const result = spawnSync(
+    'python',
+    ['tests/browser/library_shelf_acceptance_cases.py', '--list'],
+    { encoding: 'utf8' }
+  );
+  assert.equal(result.status, 0, result.stderr);
+  const cases = JSON.parse(result.stdout);
+  assert.equal(cases.length, 8);
+  assert.ok(
+    cases.some((value) =>
+      value.endsWith('test_metadata_cancel_and_concurrent_tab_edits_do_not_overwrite_each_other')
+    )
+  );
+  assert.ok(
+    cases.some((value) =>
+      value.endsWith('test_grid_title_and_author_contrast_across_real_theme_presets')
+    )
+  );
 });

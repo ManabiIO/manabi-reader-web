@@ -5,6 +5,8 @@
  */
 
 import { Fragment, type ReactNode, type CSSProperties } from 'react';
+import { LibraryBookFace } from '../features/library/LibraryBookFace';
+import { bookFaceLayout } from '../features/library/book-face.web';
 /**
  * React/controller port of lib/library/library-workspace.svelte; transactions retain their original guards.
  */
@@ -602,7 +604,7 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
                   <p className={['mt-2 text-sm text-muted-foreground'].filter(Boolean).join(' ')}>
                     {' Series · '}
                     {c.scopedSeriesBooks.length}
-                    {c.scopedSeriesBooks.length === 1 ? 'Book' : 'Books'}
+                    {c.scopedSeriesBooks.length === 1 ? ' Book' : ' Books'}
                     {c.collectionId !== 'books' ? (
                       <>
                         <span>
@@ -804,7 +806,7 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
                       .join(' ')}
                   >
                     {c.visibleBooks.length}
-                    {c.visibleBooks.length === 1 ? 'book' : 'books'}
+                    {c.visibleBooks.length === 1 ? ' book' : ' books'}
                   </p>
                 </>
               ) : (
@@ -946,77 +948,33 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
                                             .filter(Boolean)
                                             .join(' ')}
                                         >
-                                          <div
-                                            className={['book-thumbnail'].filter(Boolean).join(' ')}
-                                          >
-                                            <BookCover
-                                              imagePath={book.imagePath}
-                                              blurred={book.coverBlur}
-                                              title={book.title}
-                                              author={creatorLine(book.creators)}
-                                              identity={book.key}
-                                              direction={book.direction}
-                                              onWidth={(fraction) =>
-                                                c.rememberCoverWidth(book.key, fraction)
-                                              }
-                                            />
-                                            {c.selectedKeys.has(book.key) ? (
-                                              <>
-                                                <span
-                                                  className={['selection-label']
-                                                    .filter(Boolean)
-                                                    .join(' ')}
-                                                >
-                                                  {'Selected'}
-                                                </span>
-                                              </>
-                                            ) : null}
-                                          </div>
-                                          <div className={['book-copy'].filter(Boolean).join(' ')}>
-                                            <h3>{book.title}</h3>
-                                            {creatorLine(book.creators) ? (
-                                              <>
-                                                <p
-                                                  className={['book-author']
-                                                    .filter(Boolean)
-                                                    .join(' ')}
-                                                >
-                                                  {creatorLine(book.creators)}
-                                                </p>
-                                              </>
-                                            ) : null}
-                                            <p
-                                              className={['list-detail'].filter(Boolean).join(' ')}
-                                            >
-                                              {readingLabel(book) === 'Unread' ? (
-                                                <>
-                                                  <span
-                                                    title={'Unread'}
-                                                    className={['new-badge']
-                                                      .filter(Boolean)
-                                                      .join(' ')}
-                                                  >
-                                                    {'NEW'}
-                                                  </span>
-                                                </>
-                                              ) : (
-                                                <>{readingLabel(book)}</>
-                                              )}
-                                              {isFinished(book) && finishedDay(book) ? (
-                                                <>
-                                                  {' · '}
-                                                  {finishedDay(book)}
-                                                </>
-                                              ) : (
-                                                <>
-                                                  {book.bookId &&
-                                                  book.bookId === c.currentBookId ? (
-                                                    <>{' · Reading now'}</>
-                                                  ) : null}
-                                                </>
-                                              )}
-                                            </p>
-                                          </div>
+                                          <LibraryBookFace
+                                            layout={bookFaceLayout}
+                                            title={book.title}
+                                            author={creatorLine(book.creators)}
+                                            readingLabel={readingLabel(book)}
+                                            finishedDay={
+                                              isFinished(book) ? finishedDay(book) : undefined
+                                            }
+                                            readingNow={
+                                              !!book.bookId && book.bookId === c.currentBookId
+                                            }
+                                            selected={c.selectedKeys.has(book.key)}
+                                            grid={c.currentLayout === 'grid'}
+                                            cover={
+                                              <BookCover
+                                                imagePath={book.imagePath}
+                                                blurred={book.coverBlur}
+                                                title={book.title}
+                                                author={creatorLine(book.creators)}
+                                                identity={book.key}
+                                                direction={book.direction}
+                                                onWidth={(fraction) =>
+                                                  c.rememberCoverWidth(book.key, fraction)
+                                                }
+                                              />
+                                            }
+                                          />
                                         </button>
                                         {isFinished(book) && book.bookId ? (
                                           <>
@@ -1074,7 +1032,7 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
                           .join(' ')}
                       >
                         {c.visibleBooks.length}
-                        {c.visibleBooks.length === 1 ? 'book' : 'books'}
+                        {c.visibleBooks.length === 1 ? ' book' : ' books'}
                       </p>
                     </>
                   ) : (

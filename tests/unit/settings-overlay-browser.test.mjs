@@ -240,6 +240,49 @@ test('Custom fonts retains the active dialog content, accessible title, scrollin
     });
 });
 
+test('Custom theme dialog owns every forward and reverse Tab and returns focus without saving', async () => {
+  await fixture(async ({ window, api, until }) => {
+    api.render(true);
+    const { document } = window;
+    await until(() => button(document, 'Add custom theme'), 'theme editor trigger mounts');
+    const trigger = button(document, 'Add custom theme');
+    trigger.focus();
+    trigger.click();
+    await until(() => document.querySelector('dialog[open] input'), 'theme dialog mounts');
+    const dialog = document.querySelector('dialog[open]');
+    // JSDOM has no layout. Supply visible client rects only for this mounted
+    // dialog while the production candidate filtering and keyboard cycle run.
+    const rects = window.HTMLElement.prototype.getClientRects;
+    window.HTMLElement.prototype.getClientRects = function () {
+      return dialog.contains(this) ? [{ width: 44, height: 44 }] : rects.call(this);
+    };
+    const input = dialog.querySelector('input');
+    input.focus();
+    for (const shiftKey of [false, true]) {
+      for (let index = 0; index < 24; index++) {
+        const event = new window.KeyboardEvent('keydown', {
+          key: 'Tab',
+          shiftKey,
+          bubbles: true,
+          cancelable: true
+        });
+        document.activeElement.dispatchEvent(event);
+        assert.equal(
+          event.defaultPrevented,
+          true,
+          'native keyboard preferences cannot skip the cycle'
+        );
+        assert.notEqual(document.activeElement, dialog);
+        assert.ok(dialog.contains(document.activeElement));
+      }
+    }
+    dialog.dispatchEvent(new window.Event('cancel', { cancelable: true }));
+    await until(() => !document.querySelector('dialog[open]'), 'theme dialog closes');
+    await until(() => document.activeElement === trigger, 'same theme trigger regains focus');
+    assert.equal(window.localStorage.getItem('customThemes'), null);
+  }, 'appearance');
+});
+
 test('size presets reposition when controller content mounts or grows without a viewport event', async () => {
   await fixture(async ({ window, api, until, observers }) => {
     Object.defineProperties(window, {

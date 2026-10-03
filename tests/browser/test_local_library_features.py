@@ -24,6 +24,7 @@ import zipfile
 from http.server import BaseHTTPRequestHandler
 from playwright.sync_api import expect
 from reader_controls import reveal_reader_controls
+from offline_shell import enter_offline_shell
 from test_static_reader import ThreadingHTTPServer, StaticHandler
 from test_books_library import LibraryBase, book, cross_resource_book
 
@@ -351,7 +352,7 @@ class LocalFeatureBrowser(LibraryBase):
         self.assertEqual(0,self.dav.state['puts'])
         self.assertFalse(any(r[0]=='MKCOL' for r in self.dav.state['requests']))
         self.go_library()
-        self.page.evaluate('() => navigator.serviceWorker.ready.then(() => true)')
+        enter_offline_shell(self.page, self.origin + '/reader-web/')
         self.assertTrue(self.page.evaluate('!!navigator.serviceWorker.controller'))
         self.page.evaluate('window.__beforeOfflineReload = true')
         with self.origin_unavailable():

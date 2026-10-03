@@ -11,7 +11,7 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const { outputFiles } = await build({
   stdin: {
     contents: `
-      import React, { act, useReducer } from 'react';
+      import React, { act, useReducer, useState } from 'react';
       import { createRoot } from 'react-dom/client';
       import { Dom, useReaderBindings, Dialog as ReaderDialog, Sheet as ReaderSheet, Menu as ReaderMenu } from './reader-react/dom';
       import { HeaderView } from './library-react/header';
@@ -24,6 +24,16 @@ const { outputFiles } = await build({
       function ReaderModalFixture({sheet = false}) {
         const Modal = sheet ? ReaderSheet : ReaderDialog;
         return <Modal.Root open><Modal.Content><Modal.Title>Reader fixture</Modal.Title><Modal.Description>Reader description</Modal.Description></Modal.Content></Modal.Root>;
+      }
+      function ReaderDismissalFixture({preventOutside = false}) {
+        const [open, setOpen] = useState(false);
+        return <><button onClick={() => setOpen(true)}>Themes & Settings</button>
+          <ReaderSheet.Root open={open} onOpenChange={setOpen}>
+            <ReaderSheet.Content onInteractOutside={event => {
+              window.outsideInteractions++;
+              if (preventOutside) event.preventDefault();
+            }}><ReaderSheet.Title>Themes & Settings</ReaderSheet.Title></ReaderSheet.Content>
+          </ReaderSheet.Root></>;
       }
       installRouter({ push: path => routes.push(path), replace: path => routes.push(path) });
       function ReaderMenuFixture() {
@@ -75,7 +85,7 @@ const { outputFiles } = await build({
       window.controls = {
         routes,
         act: callback => { act(callback); },
-        render: (kind, props = {}) => { act(() => root.render(<React.StrictMode>{kind === 'reader-menu' ? <ReaderMenuFixture /> : kind === 'reader-dialog' ? <ReaderModalFixture {...props} /> : kind === 'nested-menu' ? <NestedMenuFixture /> : kind === 'html' ? <Dom as="main" {...props} /> : kind === 'header' ? <HeaderView {...props} /> : kind === 'binding' ? <BindingFixture {...props} /> : kind === 'action-menu' ? <ActionMenu {...props}><Menu.Item>Batch action</Menu.Item></ActionMenu> : kind === 'organization' ? <OrganizationView {...props} /> : kind === 'tabs' ? <div className="library-react"><LibraryTabs /></div> : <MenuFixture />}</React.StrictMode>)); },
+        render: (kind, props = {}) => { act(() => root.render(<React.StrictMode>{kind === 'reader-dismissal' ? <ReaderDismissalFixture {...props} /> : kind === 'reader-menu' ? <ReaderMenuFixture /> : kind === 'reader-dialog' ? <ReaderModalFixture {...props} /> : kind === 'nested-menu' ? <NestedMenuFixture /> : kind === 'html' ? <Dom as="main" {...props} /> : kind === 'header' ? <HeaderView {...props} /> : kind === 'binding' ? <BindingFixture {...props} /> : kind === 'action-menu' ? <ActionMenu {...props}><Menu.Item>Batch action</Menu.Item></ActionMenu> : kind === 'organization' ? <OrganizationView {...props} /> : kind === 'tabs' ? <div className="library-react"><LibraryTabs /></div> : <MenuFixture />}</React.StrictMode>)); },
         unmount: () => { act(() => root.unmount()); }
       };
     `,
@@ -128,6 +138,7 @@ async function fixture(run) {
   const { window } = dom;
   window.IS_REACT_ACT_ENVIRONMENT = true;
   window.selections = 0;
+  window.outsideInteractions = 0;
   window.choices = [];
   window.scrollTo = () => {};
   window.HTMLDialogElement.prototype.showModal = function () {
@@ -207,6 +218,44 @@ test('Library menu mounts as a fixed layered portal before accepting selection',
     assert.equal(window.selections, 1);
     assert.equal(window.document.querySelector('[role=menu]'), null);
     assert.equal(window.document.activeElement, trigger);
+  });
+});
+
+test('Reader backdrop owns the complete touch activation and restores its trigger without click-through', async () => {
+  await fixture(async ({ window, api }) => {
+    await api.render('reader-dismissal');
+    const trigger = window.document.querySelector('#root button');
+    await api.act(() => {
+      trigger.focus();
+      trigger.click();
+    });
+    const backdrop = window.document.querySelector('.reader-modal-backdrop');
+    assert.ok(backdrop);
+    let escapedClicks = 0;
+    window.addEventListener('click', () => escapedClicks++);
+    await api.act(() => {
+      backdrop.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true }));
+      backdrop.dispatchEvent(new window.MouseEvent('pointerup', { bubbles: true }));
+    });
+    assert.ok(backdrop.isConnected, 'the touch target survives until the click is dispatched');
+    const click = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+    await api.act(() => backdrop.dispatchEvent(click));
+    assert.equal(click.defaultPrevented, true);
+    assert.equal(escapedClicks, 0, 'reader/window handlers cannot reinterpret the dismissal');
+    assert.equal(window.outsideInteractions, 1);
+    assert.equal(window.document.querySelector('[role=dialog]'), null);
+    assert.equal(window.document.activeElement, trigger);
+  });
+});
+
+test('Reader outside-interaction cancellation keeps its modal open', async () => {
+  await fixture(async ({ window, api }) => {
+    await api.render('reader-dismissal', { preventOutside: true });
+    await api.act(() => window.document.querySelector('#root button').click());
+    const backdrop = window.document.querySelector('.reader-modal-backdrop');
+    await api.act(() => backdrop.click());
+    assert.equal(window.outsideInteractions, 1);
+    assert.ok(backdrop.isConnected);
   });
 });
 

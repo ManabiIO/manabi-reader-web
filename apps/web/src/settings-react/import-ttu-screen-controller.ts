@@ -17,7 +17,7 @@ import { importLabels, MigrationConflict, type ImportPart } from '$lib/manabi/tt
 import { ReaderController } from '../reader-react/controller';
 import { type SettingsContextValue } from './context';
 
-export type ImportTtuScreenProps = Record<string, unknown>;
+export type ImportTtuScreenProps = Record<string, unknown> & { routeUrl?: string };
 
 export function createImportTtuScreen(
   props: ImportTtuScreenProps,
@@ -50,10 +50,13 @@ export function createImportTtuScreen(
   let completed = 0;
   let total = 0;
   let page = 0;
-  let yatsu = false;
+  let routeUrl = props.routeUrl;
+  const sourceIsYatsu = (url: string) =>
+    new URL(url, 'https://reader.invalid').searchParams.get('source') === 'yatsu';
+  let yatsu = routeUrl !== undefined && sourceIsYatsu(routeUrl);
   const pageSize = 50;
   __readerController.observeSource(
-    () => routePage,
+    () => (routeUrl === undefined ? routePage : undefined),
     (value) => {
       yatsu = value.url.searchParams.get('source') === 'yatsu';
     }
@@ -229,7 +232,10 @@ export function createImportTtuScreen(
   );
   __readerController.onMount(() => {
     __readerController.changed(
-      (yatsu = new URLSearchParams(window.location.search).get('source') === 'yatsu')
+      (yatsu =
+        routeUrl === undefined
+          ? new URLSearchParams(window.location.search).get('source') === 'yatsu'
+          : sourceIsYatsu(routeUrl))
     );
     if (filePicker) consumeSelection(filePicker);
     void migratedBookChoices()
@@ -387,7 +393,13 @@ export function createImportTtuScreen(
       ignored = nextValue;
       __readerController.invalidate();
     },
-    updateProps(_next: Record<string, unknown>) {}
+    updateProps(next: ImportTtuScreenProps) {
+      if (!Object.hasOwn(next, 'routeUrl')) return;
+      if (routeUrl === next.routeUrl) return;
+      routeUrl = next.routeUrl;
+      if (routeUrl !== undefined) yatsu = sourceIsYatsu(routeUrl);
+      __readerController.invalidate();
+    }
   };
   return api;
 }

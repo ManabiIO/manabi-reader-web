@@ -19,21 +19,24 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Button, Host, Switch, TextInput, useNativeState } from '@expo/ui';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
+import type { UiTheme } from '../shared-ui/theme';
 import type { SettingField } from '../platform/runtime-contract';
 
 export function Action({
   label,
   onPress,
   disabled = false,
-  variant = 'outlined'
+  variant = 'outlined',
+  theme
 }: {
   label: string;
   onPress(): void;
   disabled?: boolean;
   variant?: 'filled' | 'outlined' | 'text';
+  theme?: UiTheme;
 }) {
   return (
-    <Host matchContents>
+    <Host matchContents colorScheme={theme?.mode} seedColor={theme?.seedColor}>
       <Button label={label} onPress={onPress} disabled={disabled} variant={variant} />
     </Host>
   );
@@ -41,34 +44,42 @@ export function Action({
 export function Screen({
   title,
   children,
-  actions
+  actions,
+  theme
 }: {
   title: string;
   children: ReactNode;
   actions?: ReactNode;
+  theme?: UiTheme;
 }) {
   const { error, clearError } = useReaderRuntime();
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={[styles.screen, theme && { backgroundColor: theme.colors.background }]}>
       <View style={styles.header}>
-        <Text accessibilityRole="header" style={styles.heading}>
+        <Text
+          accessibilityRole="header"
+          style={[styles.heading, theme && { color: theme.colors.foreground }]}
+        >
           {title}
         </Text>
         {actions}
       </View>
       {error ? (
-        <View accessibilityRole="alert" style={styles.error}>
-          <Text>{error}</Text>
-          <Action label="Dismiss" onPress={clearError} />
+        <View
+          accessibilityRole="alert"
+          style={[styles.error, theme && { backgroundColor: theme.colors.destructiveBackground }]}
+        >
+          <Text style={theme && { color: theme.colors.foreground }}>{error}</Text>
+          <Action theme={theme} label="Dismiss" onPress={clearError} />
         </View>
       ) : null}
       {children}
-      <View style={styles.navigation}>
-        <Action label="Library" onPress={() => router.replace('/manage')} />
-        <Action label="Snippets" onPress={() => router.push('/snippets')} />
-        <Action label="Statistics" onPress={() => router.push('/statistics')} />
-        <Action label="Settings" onPress={() => router.push('/settings')} />
-        <Action label="Accounts" onPress={() => router.push('/connections')} />
+      <View style={[styles.navigation, theme && { borderTopColor: theme.colors.border }]}>
+        <Action theme={theme} label="Library" onPress={() => router.replace('/manage')} />
+        <Action theme={theme} label="Snippets" onPress={() => router.push('/snippets')} />
+        <Action theme={theme} label="Statistics" onPress={() => router.push('/statistics')} />
+        <Action theme={theme} label="Settings" onPress={() => router.push('/settings')} />
+        <Action theme={theme} label="Accounts" onPress={() => router.push('/connections')} />
       </View>
     </SafeAreaView>
   );

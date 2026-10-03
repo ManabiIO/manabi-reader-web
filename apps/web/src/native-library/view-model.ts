@@ -16,7 +16,8 @@ import {
   wantToReadCollection,
   WANT_TO_READ_ID
 } from '../lib/library/want-to-read';
-import { isFinished, progressFraction } from '../lib/library/completion';
+import { finishedDay, isFinished, progressFraction } from '../lib/library/completion';
+import { readingLabel } from '../lib/library/reading-state';
 import { foldSearch } from '../lib/library/search-normalization';
 import { decodeBookBinary } from '../lib/data/database/books-db/book-binary';
 import { SortDirection } from '../lib/data/sort-types';
@@ -29,7 +30,8 @@ import {
   LIBRARY_PAGE_LIMIT,
   LIBRARY_SORTS,
   type LibraryQuery,
-  type NativeLibraryBook
+  type NativeLibraryBook,
+  type LibraryUiTheme
 } from './contract';
 
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -162,8 +164,9 @@ export function nativeBook(
     bookId: book.bookId,
     characters: book.characters,
     progress: progressFraction(book.progress),
+    readingLabel: readingLabel(book),
     finished: isFinished(book),
-    finishedOn: book.completion?.finishedOn,
+    finishedOn: finishedDay(book),
     wantToRead: collectionContains(wantToReadCollection(organization), book),
     coverBlur: !!book.coverBlur,
     canChangeCover: !!(
@@ -221,4 +224,19 @@ function nativeCoverPath(value: BookSummary['coverImage']): string | Blob {
   } catch {
     return '';
   }
+}
+
+/** The shelf needs only the selected palette, never the entire custom-theme catalogue. */
+export function selectedLibraryTheme(
+  themeId: string,
+  appearance: NonNullable<LibraryUiTheme['appearance']>,
+  customThemes: NonNullable<LibraryUiTheme['customThemes']>
+): LibraryUiTheme {
+  return {
+    themeId,
+    appearance,
+    customThemes: Object.hasOwn(customThemes, themeId)
+      ? { [themeId]: structuredClone(customThemes[themeId]) }
+      : {}
+  };
 }

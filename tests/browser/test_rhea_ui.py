@@ -662,8 +662,12 @@ class RheaReader(previous.RefinedAppearance):
         more = self.page.get_by_role('menu').last
         for name in ['Characters','Last Update','Progress','Bookmarked']:
             expect(more.get_by_role('menuitemradio', name=name, exact=True)).to_be_visible()
-        self.page.keyboard.press('Escape')
-        self.page.keyboard.press('Escape')
+        # Escape closes one submenu at a time. More Sort Options is nested
+        # below Sort by…, View Options, and the root Library actions menu.
+        for remaining in (3, 2, 1, 0):
+            self.page.keyboard.press('Escape')
+            expect(self.page.get_by_role('menu')).to_have_count(remaining)
+        expect(self.page.get_by_role('button', name='Library actions', exact=True)).to_be_focused()
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         self.page.get_by_role('button', name='Select All Visible', exact=True).click()

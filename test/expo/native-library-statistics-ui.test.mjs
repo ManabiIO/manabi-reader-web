@@ -23,13 +23,14 @@ const output = mkdtempSync(join(tmpdir(), 'library-statistics-ui-'));
 process.on('exit', () => rmSync(output, { recursive: true, force: true }));
 const fixture = `import React,{useRef} from 'react';
 export const View=({children})=><div>{children}</div>; export const ScrollView=View,SafeAreaView=View,Host=View;
-export const Text=({children})=><span>{children}</span>; export const StyleSheet={create:x=>x};
+export const Text=({children})=><span>{children}</span>; export const StyleSheet={create:x=>x,flatten:x=>Object.assign({},...(Array.isArray(x)?x.flat(Infinity):[x]).filter(Boolean))};
+export const Platform={OS:"android"}; export const useColorScheme=()=>"light";
 export const ActivityIndicator=()=>null; export const Modal=({visible,children})=>visible?<section>{children}</section>:null;
 export const Pressable=({children,onPress,disabled})=><button disabled={disabled} onClick={onPress}>{children}</button>;
 export const FlatList=({data,renderItem})=><div>{data.map(item=><div key={item.key}>{renderItem({item})}</div>)}</div>;
-export const useNativeState=value=>useRef({value}).current; export const TextInput=()=>null; export const Switch=()=>null;
-export const Action=({label,onPress,disabled})=><button disabled={disabled} onClick={onPress}>{label}</button>;
-export const Screen=({actions,children})=><main>{actions}{children}</main>;
+export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder})=><input value={value.value} onChange={event=>onChangeText?.(event.target.value)} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=()=>null;
+export const Action=({label,onPress,disabled,theme})=><button data-seed={theme?.seedColor} disabled={disabled} onClick={onPress}>{label}</button>;
+export const Screen=({actions,children,theme})=><main data-mode={theme?.mode} data-background={theme?.colors.background}>{actions}{children}</main>;
 export const Alert={alert:(...args)=>globalThis.libraryStatisticsUI.confirmations.push(args)};
 export const useReaderRuntime=()=>globalThis.libraryStatisticsUI.runtime;
 export const usePathname=()=>globalThis.libraryStatisticsUI.pathname;
@@ -79,6 +80,7 @@ const book = {
   bookId: 1,
   characters: 100,
   progress: 0,
+  readingLabel: 'Unread',
   finished: false,
   wantToRead: false,
   coverBlur: false,
@@ -105,7 +107,7 @@ const deferred = () => {
   });
   return { promise, resolve, reject };
 };
-async function mount(t, override) {
+async function mount(t, override, uiTheme) {
   const calls = [],
     routes = [],
     confirmations = [];
@@ -117,6 +119,7 @@ async function mount(t, override) {
     if (method === 'library.state')
       return {
         token: 'library-' + ++serial,
+        uiTheme,
         coverToken: 'cover',
         items: [book],
         total: 1,
@@ -329,4 +332,42 @@ test('Library account ABA permanently retires an in-flight navigation-only admis
   assert.equal(f.routes.length, 0);
   assert.equal(f.confirmations.length, 0);
   assert.equal(f.calls.filter((call) => call.method === 'statistics.action').length, 0);
+});
+
+test('mounted native Library applies the saved appearance to its screen and Expo actions and refreshes without settings writes', async (t) => {
+  const uiTheme = { themeId: 'manabi-theme', appearance: 'dark', customThemes: {} };
+  const f = await mount(t, undefined, uiTheme);
+  const root = () => f.container.querySelector('main');
+  assert.equal(root().dataset.mode, 'dark');
+  const dark = root().dataset.background;
+  const action = [...f.container.querySelectorAll('button')].find(
+    (button) => button.textContent === 'Refresh'
+  );
+  const darkSeed = action.dataset.seed;
+  assert.ok(darkSeed);
+  assert.match(f.container.textContent, /NEW/);
+  uiTheme.appearance = 'light';
+  await click(f, 'Refresh');
+  assert.equal(root().dataset.mode, 'light');
+  assert.notEqual(root().dataset.background, dark);
+  assert.notEqual(action.dataset.seed, darkSeed);
+  assert.ok(f.calls.every((call) => call.method === 'library.state'));
+});
+
+test('native metadata uses the complete shared field limits and blocks editing during an admitted save', async (t) => {
+  const gate = deferred();
+  const f = await mount(t, (method) => (method === 'library.action' ? gate.promise : undefined));
+  await click(f, 'Details: My book');
+  const field = (placeholder) =>
+    [...f.container.querySelectorAll('input')].find((input) => input.placeholder === placeholder);
+  assert.equal(field('Authors (one per line)').maxLength, 16415);
+  assert.equal(field('Author sort names (matching lines, optional)').maxLength, 16415);
+  assert.equal(field('Tags (one per line)').maxLength, 15423);
+  assert.equal(field('Description').dataset.rows, '5');
+  assert.ok(field('For example, 2024-03-01'));
+  await click(f, 'Save metadata');
+  assert.equal(field('Title').disabled, true);
+  assert.equal(field('Authors (one per line)').disabled, true);
+  assert.equal(f.calls.filter((call) => call.method === 'library.action').length, 1);
+  await act(async () => gate.resolve({ saved: true }));
 });

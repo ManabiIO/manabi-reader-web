@@ -81,10 +81,86 @@ test('retirement during a late cache read releases earlier URLs and never create
   );
   await entered.promise;
   abort.abort();
+  assert.deepEqual(
+    owner.revoked,
+    [owner.created[0].url],
+    'retirement must release earlier URLs before the blocked cache read settles'
+  );
   gate.resolve();
   await assert.rejects(pending);
   assert.equal(owner.created.length, 1);
   assert.deepEqual(owner.revoked, [owner.created[0].url]);
+});
+test('retirement during a suspended blob read releases prepared URLs immediately and rejects late bytes', async () => {
+  const owner = urls(),
+    gate = deferred(),
+    entered = deferred(),
+    abort = new AbortController();
+  const pending = embeddedFontStyleSheet(
+    [font(), font('Second', 'second.ttf')],
+    {
+      match: async (path) =>
+        path.endsWith('second.ttf')
+          ? {
+              async blob() {
+                entered.resolve();
+                return gate.promise;
+              }
+            }
+          : new Response('first font bytes')
+    },
+    abort.signal,
+    owner
+  );
+  await entered.promise;
+  abort.abort();
+  assert.deepEqual(owner.revoked, [owner.created[0].url]);
+  gate.resolve(new Blob(['late font bytes']));
+  await assert.rejects(pending);
+  assert.equal(owner.created.length, 1);
+  assert.equal(owner.revoked.length, 1);
+});
+test('font resource cleanup removes its abort subscription on success disposal, abort and failures', async () => {
+  for (const outcome of ['dispose', 'abort', 'error', 'already-aborted']) {
+    const owner = urls(),
+      abort = new AbortController(),
+      active = new Set();
+    const add = abort.signal.addEventListener.bind(abort.signal);
+    const remove = abort.signal.removeEventListener.bind(abort.signal);
+    abort.signal.addEventListener = (type, listener, options) => {
+      if (type === 'abort') active.add(listener);
+      add(type, listener, options);
+    };
+    abort.signal.removeEventListener = (type, listener, options) => {
+      if (type === 'abort') active.delete(listener);
+      remove(type, listener, options);
+    };
+    if (outcome === 'already-aborted') abort.abort();
+    const pending = embeddedFontStyleSheet(
+      [font()],
+      {
+        match: async () => {
+          if (outcome === 'error') throw new Error('cache unavailable');
+          return new Response('font bytes');
+        }
+      },
+      abort.signal,
+      owner
+    );
+    if (outcome === 'error' || outcome === 'already-aborted') {
+      await assert.rejects(pending);
+      assert.equal(active.size, 0, outcome);
+      continue;
+    }
+    const result = await pending;
+    assert.equal(active.size, 1, 'returned resource retains its lifetime subscription');
+    if (outcome === 'abort') abort.abort();
+    else result.dispose();
+    assert.equal(active.size, 0, outcome);
+    result.dispose();
+    abort.abort();
+    assert.deepEqual(owner.revoked, [owner.created[0].url]);
+  }
 });
 test('cache failures revoke prepared font resources instead of retaining a half-published stylesheet', async () => {
   const owner = urls();

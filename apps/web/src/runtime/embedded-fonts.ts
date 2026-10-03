@@ -29,9 +29,13 @@ export async function embeddedFontStyleSheet(
   const dispose = () => {
     if (disposed) return;
     disposed = true;
+    signal.removeEventListener('abort', dispose);
     for (const url of resources.values()) urls.revoke(url);
     resources.clear();
   };
+  // Cache reads cannot be cancelled. Release already-created URLs immediately
+  // on retirement rather than waiting for a later match/blob read to settle.
+  signal.addEventListener('abort', dispose, { once: true });
   try {
     signal.throwIfAborted();
     if (Array.isArray(fonts))

@@ -5,7 +5,9 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
+import { UiText as Text } from '../shared-ui/Typography';
+import { useUiTheme } from '../shared-ui/theme';
 import { validNativeLibraryCover, type NativeLibraryCover } from './cover-contract';
 
 export function NativeBookCover({
@@ -21,6 +23,15 @@ export function NativeBookCover({
   blurred: boolean;
   grid?: boolean;
 }) {
+  const { colors } = useUiTheme();
+  const styles = {
+    ...baseStyles,
+    frame: [baseStyles.frame, { backgroundColor: colors.muted }],
+    placeholder: [baseStyles.placeholder, { backgroundColor: colors.muted }],
+    title: [baseStyles.title, { color: colors.foreground }],
+    author: [baseStyles.author, { color: colors.mutedForeground }],
+    binding: [baseStyles.binding, { backgroundColor: colors.border }]
+  };
   const [failed, setFailed] = useState('');
   const uri = validNativeLibraryCover(image) ? image.uri : '';
   useEffect(() => setFailed(''), [uri]);
@@ -57,12 +68,11 @@ export function NativeBookCover({
     </View>
   );
 }
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   frame: {
     width: 76,
     height: 114,
     borderRadius: 4,
-    backgroundColor: '#e9ede2',
     overflow: 'hidden'
   },
   grid: { width: '100%', height: 196, marginBottom: 9 },
@@ -71,17 +81,15 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: 8,
-    gap: 7,
-    backgroundColor: '#e5ecda'
+    gap: 7
   },
-  title: { fontSize: 12, lineHeight: 16, fontWeight: '600', color: '#344331', textAlign: 'center' },
-  author: { fontSize: 10, color: '#51614c', textAlign: 'center' },
+  title: { fontSize: 12, lineHeight: 16, fontWeight: '600', textAlign: 'center' },
+  author: { fontSize: 10, textAlign: 'center' },
   binding: {
     position: 'absolute',
     top: 0,
     bottom: 0,
     left: 0,
-    width: 3,
-    backgroundColor: '#00000012'
+    width: 3
   }
 });

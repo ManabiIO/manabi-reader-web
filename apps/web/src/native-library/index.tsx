@@ -4,7 +4,14 @@
  * All rights reserved.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+  type ReactNode
+} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,15 +20,17 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
+  useColorScheme,
   View,
   type ViewToken
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Host, Switch, TextInput, useNativeState } from '@expo/ui';
+import { Host as ExpoHost, Switch, TextInput, useNativeState } from '@expo/ui';
 import { router, usePathname } from 'expo-router';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
-import { Screen, Action } from '../screens/NativeScreens';
+import { Screen, Action as NativeAction } from '../screens/NativeScreens';
+import { UiText as Text } from '../shared-ui/Typography';
+import { UiThemeProvider, useUiTheme, createUiTheme, type UiTheme } from '../shared-ui/theme';
 import {
   LIBRARY_SORTS,
   type LibraryAction,
@@ -32,6 +41,12 @@ import {
 import { reconcileNativeSelection } from './selection';
 import { NativeLibraryContentSearch } from './content-search';
 import { NativeBookCover } from './cover';
+import { LibraryBookFace } from '../features/library/LibraryBookFace';
+import { bookFaceLayout } from '../features/library/book-face';
+import {
+  LibraryMetadataFields,
+  type LibraryMetadataLayout
+} from '../features/library/LibraryMetadataFields';
 import { NativeEditorsPicks } from './catalog';
 import { NativeLibraryCoverController, type NativeCoverState } from './cover-controller';
 import type {
@@ -39,19 +54,51 @@ import type {
   NativeStatisticsSnapshot
 } from '../statistics-react/native-contract';
 
+function Action(props: ComponentProps<typeof NativeAction>) {
+  const theme = useUiTheme();
+  return <NativeAction {...props} theme={theme} />;
+}
+function Host(props: ComponentProps<typeof ExpoHost>) {
+  const theme = useUiTheme();
+  return <ExpoHost {...props} colorScheme={theme.mode} seedColor={theme.seedColor} />;
+}
+function useLibraryStyles(override?: UiTheme) {
+  const provided = useUiTheme();
+  const { colors } = override ?? provided;
+  return {
+    ...baseStyles,
+    label: [baseStyles.label, { color: colors.foreground }],
+    card: [baseStyles.card, { backgroundColor: colors.card, borderColor: colors.border }],
+    selected: [
+      baseStyles.selected,
+      { backgroundColor: colors.accent, borderColor: colors.primary }
+    ],
+    sheet: [baseStyles.sheet, { backgroundColor: colors.background }],
+    collection: [baseStyles.collection, { backgroundColor: colors.card }],
+    error: [baseStyles.error, { backgroundColor: colors.destructiveBackground }]
+  };
+}
+
 function Field({
   label,
   value,
   onChange,
   multiline = false,
-  limit = 1000
+  limit = 1000,
+  rows = 3,
+  disabled = false,
+  placeholder
 }: {
   label: string;
   value: string;
   onChange(value: string): void;
   multiline?: boolean;
   limit?: number;
+  rows?: number;
+  disabled?: boolean;
+  placeholder?: string;
 }) {
+  const styles = useLibraryStyles();
   const native = useNativeState(value);
   useEffect(() => {
     native.value = value;
@@ -59,14 +106,20 @@ function Field({
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
-      <Host matchContents>
+      <Host
+        matchContents={{ vertical: true }}
+        accessibilityLabel={label}
+        style={{ width: '100%', minHeight: 48 }}
+      >
         <TextInput
           value={native}
-          placeholder={label}
+          placeholder={placeholder ?? label}
+          editable={!disabled}
           maxLength={limit}
           multiline={multiline}
-          numberOfLines={multiline ? 3 : 1}
+          numberOfLines={multiline ? rows : 1}
           onChangeText={(text) => {
+            if (disabled) return;
             native.value = text;
             onChange(text);
           }}
@@ -75,7 +128,24 @@ function Field({
     </View>
   );
 }
+const metadataLayout: LibraryMetadataLayout = {
+  Publication: ({ children }) => <View style={{ gap: 14 }}>{children}</View>,
+  Field: ({ label, value, onChange, limit, rows, disabled, placeholder }) => (
+    <Field
+      label={label}
+      value={value}
+      onChange={onChange}
+      limit={limit}
+      multiline={!!rows}
+      rows={rows}
+      disabled={disabled}
+      placeholder={placeholder}
+    />
+  )
+};
+
 function Sheet({ title, close, children }: { title: string; close(): void; children: ReactNode }) {
+  const styles = useLibraryStyles();
   return (
     <Modal visible animationType="slide" onRequestClose={close}>
       <SafeAreaView style={styles.sheet}>
@@ -136,6 +206,14 @@ function Library() {
   const [search, setSearch] = useState('');
   const [searchMode, setSearchMode] = useState<'metadata' | 'passages'>('metadata');
   const [state, setState] = useState<NativeLibraryState>();
+  const systemMode = useColorScheme();
+  const appearance = state?.uiTheme?.appearance ?? 'system';
+  const uiTheme = createUiTheme(
+    state?.uiTheme?.themeId ?? 'manabi-theme',
+    appearance === 'system' ? (systemMode === 'dark' ? 'dark' : 'light') : appearance,
+    state?.uiTheme?.customThemes
+  );
+  const styles = useLibraryStyles(uiTheme);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -485,8 +563,9 @@ function Library() {
     setCatalogVisible(false);
     void refresh();
   };
-  return (
+  const content = (
     <Screen
+      theme={uiTheme}
       title="Library"
       actions={
         <Action
@@ -779,34 +858,37 @@ function Library() {
                       else setError(item.unavailableReason ?? 'This book is unavailable.');
                     }}
                   >
-                    <View style={grid ? styles.gridBook : styles.listBook}>
-                      <NativeBookCover
-                        image={
-                          covers.token === state?.coverToken && !loading
-                            ? covers.images.get(item.key)
-                            : undefined
-                        }
-                        title={item.title}
-                        creators={item.creators}
-                        blurred={item.coverBlur}
-                        grid={grid}
-                      />
-                      <View style={styles.bookText}>
-                        <Text style={styles.title}>{item.title}</Text>
-                        {!!item.creators && <Text>{item.creators}</Text>}
-                        <Text>
-                          {item.finished
-                            ? `Finished${item.finishedOn ? ` · ${item.finishedOn}` : ''}`
-                            : `${Math.round(item.progress * 100)}% read`}
-                          {item.wantToRead ? ' · Want to Read' : ''}
-                        </Text>
-                        <Text>
-                          {item.source}
-                          {item.coverBlur ? ' · Cover blurred' : ''}
-                        </Text>
-                        {!item.available && <Text>Import required</Text>}
-                      </View>
-                    </View>
+                    <LibraryBookFace
+                      layout={bookFaceLayout}
+                      title={item.title}
+                      author={item.creators}
+                      readingLabel={item.readingLabel}
+                      finishedDay={item.finishedOn}
+                      readingNow={
+                        item.available && !!item.bookId && item.bookId === snapshot.lastBookId
+                      }
+                      selected={selected.includes(item.key)}
+                      grid={grid}
+                      cover={
+                        <NativeBookCover
+                          image={
+                            covers.token === state?.coverToken && !loading
+                              ? covers.images.get(item.key)
+                              : undefined
+                          }
+                          title={item.title}
+                          creators={item.creators}
+                          blurred={item.coverBlur}
+                          grid={grid}
+                        />
+                      }
+                    />
+                    {item.wantToRead && <Text>Want to Read</Text>}
+                    <Text>
+                      {item.source}
+                      {item.coverBlur ? ' · Cover blurred' : ''}
+                    </Text>
+                    {!item.available && <Text>Import required</Text>}
                   </Pressable>
                   <Action
                     label={`Details: ${item.title.slice(0, 40)}`}
@@ -1173,6 +1255,7 @@ function Library() {
       )}
     </Screen>
   );
+  return <UiThemeProvider {...state?.uiTheme}>{content}</UiThemeProvider>;
 }
 function MetadataEditor({
   book,
@@ -1183,6 +1266,7 @@ function MetadataEditor({
   busy: boolean;
   save(change: Extract<LibraryAction, { type: 'presentation' }>['change']): void;
 }) {
+  const styles = useLibraryStyles();
   const [title, setTitle] = useState(book.title);
   const [authors, setAuthors] = useState(
     (book.metadata.creators ?? []).map((author) => author.name).join('\n')
@@ -1229,37 +1313,32 @@ function MetadataEditor({
   }
   return (
     <>
-      <Field label="Title" value={title} onChange={setTitle} />
-      <Field
-        label="Authors (one per line)"
-        value={authors}
-        onChange={setAuthors}
-        multiline
-        limit={16384}
-      />
-      <Field
-        label="Author sort names (matching lines)"
-        value={authorSort}
-        onChange={setAuthorSort}
-        multiline
-        limit={16384}
-      />
-      <Field label="Language" value={language} onChange={setLanguage} limit={128} />
-      <Field label="Publisher" value={publisher} onChange={setPublisher} limit={512} />
-      <Field label="Published" value={published} onChange={setPublished} limit={128} />
-      <Field
-        label="Description"
-        value={description}
-        onChange={setDescription}
-        multiline
-        limit={16000}
-      />
-      <Field
-        label="Subjects (one per line)"
-        value={subjects}
-        onChange={setSubjects}
-        multiline
-        limit={15360}
+      <LibraryMetadataFields
+        layout={metadataLayout}
+        labelPrefix="native-book-metadata"
+        disabled={busy}
+        value={{
+          title,
+          authors,
+          authorSort,
+          language,
+          publisher,
+          published,
+          description,
+          subjects
+        }}
+        onChange={(name, value) =>
+          ({
+            title: setTitle,
+            authors: setAuthors,
+            authorSort: setAuthorSort,
+            language: setLanguage,
+            publisher: setPublisher,
+            published: setPublished,
+            description: setDescription,
+            subjects: setSubjects
+          })[name](value)
+        }
       />
       <Host matchContents>
         <Switch label="Blur cover" value={blur} onValueChange={setBlur} />
@@ -1279,7 +1358,7 @@ function MetadataEditor({
     </>
   );
 }
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   controls: { paddingHorizontal: 14, gap: 7 },
   field: { gap: 4 },
   label: { fontWeight: '600', color: '#29352c' },
@@ -1296,9 +1375,6 @@ const styles = StyleSheet.create({
     borderColor: '#dce2db'
   },
   grid: { flex: 1, margin: 4 },
-  listBook: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  gridBook: { gap: 5 },
-  bookText: { flexShrink: 1, minWidth: 0 },
   selected: { borderColor: '#387147', borderWidth: 2, backgroundColor: '#eef5ea' },
   selection: { paddingVertical: 7, gap: 6 },
   pagination: {

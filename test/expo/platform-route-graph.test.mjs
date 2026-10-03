@@ -106,6 +106,14 @@ for (const platform of ['android', 'web'])
         inputs.some((file) => file.endsWith(`/features/statistics/${shared}`)),
         `${platform} must execute the same production Statistics ${shared}`
       );
+    assert.ok(
+      inputs.some((file) => file.endsWith('/features/library/LibraryBookFace.tsx')),
+      `${platform} must execute the common Library book presentation`
+    );
+    assert.ok(
+      inputs.some((file) => file.endsWith('/features/library/LibraryMetadataFields.tsx')),
+      `${platform} must execute the common Library metadata editor`
+    );
     for (const shared of ['SettingsFieldGroup.tsx', 'SettingsWorkspace.tsx', 'workspace-state.ts'])
       assert.ok(
         inputs.some((file) => file.endsWith(`/features/settings/${shared}`)),

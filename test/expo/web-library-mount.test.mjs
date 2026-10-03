@@ -19,7 +19,7 @@ test('the actual browser runtime and library mount, update and remount without s
         contents: `
           export { LibraryScreen } from './apps/web/src/library-react/screen';
           export { BrowserRuntime } from './apps/web/src/runtime/BrowserRuntime';
-          export { database } from './apps/web/src/lib/data/store';
+          export { database, userFonts$ } from './apps/web/src/lib/data/store';
           export { refreshLocation } from './apps/web/src/runtime/stores';
           export { installRouter, beforeNavigate } from './apps/web/src/runtime/navigation';
         `,

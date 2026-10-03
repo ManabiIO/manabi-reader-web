@@ -162,3 +162,21 @@ Current Expo UI Host documentation confirms that an RN View inside a native Host
 switches rendering back to RN; universal children need a fresh nested Host. The
 existing bounded control leaves retain this boundary. Official API reference:
 https://docs.expo.dev/versions/v57.0.0/sdk/ui/universal/host/
+
+### Retained browser-entry ownership repair
+
+The web layout uses the installed SDK 57 `Navigator`/`Navigator.Slot` API with
+an isolated `WebSlotRouter` adapter. It delegates every action to Expo's exported
+`StackRouter`, then preserves the focused component key across contiguous
+Library/Snippets visits. Browser entries keep distinct Expo-owned history IDs
+and immutable parameter snapshots; `push` no longer collapses a prior query
+URL through `navigate`. Accepted Back/Forward retires pending Library opens.
+Native still uses its unmodified `Stack`.
+
+This adapter is version-sensitive: Expo documents `StackRouter` as an internal
+implementation despite its public export. Upgrade qualification must retain the
+actual installed reducer and memory-history tests for PUSH, REPLACE, POP,
+POP_TO_TOP, GO_BACK, forward replay, unique route keys and once-decoded params.
+See [the SDK 57 Router API](https://docs.expo.dev/versions/v57.0.0/sdk/router/).
+The local reducer/mounted tests are not a substitute for exact-head browser
+history, selection, draft and stale-open acceptance.

@@ -2,6 +2,24 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { dialogComponent } from './react-component-harness.mjs';
 
+test('confirmation titles scroll with content so enlarged wrapped headings cannot displace the footer', () => {
+  const component = dialogComponent('ConfirmDialog', {
+    dialogHeader: 'Complete Book',
+    dialogMessage: 'Would you like to complete this Book?',
+    resolver() {}
+  });
+  const scroll = component.find((node) => Object.hasOwn(node.props, 'data-dialog-scroll'));
+  assert.ok(scroll);
+  assert.ok(component.find((node) => node.type === 'h2', scroll));
+  assert.equal(
+    component.find((node) => node.type === 'footer', scroll),
+    undefined
+  );
+  const footer = component.find((node) => node.type === 'footer');
+  assert.ok(footer.props.className.includes('shrink-0'));
+  assert.match(component.text(footer), /CancelConfirm/);
+});
+
 function dialog(name, props = {}) {
   const received = [],
     dispatched = [];

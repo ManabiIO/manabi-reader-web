@@ -74,6 +74,8 @@ export function dialogComponent(name, props, overrides = {}) {
     '../runtime/use-store': { useStore: () => false },
     '$lib/data/store': { hideExternalReadHint$: {}, skipKeyDownListener$: { next() {} } },
     '$lib/data/storage/storage-source-manager': { decrypt: async () => new Uint8Array() },
+    // DialogHost focus handling is exercised by the mounted overlay suite.
+    '$lib/hooks/cycle-modal-tab': {},
     ...overrides
   };
   const module = { exports: {} };
