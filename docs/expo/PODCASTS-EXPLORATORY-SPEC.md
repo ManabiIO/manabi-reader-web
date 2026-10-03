@@ -1483,6 +1483,61 @@ The generated catalog may retain publisher metadata and URLs needed for discover
 
 Version the manifest schema independently of the application bundle. Reject an unsupported or partially downloaded manifest instead of half-applying it.
 
+### 7.2.2 Rolling feeds, corrections and local episode retention
+
+Do not equate "not present in the newest feed snapshot" with "delete the episode."
+
+Many publisher feeds expose only a rolling recent window. Once a user has any durable local relationship to an episode — resume state, saved publisher transcript, accepted MOSS draft, explicit save/history entry — persist a bounded **local episode snapshot** keyed by `EpisodeKey`.
+
+That snapshot should retain enough publisher metadata to render/reopen the item without turning it into new authority:
+
+- ShowKey / EpisodeKey / item GUID
+- last publisher title/date/artwork/page link
+- last publisher-declared media candidates
+- last publisher transcript descriptors
+- manifest/feed revision/fetchedAt that supplied them
+
+On manifest refresh:
+
+~~~text
+episode still present with same EpisodeKey
+  -> update current publisher metadata/media candidates
+  -> preserve local resume/transcript history
+  -> new rendition URLs require normal revalidation
+
+episode absent from rolling feed
+  -> do not delete local user state
+  -> retain local snapshot/history
+  -> mark "not in current feed" rather than "deleted"
+
+same EpisodeKey but changed enclosure/media
+  -> this is a new current rendition candidate for the same logical episode
+  -> do not create a new EpisodeKey
+  -> do not reactivate old timed captions without rendition proof
+
+publisher explicitly removes/blocks content
+  -> stop advertising/fresh-fetching it from catalog
+  -> preserve user-created local state subject to product/legal policy
+  -> do not claim remote audio remains available
+~~~
+
+Feed refresh must not garbage-collect local transcript/resume authority merely because a publisher reduced feed depth.
+
+A local snapshot's last enclosure URL is a **locator fallback**, not guaranteed current authority. Prefer the current manifest/feed candidate when available; if only the old locator remains, any new playback/MOSS session still goes through normal admission.
+
+### 7.2.3 Feed redirects and ShowKey continuity
+
+Follow ordinary HTTP redirects while refreshing reviewed feed URLs, but do not let a redirect silently hijack a curated ShowKey.
+
+If a valid `podcast:guid` exists:
+
+- same canonical podcast:guid at the redirected feed strongly supports retaining ShowKey and recording the new feed URL as the current locator
+- a conflicting podcast:guid is an identity conflict; do not auto-migrate
+
+Without `podcast:guid`, a permanent redirect is useful locator evidence but not sufficient by itself to rewrite identity forever. Require conservative continuity checks and/or human review for the curated seed.
+
+Never derive a fresh ShowKey merely because the feed URL changed.
+
 ### 7.3 RSS parsing
 
 Treat every feed field as hostile external input.
@@ -1498,6 +1553,9 @@ Requirements:
 - never inject description HTML with `innerHTML`; extract/sanitize plain display text separately
 - cap feed bytes, nesting, item count, per-item transcript/enclosure counts, text lengths and URL lengths
 - normalize dates defensively
+- treat feed order as presentation input, not identity
+- detect duplicate item GUIDs within one feed snapshot and fail/audit rather than silently letting one overwrite another
+- treat a material mutation under the same item GUID as an update to one logical episode, preserving revision diagnostics rather than creating a duplicate
 - treat feed `itunes:duration` only as catalog/display metadata; MediaPipeline duration is authoritative for playback/ASR
 - support common RSS/iTunes/Podcasting 2.0 fields but ignore unknown fields
 - require at least one supported publisher media source per surfaced episode
@@ -2573,40 +2631,41 @@ The next worker should revise this spec and answer these before substantial impl
 14. If publisher transcripts become durable Tracks, what versioned origin/provenance change replaces the current strict three-value Track origin?
 
 ### Catalog
-15. Checked-in source list + generated static manifest, direct client RSS, or another hybrid?
+15. Checked-in show seed + generated static episode manifest, or another explicitly justified model?
 16. What is the minimum initial native-Japanese catalog?
 17. What does "native" mean for catalog tagging?
-18. How are dead/moved feeds and stable ShowKey aliases handled?
-19. Which shows expose usable `podcast:transcript` resources?
-20. Which publisher alternate enclosures materially improve CORS/range/codec support without changing editorial content?
-21. Which feeds expose `podcast:license` metadata useful for internal review/testing?
+18. What exact retention/pruning rule keeps locally-used episodes after they fall out of a rolling publisher feed?
+19. How are dead/moved feeds and stable ShowKey aliases handled?
+20. Which shows expose usable `podcast:transcript` resources?
+21. Which publisher alternate enclosures materially improve CORS/range/codec support without changing editorial content?
+22. Which feeds expose `podcast:license` metadata useful for internal review/testing?
 
 ### UX
-22. Hide playback-only episodes or show them without local-caption capability?
-23. What measured high-water/low-water caption lead should playback-lead mode target?
-24. What bounded warm-model grace avoids load thrash without retaining 648 MB unnecessarily?
-25. Should a separate "Transcribe full episode" action exist at all in v1?
-26. Do we expose optional full-byte verification progress separately from recognition progress?
-27. What should happen if the user seeks into an untranscribed region while MOSS is far behind?
-28. Should a valid **timeline-compatible** publisher transcript suppress local MOSS by default?
-29. How should a timed-but-rendition-uncertain publisher transcript be presented without implying exact seek alignment?
+23. Hide playback-only episodes or show them without local-caption capability?
+24. What measured high-water/low-water caption lead should playback-lead mode target?
+25. What bounded warm-model grace avoids load thrash without retaining 648 MB unnecessarily?
+26. Should a separate "Transcribe full episode" action exist at all in v1?
+27. Do we expose optional full-byte verification progress separately from recognition progress?
+28. What should happen if the user seeks into an untranscribed region while MOSS is far behind?
+29. Should a valid **timeline-compatible** publisher transcript suppress local MOSS by default?
+30. How should a timed-but-rendition-uncertain publisher transcript be presented without implying exact seek alignment?
 
 ### Expo
-30. Should Podcasts wait for Video transcript/player domain extraction, or perform that extraction as its first enabling refactor?
-31. Should the shared playback port use Expo Audio on both platforms or Expo Audio on Android plus a DOM audio leaf on web?
-32. What COOP/COEP policy is actually deployed for Reader web and packaged Android DOM, and how does that change media request mode?
-33. What is the bounded Android DOM/media/ASR leaf?
-34. Which exact shared screen/controller owns episode state?
-35. What exact product flags and derived MOSS capability replace the current video-only gate without changing released defaults?
-36. Should the first slice remain foreground-playback-only, preserving current `enableBackgroundPlayback: false`?
-37. If background playback is later enabled, what lifecycle contract reconciles native playback with foreground-only/suspendable DOM MOSS work?
+31. Should Podcasts wait for Video transcript/player domain extraction, or perform that extraction as its first enabling refactor?
+32. Should the shared playback port use Expo Audio on both platforms or Expo Audio on Android plus a DOM audio leaf on web?
+33. What COOP/COEP policy is actually deployed for Reader web and packaged Android DOM, and how does that change media request mode?
+34. What is the bounded Android DOM/media/ASR leaf?
+35. Which exact shared screen/controller owns episode state?
+36. What exact product flags and derived MOSS capability replace the current video-only gate without changing released defaults?
+37. Should the first slice remain foreground-playback-only, preserving current `enableBackgroundPlayback: false`?
+38. If background playback is later enabled, what lifecycle contract reconciles native playback with foreground-only/suspendable DOM MOSS work?
 
 ### Provider/legal
-38. Which catalog/provider terms need explicit approval?
-39. Can generated transcripts sync privately, or should v1 keep them on-device?
-40. Which SoundCloud usage path, if any, is acceptable without relying on a restricted proprietary API?
-41. Do repeated range/hash requests distort host analytics, downloads, dynamic-ad accounting or monetization enough to require provider-specific limits/exclusion?
-42. Does using a publisher-declared alternate enclosure preserve the host's intended measurement/monetization path for that show?
+39. Which catalog/provider terms need explicit approval?
+40. Can generated transcripts sync privately, or should v1 keep them on-device?
+41. Which SoundCloud usage path, if any, is acceptable without relying on a restricted proprietary API?
+42. Do repeated range/hash requests distort host analytics, downloads, dynamic-ad accounting or monetization enough to require provider-specific limits/exclusion?
+43. Does using a publisher-declared alternate enclosure preserve the host's intended measurement/monetization path for that show?
 
 ## 22. Suggested first engineering PR sequence
 
