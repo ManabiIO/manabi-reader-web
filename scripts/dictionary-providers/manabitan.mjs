@@ -15,7 +15,13 @@ export async function createManabitanDictionaryProvider(root) {
       'utf8'
     )
   );
-  if (version.repository !== 'ManabiIO/manabitan' || !/^[a-f0-9]{40}$/.test(version.revision))
+  if (
+    version.repository !== 'ManabiIO/manabitan' ||
+    !/^[a-f0-9]{40}$/.test(version.revision) ||
+    version.sourceBranch !== 'develop' ||
+    !Number.isSafeInteger(version.mergedPullRequest) ||
+    version.mergedPullRequest <= 0
+  )
     throw new Error('Invalid pinned Manabitan source.');
 
   return {
@@ -88,7 +94,7 @@ export async function createManabitanDictionaryProvider(root) {
       );
       await fs.writeFile(
         path.join(destination, 'SOURCE.txt'),
-        `Manabitan ${version.revision}\nhttps://github.com/ManabiIO/manabitan/tree/${version.revision}\nGPL-3.0-or-later; retain LICENSE and per-file notices.\nCorresponding source: corresponding-source.tar.gz\nBuild: npm ci; npm run build:libs; node web/build.mjs\n`
+        `Manabitan ${version.revision}\nSource: https://github.com/ManabiIO/manabitan/tree/${version.revision}\nMerged to: ${version.sourceBranch} via PR #${version.mergedPullRequest}\nGPL-3.0-or-later; retain LICENSE and per-file notices.\nCorresponding source archive: corresponding-source.tar.gz\nThe source archive intentionally omits Git metadata. The runtime manifest embeds git rev-parse HEAD, so for an exact manifest rebuild use the pinned Git checkout above, then run: npm ci; npm run build:libs; node web/build.mjs\n`
       );
     }
   };
