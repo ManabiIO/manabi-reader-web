@@ -2055,7 +2055,84 @@ Persist durable window coverage, not a promise that the prior Worker/model is st
 
 Whole-episode `full` mode, if eventually offered, must be an explicit separate action and should surface expected cost.
 
-### 11.4 Model disclosure
+### 11.4 Podcast speech/music/noise behavior
+
+Do not add a naive energy/RMS/VAD gate as part of the first podcast implementation.
+
+The current queue has a deliberately narrow optimization:
+
+~~~text
+PCM is exactly digital zero
+  -> skip MOSS completely
+
+anything else, including quiet audio
+  -> keep it eligible for recognition
+~~~
+
+Preserve that behavior initially.
+
+It is useful for a concrete upstream reason: OpenMOSS has an open 2026 issue showing the model can return a full refusal sentence for digital-silence input, while Reader already avoids sending exact-zero PCM to the model. Upstream also has a September 2026 issue where content ending in roughly 0.25s+ of near-silence can collapse into a marker-less segment, plus reports around non-speech/hotword hallucination and timestamp sensitivity.
+
+At the same time, a simple amplitude threshold would be dangerous for immersion content:
+
+- quiet Japanese speech
+- whispered speech
+- distant microphones
+- music-backed conversation
+- compressed/noisy radio
+- fade-ins/fade-outs
+
+could all be discarded incorrectly.
+
+MOSS's own project describes the model as designed for podcasts, interviews, long-form multi-speaker audio and acoustic events, and says applications do not need to bolt on a separate external VAD for its normal model pipeline. That is encouraging, not qualification of Manabi's WASM/windowing path.
+
+Therefore the first policy is:
+
+- retain exact-digital-zero bypass before model preparation
+- do not infer speech absence from RMS alone
+- let strict parser/timestamp validation fail closed
+- preserve accepted prior windows when a later noisy/music/near-silent window fails
+- collect measurements before considering any speech-gating optimization
+
+Podcast ASR qualification must add real/synthetic cases for:
+
+- exact digital silence
+- near-silence at beginning/end
+- long intro/outro music
+- music-only segment
+- speech over background music
+- room noise / street noise
+- laughter/applause/non-speech vocalization
+- host-read and dynamically inserted ads
+- rapid speaker turns
+- long single-speaker monologue
+- Japanese/English code-switching
+- low-volume Japanese speech
+- clipped/telephone-quality speech
+
+Measure at least:
+
+- transcript/parser success
+- hallucinated text on non-speech
+- timestamp validity/drift
+- seam-repair rate
+- diarization stability
+- inference time
+- whether a window should remain retryable or be exposed as unavailable
+
+Do not automatically expose acoustic-event text as ordinary Japanese transcript cues unless its output grammar is separately specified and tested.
+
+Relevant upstream evidence:
+
+- model overview: https://github.com/OpenMOSS/MOSS-Transcribe-Diarize
+- digital-silence refusal issue #59: https://github.com/OpenMOSS/MOSS-Transcribe-Diarize/issues/59
+- near-silence collapse issue #61: https://github.com/OpenMOSS/MOSS-Transcribe-Diarize/issues/61
+- prompt hallucination/format issue #17: https://github.com/OpenMOSS/MOSS-Transcribe-Diarize/issues/17
+- non-speech + hotword issue #32: https://github.com/OpenMOSS/MOSS-Transcribe-Diarize/issues/32
+
+Any future VAD/speech gate should be a separately versioned recognition-policy change with natural-Japanese false-negative measurements. It must not silently reinterpret already saved sparse jobs.
+
+### 11.5 Model disclosure
 
 The existing UI states that first Generate downloads a verified 648 MB model.
 
@@ -2063,7 +2140,7 @@ Podcasts should use the same model/cache and not present it as a second download
 
 If model size/revision changes later, display values should come from the shared MOSS model contract rather than duplicated copy.
 
-### 11.5 Transcript publication
+### 11.6 Transcript publication
 
 Only complete verified tracks currently publish to the synced media record layer.
 
@@ -2401,6 +2478,10 @@ Reuse existing doubles plus new audio-only integration:
 - source validator/fingerprint change pauses/fails safely
 - provisional transcript cannot publish as an existing portable Track before verified ContentKey
 - audio proof mismatch prevents reuse
+- exact-digital-zero window bypasses MOSS/model preparation
+- near-silence/non-speech failure cannot rewrite previously accepted cues
+- music-only/noise fixtures do not create unchecked transcript authority
+- any future speech gate has explicit policy/version identity and quiet-Japanese false-negative coverage
 - full-hash/publication failure does not destroy accepted device-local work
 - model remains one shared cache/runtime
 - another tab cannot run a competing MOSS batch
