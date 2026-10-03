@@ -31,6 +31,12 @@ const assets = path.join(root, 'apps/web/static');
 const runtimeRoot = path.join(assets, provider.publicRuntimeDirectory);
 const destination = path.join(runtimeRoot, provider.revision);
 const cache = path.join(root, '.cache/dictionary-build', provider.id, provider.revision);
+const runtimeMarkerName = 'reader-runtime.json';
+const runtimeMarker = {
+  schema: 1,
+  provider: provider.id,
+  revision: provider.revision
+};
 
 for (const obsolete of provider.obsoletePublicPaths)
   await fs.rm(path.join(assets, obsolete), { recursive: true, force: true });
@@ -53,7 +59,13 @@ async function valid() {
     const metadata = await fs.lstat(destination);
     if (!metadata.isDirectory() || metadata.isSymbolicLink()) return false;
     const manifest = JSON.parse(await fs.readFile(path.join(destination, 'manifest.json'), 'utf8'));
+    const marker = JSON.parse(
+      await fs.readFile(path.join(destination, runtimeMarkerName), 'utf8')
+    );
     if (
+      marker.schema !== runtimeMarker.schema ||
+      marker.provider !== runtimeMarker.provider ||
+      marker.revision !== runtimeMarker.revision ||
       manifest.revision !== provider.revision ||
       manifest.searchVersion !== 1 ||
       manifest.apiVersion !== 1 ||
@@ -69,6 +81,7 @@ async function valid() {
         path.isAbsolute(item.path) ||
         item.path.split('/').includes('..') ||
         manifestPaths.has(item.path) ||
+        item.path === runtimeMarkerName ||
         !Number.isSafeInteger(item.bytes) ||
         item.bytes < 0 ||
         !/^[a-f0-9]{64}$/.test(item.sha256)
@@ -88,6 +101,7 @@ async function valid() {
 
     const allowed = new Set([
       'manifest.json',
+      runtimeMarkerName,
       ...manifestPaths,
       ...provider.requiredDistributionFiles
     ]);
@@ -103,6 +117,10 @@ async function valid() {
 let manifest = await valid();
 if (!manifest) {
   await provider.build({ destination, cache });
+  await fs.writeFile(
+    path.join(destination, runtimeMarkerName),
+    JSON.stringify(runtimeMarker, null, 2) + '\n'
+  );
   manifest = await valid();
   if (!manifest) throw new Error('Dictionary provider output failed integrity verification.');
 }
