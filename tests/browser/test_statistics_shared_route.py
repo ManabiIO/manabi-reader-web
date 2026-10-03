@@ -72,6 +72,12 @@ class SharedStatisticsBrowser(LibraryBase):
                 expect(field).to_have_value(value)
         panel.get_by_role('button', name='Close statistics options', exact=True).click()
         self.page.get_by_role('button', name='Summary', exact=True).click()
+        # A desktop date is a single readable value, and a full-title action
+        # keeps its hit area even when the title occupies only one text line.
+        date = self.page.get_by_test_id('statistics-summary').get_by_text('2026-09-25', exact=True).first
+        self.assertLessEqual(date.bounding_box()['height'], date.evaluate('e => parseFloat(getComputedStyle(e).lineHeight)') + 1)
+        title = self.page.get_by_role('button', name='Show full title Shared Statistics Alpha', exact=True)
+        self.assertGreaterEqual(title.bounding_box()['height'], 43.99)
         self.page.get_by_role('button', name='Edit row Shared Statistics Alpha', exact=True).click()
         time = self.page.get_by_label('Reading time for Shared Statistics Alpha (seconds)', exact=True)
         time.fill('210')
@@ -102,6 +108,7 @@ class SharedStatisticsBrowser(LibraryBase):
         self.seed()
         panel = self.options()
         self.set_range(panel)
+        normal_heading_size = panel.get_by_role('heading', name='Date range', exact=True).evaluate('e => parseFloat(getComputedStyle(e).fontSize)')
         panel.get_by_role('button', name='Close statistics options', exact=True).click()
         trigger = self.page.get_by_role('button', name='Filter books', exact=True)
         trigger.click()
@@ -156,6 +163,8 @@ class SharedStatisticsBrowser(LibraryBase):
             }'''))
         panel = self.options()
         expect(panel.get_by_role('heading', name='Statistics options', exact=True)).to_be_visible()
+        enlarged_heading_size = panel.get_by_role('heading', name='Date range', exact=True).evaluate('e => parseFloat(getComputedStyle(e).fontSize)')
+        self.assertAlmostEqual(enlarged_heading_size, normal_heading_size * 2, delta=0.5)
         close = panel.get_by_role('button', name='Close statistics options', exact=True)
         self.assertGreaterEqual(close.bounding_box()['width'], 43.99)
         self.assertLessEqual(panel.evaluate('e => e.scrollWidth - e.clientWidth'), 1)

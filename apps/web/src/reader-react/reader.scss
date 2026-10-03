@@ -724,6 +724,11 @@
   .reader-toolbar [aria-label='Reading tools'] {
     min-height: 44px;
   }
+  .reader-toolbar .reader-icon {
+    inline-size: 20px;
+    block-size: 20px;
+    stroke-width: 1.8;
+  }
   @media (max-width: 639px) {
     /* Five icon actions must remain reachable with enlarged reader text. Keep
        their 44px hit targets rather than letting rem-sized padding push Tools
@@ -1522,8 +1527,15 @@
     pointer-events: none;
   }
   .reader-controls {
-    right: max(1rem, env(safe-area-inset-right));
+    width: 44px;
+    height: 44px;
+    right: max(16px, env(safe-area-inset-right));
     bottom: calc(4.5rem + env(safe-area-inset-bottom));
+  }
+  .reader-controls svg,
+  .reader-footer button svg {
+    width: 20px;
+    height: 20px;
   }
   .reader-controls:focus-visible {
     outline: 2px solid var(--ring);
@@ -1547,7 +1559,13 @@
     }
   }
   .reader-footer button {
+    min-height: 44px;
     pointer-events: auto;
+  }
+  .reader-footer button[aria-label] {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
   }
   .reader-footer.foliate-chrome-hidden {
     visibility: hidden;
@@ -1579,7 +1597,9 @@
     padding: 0.5rem 0.75rem;
     border-radius: 1rem;
     background: var(--background);
-    max-width: calc(100% - 2rem);
+    // Keep enlarged progress text clear of the persistent corner control.
+    left: calc(50% - 30px);
+    max-width: calc(100% - 100px);
     width: max-content;
   }
   .progress-details {

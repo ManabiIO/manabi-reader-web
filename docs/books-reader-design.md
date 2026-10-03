@@ -100,3 +100,23 @@ Closing the sheet returns focus to its live trigger or the persistent reading
 control if outside dismissal has already collapsed the toolbar. The backdrop
 handles fast touch taps directly, without depending on delayed outside-click
 registration in the dialog library.
+
+## Enlarged-text refinement
+
+The October 3 review applies text scaling after every route transition and
+records the computed root font size with each screenshot. Navigation can reset
+a temporary root style; an intended 200% capture is not evidence without that
+measurement. Both Svelte and Expo captures use the corrected sequence.
+
+Reader page insets are observed at their actual border box, so rem padding
+changes without a window resize reach the pagination engine. Unchanged content
+dimensions do not trigger another pagination pass. Source-coordinate Return
+journeys retain their reading and statistics snapshots through this reflow.
+Corner and footer icon controls retain 44px targets with 20px glyphs; expanded
+progress wraps clear of the corner control. Continue artwork remains a 48×72px
+thumbnail so enlarged title, author and progress labels retain usable width.
+
+Statistics Summary uses aligned date/data columns, a quiet range caption,
+compact measurement selectors and row actions at the end. Styled shared headings
+use the same scalable typography path as their labels. Current web navigation
+uses `aria-current="page"`; selected button semantics remain on buttons.

@@ -9,25 +9,26 @@ The inventory below contains **15 distinct failing test names**, deduplicated
 across repeated suites, engines and overlapping traceback excerpts. It is not a
 count of failed executions or fifteen proven independent product defects.
 
-Local repairs described below are present in the combined working source as of
-2026-10-03, **awaiting browser qualification on the exact published head**.
-None of these entries is closed by a unit test, a changed fixture, an export, or
-an older-head pass. Preserve the original behavioral assertions and rerun the
-complete selected suites in the full gate. The WebKit registration/navigation
-failure now has a positive worker-readiness fixture repair; it remains blocking
-until the final full gate passes, with the original no-page-error assertion intact.
+All 15 observed cases below were subsequently repaired and qualified in full
+[run 37099596037](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37099596037)
+on `5ac1225b737fbeb7e6e7b2535ae68ea1fc24d5a9`. All three jobs passed.
+The entries preserve the original failures, diagnoses and acceptance requirements;
+their pending language describes the earlier repair checkpoint. The failed runs
+remain failed evidence, and no original application assertion was weakened.
 
-Full [run 37096298886](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37096298886)
-on `53d4534c` passed Android, the full data-safety dispatcher and production
-Snippets. The retained web inventory had one WebKit registration/navigation
-error (case 8 below); default-route acceptance had one new Settings history-test
-failure. A throttled Chromium replay reproduced the latter: the test observed
-the temporary outgoing Reader entry during guarded Forward, before the original
-Settings entry was replayed. It now waits for the focused Settings screen before
-checking the unchanged entry-ID equality assertion. Both-engine lifetime suites
-and eight throttled repetitions pass locally; final full CI remains required.
+Intermediate full [run 37096298886](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37096298886)
+on `53d4534c` passed Android, full data safety and production Snippets, but exposed
+a WebKit startup/navigation diagnostic and a Settings history-test synchronization
+failure. The history fixture now waits for the admitted focused Settings screen
+before its unchanged entry-ID assertion. The video fixture positively waits for
+both real worker activation and optional-catalog completion before replacing the
+document. Both-engine local replays and the later full checkpoint passed.
 
-## The 15 failing cases
+Later design/reflow refinements need their own exact-head qualification; consult
+the PR's current full run and [fidelity matrix](FIDELITY-MATRIX.md). This historical
+failure ledger does not close the outstanding native/shared screen inventory.
+
+## The 15 observed cases and original repair requirements
 
 1. **Series count spacing** — `test_recursive_series_covers_filters_and_readonly_scanning`
    ([case](../../tests/browser/test_books_library.py)). Expected `Series · 1 Book`;

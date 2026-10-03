@@ -85,13 +85,24 @@
     overflow: hidden;
     scroll-snap-align: start;
   }
+  .continue-card > button[data-slot='button'] {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    flex-shrink: 0;
+  }
+  .continue-card > button[data-slot='button'] svg {
+    width: 20px;
+    height: 20px;
+  }
   .continue-open {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 16px;
     min-width: 0;
     flex: 1;
-    padding: 0.75rem 0 0.75rem 0.75rem;
+    padding: 12px 0 12px 12px;
     text-align: left;
   }
   .continue-open:focus-visible,
@@ -100,8 +111,9 @@
     outline-offset: -3px;
   }
   .continue-cover {
-    width: 3rem;
-    height: 4.5rem;
+    // Artwork is a thumbnail; enlarged labels need the remaining card width.
+    width: 48px;
+    height: 72px;
     flex: none;
   }
   .continue-title,
@@ -111,6 +123,9 @@
   .finished-author,
   .finished-detail {
     display: block;
+  }
+  .continue-progress {
+    white-space: nowrap;
   }
   .continue-title {
     display: -webkit-box;
@@ -466,10 +481,8 @@
       transition: transform 150ms ease;
     }
   }
-
 }
 .library-react {
-
   .cover-stage {
     display: flex;
     align-items: flex-end;
@@ -584,10 +597,8 @@
       border-color: CanvasText;
     }
   }
-
 }
 .library-react .cover-stack-container {
-
   .cover-stack {
     position: relative;
     width: 100%;
@@ -647,10 +658,8 @@
     left: 27%;
     z-index: 5;
   }
-
 }
 .library-react {
-
   .floating-library-header {
     border: 0;
     background: transparent;
@@ -710,10 +719,8 @@
       padding-inline: clamp(1.5rem, 3vw, 3.5rem);
     }
   }
-
 }
 .library-react .unified-search {
-
   .unified-search {
     display: grid;
     gap: clamp(20px, 1.75rem, 28px);
@@ -875,10 +882,8 @@
       color: Highlight;
     }
   }
-
 }
 .library-react .dictionary-search {
-
   section {
     min-width: 0;
   }
@@ -1080,10 +1085,8 @@
       animation: none;
     }
   }
-
 }
 .library-react-dialog {
-
   .collection-row {
     display: grid;
     grid-template-columns: min(1.5rem, 24px) minmax(0, 1fr) auto auto;
@@ -1128,10 +1131,8 @@
     padding-inline: 0.5rem;
     padding-block-end: 0.25rem;
   }
-
 }
 .library-react-dialog {
-
   .metadata-input {
     width: 100%;
     min-width: 0;
@@ -1145,10 +1146,8 @@
   textarea {
     resize: vertical;
   }
-
 }
 .library-react {
-
   .library-nav-shell {
     pointer-events: none;
   }
@@ -1189,11 +1188,9 @@
       transition: none;
     }
   }
-
 }
 
 .library-react .snippet-shelf {
-
   .snippet-shelf {
     display: grid;
     gap: 0.75rem;
@@ -1297,7 +1294,6 @@
     height: 20px;
     accent-color: var(--primary);
   }
-
 }
 
 /* Retained Library section navigation wraps at narrow widths and enlarged text.
@@ -1313,7 +1309,9 @@
   padding: 4px;
   border-radius: 24px;
   background: var(--muted);
-  font: 0.9375rem/1.4 system-ui, sans-serif;
+  font:
+    0.9375rem/1.4 system-ui,
+    sans-serif;
 }
 .library-react .media-library-tabs a {
   display: flex;

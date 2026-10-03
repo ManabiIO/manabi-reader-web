@@ -78,13 +78,24 @@
   overflow: hidden;
   scroll-snap-align: start;
 }
+.library-react .continue-card > button[data-slot=button] {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+}
+.library-react .continue-card > button[data-slot=button] svg {
+  width: 20px;
+  height: 20px;
+}
 .library-react .continue-open {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 16px;
   min-width: 0;
   flex: 1;
-  padding: 0.75rem 0 0.75rem 0.75rem;
+  padding: 12px 0 12px 12px;
   text-align: left;
 }
 .library-react .continue-open:focus-visible,
@@ -93,8 +104,8 @@
   outline-offset: -3px;
 }
 .library-react .continue-cover {
-  width: 3rem;
-  height: 4.5rem;
+  width: 48px;
+  height: 72px;
   flex: none;
 }
 .library-react .continue-title,
@@ -104,6 +115,9 @@
 .library-react .finished-author,
 .library-react .finished-detail {
   display: block;
+}
+.library-react .continue-progress {
+  white-space: nowrap;
 }
 .library-react .continue-title {
   display: -webkit-box;

@@ -67,6 +67,8 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
     }
   ];
   const weights = summaryWeights(q.aggregation, width);
+  const columnStyle = (column: (typeof columns)[number], index: number) =>
+    column.key === 'date' ? styles.dateColumn : { flex: weights[index + 1], minWidth: 0 };
   const sort = (property: StatisticsQuery['sort']) =>
     void dispatch({
       type: 'query',
@@ -116,9 +118,14 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
         title="Click to select/sort by this Attribute"
         disabled={!!editor || state.busy}
         onPress={() => sort(column.key)}
-        style={{ opacity: q.sort === column.key ? 1 : 0.2, paddingHorizontal: 4 }}
+        size="icon-sm"
+        shape="rounded"
+        style={{ paddingHorizontal: 4 }}
       >
-        <UiIcon name={q.direction === 'asc' ? 'sortAscending' : 'sortDescending'} />
+        <UiIcon
+          name={q.direction === 'asc' ? 'sortAscending' : 'sortDescending'}
+          color={q.sort === column.key ? colors.primary : colors.mutedForeground}
+        />
       </ActionButton>
     </View>
   );
@@ -161,6 +168,7 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
           onPress={(event) =>
             setDetails({ lines: [row.title], anchor: event.currentTarget as unknown as View })
           }
+          style={styles.detailTarget}
         >
           <Text numberOfLines={2} style={[styles.cellText, { color: colors.foreground }]}>
             {row.title}
@@ -186,7 +194,7 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
             anchor: event.currentTarget as unknown as View
           })
         }
-        style={{ minHeight: 44, justifyContent: 'center' }}
+        style={styles.detailTarget}
       >
         <Text style={[styles.cellText, { color: colors.foreground, opacity: blurred ? 0 : 1 }]}>
           {column.key === 'time'
@@ -243,7 +251,7 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
   return (
     <View testID="statistics-summary" style={{ minWidth: 0 }}>
       {!!data?.rows.length && (
-        <Text style={[styles.range, { color: colors.foreground }]}>
+        <Text style={[styles.range, { color: colors.mutedForeground }]}>
           Data for {data?.dateRangeLabel ?? rangeLabel(q)}
         </Text>
       )}
@@ -258,19 +266,30 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
           No Data found for {data?.dateRangeLabel ?? rangeLabel(q)}
         </Text>
       ) : (
-        <View style={styles.table} role="table" accessibilityLabel="Reading statistics">
+        <View
+          style={[styles.table, { borderColor: colors.border }]}
+          role="table"
+          accessibilityLabel="Reading statistics"
+        >
           {wide && (
-            <View role="row" style={styles.wideRow}>
-              <View style={{ flex: weights[0], minWidth: 64 }} />
+            <View
+              role="row"
+              style={[
+                styles.wideRow,
+                styles.tableHeader,
+                { backgroundColor: colors.card, borderBottomColor: colors.border }
+              ]}
+            >
               {columns.map((column, index) => (
-                <View
-                  key={column.key}
-                  role="columnheader"
-                  style={{ flex: weights[index + 1], minWidth: 0 }}
-                >
+                <View key={column.key} role="columnheader" style={columnStyle(column, index)}>
                   {header(column)}
                 </View>
               ))}
+              <View role="columnheader" style={styles.actionsColumn}>
+                <Text style={[styles.actionsLabel, { color: colors.mutedForeground }]}>
+                  Actions
+                </Text>
+              </View>
             </View>
           )}
           <FlatList
@@ -279,25 +298,31 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
             scrollEnabled={false}
             renderItem={({ item: row }) =>
               wide ? (
-                <View role="row" style={styles.wideRow} testID={`statistics-row-${row.id}`}>
-                  <View role="cell" style={{ flex: weights[0], minWidth: 64 }}>
-                    {actions(row)}
-                  </View>
+                <View
+                  role="row"
+                  style={[styles.wideRow, { borderBottomColor: colors.border }]}
+                  testID={`statistics-row-${row.id}`}
+                >
                   {columns.map((column, index) => (
-                    <View
-                      role="cell"
-                      key={column.key}
-                      style={{ flex: weights[index + 1], minWidth: 0 }}
-                    >
+                    <View role="cell" key={column.key} style={columnStyle(column, index)}>
                       {cell(row, column)}
                     </View>
                   ))}
+                  <View role="cell" style={styles.actionsColumn}>
+                    {actions(row)}
+                  </View>
                 </View>
               ) : (
-                <View role="row" style={styles.compactRow} testID={`statistics-row-${row.id}`}>
-                  <View role="cell">{actions(row)}</View>
+                <View
+                  role="row"
+                  style={[styles.compactRow, { borderBottomColor: colors.border }]}
+                  testID={`statistics-row-${row.id}`}
+                >
                   {columns.map((column) => (
-                    <View key={column.key} style={styles.compactPair}>
+                    <View
+                      key={column.key}
+                      style={[styles.compactPair, { borderBottomColor: colors.border }]}
+                    >
                       <View role="rowheader" style={{ flex: 0.75, minWidth: 0 }}>
                         {header(column)}
                       </View>
@@ -306,6 +331,9 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
                       </View>
                     </View>
                   ))}
+                  <View role="cell" style={styles.compactActions}>
+                    {actions(row)}
+                  </View>
                 </View>
               )
             }
@@ -402,14 +430,35 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
   );
 }
 const styles = StyleSheet.create({
-  range: { marginVertical: 16, fontSize: 16 },
-  table: { padding: 8, minWidth: 0 },
+  range: { marginTop: 8, marginBottom: 20, fontSize: 14 },
+  table: { minWidth: 0, borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
   headerCell: { flexDirection: 'row', alignItems: 'center', minWidth: 0 },
   headerLabel: { flex: 1, paddingHorizontal: 0, alignItems: 'flex-start' },
-  wideRow: { flexDirection: 'row', gap: 32, alignItems: 'center', minHeight: 48, marginBottom: 24 },
-  compactRow: { gap: 24 },
-  compactPair: { flexDirection: 'row', gap: 32, minHeight: 48, alignItems: 'center' },
-  rowActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
+  wideRow: {
+    flexDirection: 'row',
+    gap: 16,
+    alignItems: 'center',
+    minHeight: 60,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderBottomWidth: 1
+  },
+  tableHeader: { minHeight: 56 },
+  dateColumn: { flexBasis: 112, flexGrow: 0, flexShrink: 0, minWidth: 0 },
+  actionsColumn: { width: 96, flexShrink: 0 },
+  actionsLabel: { fontSize: 12, textAlign: 'right' },
+  compactRow: { paddingHorizontal: 16, borderBottomWidth: 1 },
+  compactPair: {
+    flexDirection: 'row',
+    gap: 16,
+    minHeight: 60,
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1
+  },
+  compactActions: { paddingVertical: 12, alignItems: 'flex-end' },
+  rowActions: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 4 },
+  detailTarget: { minHeight: 44, justifyContent: 'center' },
   cellText: { fontSize: 16, lineHeight: 24 },
   pages: {
     marginVertical: 24,

@@ -340,6 +340,11 @@ test('shared navigation retains the original external User guide destination and
   const fixture = await mount(port);
   try {
     await press('Navigate');
+    const current = dialog('Manabi Reader').querySelector('a[aria-current="page"]');
+    assert.ok(current);
+    assert.match(current.textContent, /Statistics/);
+    assert.equal(current.hasAttribute('aria-pressed'), false);
+    assert.equal(current.hasAttribute('aria-selected'), false);
     const guide = dialog('Manabi Reader').querySelector('a[aria-label="User guide"]');
     assert.ok(guide);
     assert.equal(guide.getAttribute('href'), '/Manabi-Web/Docs/');
