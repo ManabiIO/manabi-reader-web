@@ -3,6 +3,7 @@
 Status: sanitized implementation contract
 Revision: 2026-10-02
 Source provenance: intentionally excluded from implementation input
+Authorization: **no implementation authority is granted by this document. Read `../CLEAN_ROOM_APPROVALS.md` before any CR-derived target tests or product changes.**
 
 ## 1. Scope
 
@@ -26,10 +27,12 @@ It does not prescribe architecture, algorithms, libraries, data structures, file
 
 Existing product features not covered here remain governed by their existing contracts. An implementation may satisfy a requirement using any independently chosen design that produces the required visible behavior.
 
-Normative language:
-- MUST: release-blocking requirement.
-- SHOULD: expected unless a documented platform limitation prevents it.
-- MAY: optional behavior.
+Normative language describes desired quality only inside an explicitly approved feature/suite:
+- MUST: release-blocking for that approved scope.
+- SHOULD: expected for that approved scope unless a documented platform limitation prevents it.
+- MAY: optional behavior within that approved scope.
+
+MUST/SHOULD/MAY never grant permission to implement, test, optimize, or expand a feature. Approval is governed separately by `CLEAN_ROOM_APPROVALS.md`.
 
 ## 2. Product-level invariants
 
@@ -832,30 +835,29 @@ Tests and telemetry/logs may classify failures with implementation-neutral categ
 
 Exact internal enum names are not mandated. User-visible errors SHOULD use plain language rather than these machine-oriented labels.
 
-## 11. Implementation sequencing
+## 11. Qualification sequencing after approval
 
-This is not an implementation prescription; it is a risk-first acceptance order.
+This is a risk-first order for a **separately approved** feature or suite. It is not standing authorization to execute these phases.
 
-Phase A — build the independent fixture corpus and executable regressions:
-CR-FIX-001 through CR-FIX-015, plus acceptance IDs 001–083 relevant to current features.
+Possible sequence after the approval gate is satisfied:
 
-Phase B — make current behavior pass correctness regressions:
-Unicode/ruby, navigation/style conflict, selection, restore, batch import, broken resources.
+Phase A — for the named approved scope, build only the independently authored fixtures/tests permitted by that approval.
 
-Phase C — lifecycle and media:
-background ownership, crash/reload restoration, stale asynchronous results, read-along boundary cases.
+Phase B — if production implementation is also explicitly approved, address failing correctness requirements for the named scope.
 
-Phase D — scale:
-large library, long chapter, search and re-entry benchmark suite.
+Phase C — if included in the approval, qualify lifecycle/media behavior.
 
-Phase E — optional surfaces:
-manga/OCR, e-ink, profile-specific extensions not already present.
+Phase D — if included in the approval, run scale and benchmark work.
 
-A phase may discover that the current product already passes a requirement. In that case, add or retain a regression test and record it as satisfied; do not rewrite working code merely to mimic another product.
+Phase E — optional surfaces require their own explicit feature approval; they are never pulled in merely because an earlier phase completed.
+
+A phase may discover that the current product already passes a requirement. In that case, preserve working behavior. Do not rewrite it merely to mimic another product.
+
+If the approval is tests-only, stop after tests/qualification and report failures; do not modify production behavior.
 
 ## 12. Definition of done
 
-The clean-room competitiveness pass is complete for a feature area when:
+For an explicitly approved feature area, qualification is complete when:
 
 1. every in-scope MUST acceptance test has an automated test or a documented physical-device/manual test where automation is not credible;
 2. all independently authored fixtures are stored with project-owned provenance and licenses;
@@ -867,7 +869,9 @@ The clean-room competitiveness pass is complete for a feature area when:
 
 ## 13. Implementer handoff text
 
-Use only this specification, the clean-room policy, and authorized target repository material.
+Use only this specification, the clean-room policy, `CLEAN_ROOM_APPROVALS.md`, the sealed handoff, and authorized target repository material.
+
+First verify that an active approval names the exact feature/CR IDs and work level. If no matching approval exists, do not create target fixtures/tests or modify product code; restrict work to requested research/spec refinement.
 
 Do not search for or inspect the products that motivated these requirements. Do not open competitor repositories, source-bearing issues/PRs, patches, diffs, symbols, comments, or implementation descriptions. Do not request the observer dossier.
 
