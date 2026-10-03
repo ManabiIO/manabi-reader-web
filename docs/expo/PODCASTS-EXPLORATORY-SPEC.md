@@ -451,19 +451,35 @@ Do not use HEAD as the sole authority. Some media origins implement GET/Range an
 
 Do not require a custom request header for qualification. Keeping the request in the simple-CORS path materially increases compatibility.
 
-### 4.4 Establishing source size
+### 4.4 Establishing exact source size
 
-ByteSource requires a known safe size.
+`ByteSource` requires a known exact size, not merely a display hint.
 
 Preferred evidence order:
 
-1. Valid exposed Content-Range total from a successful range request.
-2. Trusted-enough-for-admission RSS enclosure length confirmed by successful bounded range behavior.
-3. A CORS-readable GET/HEAD Content-Length path whose body is immediately canceled and whose semantics are qualified.
+1. Valid exposed `Content-Range` total from a successful 206 response.
+2. A publisher-declared file length from RSS `<enclosure length>` or qualified `podcast:alternateEnclosure length`, **actively checked against Range behavior**.
+3. Another separately qualified exact-size mechanism.
 
-RSS metadata is untrusted input. Validate integer bounds.
+Do not use the `Content-Length` of a 206 response as total size; it is normally just the selected range body length. A full-response HEAD/GET `Content-Length` can be useful only if that exact response representation is demonstrably the same random-access representation.
 
-If exact source size cannot be established without downloading the whole body first, do not admit that episode into the random-access MOSS path.
+When `Content-Range` is not exposed, a declared candidate size `N` can be checked without downloading the file:
+
+~~~text
+Range: bytes=N-1-N-1
+  -> require 206 and exactly one readable byte
+
+Range: bytes=N-N
+  -> require a CORS-readable 416 Range Not Satisfiable
+~~~
+
+If the first probe is unsatisfiable, the declaration is too large or the rendition changed. If the second returns 206, the declaration is too small or the rendition changed. If the 416 response omits CORS and therefore cannot be inspected, this fallback cannot prove the size.
+
+Run these probes inside the same `RenditionSession` and combine them with fixed-range fingerprints; they are not a substitute for rendition-stability checks.
+
+RSS/feed metadata is hostile input. Require a positive safe integer within a deliberate maximum. Zero, missing, stale or contradictory lengths are not exact size evidence.
+
+If exact size cannot be established safely, do not admit that media source into the current random-access MOSS path.
 
 ### 4.5 Response headers are not automatically readable
 
@@ -498,12 +514,16 @@ interface PodcastMediaCandidate {
   url: string
   type: string
   length?: number
+
+  // Alternate-enclosure metadata when present.
   bitrate?: number
   language?: string
   codecs?: string
+  relation?: string
+  title?: string
   isDefault?: boolean
   integrity?: {
-    type: string
+    type: 'sri' | 'pgp-signature'
     value: string
   }
 }
@@ -900,13 +920,21 @@ Linked transcript files have their own CORS and hostile-input requirements. Thei
 
 Podcasting 2.0 can explicitly offer alternate media through `podcast:alternateEnclosure` and `podcast:source`. These are publisher-declared sources and are materially different from scraping a redirect target.
 
-The catalog parser may retain them, but v1 should only consider:
+The namespace semantics matter:
 
-- HTTPS sources
+- an absent `rel`, or `rel="default"`, groups the alternate with the ordinary enclosure as another encoding/transport for that content
+- `default="true"` explicitly says the asset is the same as the ordinary enclosure content and should be preferred
+- another `rel` can mean commentary/supporting/otherwise different media and must not be silently substituted for the main episode
+
+The catalog parser may retain them, but v1 should only automatically consider:
+
+- HTTPS `podcast:source` URIs
 - finite directly addressable audio files
 - a decodable MIME/codec
-- the same/default content group, or an explicit user-visible alternate
+- the default/enclosure content group
 - separately qualified CORS/range/rendition behavior
+
+A non-default relation can be surfaced only as an explicit user-visible alternate with its own logical/timeline semantics.
 
 Do not silently choose IPFS, torrents, onion URLs, HLS/live playlists or other transport schemes for the first ByteSource implementation.
 
@@ -1003,7 +1031,7 @@ Recommended direction:
 - leave existing video sync kinds untouched initially
 - decide separately whether podcast resume/transcripts are local-only in MVP or need new backend kinds
 
-### 9.3 Suggested podcast metadata
+### 9.3 Suggested podcast metadata and local transcript documents
 
 Conceptual only:
 
@@ -1048,9 +1076,35 @@ interface EpisodePlayback {
   finished: boolean
   updatedAt: number
 }
+
+interface EpisodeTranscriptDocument {
+  version: 1
+  id: string
+  episodeKey: EpisodeKey
+  source: 'publisher'
+  resourceUrl: string
+  resourceSha256: string
+  language: string
+  format: 'text' | 'html' | 'vtt' | 'srt' | 'podcast-json'
+
+  timing:
+    | { kind: 'untimed' }
+    | { kind: 'publisher-timed-unbound' }
+    | {
+        kind: 'rendition-bound'
+        renditionEvidenceId: string
+      }
+
+  // Untimed resources retain normalized plain text. Timed resources may retain
+  // validated cues, but only rendition-bound cues own playback seek semantics.
+  text?: string
+  cues?: Cue[]
+}
 ~~~
 
-`ShowKey` must survive reviewed feed URL migrations/aliases. `EpisodeKey` is scoped to the show and normally derives from the stable RSS GUID; a missing-GUID fallback needs an explicit versioned rule.
+`ShowKey` must survive reviewed feed URL migrations/aliases. `EpisodeKey` is scoped to the show and normally derives from the stable, case-sensitive RSS GUID; a missing-GUID fallback needs an explicit versioned rule. Podcasting 2.0's consumer recommendation permits falling back to enclosure URL (or a namespaced UUIDv5 of it), but that should be treated as legacy compatibility because standards-compliant RSS expects a stable GUID.
+
+`EpisodeTranscriptDocument` is intentionally not an existing portable `Track`. It gives local search/read UI somewhere honest to persist publisher transcript content before rendition binding.
 
 Do not use `ShowKey` or `EpisodeKey` as `ContentKey`. Do not bind logical resume state to a particular CDN URL.
 
@@ -1460,7 +1514,11 @@ Local fixture server cases:
 - server ignores Range and returns 200
 - range body too short
 - range body too long
-- missing/invalid source size
+- missing/zero/invalid declared source size
+- declared last-byte probe fails
+- first-byte-past-EOF unexpectedly returns 206
+- first-byte-past-EOF returns 416 without usable CORS
+- exposed Content-Range contradicts declared size
 - changed total size
 - redirect success
 - redirect CORS failure modeled at browser harness level
