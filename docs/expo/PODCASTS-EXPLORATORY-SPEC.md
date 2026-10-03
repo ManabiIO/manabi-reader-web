@@ -430,21 +430,24 @@ The next worker should refresh this matrix with actual browser probes. Search re
 
 ### 3.4 Dated provider CORS investigation — 2026-10-03
 
-This checkpoint separates four kinds of evidence:
+This checkpoint separates five kinds of evidence:
 
-- current wire evidence: a captured real HTTP response/redirect
+- **target-origin browser evidence**: strongest; an actual Manabi-origin/browser `fetch()` reads the requested Range body
+- **current wire/header evidence**: a captured real HTTP response/redirect shows CORS/Range headers, but may have come from a media-element/no-CORS request and therefore is **not** proof that JavaScript can read the body
 - current provider documentation: what the hosting platform says it does
 - current directory/feed evidence: the URL shape publishers are actually distributing
 - historical evidence: useful for identifying failure classes, but not a release pass
+
+Only target-origin browser evidence should turn a catalog media URL green for MOSS. Header-positive wire evidence is a strong probe candidate, not release qualification.
 
 Do not turn this table into a hostname allowlist. The exact publisher-declared media URL remains the release-admission unit.
 
 | Provider family | Feed/discovery | Actual audio CORS | Range | Main blocker |
 | --- | --- | --- | --- | --- |
-| Megaphone | green | **green, current wire evidence** | **green, current wire evidence** | exact-size header exposure and rendition/session stability |
-| RedCircle | likely green | **likely green at RedCircle core** | unproven | third-party prefix chain + dynamic insertion stability |
-| Spotify for Creators / Anchor | green public RSS | **unproven; historical negative evidence** | unproven | Anchor wrapper/final CloudFront CORS chain + dynamic ads |
-| SoundCloud | feed historically poor | **green on current final CDN evidence** | **green on final CDN evidence** | exact RSS enclosure chain + signed URL/terms |
+| Megaphone | green | **CORS-header-positive; target-origin fetch pending** | **Range-header-positive; target-origin fetch pending** | browser redirect semantics, exact-size exposure, rendition/session stability |
+| RedCircle | likely green | **likely green at RedCircle core; target-origin fetch pending** | unproven | third-party prefix chain + dynamic insertion stability |
+| Spotify for Creators / Anchor | green public RSS | **unproven; historical negative evidence** | unproven | Anchor wrapper/final CloudFront browser-fetch chain + dynamic ads |
+| SoundCloud | feed historically poor | **final CDN CORS-header-positive; enclosure fetch pending** | **final CDN Range-header-positive; enclosure fetch pending** | exact RSS enclosure chain + signed URL/terms |
 | Omny/Triton | green-ish | historically promising | historically promising | needs current exact Japanese enclosure probe |
 | Podbean | feed green | unproven | unproven | feed CORS is not media CORS |
 | Simplecast | feed green | unproven | unproven | feed CORS is not media CORS |
@@ -471,7 +474,9 @@ The same capture shows the browser issuing a Range media request and the final r
 Evidence:
 https://urlscan.io/result/019c89d9-9b3d-76dd-83f3-cb53883514af/
 
-This is materially stronger than merely observing that the final CDN supports CORS, because the original tracking redirect also cooperates.
+This is materially stronger than merely observing that the final CDN has ACAO, because the original tracking redirect is also header-positive.
+
+It is still **not target-origin JavaScript proof**. urlscan/network captures can show headers from a media-element request whose response body would remain opaque to script. Megaphone stays the best Phase-0 candidate, not an already-qualified provider.
 
 One remaining header issue is important for ByteSource: the capture does not establish Access-Control-Expose-Headers: Content-Range. JavaScript must not assume it can read the total merely because a network trace can see Content-Range. Use the exact-size proof described in section 4.4 when necessary.
 
@@ -480,11 +485,13 @@ Megaphone final URLs are sessionized and the response includes ad/session metada
 Working status:
 
 ~~~text
-redirect CORS        green
-audio body CORS      green
-Range                green
-exact size exposure  yellow
-rendition stability  yellow
+redirect headers       green candidate
+final audio headers    green candidate
+Range headers          green candidate
+Manabi fetch body       UNPROVEN
+exact size exposure     yellow
+session stability       yellow
+reopen stability        yellow
 ~~~
 
 #### RedCircle — core CORS looks promising; the actual enclosure chain is the trap
@@ -528,11 +535,13 @@ Do not strip those prefixes to reach RedCircle directly. They are publisher-sele
 Working status:
 
 ~~~text
-RedCircle feed CORS       likely green
-direct RedCircle audio    likely green from provider statement
-Range                     unproven
-dynamic rendition         yellow
-third-party prefix chain  per-show unknown
+RedCircle feed CORS          likely green
+direct RedCircle audio       likely header/body compatible from provider statement
+Manabi fetch body            UNPROVEN
+Range                        unproven
+same-session rendition       promising but unproven
+reopen rendition             expected to vary in some monetized cases
+third-party prefix chain     per-show unknown
 ~~~
 
 The right admission key is therefore not redcircle.com. It is the exact RSS/publisher media URL for that show/episode.
@@ -573,12 +582,13 @@ So even after CORS passes, monetized Spotify-hosted episodes need the same fixed
 Working status:
 
 ~~~text
-public RSS/distribution  green
-feed CORS                historically positive; current app probe needed
-audio redirect CORS      unknown — release blocker
-final audio CORS         unknown — release blocker
-Range                    unknown
-dynamic rendition        yellow/red on monetized shows
+public RSS/distribution     green
+feed CORS                   historically positive; current app probe needed
+Anchor-wrapper fetch CORS   unknown — release blocker
+final audio fetch CORS      unknown — release blocker
+Range                       unknown
+same-session rendition      unknown
+reopen rendition            expected to vary in some monetized cases
 ~~~
 
 For v1, treat Spotify for Creators as unsupported for MOSS until the actual target-origin browser probe succeeds.
@@ -606,11 +616,12 @@ However, the Podcast Standards Project's host survey found SoundCloud podcast fe
 Working status:
 
 ~~~text
-feed CORS            historical red
-final CDN CORS       green, current wire evidence
-final CDN Range      green, current wire evidence
-RSS enclosure chain  unknown
-terms/API boundary   separate review
+feed CORS               historical red
+final CDN CORS headers  green candidate
+final CDN Range headers green candidate
+Manabi enclosure fetch  UNPROVEN
+RSS enclosure chain     unknown
+terms/API boundary      separate review
 ~~~
 
 #### Omny/Triton — promising but needs a current Japanese probe
@@ -660,35 +671,62 @@ https://stackoverflow.com/questions/62567373/frontend-javascript-request-gets-30
 
 This is not a current 2026 ART19 verdict. It is the regression class the Phase-0 harness must reproduce locally.
 
-### 3.5 Exact Phase-0 outcome model
+### 3.5 Exact Phase-0 capability model
 
-For each exact catalog media URL, from the production Manabi web origin and packaged Android DOM/WebView origin, run the Range/body probe described in section 4.
+Do not reduce qualification to one mutually exclusive `cors: true/false` status. Dynamic podcast delivery needs separate dimensions.
 
-Record one of:
+For each exact catalog media URL, from the production Manabi web origin and packaged Android DOM/WebView origin, record:
+
+~~~ts
+interface PodcastMediaQualification {
+  playback: 'works' | 'fails' | 'unknown'
+  corsBody: 'readable' | 'blocked' | 'unknown'
+  range: 'single-range-206' | 'unsupported' | 'unknown'
+  exactSize: 'proved' | 'unknown'
+
+  // Can separate Range reads used during one active listening/ASR session be
+  // trusted as one coherent byte/timeline rendition?
+  sessionStability: 'stable' | 'unstable' | 'unknown'
+
+  // After a fresh network/context later, does the same publisher URL still map
+  // to evidence compatible with saved timed captions?
+  reopenStability: 'stable' | 'different' | 'unknown'
+}
+~~~
+
+Derived product capabilities:
 
 ~~~text
-CORS_BODY_READABLE
-  fetch resolves
-  response is non-opaque
-  status is 206
-  requested body byte(s) are readable
-
 PLAYBACK_ONLY
-  transport can play the source
-  JS Range fetch is blocked or unusable
+  playback works
+  JS readable Range path does not
 
-UNSUPPORTED_RANGE
-  CORS works
-  server ignores/rejects bounded Range
+MOSS_SESSION
+  CORS body + Range + exact size pass
+  same-session rendition is stable
+  timed local captions are valid for the active RenditionSession
 
-UNKNOWN_SIZE
-  body/ranges work
-  exact ByteSource size cannot be proved
+MOSS_REOPEN
+  MOSS_SESSION passes
+  later reopen evidence also matches
+  saved timed captions may be reactivated after the normal proof check
 
-UNSTABLE_RENDITION
-  ranges work
-  fresh repeated fixed ranges do not return stable bytes/timeline
+MOSS_SESSION_ONLY
+  MOSS_SESSION passes
+  fresh/reopen rendition differs or is not safely reusable
+  old transcript text may remain useful, but old timestamps must not
+  automatically drive the new audio
+
+UNSTABLE_SESSION
+  separate reads during one active rendition disagree
+  do not run MOSS against that source
 ~~~
+
+This distinction is particularly important for RedCircle/Spotify dynamic ads. A host that deliberately changes ads between listeners or later sessions is **not automatically unusable for local MOSS** if it gives one coherent rendition during the active session.
+
+The hard failure is instability **inside** the rendition session.
+
+On reopen, revalidate bounded byte/PCM evidence before restoring timed behavior. If it differs, demote the prior transcript to text-only/history rather than silently seeking against the new timeline.
 
 For failures, the browser qualification artifact should capture the network redirect chain and response headers. JavaScript itself cannot reliably inspect a CORS-blocked redirect after the fetch has failed.
 
@@ -697,11 +735,13 @@ The diagnostic result should identify whether the blocker was:
 - publisher host
 - RedCircle/other third-party analytics prefix
 - redirect response
+- redirect-origin taint / browser redirect policy
 - final CDN
 - COEP/CORP policy
 - Range semantics
 - exact-size/header exposure
-- dynamic-rendition instability
+- same-session dynamic-rendition instability
+- reopen-only rendition change
 
 The provider matrix must be refreshed from actual browser probes before release. Search results, directory metadata, old captures and provider statements are research evidence, not release evidence.
 
