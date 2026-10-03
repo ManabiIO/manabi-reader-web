@@ -1,4 +1,6 @@
 {
   "repository": "ManabiIO/manabitan",
-  "revision": "4db879b7b5bcb749f90042a313669526ef2f57f4"
+  "revision": "4db879b7b5bcb749f90042a313669526ef2f57f4",
+  "sourceBranch": "develop",
+  "mergedPullRequest": 358
 }
