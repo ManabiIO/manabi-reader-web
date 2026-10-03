@@ -59,9 +59,7 @@ async function valid() {
     const metadata = await fs.lstat(destination);
     if (!metadata.isDirectory() || metadata.isSymbolicLink()) return false;
     const manifest = JSON.parse(await fs.readFile(path.join(destination, 'manifest.json'), 'utf8'));
-    const marker = JSON.parse(
-      await fs.readFile(path.join(destination, runtimeMarkerName), 'utf8')
-    );
+    const marker = JSON.parse(await fs.readFile(path.join(destination, runtimeMarkerName), 'utf8'));
     if (
       marker.schema !== runtimeMarker.schema ||
       marker.provider !== runtimeMarker.provider ||
