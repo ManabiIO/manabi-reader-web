@@ -508,6 +508,13 @@ test('shared tabs wrap at enlarged text and real calendar buttons keep their mea
     }
 
     await press('Heatmap');
+    // Numeric textStyle overrides use the same root-scalable text path as
+    // ordinary button labels. The browser case verifies actual 200% sizing.
+    const streak = [...fixture.container.querySelectorAll('button')].find((button) =>
+      textOf(button).startsWith('Longest Streak')
+    );
+    assert.ok(streak);
+    assert.equal(window.getComputedStyle(streak.firstElementChild).fontSize, '0.75rem');
     const grid = fixture.container.querySelector('.heatmap-calendar');
     for (const measuredWidth of [1500, 168]) {
       Object.defineProperty(grid, 'clientWidth', { configurable: true, value: measuredWidth });

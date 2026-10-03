@@ -45,6 +45,16 @@ updates and requires at most one status through completion; manifest rejection
 and the original no-book-write assertion remain. Exact-head CI qualification is
 required after this repair; this failed run remains failure evidence.
 
+The subsequent `226dd96f` full [run 37111223208](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37111223208)
+passed its regression/default-web job. It was canceled before the full-web and
+Android jobs completed after source review found numeric Heatmap button-label
+font overrides bypassing root text scaling. The added real-browser zoom assertion
+failed on its frozen export: 12px remained 12px instead of becoming 24px. Shared
+button labels now use the same scalable text primitive as headings and body
+copy. The existing zoom journey additionally verifies the metric size; no prior
+assertion was removed. This canceled run is partial evidence, not qualification
+of the later repair.
+
 ## The 15 observed cases and original repair requirements
 
 1. **Series count spacing** — `test_recursive_series_covers_filters_and_readonly_scanning`

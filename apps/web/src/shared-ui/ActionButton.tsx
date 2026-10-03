@@ -9,7 +9,6 @@ import { Link, type Href } from 'expo-router';
 import {
   Platform,
   Pressable,
-  Text,
   type PressableProps,
   type StyleProp,
   type TextStyle,
@@ -179,7 +178,7 @@ export const ActionButton = forwardRef<View, ActionButtonProps>(function ActionB
             <ControlTone.Provider value={color}>
               {Children.map(children, (child) =>
                 typeof child === 'string' || typeof child === 'number' ? (
-                  <Text
+                  <UiText
                     style={[
                       {
                         color,
@@ -197,7 +196,7 @@ export const ActionButton = forwardRef<View, ActionButtonProps>(function ActionB
                     ]}
                   >
                     {child}
-                  </Text>
+                  </UiText>
                 ) : (
                   child
                 )

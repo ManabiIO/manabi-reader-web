@@ -5,6 +5,7 @@ filter, appearance, recovery-export and controller-ownership acceptance cases.
 No request interception, substitute UI, mocked database, or mocked renderer.
 """
 import json
+import re
 import unittest
 from playwright.sync_api import expect
 from test_books_library import LibraryBase
@@ -146,7 +147,12 @@ class SharedStatisticsBrowser(LibraryBase):
         self.page.goto(self.origin + '/reader-web/statistics')
         expect(self.page.get_by_role('link', name='Resume reading', exact=True)).to_be_visible()
         self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.page.get_by_role('button', name='Heatmap', exact=True).click()
+        streak = self.page.get_by_role('button', name=re.compile(r'^Longest Streak'))
+        normal_streak_size = streak.evaluate('e => parseFloat(getComputedStyle(e.firstElementChild).fontSize)')
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        enlarged_streak_size = streak.evaluate('e => parseFloat(getComputedStyle(e.firstElementChild).fontSize)')
+        self.assertAlmostEqual(enlarged_streak_size, normal_streak_size * 2, delta=0.5)
         self.page.wait_for_function('document.documentElement.scrollWidth - innerWidth <= 1')
         self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth - innerWidth'), 1)
         for role, name in [('link', 'Resume reading'), ('button', 'Navigate')]:

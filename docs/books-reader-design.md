@@ -120,3 +120,8 @@ Statistics Summary uses aligned date/data columns, a quiet range caption,
 compact measurement selectors and row actions at the end. Styled shared headings
 use the same scalable typography path as their labels. Current web navigation
 uses `aria-current="page"`; selected button semantics remain on buttons.
+
+Shared button labels use the same scalable text primitive, including numeric
+font overrides on Heatmap streak/goal summaries. A real browser assertion checks
+that a 12px compact metric becomes 24px at 200% root text, while native retains
+RN font scaling and its existing line height.
