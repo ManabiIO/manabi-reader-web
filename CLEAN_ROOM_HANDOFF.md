@@ -1,7 +1,7 @@
 # Clean-room implementation handoff manifest
 
 Status: SEALED RESEARCH HANDOFF — NO ACTIVE IMPLEMENTATION APPROVALS
-Revision: 2026-10-03 approval-gated refinement 2
+Revision: 2026-10-03 approval-gated refinement 3
 
 PR #260 is a research/specification Draft. This manifest identifies clean documents a future worker may read. **It does not authorize that worker to design, implement, test, prototype, integrate, mark ready, merge, or finish any feature.**
 
@@ -26,7 +26,7 @@ Subject to the approval gate above, a future worker may receive these documents 
 | `CLEAN_ROOM_COMPETITIVE_RESEARCH.md` | `6cb64cd45478906d3648860945b33c35f75e450d` | process boundary, evidence rules, taint handling, authorization separation |
 | `specs/clean-room-reader-competitive-spec.md` | `fd1269b0426ce7b526a99f985c15b4192634fcdd` | behavior contracts, fixtures, acceptance tests, benchmarks |
 | `specs/clean-room-reader-adversarial-qualification.md` | `b4249481022cb010cfcee89d5263c3766201208b` | adversarial, sync, cache, fuzz, soak, cross-engine qualification |
-| `specs/clean-room-reader-feature-opportunities.md` | `0563e33fe230eb627210c839ed1cc80b8a17c00e` | DISCOVERY_ONLY optional feature registry |
+| `specs/clean-room-reader-feature-opportunities.md` | `61383888e92c7d56959ed70d71d8a54230c60be8` | DISCOVERY_ONLY optional feature registry |
 
 Research reviewers may also use:
 
