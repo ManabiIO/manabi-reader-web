@@ -34,7 +34,7 @@ Native custom themes keep the seven existing color fields, including zero alpha,
 ## Explicit integration gates
 
 - Native background-image selection/transfer and native library image rendering are not connected. Existing reader images are preserved; fade controls apply to already configured reader images. Library fade controls are explicitly labeled as web-library preferences.
-- Native font-file import/cache removal requires a scoped file-transfer adapter. Existing font names and packaged fonts remain selectable. No local file paths are returned in DTOs.
+- Native font import and stored-font management now use the existing sequenced, account-fenced transfer channel and the existing DOM font/cache helpers. WOFF2/WOFF/TTF/OTF files are copied by the system picker, streamed without exposing their URI, and bounded by the existing native 256 MB transfer ceiling. The original file is never modified. Import does not select the font automatically. Cached-file availability is checked before selection; missing files do not prune metadata or change built-in choices. Removal uses a captured opaque handle and only the exact selected face can reset that family. Interrupted saves require an explicit refresh, never commit replay.
 - Native first-party/provider session handoff, persistent directory capabilities, and credential-backed WebDAV connection management remain separate integration gates. Saving a sync preference does not connect a source or prove a sync ran.
 - Android storage protection/eviction behavior needs actual device integration checks; browser persistence is not represented as persistent native directory permission.
 - Advanced reading-goal/history/merge/sync flows and legacy global orphan-statistics cleanup are withheld until ownership-aware services exist. Global legacy tables are never exposed to make these flows appear implemented.
@@ -49,3 +49,22 @@ Commands run with the existing Node 24.21 binary and installed dependencies:
 - `node --max-old-space-size=512 test/expo/native-settings-typecheck.mjs`: zero strict TypeScript diagnostics against real React Native and Expo UI types, with a declaration at the runtime-owner boundary
 - Strict dependency-resolved check of pure schema/contract/service-core/lifecycle: zero diagnostics
 - An initial check following the full native runtime graph was OS-killed with exit 137. It is not counted as a passed full-application check. Parent full CI/Metro/build/device verification remains necessary
+
+## Font qualification boundary
+
+Production-owner tests cover actual catalogue/cache helper calls, read failures,
+reserved/duplicate names, forged/stale handles, account/route retirement and
+byte-exact native transfer. Mounted React tests cover StrictMode, canceled picker
+results, stale confirmations and explicit error reconciliation. Native picker
+platform boundaries are substituted in those local tests. The packaged Android
+journey now opens Settings, chooses Fonts & text, opens the real font manager,
+requires its cache-read empty state and returns to Library through accessibility
+actions. That journey must pass on the exact APK; it does not yet prove a real
+font selection/import on a physical device or TalkBack/IME behavior.
+
+The embedded Reader has no service worker. Its font owner therefore materializes
+validated cached font bytes into owned Blob URLs and releases them on replacement
+or retirement; it never falls back to fetching restored metadata URLs. Browser
+font loading retains the existing service-worker path. The APK probe must qualify
+real cached-font loading after reload and process restart before this is considered
+verified on Android.

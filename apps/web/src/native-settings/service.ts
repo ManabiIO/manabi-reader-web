@@ -71,8 +71,7 @@ import {
   adjustStatisticsAfterIdleTime$,
   verticalCustomReadingPosition$,
   horizontalCustomReadingPosition$,
-  yuKyokashoAvailable$,
-  userFonts$
+  yuKyokashoAvailable$
 } from '$lib/data/store';
 import {
   appearance$,
@@ -204,7 +203,6 @@ const service = createNativeSettingsService({
     write: (value) => customThemes$.next(value)
   },
   fonts: () => {
-    const custom = userFonts$.getValue().map((font) => font.name);
     const primary = [
       LocalFont.KLEEONE,
       LocalFont.KLEEONESEMIBOLD,
@@ -216,13 +214,12 @@ const service = createNativeSettingsService({
     ];
     if (yuKyokashoAvailable$.getValue() === true) primary.unshift(LocalFont.YUKYOKASHO);
     return {
-      primary: [...primary, ...custom],
+      primary,
       secondary: [
         LocalFont.SYSTEMSANS,
         LocalFont.NOTOSANSJP,
         LocalFont.KZUDGOTHIC,
-        LocalFont.SANSSERIF,
-        ...custom
+        LocalFont.SANSSERIF
       ],
       effectivePrimary: effectivePrimaryReaderFont(
         fontFamilyGroupOne$.getValue(),

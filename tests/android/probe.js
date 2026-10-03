@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
+/* global caches, document */
 // Evaluated only by Android instrumentation, from the separate test APK.
 // No app bridge commands, real books/accounts, or production dictionary stores.
 // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- The test APK evaluates this function value, then invokes it with owned fixture configuration.
@@ -61,6 +62,7 @@
     } catch (error) {
       if (error.name !== 'NotFoundError') throw error;
     }
+    await caches.delete(name);
     report.cleaned = name;
   };
   try {
@@ -112,6 +114,41 @@
     assert((await file.text()) === sentinel, 'OPFS sentinel mismatch');
     report.indexedDB = 'read-committed-sentinel';
     report.opfs = 'read-committed-sentinel';
+    // Test-owned cache only: load real packaged font bytes through the same
+    // CacheStorage -> Blob URL -> font loader path used by embedded custom fonts.
+    const fontCache = await caches.open(name);
+    const fontKey = new URL(`./${name}/font.woff2`, location.href).href;
+    if (config.operation === 'seed') {
+      const css = document.getElementById('manabi-packaged-fonts')?.textContent || '';
+      const source = /url\(["']?([^"')]+)["']?\)/.exec(css)?.[1];
+      assert(source, 'Packaged font source missing');
+      const url = new URL(source, location.href);
+      assert(
+        url.origin === location.origin && url.pathname.startsWith('/www.bundle/'),
+        'Packaged font escaped the local asset prefix'
+      );
+      const response = await fetch(url);
+      assert(response.status === 200, 'Packaged font did not load');
+      await fontCache.put(fontKey, response);
+    }
+    const cachedFont = await fontCache.match(fontKey);
+    assert(cachedFont, 'Test-owned font cache did not survive');
+    const fontBlob = await cachedFont.blob();
+    assert(fontBlob.size > 0, 'Cached font is empty');
+    const fontURL = URL.createObjectURL(fontBlob);
+    const fontFace = new FontFace(name, `url("${fontURL}")`);
+    try {
+      await timeout(fontFace.load(), 'Cached font load');
+      document.fonts.add(fontFace);
+      assert(
+        fontFace.status === 'loaded' && document.fonts.has(fontFace),
+        'Cached font was not registered'
+      );
+      report.cachedFont = 'cached-packaged-face-loaded-via-blob';
+    } finally {
+      document.fonts.delete(fontFace);
+      URL.revokeObjectURL(fontURL);
+    }
     if (config.operation === 'verify') return report;
 
     let release;

@@ -15,6 +15,7 @@ export function verifyEvidence(evidence, phase, id) {
   assert.equal(evidence.target, 'io.manabi.reader');
   assert.equal(evidence.targetDebuggable, false);
   assert.equal(evidence.nativeRoundTrip, 'snapshot-route-and-library-state-reply');
+  assert.equal(evidence.nativeFontManager, 'settings-typography-font-cache-read-and-close');
   assert.match(
     evidence.entry,
     /^https:\/\/appassets\.androidplatform\.net\/www\.bundle\/[a-f0-9]{32}\.html$/
@@ -23,6 +24,8 @@ export function verifyEvidence(evidence, phase, id) {
   assert.equal(evidence.nativeSettings.fileOriginBypass, false);
   if (phase === 'seed') {
     assert.equal(evidence.initial?.secureContext, true);
+    assert.equal(evidence.initial?.cachedFont, 'cached-packaged-face-loaded-via-blob');
+    assert.equal(evidence.afterReload?.cachedFont, 'cached-packaged-face-loaded-via-blob');
     assert.equal(
       evidence.initial?.moduleWorker,
       'real-packaged-worker-replied-not_open-without-storage-open'
@@ -35,6 +38,7 @@ export function verifyEvidence(evidence, phase, id) {
     assert.ok(evidence.navigation.every((item) => item.rootRetained === true));
   } else {
     assert.equal(phase, 'verify');
+    assert.equal(evidence.afterProcessRestart?.cachedFont, 'cached-packaged-face-loaded-via-blob');
     assert.equal(evidence.afterProcessRestart?.indexedDB, 'read-committed-sentinel');
     assert.equal(evidence.afterProcessRestart?.opfs, 'read-committed-sentinel');
     assert.equal(evidence.cleanup?.cleaned, `manabi-android-qualification-${id}`);

@@ -56,7 +56,9 @@ const stores = production('lib/state/store.ts');
 const documents = production('lib/snippets/document.ts');
 const { summarize } = production('lib/snippets/summary.ts', { './document': documents });
 const settings = production('platform/settings-fields.ts');
-const bridge = production('platform/bridge-contract.ts');
+const bridge = production('platform/bridge-contract.ts', {
+  '../native-settings/font-contract.ts': production('native-settings/font-contract.ts')
+});
 const navigation = production('platform/native-navigation.ts');
 const editor = production('native-snippets/editor-model.ts', {
   '../lib/snippets/document': documents
@@ -447,6 +449,16 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     },
     '../native-library/dom-service': { createNativeLibraryService: () => library },
     '../native-library/catalog-dom': { createNativeCatalogService: () => catalog },
+    '../native-settings/font-service.dom': {
+      createNativeFontService: () => ({
+        read: (...args) => f.fontRead?.(...args) ?? {},
+        action: (...args) => f.fontAction?.(...args) ?? {},
+        import: (...args) => f.fontImport?.(...args) ?? {},
+        dispose: () => {
+          f.fontDisposals = (f.fontDisposals ?? 0) + 1;
+        }
+      })
+    },
     '../native-settings/service': {
       readNativeSettingsState: async () => ({}),
       dispatchNativeSettingsAction: async () => ({})

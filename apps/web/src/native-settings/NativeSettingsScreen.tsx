@@ -50,6 +50,8 @@ import { SettingsWorkspace as SharedSettingsWorkspace } from '../features/settin
 import * as workspaceLayout from '../features/settings/workspace-layout';
 import { createSettingsWorkspaceState } from '../features/settings/workspace-state';
 
+import { NativeFontManager } from './NativeFontManager';
+
 interface Colors {
   background: string;
   card: string;
@@ -142,14 +144,17 @@ function FieldEditor({
   data,
   act,
   busy,
-  colors
+  colors,
+  refresh
 }: {
   field: NativeSettingField;
+  refresh(): void;
   data: NativeSettingsState;
   act: Act;
   busy: boolean;
   colors: Colors;
 }) {
+  const [fontsOpen, setFontsOpen] = useState(false);
   const initial = field.value === null ? '' : String(field.value);
   const [draft, setDraft] = useState(initial);
   const [dirty, setDirty] = useState(false);
@@ -248,10 +253,25 @@ function FieldEditor({
         <>
           {fontNames && (
             <>
+              <Action
+                label={`Manage ${field.label} files`}
+                colors={colors}
+                disabled={disabled}
+                onPress={() => setFontsOpen(true)}
+              />
+              {fontsOpen && (
+                <NativeFontManager
+                  family={field.key === 'fontFamilyGroupOne' ? 'primary' : 'secondary'}
+                  colors={colors}
+                  onClose={() => setFontsOpen(false)}
+                  onChanged={refresh}
+                />
+              )}
+
               <Text style={{ color: colors.muted }}>
                 {field.key === 'fontFamilyGroupOne'
                   ? `Effective font: ${data.fonts.effectivePrimary}`
-                  : 'Choose a packaged or previously imported font'}
+                  : 'Choose a packaged font, or manage imported fonts'}
               </Text>
               <Host
                 matchContents
@@ -279,32 +299,36 @@ function FieldEditor({
               </Host>
             </>
           )}
-          <DraftInput
-            label={field.label}
-            value={draft}
-            onChange={edit}
-            disabled={disabled}
-            number={field.kind === 'number'}
-            colors={colors}
-            placeholder={field.nullable ? 'Default' : undefined}
-          />
-          <View style={styles.row}>
-            <Action
-              label={`Apply ${field.label}`}
-              colors={colors}
-              disabled={disabled || !dirty}
-              onPress={() => {
-                try {
-                  void save(parseSettingDraft(field, draft), base);
-                } catch (cause) {
-                  setError(cause instanceof Error ? cause.message : 'Check this value.');
-                }
-              }}
-            />
-            {dirty && (
-              <Action label="Cancel edit" colors={colors} disabled={busy} onPress={cancel} />
-            )}
-          </View>
+          {!fontNames && (
+            <>
+              <DraftInput
+                label={field.label}
+                value={draft}
+                onChange={edit}
+                disabled={disabled}
+                number={field.kind === 'number'}
+                colors={colors}
+                placeholder={field.nullable ? 'Default' : undefined}
+              />
+              <View style={styles.row}>
+                <Action
+                  label={`Apply ${field.label}`}
+                  colors={colors}
+                  disabled={disabled || !dirty}
+                  onPress={() => {
+                    try {
+                      void save(parseSettingDraft(field, draft), base);
+                    } catch (cause) {
+                      setError(cause instanceof Error ? cause.message : 'Check this value.');
+                    }
+                  }}
+                />
+                {dirty && (
+                  <Action label="Cancel edit" colors={colors} disabled={busy} onPress={cancel} />
+                )}
+              </View>
+            </>
+          )}
           {field.kind === 'number' && (
             <Text style={{ color: colors.muted }}>
               {field.min !== undefined ? `Minimum ${field.min}` : ''}
@@ -683,6 +707,9 @@ export function NativeSettingsScreen() {
               <FieldEditor
                 key={`${ownerKey}:${field.key}`}
                 field={field}
+                refresh={() => {
+                  void sessionRef.current?.refresh();
+                }}
                 data={data}
                 act={act}
                 busy={busy}

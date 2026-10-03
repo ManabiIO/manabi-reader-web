@@ -38,6 +38,7 @@ import {
 } from './native-reader-navigation';
 import { nativeNavigationPath } from './native-navigation';
 import { selectNativeLibraryCover } from '../native-library/cover-selection';
+import { selectNativeUserFont } from '../native-settings/font-selection';
 
 type ReaderHostDOMProps = DOMProps & {
   manabiReaderHost: true;
@@ -54,6 +55,7 @@ interface RuntimeValue {
   busy: boolean;
   command(method: BridgeMethod, payload?: Record<string, unknown>): Promise<unknown>;
   importBooks(): Promise<void>;
+  importFont(name: string, signal: AbortSignal): Promise<boolean>;
   changeCover(selection: { token: string; key: string }, signal: AbortSignal): Promise<boolean>;
   clearError(): void;
 }
@@ -294,6 +296,31 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       if (mounted.current) setBusy(false);
     }
   }
+  async function importFont(name: string, signal: AbortSignal) {
+    if (importActive.current) throw new Error('Another file transfer is in progress.');
+    importActive.current = true;
+    setBusy(true);
+    try {
+      return await selectNativeUserFont(
+        {
+          scope: () => latest.current,
+          pick: () =>
+            DocumentPicker.getDocumentAsync({
+              type: ['font/woff2', 'font/woff', 'font/ttf', 'font/otf', 'application/octet-stream'],
+              multiple: false,
+              copyToCacheDirectory: true
+            }),
+          file: (uri) => new File(uri),
+          command
+        },
+        { name },
+        signal
+      );
+    } finally {
+      importActive.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
   const routeParams = JSON.stringify({ id: params.id, snippet: params.snippet });
   const retryReader = useCallback(() => {
     if (latest.current.session && !latest.current.loading)
@@ -359,6 +386,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         command,
         importBooks,
         changeCover,
+        importFont,
         clearError: () => setError('')
       }}
     >

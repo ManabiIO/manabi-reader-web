@@ -58,13 +58,6 @@ export const nativeSettingsGates: readonly NativeSettingsGate[] = [
       'Native image selection and a bounded image transfer are not connected yet. Existing reader images are preserved; the native library does not display them.'
   },
   {
-    id: 'font-files',
-    category: 'typography',
-    label: 'Import and manage font files',
-    reason:
-      'Existing font names and packaged fonts can be selected. Native font-file import and cache management still need a scoped file-transfer adapter.'
-  },
-  {
     id: 'persistent-storage',
     category: 'library',
     label: 'Storage protection and offline status',

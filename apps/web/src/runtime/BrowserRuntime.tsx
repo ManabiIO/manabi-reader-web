@@ -42,6 +42,7 @@ import { userFontsCacheName } from '$lib/data/fonts';
 import { buildLocalFontStyleSheet } from '$lib/functions/book-security/local-media';
 import { DialogHost } from '../ui/dialogs';
 import { bundledFontCSS } from './font-assets';
+import { embeddedFontStyleSheet } from './embedded-fonts';
 import { SnippetCapture } from '../snippets-react';
 
 export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
@@ -120,11 +121,37 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
       ?.setAttribute('content', themeProperties(theme, mode, custom ?? {}).background);
   }, [appearance, mode, theme, custom]);
   useEffect(() => {
+    if (embedded) {
+      const lifetime = new AbortController();
+      const style = document.createElement('style');
+      style.id = userFontsCacheName;
+      document.head.append(style);
+      let release = () => {};
+      void caches
+        .open(userFontsCacheName)
+        .then((cache) => embeddedFontStyleSheet(fonts, cache, lifetime.signal))
+        .then((resource) => {
+          if (lifetime.signal.aborted) {
+            resource.dispose();
+            return;
+          }
+          release = resource.dispose;
+          style.textContent = resource.css;
+        })
+        .catch((error) => {
+          if (!lifetime.signal.aborted) console.warn('Stored fonts could not be loaded', error);
+        });
+      return () => {
+        lifetime.abort();
+        release();
+        style.remove();
+      };
+    }
     const css = buildLocalFontStyleSheet(fonts);
     let style = document.getElementById(userFontsCacheName);
     if (!css) {
       style?.remove();
-      return;
+      return undefined;
     }
     if (!style) {
       style = document.createElement('style');
@@ -132,7 +159,8 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
       document.head.append(style);
     }
     style.textContent = css;
-  }, [fonts]);
+    return undefined;
+  }, [fonts, embedded]);
   const path = location.url.pathname.slice(base.length).replace(/\/$/, '');
   const target = path === '/manage' ? 'library' : path === '/b' ? 'reader' : undefined;
   const background = target ? sets[target]?.[mode] : undefined;
