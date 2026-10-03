@@ -24,8 +24,14 @@ function bundle(name) {
   return require(outfile);
 }
 const { NativeLibraryService } = bundle('service');
-const { parseLibraryQuery, libraryNodes, reconcileNativeSelection, nativeOwnedCards } =
-  bundle('view-model');
+const {
+  parseLibraryQuery,
+  libraryNodes,
+  reconcileNativeSelection,
+  nativeOwnedCards,
+  nativeBook,
+  selectedLibraryTheme
+} = bundle('view-model');
 const { commitNativeCompletion } = bundle('completion');
 const org = () => ({ version: 1, collections: [], books: {} });
 function book(id = 1, extra = {}) {
@@ -564,4 +570,65 @@ test('Library canonical admissions reject identical hashless reimports, missing 
     );
     assert.equal(f.writes.length, 0);
   }
+});
+
+test('native book presentation preserves canonical unread evidence and truncates percentages like the Svelte shelf', () => {
+  assert.equal(
+    nativeBook(book(1, { lastBookOpen: 0, lastBookmarkModified: 0, progress: 0.999 }), 'key', org())
+      .readingLabel,
+    'Unread'
+  );
+  assert.equal(
+    nativeBook(book(1, { lastBookOpen: 1, progress: 0.039 }), 'key', org()).readingLabel,
+    '3%'
+  );
+  assert.equal(
+    nativeBook(book(1, { lastBookOpen: 1, progress: 0 }), 'key', org()).readingLabel,
+    '0%'
+  );
+  assert.equal(
+    nativeBook(
+      book(1, { completion: { state: 'finished', finishedOn: '2026-10-02' } }),
+      'key',
+      org()
+    ).readingLabel,
+    'Finished'
+  );
+});
+
+test('library appearance is a detached owner snapshot, retaining saved dark/custom preferences without mutation authority', async () => {
+  const f = setup();
+  f.data.uiTheme = {
+    themeId: 'custom-test',
+    appearance: 'dark',
+    customThemes: { 'custom-test': { background: '#123456' } }
+  };
+  const state = await f.service.state({}, f.authority);
+  assert.deepEqual(state.uiTheme, f.data.uiTheme);
+  state.uiTheme.customThemes['custom-test'].background = '#ffffff';
+  assert.equal(f.data.uiTheme.customThemes['custom-test'].background, '#123456');
+  assert.equal(f.writes.length, 0);
+});
+
+test('native hides a retained completion date when the canonical state is still reading', () => {
+  const value = nativeBook(
+    book(1, { completion: { state: 'reading', finishedOn: '2026-10-02' } }),
+    'key',
+    org()
+  );
+  assert.equal(value.readingLabel, '30%');
+  assert.equal(value.finishedOn, undefined);
+});
+
+test('native Library appearance carries only the selected custom palette, not unrelated saved themes', () => {
+  const custom = Object.fromEntries(
+    Array.from({ length: 1000 }, (_, index) => [`theme-${index}`, { backgroundColor: '#123456' }])
+  );
+  const result = selectedLibraryTheme('theme-42', 'dark', custom);
+  assert.deepEqual(Object.keys(result.customThemes), ['theme-42']);
+  assert.equal(result.themeId, 'theme-42');
+  assert.equal(result.appearance, 'dark');
+  result.customThemes['theme-42'].backgroundColor = '#ffffff';
+  assert.equal(custom['theme-42'].backgroundColor, '#123456');
+  assert.deepEqual(selectedLibraryTheme('manabi-theme', 'system', custom).customThemes, {});
 });

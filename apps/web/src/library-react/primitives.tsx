@@ -489,8 +489,13 @@ function MenuContent({
         } else if (event.key === 'Escape' || (context.submenu && event.key === 'ArrowLeft')) {
           event.preventDefault();
           event.stopPropagation();
-          context.setOpen(false);
-          context.trigger.current?.focus();
+          if (event.key === 'Escape') {
+            context.closeTree();
+            context.rootTrigger.current?.focus();
+          } else {
+            context.setOpen(false);
+            context.trigger.current?.focus();
+          }
         } else if (event.key === 'Tab') {
           event.stopPropagation();
           context.closeTree();
@@ -510,7 +515,7 @@ function MenuItem({ children, onSelect, variant, disabled, ...props }: AnyProps)
       type="button"
       role="menuitem"
       disabled={disabled}
-      className={`flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left hover:bg-muted focus:bg-muted ${variant === 'destructive' ? 'text-destructive' : ''} ${props.className ?? ''}`}
+      className={`flex min-h-7 w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm hover:bg-muted focus:bg-muted ${variant === 'destructive' ? 'text-destructive' : ''} ${props.className ?? ''}`}
       onPointerEnter={(event) => {
         if (event.pointerType === 'mouse') context.setActiveSubmenu(null);
         props.onPointerEnter?.(event);
@@ -557,7 +562,7 @@ function RadioItem({ value, children, disabled }: AnyProps) {
       role="menuitemradio"
       aria-checked={radio.value === value}
       disabled={disabled}
-      className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left hover:bg-muted focus:bg-muted"
+      className="flex min-h-7 w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm hover:bg-muted focus:bg-muted"
       onPointerEnter={(event) => {
         if (event.pointerType === 'mouse') menu.setActiveSubmenu(null);
       }}
@@ -590,7 +595,12 @@ function SubTrigger({ children, ...props }: AnyProps) {
         }
       }}
       child={({ props }: { props: AnyProps }) => (
-        <Button {...props} role="menuitem" variant="ghost" className="w-full justify-start">
+        <Button
+          {...props}
+          role="menuitem"
+          variant="ghost"
+          className="h-auto min-h-7 w-full justify-start rounded-xl px-2 py-1.5 text-sm"
+        >
           {children}
           <span aria-hidden="true" className="ms-auto">
             ›

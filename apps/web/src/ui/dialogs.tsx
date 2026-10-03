@@ -11,6 +11,7 @@ import { logger } from '$lib/data/logger';
 import { useStore } from '../runtime/use-store';
 import { hideExternalReadHint$, skipKeyDownListener$ } from '$lib/data/store';
 import { decrypt, type StorageUnlockAction } from '$lib/data/storage/storage-source-manager';
+import { cycleModalTab } from '$lib/hooks/cycle-modal-tab';
 
 type Close = { onClose?: () => void };
 export function DialogTemplate({
@@ -24,15 +25,17 @@ export function DialogTemplate({
 }) {
   return (
     <div className="flex max-h-[calc(90dvh-60px)] min-h-0 min-w-0 flex-col">
-      <header className="min-w-0 shrink-0 px-[24px] pb-[12px]">
-        <h2 id="manabi-dialog-title" className="text-xl font-semibold [overflow-wrap:anywhere]">
-          {title}
-        </h2>
-      </header>
       <section
         data-dialog-scroll
         className="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain px-[24px] pb-[24px]"
       >
+        {/* The title shares the scrollport with long content. At enlarged text
+            sizes its wrapped height must not push the fixed actions out of view. */}
+        <header className="min-w-0 pb-[12px]">
+          <h2 id="manabi-dialog-title" className="text-xl font-semibold [overflow-wrap:anywhere]">
+            {title}
+          </h2>
+        </header>
         {children}
       </section>
       {footer && (
@@ -470,6 +473,7 @@ export function DialogHost() {
       aria-modal={current ? true : undefined}
       aria-labelledby="manabi-dialog-title"
       className="m-auto max-h-[90dvh] w-[min(96vw,48rem)] max-w-[calc(100vw-16px)] overflow-hidden rounded-2xl border border-border bg-background p-0 pt-[60px] text-foreground shadow-xl writing-horizontal-tb backdrop:bg-black/40"
+      onKeyDown={(event) => cycleModalTab(event.nativeEvent, event.currentTarget)}
       onCancel={(e) => {
         e.preventDefault();
         if (!current?.disableCloseOnClick) close();

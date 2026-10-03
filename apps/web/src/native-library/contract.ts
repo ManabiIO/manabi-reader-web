@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import type { UiThemeProviderProps } from '../shared-ui/theme';
 import type { BookMetadata, BookSeries } from '../lib/library/book-presentation';
 export const LIBRARY_PAGE_LIMIT = 60;
 export const LIBRARY_ACTION_LIMIT = 60;
@@ -38,6 +39,8 @@ export interface NativeLibraryBook {
   bookId?: number;
   characters: number;
   progress: number;
+  /** Canonical reading-state label calculated in the DOM owner, including unread evidence. */
+  readingLabel: string;
   finished: boolean;
   finishedOn?: string;
   wantToRead: boolean;
@@ -56,7 +59,9 @@ export interface NativeLibrarySeries {
   count: number;
   personal: boolean;
 }
+export type LibraryUiTheme = Pick<UiThemeProviderProps, 'themeId' | 'appearance' | 'customThemes'>;
 export interface NativeLibraryState {
+  uiTheme?: LibraryUiTheme;
   token: string;
   coverToken: string;
   items: (NativeLibraryBook | NativeLibrarySeries)[];

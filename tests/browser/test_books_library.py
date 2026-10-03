@@ -1737,6 +1737,8 @@ class BooksLibraryFilesystem(LibraryBase):
         self.dialog().get_by_role('button', name='Done').click()
         self.assertEqual(reading_before, self.stores('books', ['bookmark', 'statistic']))
         if leave_during_open:
+            collection_url = self.page.url
+            collection_entry = self.page.evaluate('history.state.id')
             # Delay, but do not replace, the real OPFS file bytes. Browser Back
             # must invalidate this open even though the Library page survives.
             self.page.evaluate("""() => {
@@ -1765,7 +1767,12 @@ class BooksLibraryFilesystem(LibraryBase):
                 self.page.wait_for_timeout(25)
             expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false')
             expect(self.page).to_have_url(re.compile(r'/manage(?!.*collection=)'))
-            self.choose_collection('Relocation collection')
+            # Restore the actual prior Expo entry, not a fresh collection push.
+            # Forward must preserve the original history ID and remain usable.
+            self.page.go_forward()
+            expect(self.page).to_have_url(collection_url)
+            self.assertEqual(collection_entry, self.page.evaluate('history.state.id'))
+            expect(self.page.get_by_role('button', name='Read My relocated volume', exact=True)).to_be_visible()
         self.page.get_by_role('button', name='Read My relocated volume', exact=True).click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=30000)
         links_after = self.stores('manabi-reader-integrations', ['books'])['books']

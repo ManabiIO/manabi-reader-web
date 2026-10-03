@@ -5,10 +5,12 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { Host, TextInput, useNativeState } from '@expo/ui';
 import { router, usePathname } from 'expo-router';
 import { Action } from '../screens/NativeScreens';
+import { UiText as Text } from '../shared-ui/Typography';
+import { useUiTheme } from '../shared-ui/theme';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
 import type { ContentSearchView } from './content-search-contract';
 import {
@@ -23,6 +25,15 @@ export function NativeLibraryContentSearch({
   view: ContentSearchView;
   disabled: boolean;
 }) {
+  const theme = useUiTheme();
+  const { colors } = theme;
+  const styles = {
+    ...baseStyles,
+    root: [baseStyles.root, { backgroundColor: colors.background }],
+    card: [baseStyles.card, { backgroundColor: colors.card, borderColor: colors.border }],
+    match: [baseStyles.match, { backgroundColor: colors.primary, color: colors.primaryForeground }],
+    error: [baseStyles.error, { backgroundColor: colors.destructiveBackground }]
+  };
   const { command, snapshot } = useReaderRuntime();
   const focused = usePathname() === '/manage';
   const [draft, setDraft] = useState('');
@@ -56,7 +67,7 @@ export function NativeLibraryContentSearch({
         <Text>
           Searches imported copies in this Library view. Provider-only books must be imported first.
         </Text>
-        <Host matchContents>
+        <Host matchContents colorScheme={theme.mode} seedColor={theme.seedColor}>
           <TextInput
             value={input}
             placeholder="Text inside saved books"
@@ -73,18 +84,20 @@ export function NativeLibraryContentSearch({
         </Host>
         <View style={styles.row}>
           <Action
+            theme={theme}
             label="Search passages"
             variant="filled"
             disabled={blocked || !draft.trim() || state.pending}
             onPress={submit}
           />
           {(state.pending || result) && (
-            <Action label="Cancel search" onPress={() => controller.cancel()} />
+            <Action theme={theme} label="Cancel search" onPress={() => controller.cancel()} />
           )}
         </View>
         {(state.pending || result?.status === 'loading' || state.opening) && (
           <View style={styles.row} accessibilityLiveRegion="polite">
             <ActivityIndicator
+              color={colors.primary}
               accessibilityLabel={state.opening ? 'Opening passage' : 'Searching saved passages'}
             />
             <Text>{state.opening ? 'Opening passage…' : 'Searching saved passages…'}</Text>
@@ -147,6 +160,7 @@ export function NativeLibraryContentSearch({
       {result && (
         <View style={styles.pagination}>
           <Action
+            theme={theme}
             label="Previous passages"
             disabled={blocked || !result.offset}
             onPress={() => void controller.load(Math.max(0, result.offset - result.limit))}
@@ -156,6 +170,7 @@ export function NativeLibraryContentSearch({
             {Math.min(result.offset + result.items.length, result.total)} of {result.total}
           </Text>
           <Action
+            theme={theme}
             label="Next passages"
             disabled={blocked || result.offset + result.items.length >= result.total}
             onPress={() => void controller.load(result.offset + result.limit)}
@@ -165,7 +180,7 @@ export function NativeLibraryContentSearch({
     </View>
   );
 }
-const styles = StyleSheet.create({
+const baseStyles = StyleSheet.create({
   root: { flex: 1 },
   controls: { padding: 14, gap: 9 },
   row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
@@ -174,14 +189,12 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 6,
     borderRadius: 14,
-    backgroundColor: 'white',
-    borderWidth: 1,
-    borderColor: '#dce2db'
+    borderWidth: 1
   },
   title: { fontSize: 17, fontWeight: '600' },
   excerpt: { fontSize: 16, lineHeight: 24 },
-  match: { backgroundColor: '#ffed98', color: '#1d271f', fontWeight: '700' },
-  error: { padding: 10, borderRadius: 10, backgroundColor: '#ffe6df' },
+  match: { fontWeight: '700' },
+  error: { padding: 10, borderRadius: 10 },
   pagination: {
     paddingHorizontal: 10,
     flexDirection: 'row',

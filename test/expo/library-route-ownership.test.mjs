@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process';
 import { build } from 'esbuild';
 
 const require = createRequire(import.meta.url);
+const appRequire = createRequire(new URL('../../apps/web/package.json', import.meta.url));
 
 test('mounted Library routes own their series, shallow search and return navigation', async () => {
   const output = mkdtempSync(join(tmpdir(), 'library-route-ownership-'));
@@ -24,6 +25,8 @@ test('mounted Library routes own their series, shallow search and return navigat
           export { presentBook, createCollection } from './apps/web/src/lib/library/organization';
           export { refreshLocation } from './apps/web/src/runtime/stores';
           export { installRouter, goto, beforeNavigate } from './apps/web/src/runtime/navigation';
+          export { WebSlotRouter } from './apps/web/src/runtime/web-slot-router';
+          export { installQualifiedWebNavigation } from './apps/web/src/runtime/web-navigation-qualification';
           export { account } from './apps/web/src/lib/manabi/client';
           export { commitSnippet, reloadSnippets } from './apps/web/src/lib/snippets/service';
           export { createSnippet, plainContent } from './apps/web/src/lib/snippets/document';
@@ -44,6 +47,10 @@ test('mounted Library routes own their series, shallow search and return navigat
         {
           name: 'host-react-and-route-context',
           setup(builder) {
+            builder.onResolve({ filter: /^installed-expo-stack-router$/ }, () => ({
+              path: appRequire.resolve('expo-router/build/react-navigation/routers/StackRouter'),
+              external: true
+            }));
             builder.onResolve({ filter: /^react(?:\/.*)?$|^react-dom(?:\/.*)?$/ }, (args) => ({
               path: require.resolve(args.path),
               external: true
@@ -57,6 +64,7 @@ test('mounted Library routes own their series, shallow search and return navigat
             builder.onLoad({ filter: /.*/, namespace: 'local-route-context' }, () => ({
               contents: `
                 import { createContext, useContext } from 'react';
+                export { StackRouter } from 'installed-expo-stack-router';
                 export const RouteParams = createContext({});
                 export const useRoute = () => ({ params: useContext(RouteParams) });
               `,

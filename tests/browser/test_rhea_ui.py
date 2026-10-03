@@ -664,6 +664,8 @@ class RheaReader(previous.RefinedAppearance):
             expect(more.get_by_role('menuitemradio', name=name, exact=True)).to_be_visible()
         self.page.keyboard.press('Escape')
         self.page.keyboard.press('Escape')
+        expect(self.page.get_by_role('menu')).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Library actions', exact=True)).to_be_focused()
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         self.page.get_by_role('button', name='Select All Visible', exact=True).click()

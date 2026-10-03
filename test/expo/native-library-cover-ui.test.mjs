@@ -25,7 +25,7 @@ const output = mkdtempSync(join(tmpdir(), 'native-library-cover-ui-'));
 const fixture = join(output, 'native.tsx');
 writeFileSync(
   fixture,
-  `import React from 'react'; export const View=({children,style})=><div data-style={JSON.stringify(style)}>{children}</div>; export const Text=({children})=><span>{children}</span>; export const Image=({source,blurRadius,onError,resizeMode})=><img src={source.uri} data-blur={blurRadius} data-fit={resizeMode} onError={onError}/>; export const StyleSheet={create:x=>x};`
+  `import React from 'react'; export const View=({children,style})=><div data-style={JSON.stringify(style)}>{children}</div>; export const Text=({children})=><span>{children}</span>; export const Image=({source,blurRadius,onError,resizeMode})=><img src={source.uri} data-blur={blurRadius} data-fit={resizeMode} onError={onError}/>; export const StyleSheet={create:x=>x,flatten:x=>Object.assign({},...(Array.isArray(x)?x.flat(Infinity):[x]).filter(Boolean))}; export const Platform={OS:"android"}; export const useColorScheme=()=>"light";`
 );
 const outfile = join(output, 'cover.cjs');
 await build({

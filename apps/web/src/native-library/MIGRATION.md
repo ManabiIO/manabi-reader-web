@@ -132,3 +132,27 @@ Open/remove admission returns expected content identity from the single-use Libr
 - Focused esbuild UI and DOM-service dependency bundles
 
 The initial isolated service checks above did not run an Android host. Subsequent integrated head `727b360e` passes full strict app types, production web/Android Metro exports, patched-host compilation/tests, release APK/source-byte qualification, and the real Chromium cover raster smoke. The fresh emulator failed to boot because runner KVM access was unavailable, so native Library controls, native/DOM replies and device storage remain runtime-unqualified. See the [project qualification record](../../../../docs/expo/MIGRATION.md).
+
+## Shared shelf presentation checkpoint
+
+The ordinary web shelf and native list/grid now execute the same LibraryBookFace
+composition for cover, selection badge, complete title/author, unread badge and
+reading/completion detail. Browser leaves retain the existing DOM and CSS selectors;
+native leaves keep font scaling and use the saved semantic theme. The native DOM
+owner supplies the canonical reading label so unread evidence and floored fractional
+progress agree with Svelte instead of showing every unread book as “0% read”.
+
+Library snapshots also carry a detached appearance/custom-theme value. Native main
+controls, cards, sheets and action seeds consume it; this does not grant a settings
+write capability. Cover decoding, virtualized viewport admissions, selection keys,
+source handles, search and mutation owners remain unchanged. This is a shared shelf
+presentation, not yet a complete common Library workspace: the toolbar, series and
+continue sections, menus, specialized dialogs, timeline, backups and provider flows
+still need convergence and full browser/native acceptance.
+
+Metadata editing also uses one LibraryMetadataFields composition on web/Android:
+the eight fields retain original labels, grouping, author/tag line capacity and
+limits (including newline separators). Web label/textarea/form semantics stay in
+a small leaf, native inputs use Expo UI with full-width labeled hosts, and busy
+saves make the native draft read-only. Existing series, direction, cover controls
+and each owner's commit/cancel guards remain intact.

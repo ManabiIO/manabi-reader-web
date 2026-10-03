@@ -9,6 +9,7 @@
  */
 
 import { database } from '$lib/data/store';
+import { theme$, appearance$, customThemes$ } from '$lib/appearance/state';
 import { get } from '$lib/state/store';
 import { integrationDB, metadata } from '$lib/manabi/persistence';
 import { davSources } from '$lib/webdav/source';
@@ -25,7 +26,7 @@ import { cachedCatalog, type Catalog, type SourceDescriptor } from '$lib/library
 import { buildShelf } from '$lib/library/view-model';
 import { previews } from '$lib/library/previews';
 import { sourceKey } from '$lib/library/organization-keys';
-import { nativeOwnedCards } from './view-model';
+import { nativeOwnedCards, selectedLibraryTheme } from './view-model';
 import { NativeLibraryService, type LibraryRepository } from './service';
 import { readNativeLibrarySummaries } from './cover-records';
 import { renderNativeLibraryCover } from './cover-dom';
@@ -123,6 +124,7 @@ export function createNativeLibraryService() {
         return {
           tree: buildShelf(visible.cards, visible.links, catalogs, sources, value, get(previews)),
           organization: value,
+          uiTheme: selectedLibraryTheme(get(theme$), get(appearance$), get(customThemes$)),
           coverIdentities,
           sources
         };

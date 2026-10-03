@@ -297,8 +297,14 @@ class LibraryOpenCommitStatic(LibraryBase):
             self.phase = 'cancel queued resume via Back'
             self.page.go_back()
             expect(self.page).to_have_url(re.compile('/reader-web/settings$'))
-            # A history URL and SSR heading do not certify SvelteKit startup.
-            expect(self.page.locator('#svelte-announcer')).to_be_attached()
+            # A history URL alone does not certify that the Expo route is
+            # interactive. Exercise its real mounted navigation menu before
+            # releasing the storage blocker and checking the canceled open.
+            expect(self.page.get_by_role('heading',name='Appearance',exact=True)).to_be_visible()
+            self.page.get_by_role('button',name='Navigate',exact=True).click()
+            expect(self.page.get_by_role('navigation',name='Main navigation')).to_be_visible()
+            self.page.keyboard.press('Escape')
+            expect(self.page.get_by_role('navigation',name='Main navigation')).not_to_be_visible()
             holder.evaluate('async()=>{window.releaseResumeBlocker();await window.resumeBlockerDone;}')
             self.assertEqual([{'dataId':ids['Retained book']}],self.stores('books',['lastItem'])['lastItem'])
             self.assertTrue(self.page.url.endswith('/settings'))

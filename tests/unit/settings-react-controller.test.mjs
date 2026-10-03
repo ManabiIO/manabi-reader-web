@@ -9,7 +9,11 @@ const ts = require('typescript');
 function load(relative, imports = {}) {
   const url = new URL('../../apps/web/src/' + relative, import.meta.url);
   const { outputText, diagnostics } = ts.transpileModule(readFileSync(url, 'utf8'), {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.CommonJS,
+      jsx: ts.JsxEmit.ReactJSX
+    },
     reportDiagnostics: true,
     fileName: url.pathname
   });
@@ -304,4 +308,68 @@ test('authorization starts after mount and reports provider failures instead of 
     if (previous === undefined) delete globalThis.window;
     else globalThis.window = previous;
   }
+});
+
+test('import presentation owns admitted route params before browser history commits and preserves its visit state', (t) => {
+  const oldWindow = globalThis.window;
+  globalThis.window = { location: { search: '?source=ttu' } };
+  t.after(() => {
+    globalThis.window = oldWindow;
+  });
+  const page = store({ url: new URL('https://reader.example/reader-web/manage') });
+  const { createImportTtuScreen } = load('settings-react/import-ttu-screen-controller.ts', {
+    '$app/navigation': { beforeNavigate: () => () => {} },
+    '$app/stores': { page },
+    '$lib/manabi/ttu-migration': { TtuMigration: {}, migratedBookChoices: async () => [] },
+    '$lib/manabi/ttu-migration-format': {
+      importLabels: { bookData: 'Book data' },
+      MigrationConflict: class extends Error {}
+    },
+    '../reader-react/controller': runtime
+  });
+  const c = createImportTtuScreen(
+    { routeUrl: 'https://reader.example/reader-web/import-ttu?source=yatsu' },
+    undefined,
+    settingsContext()
+  );
+  c.controller.prepare();
+  c.controller.start();
+  assert.equal(c.yatsu, true);
+  c.updateProps({ onClose: () => {} });
+  c.controller.prepare();
+  assert.equal(c.yatsu, true, 'unrelated prop deltas cannot revoke route admission');
+  assert.equal(page.count(), 0, 'global address bar cannot overwrite an admitted route');
+  c.message = 'Keep inspected/imported work';
+  page.next({ url: new URL('https://reader.example/reader-web/import-ttu') });
+  c.controller.prepare();
+  assert.equal(c.yatsu, true);
+  c.updateProps({ routeUrl: 'https://reader.example/reader-web/import-ttu?source=ttu' });
+  c.controller.prepare();
+  assert.equal(c.yatsu, false);
+  assert.equal(c.message, 'Keep inspected/imported work');
+  c.updateProps({ routeUrl: undefined });
+  c.controller.prepare();
+  assert.equal(page.count(), 1, 'standalone fallback still follows its actual browser page');
+  page.next({ url: new URL('https://reader.example/reader-web/import-ttu?source=yatsu') });
+  c.controller.prepare();
+  assert.equal(c.yatsu, true);
+  c.controller.destroy();
+  assert.equal(page.count(), 0);
+});
+
+test('Expo importer forwards once-decoded route-local source before browser location changes', () => {
+  let params = { source: 'yatsu', note: ['literal%20space', 'literal%2Fslash'] };
+  const { default: ImportRoute } = load('screens/routes/import-ttu.web.tsx', {
+    'expo-router': { useRoute: () => ({ params }) },
+    '../../settings-react': { ImportTtuScreen: () => null },
+    '../../runtime/paths': { base: '/reader-web' },
+    'react/jsx-runtime': require('react/jsx-runtime')
+  });
+  const node = ImportRoute();
+  const url = new URL(node.props.routeUrl);
+  assert.equal(url.pathname, '/reader-web/import-ttu');
+  assert.equal(url.searchParams.get('source'), 'yatsu');
+  assert.deepEqual(url.searchParams.getAll('note'), ['literal%20space', 'literal%2Fslash']);
+  params = { source: ['ttu', 'yatsu'] };
+  assert.equal(new URL(ImportRoute().props.routeUrl).searchParams.get('source'), 'ttu');
 });

@@ -545,10 +545,21 @@ function ModalContent({
         ...scopes,
         overlayProps?.className ?? overlayProps?.class ?? ''
       ].join(' ')}
-      onPointerDown={(event) => {
+      onPointerUp={(event) => {
         if (event.target === event.currentTarget && !closeDisabled) {
           live.current.onInteractOutside?.(event);
-          if (!event.defaultPrevented) modal.close();
+          if (event.defaultPrevented) return;
+          event.preventDefault();
+          event.stopPropagation();
+          // Touch readers prevent compatibility clicks. Keep the backdrop through
+          // the pointer's click dispatch so dismissal cannot activate the toolbar.
+          requestAnimationFrame(() => live.current.modal.close());
+        }
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          event.preventDefault();
+          event.stopPropagation();
         }
       }}
     >

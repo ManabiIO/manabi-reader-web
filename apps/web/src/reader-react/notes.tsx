@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import React from 'react';
+import React, { useId } from 'react';
 import { useReaderController } from './controller';
 import {
   Dom,
@@ -19,6 +19,7 @@ import { localProfileUser } from '$lib/manabi/client';
 import { editImportedNote, exportImportedNotes } from '$lib/manabi/imported-notes';
 
 export function ImportedYatsuNotes(props: Partial<NotesProps> & ReaderViewProps) {
+  const noteId = useId();
   const latest = useLatest(props);
   const c = useReaderController(
     () =>
@@ -137,26 +138,28 @@ export function ImportedYatsuNotes(props: Partial<NotesProps> & ReaderViewProps)
                           </Dom>
                           <Dom
                             as="label"
+                            htmlFor={noteId}
                             className={['mt-2 block text-sm'].filter(Boolean).join(' ')}
                           >
                             {'Note'}
-                            <Dom
-                              as="textarea"
-                              value={c.body}
-                              maxLength={65536}
-                              disabled={c.busy}
-                              className={[
-                                'mt-1 min-h-28 w-full rounded border border-input bg-background p-2'
-                              ]
-                                .filter(Boolean)
-                                .join(' ')}
-                              bindings={{
-                                value: (value) => {
-                                  c.body = value;
-                                }
-                              }}
-                            ></Dom>
                           </Dom>
+                          <Dom
+                            as="textarea"
+                            id={noteId}
+                            value={c.body}
+                            maxLength={65536}
+                            disabled={c.busy}
+                            className={[
+                              'mt-1 min-h-28 w-full rounded border border-input bg-background p-2'
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                            bindings={{
+                              value: (value) => {
+                                c.body = value;
+                              }
+                            }}
+                          ></Dom>
                           <Dom
                             as="div"
                             className={['mt-2 flex flex-wrap gap-2'].filter(Boolean).join(' ')}

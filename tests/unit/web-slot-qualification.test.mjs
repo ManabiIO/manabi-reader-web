@@ -27,13 +27,21 @@ for (const platform of ['web', 'android'])
         }
       });
       const passthrough = ({ children }) => children;
+      const WebSlotRouter = () => {};
+      const Navigator = ({ children, router }) => {
+        assert.equal(router, WebSlotRouter);
+        return children;
+      };
+      Navigator.useContext = () => ({ NavigationContent: passthrough });
+      Navigator.Slot = () => React.createElement('section', { 'data-navigator': 'slot' });
       const dependencies = {
         'react/jsx-runtime': jsxRuntime,
         'react-native': { Platform: { OS: platform } },
         'react-native-safe-area-context': { SafeAreaProvider: passthrough },
         '../platform/RuntimeProvider': { RuntimeProvider: passthrough },
+        '../runtime/web-slot-router': { WebSlotRouter },
         'expo-router': {
-          Slot: () => React.createElement('section', { 'data-navigator': 'slot' }),
+          Navigator,
           Stack: (props) => {
             assert.deepEqual(props.screenOptions, { headerShown: false, animation: 'none' });
             return React.createElement('section', { 'data-navigator': 'stack' });

@@ -1494,7 +1494,8 @@
     opacity: 0;
     pointer-events: none !important;
   }
-  .reader-controls.chrome-hidden:focus {
+  // WebKit blurs buttons on pointerdown; retain their hit target until the click finishes.
+  .reader-controls.chrome-hidden:is(:focus, :hover, :active) {
     opacity: 1;
     pointer-events: auto !important;
   }

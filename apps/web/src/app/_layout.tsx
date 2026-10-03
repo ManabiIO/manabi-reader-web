@@ -4,18 +4,29 @@
  * All rights reserved.
  */
 
-import { Slot, Stack } from 'expo-router';
+import { Navigator, Stack } from 'expo-router';
 import { Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { RuntimeProvider } from '../platform/RuntimeProvider';
+import { WebSlotRouter } from '../runtime/web-slot-router';
 import '../app.css';
 import '../app.generated.css';
+function WebSlot() {
+  const { NavigationContent } = Navigator.useContext();
+  return (
+    <NavigationContent>
+      <Navigator.Slot />
+    </NavigationContent>
+  );
+}
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <RuntimeProvider>
         {Platform.OS === 'web' ? (
-          <Slot />
+          <Navigator router={WebSlotRouter}>
+            <WebSlot />
+          </Navigator>
         ) : (
           <Stack screenOptions={{ headerShown: false, animation: 'none' }} />
         )}

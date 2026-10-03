@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { LibraryMetadataFields } from '../features/library/LibraryMetadataFields';
+import { metadataLayout } from '../features/library/metadata-fields.web';
 import { Fragment, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 /**
  * React/controller port of lib/library/book-organization-dialog.svelte; transactions retain their original guards.
@@ -187,110 +189,15 @@ export function OrganizationView({
                 >
                   {c.mode === 'metadata' ? (
                     <>
-                      <label className={['grid gap-2'].filter(Boolean).join(' ')}>
-                        {'Title'}
-                        <input
-                          maxLength={1000}
-                          required={true}
-                          value={c.title}
-                          onChange={(event: any) => {
-                            c.title = event.currentTarget.value;
-                          }}
-                          className={['metadata-input'].filter(Boolean).join(' ')}
-                        />
-                      </label>
-                      <label className={['grid gap-2'].filter(Boolean).join(' ')}>
-                        <span id={`${labels}-authors`}>{'Authors (one per line)'}</span>
-                        <textarea
-                          aria-labelledby={`${labels}-authors`}
-                          rows={3}
-                          maxLength={16415}
-                          value={c.authors}
-                          onChange={(event: any) => {
-                            c.authors = event.currentTarget.value;
-                          }}
-                          className={['metadata-input'].filter(Boolean).join(' ')}
-                        />
-                      </label>
-                      <label className={['grid gap-2'].filter(Boolean).join(' ')}>
-                        <span id={`${labels}-author-sort`}>
-                          {'Author sort names (matching lines, optional)'}
-                        </span>
-                        <textarea
-                          aria-labelledby={`${labels}-author-sort`}
-                          rows={2}
-                          maxLength={16415}
-                          value={c.authorSort}
-                          onChange={(event: any) => {
-                            c.authorSort = event.currentTarget.value;
-                          }}
-                          className={['metadata-input'].filter(Boolean).join(' ')}
-                        />
-                      </label>
-                      <div
-                        className={['grid min-w-0 gap-4 sm:grid-cols-2'].filter(Boolean).join(' ')}
-                      >
-                        <label className={['grid min-w-0 gap-2'].filter(Boolean).join(' ')}>
-                          {'Language'}
-                          <input
-                            maxLength={128}
-                            value={c.language}
-                            onChange={(event: any) => {
-                              c.language = event.currentTarget.value;
-                            }}
-                            className={['metadata-input'].filter(Boolean).join(' ')}
-                          />
-                        </label>
-                        <label className={['grid min-w-0 gap-2'].filter(Boolean).join(' ')}>
-                          {'Published'}
-                          <input
-                            maxLength={128}
-                            placeholder={'For example, 2024-03-01'}
-                            value={c.published}
-                            onChange={(event: any) => {
-                              c.published = event.currentTarget.value;
-                            }}
-                            className={['metadata-input'].filter(Boolean).join(' ')}
-                          />
-                        </label>
-                      </div>
-                      <label className={['grid gap-2'].filter(Boolean).join(' ')}>
-                        {'Publisher'}
-                        <input
-                          maxLength={512}
-                          value={c.publisher}
-                          onChange={(event: any) => {
-                            c.publisher = event.currentTarget.value;
-                          }}
-                          className={['metadata-input'].filter(Boolean).join(' ')}
-                        />
-                      </label>
-                      <label className={['grid gap-2'].filter(Boolean).join(' ')}>
-                        <span id={`${labels}-subjects`}>{'Tags (one per line)'}</span>
-                        <textarea
-                          aria-labelledby={`${labels}-subjects`}
-                          rows={2}
-                          maxLength={15423}
-                          value={c.subjects}
-                          onChange={(event: any) => {
-                            c.subjects = event.currentTarget.value;
-                          }}
-                          className={['metadata-input'].filter(Boolean).join(' ')}
-                        />
-                      </label>
-                      <label className={['grid gap-2'].filter(Boolean).join(' ')}>
-                        <span id={`${labels}-description`}>{'Description'}</span>
-                        <textarea
-                          aria-labelledby={`${labels}-description`}
-                          rows={5}
-                          maxLength={16000}
-                          value={c.description}
-                          onChange={(event: any) => {
-                            c.description = event.currentTarget.value;
-                          }}
-                          className={['metadata-input'].filter(Boolean).join(' ')}
-                        />
-                      </label>
+                      <LibraryMetadataFields
+                        layout={metadataLayout}
+                        value={c}
+                        disabled={c.busy}
+                        labelPrefix={labels}
+                        onChange={(name, value) => {
+                          c[name] = value;
+                        }}
+                      />
                       <label
                         className={['flex min-h-11 items-center gap-3'].filter(Boolean).join(' ')}
                       >

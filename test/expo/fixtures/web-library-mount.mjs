@@ -70,6 +70,7 @@ const {
   LibraryScreen,
   BrowserRuntime,
   database,
+  userFonts$,
   refreshLocation,
   installRouter,
   beforeNavigate
@@ -242,6 +243,70 @@ for (const strict of [false, true]) {
   await delay(20);
   assert.equal(requests.length, stoppedRequests, 'the unmounted runtime removes online listeners');
   container.remove();
+}
+// Mount the actual embedded font effect, including StrictMode retirement. The
+// cache and Blob URL APIs are owned fixtures; font decoding is the APK probe's job.
+for (const strict of [false, true]) {
+  const created = [],
+    revoked = [],
+    reads = [];
+  let finishLate;
+  URL.createObjectURL = (blob) => {
+    const url = `blob:https://localhost.test/font-${created.length}`;
+    created.push({ url, blob });
+    return url;
+  };
+  URL.revokeObjectURL = (url) => revoked.push(url);
+  globalThis.caches = {
+    async open(name) {
+      assert.equal(name, 'ttu-userfonts');
+      return {
+        async match(path) {
+          reads.push(path);
+          if (path.endsWith('late.woff2'))
+            return new Promise((resolve) => {
+              finishLate = resolve;
+            });
+          return new Response('cached font bytes');
+        }
+      };
+    }
+  };
+  const font = { name: 'Embedded face', fileName: 'face.woff2', path: '/userfonts/face.woff2' };
+  userFonts$.next([font]);
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const runtime = React.createElement(BrowserRuntime, { embedded: true });
+  await act(async () =>
+    root.render(strict ? React.createElement(React.StrictMode, null, runtime) : runtime)
+  );
+  await settle(
+    () => document.querySelector('#ttu-userfonts')?.textContent.includes('blob:'),
+    'embedded CSS receives its cached Blob resource'
+  );
+  assert.equal(document.querySelectorAll('#ttu-userfonts').length, 1);
+  assert.match(document.querySelector('#ttu-userfonts').textContent, /Embedded face/);
+  assert.equal(await created.at(-1).blob.text(), 'cached font bytes');
+  const live = created.at(-1).url;
+  await act(async () =>
+    userFonts$.next([{ name: 'Late face', fileName: 'late.woff2', path: '/userfonts/late.woff2' }])
+  );
+  await settle(() => !!finishLate, 'replacement cache read starts');
+  assert.ok(revoked.includes(live), 'replacement retires the previous face URL');
+  const count = created.length;
+  await act(async () => root.unmount());
+  await act(async () => finishLate(new Response('late bytes')));
+  assert.equal(created.length, count, 'retired effect cannot materialize late font bytes');
+  assert.equal(new Set(revoked).size, revoked.length, 'every URL is revoked once');
+  assert.equal(document.querySelector('#ttu-userfonts'), null);
+  assert.ok(reads.every((path) => path.startsWith('/userfonts/')));
+  assert.ok(
+    !requests.some((url) => url.includes('/userfonts/')),
+    'no font URL falls back to network'
+  );
+  container.remove();
+  userFonts$.next([]);
 }
 dom.window.close();
 console.log('Library startup and remount completed');

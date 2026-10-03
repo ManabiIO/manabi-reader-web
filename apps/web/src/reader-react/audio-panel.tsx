@@ -20,6 +20,7 @@ import { asset } from '../runtime/paths';
 import { cueAudioBounds } from '../lib/features/whispersync/subtitles';
 import { toTimeString } from '../lib/features/whispersync/upstream';
 import { PitchStrip } from './pitch-strip';
+import { AudioNumberInput } from './audio-number-input';
 
 export function AudiobookPanel(props: Partial<AudioPanelProps> & ReaderViewProps) {
   const latest = useLatest(props);
@@ -269,15 +270,15 @@ export function AudiobookPanel(props: Partial<AudioPanelProps> & ReaderViewProps
                     </Dom>
                     <Dom as="label">
                       {'Speed '}
-                      <Dom
-                        as="input"
-                        type={'number'}
+                      <AudioNumberInput
                         min={'0.5'}
                         max={'3'}
                         step={'0.05'}
                         value={c.snapshot.rate}
-                        events={{
-                          change: (event) => c.player.setRate(event.currentTarget.valueAsNumber)
+                        onCommit={(event) => {
+                          const input = event.currentTarget as HTMLInputElement;
+                          c.player.setRate(input.valueAsNumber);
+                          input.value = String(c.player.snapshot.rate);
                         }}
                       />
                       {'× '}
@@ -329,14 +330,12 @@ export function AudiobookPanel(props: Partial<AudioPanelProps> & ReaderViewProps
                   </Dom>
                   <Dom as="label">
                     {'Subtitle delay (seconds) '}
-                    <Dom
-                      as="input"
-                      type={'number'}
+                    <AudioNumberInput
                       min={'-3600'}
                       max={'3600'}
                       step={'0.1'}
                       value={c.delay}
-                      events={{ change: c.changeDelay }}
+                      onCommit={c.changeDelay}
                     />
                   </Dom>
                   <Dom as="p" className={['hint'].filter(Boolean).join(' ')}>
@@ -350,7 +349,7 @@ export function AudiobookPanel(props: Partial<AudioPanelProps> & ReaderViewProps
                         as="input"
                         type={'checkbox'}
                         checked={c.follow}
-                        events={{ change: c.changeFollow }}
+                        onChange={c.changeFollow}
                       />
                       {' Follow matched text while playing'}
                     </Dom>
@@ -360,7 +359,7 @@ export function AudiobookPanel(props: Partial<AudioPanelProps> & ReaderViewProps
                         type={'checkbox'}
                         checked={c.approximate}
                         disabled={c.matching}
-                        events={{ change: c.changeApproximate }}
+                        onChange={c.changeApproximate}
                       />
                       {' Allow approximate matches (review highlighted text)'}
                     </Dom>

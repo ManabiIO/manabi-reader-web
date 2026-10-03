@@ -81,6 +81,15 @@ The PR's automatic runs use **affected** qualification. Manual dispatch offers
 job summary records the scope with its exact source commit. An affected pass is
 never a complete-parity or merge-readiness result.
 
+The automatic affected run additionally executes the exact 15 distinct retained
+failures from full run `37090080266` through
+`tests/browser/retained_failure_acceptance_cases.py`, with 15 Chromium and 11 WebKit cases. The four original Chromium-only
+filesystem/migration/completion fixtures keep their engine boundary.
+This includes the still-unresolved WebKit teardown diagnostic; no error is
+filtered. The full scope instead retains the original complete suites, avoiding
+an extra duplicate of this bounded selection. See the
+[failure inventory](RETAINED-BROWSER-FAILURES.md) for status and evidence limits.
+
 Both independent exports receive the same intermediate affected checks. The
 `default` and `gated` selector labels identify the existing CI jobs only; they
 no longer select different runtime code:
@@ -115,9 +124,9 @@ still separate, always-selected job steps. No scope changes runner classes,
 number of exports/jobs, artifacts, caches, assertions, failure aggregation or
 existing whole-job timeouts.
 
-Full-scope web exports enable the existing video-learning feature flag because
-retained unified-search cases exercise video titles and published transcripts.
-Automatic affected exports keep the default disabled flag. A disabled-feature
+The independent full-scope web export enables the existing video-learning flag
+because retained unified-search cases exercise video titles and transcripts.
+The regression/default export and automatic affected exports keep Video disabled. A disabled-feature
 export cannot qualify those video acceptance cases; matching Svelte failures
 with that flag disabled are configuration failures, not migration regressions.
 
@@ -203,3 +212,22 @@ manual paths are outside this zero-storage qualification.
   colocated jobs, not treated as missing application assertions
 - Main publication remains governed by its unchanged existing release workflows;
   this migration workflow does not publish, deploy, merge or assert release parity
+
+### Independent default-off and enabled Video modes
+
+The regression/default export stays video-disabled for both affected and full
+qualification. The independent web export enables Video only for the explicit
+full gate, which retains actual transcript/search cases. The static-reader release
+gate asserts dormant navigation/404 in the former and a reachable Video workspace
+in the latter; neither case is skipped. The default-off MOSS-asset rejection only
+applies to disabled builds, while the existing asset verifier still qualifies all
+required enabled MOSS bytes.
+
+### Shared Library shelf and metadata editor
+
+Both independent exports now execute the same eight retained shelf/editor cases
+in Chromium and WebKit, selected by `library_shelf_acceptance_cases.py`: same-cover
+identity, enlarged grid labels, enlarged selection toolbar, real theme contrast,
+metadata identity preservation, cancel/concurrent-edit isolation, keyboard/range
+selection, and responsive covers/columns. The original full inventories remain
+required; this bounded selection does not qualify native populated-shelf UI.

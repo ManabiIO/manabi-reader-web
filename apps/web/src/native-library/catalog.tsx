@@ -5,15 +5,24 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Action } from '../screens/NativeScreens';
+import { UiText as Text } from '../shared-ui/Typography';
+import { useUiTheme } from '../shared-ui/theme';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
 import { NativeCatalogController, type CatalogScreenState } from './catalog-controller';
 
 /** Native controls only. The public catalog's markup and network URLs stay in DOM. */
 export function NativeEditorsPicks({ close }: { close(): void }) {
+  const theme = useUiTheme();
+  const { colors } = theme;
+  const styles = {
+    ...baseStyles,
+    root: [baseStyles.root, { backgroundColor: colors.background }],
+    card: [baseStyles.card, { backgroundColor: colors.card, borderColor: colors.border }]
+  };
   const { command } = useReaderRuntime();
   const [state, setState] = useState<CatalogScreenState>({
     pending: false,
@@ -43,6 +52,7 @@ export function NativeEditorsPicks({ close }: { close(): void }) {
           Editor's Picks
         </Text>
         <Action
+          theme={theme}
           label={state.opening || loading ? 'Cancel' : 'Close'}
           onPress={() => {
             controller.current!.cancel();
@@ -54,6 +64,7 @@ export function NativeEditorsPicks({ close }: { close(): void }) {
         <Text>Public books to add to your Library and read offline</Text>
         {(loading || !!state.opening) && (
           <ActivityIndicator
+            color={colors.primary}
             accessibilityLabel={
               state.opening ? 'Downloading and importing book' : 'Loading Editor’s Picks'
             }
@@ -66,7 +77,11 @@ export function NativeEditorsPicks({ close }: { close(): void }) {
         )}
         {!!state.error && <Text accessibilityRole="alert">{state.error}</Text>}
         {!loading && !state.opening && (!result || result.status === 'error') && (
-          <Action label="Try Again" onPress={() => void controller.current!.start()} />
+          <Action
+            theme={theme}
+            label="Try Again"
+            onPress={() => void controller.current!.start()}
+          />
         )}
         {result?.status === 'ready' && result.total === 0 && (
           <Text>No books are listed right now.</Text>
@@ -79,6 +94,7 @@ export function NativeEditorsPicks({ close }: { close(): void }) {
             {!!item.author && <Text>{item.author}</Text>}
             {!!item.summary && <Text numberOfLines={4}>{item.summary}</Text>}
             <Action
+              theme={theme}
               label={state.opening === item.key ? 'Opening…' : 'Open'}
               disabled={!!state.opening}
               onPress={() =>
@@ -93,6 +109,7 @@ export function NativeEditorsPicks({ close }: { close(): void }) {
         {!!result?.total && (
           <View style={styles.header}>
             <Action
+              theme={theme}
               label="Previous"
               disabled={!!state.opening || result.offset === 0}
               onPress={() =>
@@ -104,6 +121,7 @@ export function NativeEditorsPicks({ close }: { close(): void }) {
               {result.total}
             </Text>
             <Action
+              theme={theme}
               label="Next"
               disabled={!!state.opening || result.offset + result.limit >= result.total}
               onPress={() => void controller.current!.load(result.offset + result.limit)}
@@ -114,8 +132,8 @@ export function NativeEditorsPicks({ close }: { close(): void }) {
     </SafeAreaView>
   );
 }
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#fff' },
+const baseStyles = StyleSheet.create({
+  root: { flex: 1 },
   header: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -126,6 +144,6 @@ const styles = StyleSheet.create({
   },
   heading: { fontSize: 24, fontWeight: '600' },
   content: { padding: 16, gap: 16 },
-  card: { padding: 16, gap: 8, borderWidth: 1, borderColor: '#ddd', borderRadius: 12 },
+  card: { padding: 16, gap: 8, borderWidth: 1, borderRadius: 12 },
   title: { fontSize: 18, fontWeight: '600' }
 });

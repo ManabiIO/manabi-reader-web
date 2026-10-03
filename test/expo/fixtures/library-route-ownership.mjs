@@ -63,6 +63,8 @@ const {
   createCollection,
   refreshLocation,
   installRouter,
+  WebSlotRouter,
+  installQualifiedWebNavigation,
   goto,
   beforeNavigate,
   account,
@@ -182,6 +184,141 @@ try {
     'the custom collection must reach a ready shelf despite the stale Settings global URL'
   );
   assert.equal(container.querySelector('button[aria-label="Actions for Finished volume"]'), null);
+
+  // Exercise the installed Expo state/history implementation with mounted real
+  // Library controllers. JSDOM supplies asynchronous native Back/Forward events;
+  // only the Expo route-to-Slot render boundary is driven explicitly here.
+  const appRequire = createRequire(new URL('../../../apps/web/package.json', import.meta.url));
+  const history = window.history;
+  const savedHistoryState = structuredClone(history.state),
+    savedHistoryURL = location.href;
+  const { createMemoryHistory } = appRequire('expo-router/build/fork/createMemoryHistory');
+  const memory = createMemoryHistory();
+  const stateRouter = WebSlotRouter({ initialRouteName: 'manage' });
+  const config = { routeNames: ['manage', 'settings'], routeParamList: {}, routeGetIdList: {} };
+  let routeState = stateRouter.getInitialState(config);
+  const visited = {};
+  const readyHistory = (library, workspace) => Object.assign(visited, { library, workspace });
+  const historyURL = () => {
+    const route = routeState.routes[routeState.index];
+    const url = new URL(`/reader-web/${route.name}`, origin);
+    for (const [name, value] of Object.entries(route.params ?? {}))
+      url.searchParams.set(name, value);
+    return url;
+  };
+  const renderHistory = () =>
+    render(
+      React.createElement(LibraryScreen, {
+        key: routeState.routes[routeState.index].key,
+        routeUrl: historyURL().href,
+        onReady: readyHistory
+      })
+    );
+  memory.replace({ path: historyURL().pathname, state: routeState });
+  let traversals = 0;
+  const stopHistory = memory.listen(() => {
+    routeState = stateRouter.getRehydratedState(memory.get(memory.index).state, config);
+    traversals++;
+  });
+  const stopQualified = installQualifiedWebNavigation(
+    window,
+    {
+      push(path) {
+        const target = new URL(path, origin);
+        routeState = stateRouter.getStateForAction(
+          routeState,
+          {
+            type: 'PUSH',
+            payload: {
+              name: target.pathname.slice(1),
+              params: Object.fromEntries(target.searchParams)
+            }
+          },
+          config
+        );
+        memory.push({ path: historyURL().pathname + historyURL().search, state: routeState });
+      },
+      replace() {
+        throw new Error('Unexpected replace in a Library push journey');
+      }
+    },
+    (error) => {
+      throw new Error(error);
+    }
+  );
+  try {
+    await renderHistory();
+    await settle(() => visited.library && !visited.library.loading, 'history Library loads');
+    const library = visited.library,
+      workspace = visited.workspace;
+    const firstEntry = history.state.id,
+      firstDepth = history.length;
+    await act(async () => {
+      library.selectMode = true;
+      library.lastExportNotice = 'Keep the completed export notice';
+      await goto('/reader-web/manage?collection=finished');
+    });
+    await renderHistory();
+    assert.equal(history.length, firstDepth + 1);
+    const collectionEntry = history.state.id;
+    assert.notEqual(collectionEntry, firstEntry, 'Expo owns two distinct native entries');
+    assert.equal(visited.library, library, 'push preserves the actual Library controller');
+    assert.equal(visited.workspace, workspace);
+    assert.equal(library.selectMode, true);
+    assert.equal(library.lastExportNotice, 'Keep the completed export notice');
+    assert.equal(workspace.collectionId, 'finished');
+    await db.put('lastItem', { dataId: 2 }, 0);
+    let releaseRead;
+    const bytes = new Promise((resolve) => {
+      releaseRead = resolve;
+    });
+    let opening;
+    await act(async () => {
+      library.selectMode = false;
+      opening = library.onBookClick(undefined, async () => {
+        await bytes;
+        return 1;
+      });
+    });
+    const operation = library.bookOpenAbort;
+    assert.equal(operation.signal.aborted, false);
+    history.back();
+    await settle(() => traversals === 1, 'actual Back reaches the previous Library entry');
+    await renderHistory();
+    assert.equal(location.pathname + location.search, '/reader-web/manage');
+    assert.equal(history.state.id, firstEntry, 'Back restores the original Expo ID');
+    assert.equal(visited.library, library, 'Back does not rely on unmount to cancel the open');
+    assert.equal(visited.workspace, workspace);
+    assert.equal(
+      operation.signal.aborted,
+      true,
+      'accepted popstate retires the old open synchronously'
+    );
+    await act(async () => {
+      releaseRead();
+      await opening;
+    });
+    assert.deepEqual(
+      await db.get('lastItem', 0),
+      { dataId: 2 },
+      'late bytes cannot change the resume target'
+    );
+    assert.equal(location.pathname + location.search, '/reader-web/manage');
+    history.forward();
+    await settle(() => traversals === 2, 'actual Forward restores the collection');
+    await renderHistory();
+    assert.equal(history.state.id, collectionEntry);
+    assert.equal(workspace.collectionId, 'finished');
+    assert.equal(visited.library, library);
+    assert.equal(library.lastExportNotice, 'Keep the completed export notice');
+  } finally {
+    stopQualified();
+    stopHistory();
+    await act(async () => {
+      history.replaceState(savedHistoryState, '', savedHistoryURL);
+      refreshLocation();
+    });
+  }
 
   const retained = {},
     incoming = {};

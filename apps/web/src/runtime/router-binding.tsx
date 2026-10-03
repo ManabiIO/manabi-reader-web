@@ -8,7 +8,6 @@ import React, { useEffect, useState } from 'react';
 import { router, useGlobalSearchParams, usePathname } from 'expo-router';
 import { refreshLocation } from './stores';
 import { installQualifiedWebNavigation } from './web-navigation-qualification';
-import { base } from './paths';
 export function RouterBinding() {
   const path = usePathname();
   const params = useGlobalSearchParams();
@@ -16,20 +15,9 @@ export function RouterBinding() {
   useEffect(() => {
     const adapter = {
       sameDocumentHistory: true,
-      push: (path: string) => {
-        // Same-screen Library/Snippets destinations reuse their live controllers.
-        // Keep selection mode, import notices and draft handoffs through query
-        // changes while Expo continues to own the browser history entry.
-        if (
-          ['/manage', '/snippets'].some(
-            (route) =>
-              window.location.pathname === `${base}${route}` &&
-              new URL(path, window.location.origin).pathname === route
-          )
-        )
-          router.navigate(path as never);
-        else router.push(path as never);
-      },
+      // The web Slot router retains same-screen controllers without replacing
+      // their browser entry. navigate() would lose the previous query URL.
+      push: (path: string) => router.push(path as never),
       replace: (path: string) => router.replace(path as never)
     };
     return installQualifiedWebNavigation(window, adapter, setError);

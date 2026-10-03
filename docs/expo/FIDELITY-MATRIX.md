@@ -15,10 +15,20 @@ surfaces. Android and web are the only Expo targets.
 
 **Qualified checkpoint:** `616f2846e99f1b4a48a340ddb3406fd06585f02a` passes all three CI jobs: complete retained unit/domain/type/lint checks, both web exports with the selected Statistics/Settings/reader/offline cases in Chromium and WebKit, and actual Android packaged-host seed/restart verification. This is affected-route and synthetic-host evidence, not whole-app/native UI parity. Statistics is the common nonreader screen. Settings shares its field cards, category inventory, workspace composition and visit-local filter state, but specialized editors/action owners are not fully converged.
 
-The ledger below retains the feature-level acceptance obligations; checkpoint
-results above supersede older unqualified-host notes. New native font import and
-management is implemented in the current source and still needs its exact-head
-packaged UI journey. No other missing native capability is implied complete.
+The ledger below retains the feature-level acceptance obligations. Native font
+management was published in `d8177880`; concurrent web-parity repairs advanced
+through `5608e3d3` to `ce5e91103bf2f349568ae583d25f498d3612c2b2`.
+Its [full run 37090080266](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37090080266)
+finished with regression/default-web and Android **passing**, and full web
+**failing**. The real APK qualified native Settings font-cache read/close and
+cached-face Blob loading across reload/process restart. Actual font-picker
+import, typography visual parity and device accessibility remain unqualified.
+
+The [finite retained failure ledger](RETAINED-BROWSER-FAILURES.md) records all
+15 distinct failing browser cases, local repairs and the unresolved WebKit
+service-worker teardown diagnostic. The combined shared Library presentation,
+metadata, appearance and retained-flow repairs await qualification on their
+exact published head. No older pass closes these current browser/device gates.
 
 Each screen must qualify these seven dimensions on its final source:
 
@@ -112,13 +122,17 @@ first shared complete composition; the eight remaining screen closures are:
 
 1. **Settings:** finish common scalar/specialized editor composition and native
    background image selection/rendering, account-owned goals/history and storage
-   integrations. Font import/cache management is the current concrete native gap
-   being closed; it preserves the existing browser font implementation.
+   integrations. Font import/cache management and embedded cache consumption are implemented;
+   actual picker and visual typography qualification remain open.
 2. **Library:** converge the full shared screen/shell while retaining local
    import/open/delete, collections/series, selection, metadata, completion,
-   want-to-read, covers and passage search. Native backup/export destinations and
+   want-to-read, covers and passage search. Saved view preferences, continue/series
+   heroes, finished timeline and common search/selection composition still differ.
+   Native backup/export destinations and
    provider/folder access remain open. This is the largest next everyday-screen
-   implementation after the current Settings gap.
+   implementation now underway. Ordinary book-face and eight-field metadata-editor compositions and canonical
+   reading labels are shared in current local source; native cards/controls consume
+   saved appearance. These are not a complete shared workspace or packaged pass.
 3. **Snippets:** converge the editor/list/toolbars and rich-text behavior; the
    separate native text editor is not complete rich-text or shared-screen parity.
 4. **Account:** implement and verify native sign-in/session handling using a
