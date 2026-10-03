@@ -147,7 +147,7 @@ function normalizeImport(value: unknown) {
 }
 
 export async function openManabitanDictionaryProvider(): Promise<DictionaryRuntime> {
-  const root = `${base}/dictionary-runtime/${version.revision}/`;
+  const root = `${base}/manabitan/${version.revision}/`;
   const response = await fetch(`${root}manifest.json`, {
     credentials: 'omit',
     signal: AbortSignal.timeout(15000)
