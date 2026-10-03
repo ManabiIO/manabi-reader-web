@@ -1170,3 +1170,113 @@ Expose a documented portable export/import for:
 - reading sessions/statistics where practical.
 
 The goal is durable user ownership, not compatibility with any one external product.
+
+
+## 17. Material selection and pre-learning opportunities
+
+### CR-OPP-155 Personalized material difficulty
+
+Estimate difficulty relative to the current user, not only as a global level.
+
+Potential factors:
+- vocabulary coverage;
+- kanji coverage;
+- grammar familiarity;
+- sentence complexity;
+- text density;
+- user reading speed and lookup rate on similar material.
+
+Present separate global/content difficulty and personalized difficulty when both exist.
+
+### CR-OPP-156 Community difficulty metadata
+
+Optionally display external/community difficulty information when available from an authorized source.
+
+Requirements:
+- label source and freshness;
+- distinguish community-relative ratings from formal proficiency levels;
+- never imply an approximate JLPT mapping is an official equivalence;
+- external data failure does not block local reading.
+
+### CR-OPP-157 Order-of-appearance vocabulary list
+
+Generate a book/chapter vocabulary list ordered by first occurrence.
+
+Allow alternate sort modes such as:
+- first occurrence;
+- frequency in this book;
+- general corpus frequency;
+- unknown-first;
+- user status.
+
+Selecting an entry SHOULD jump to or preview its first source occurrence when practical.
+
+### CR-OPP-158 New-vocabulary delta
+
+For a selected book, show only terms that are not already:
+- known;
+- learning;
+- in another selected study deck/list;
+- blacklisted/ignored.
+
+This makes preparation cumulative across the user's library.
+
+### CR-OPP-159 Next-material recommender
+
+Recommend candidate books/media using explicit criteria such as:
+- target vocabulary coverage;
+- difficulty range;
+- user interests/tags;
+- current queue;
+- expected new-word count;
+- desired challenge level.
+
+Recommendations must expose why an item was suggested.
+
+### CR-OPP-160 Trouble-word pinboard
+
+During reading, automatically or manually pin words that caused friction.
+
+Possible signals:
+- repeated lookup;
+- multiple dictionary-sense changes;
+- manual pin;
+- lookup followed shortly by another lookup of the same term.
+
+After the session, show a small reviewable list rather than forcing immediate mining.
+
+### CR-OPP-161 Source-first i+1 examples
+
+When choosing an example sentence for a target word, prefer source sentences the user actually encountered that are otherwise mostly understood.
+
+Requirements:
+- preserve source provenance;
+- let the user choose a different example;
+- do not rewrite source sentences to manufacture i+1 status without explicit labeling.
+
+### CR-OPP-162 Cross-book vocabulary planning
+
+When several queued books share unknown vocabulary, identify overlap so the user can prioritize high-leverage words that unlock multiple books.
+
+This is a planning aid, not an automatic mandate to pre-study.
+
+### CR-OPP-163 Preparation export
+
+Allow pre-reading vocabulary/grammar candidates to export in a portable format without requiring use of a built-in SRS.
+
+Export can include:
+- source title/chapter;
+- first occurrence;
+- frequency;
+- reading;
+- user knowledge state;
+- optional example sentence.
+
+### CR-OPP-164 Reading readiness threshold
+
+Let users define a personal threshold such as:
+- “show books above 90% known vocabulary,”
+- “show chapters with fewer than 20 new terms,”
+- “show material one difficulty band above my recent average.”
+
+Thresholds should remain user-facing filters, not claims that one number determines comprehension.
