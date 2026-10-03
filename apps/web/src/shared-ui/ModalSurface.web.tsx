@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { focusModalStart } from '../lib/hooks/focus-modal-start';
 import { UiIcon } from './UiIcon';
 import { useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
@@ -54,7 +55,9 @@ export function ModalSurface({
     }
     if (typeof dialog.showModal === 'function') dialog.showModal();
     else dialog.setAttribute('open', '');
-    (dialog.querySelector<HTMLElement>('[autofocus]') ?? focusable(dialog)[0] ?? dialog).focus();
+    const autofocus = dialog.querySelector<HTMLElement>('[autofocus]');
+    if (autofocus) autofocus.focus({ preventScroll: true });
+    else focusModalStart(new Event('openAutoFocus', { cancelable: true }), dialog);
     const guardFocus = (event: FocusEvent) => {
       // A nested confirmation owns focus until it closes.
       const openDialogs = document.querySelectorAll('dialog[data-ui-modal][open]');
@@ -230,7 +233,7 @@ export function ModalSurface({
               <ActionButton
                 size="icon-lg"
                 shape="circle"
-                variant="ghost"
+                variant="secondary"
                 accessibilityLabel={closeLabel}
                 disabled={closeDisabled}
                 onPress={dismiss}

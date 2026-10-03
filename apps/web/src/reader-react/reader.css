@@ -1284,7 +1284,7 @@
   opacity: 0;
   pointer-events: none !important;
 }
-.react-reader-session .reader-controls.chrome-hidden:focus {
+.react-reader-session .reader-controls.chrome-hidden:is(:focus, :hover, :active) {
   opacity: 1;
   pointer-events: auto !important;
 }

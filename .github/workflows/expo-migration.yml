@@ -38,8 +38,8 @@ jobs:
   regression:
     name: Retained regression, CI policy and default web
     env:
-      # The retained full inventory includes actual video/transcript search.
-      EXPO_PUBLIC_ENABLE_VIDEO_LEARNING: ${{ github.event_name == 'workflow_dispatch' && inputs.qualification_scope == 'full' && 'true' || 'false' }}
+      # Independently retain the original default-off release gate in every scope.
+      EXPO_PUBLIC_ENABLE_VIDEO_LEARNING: 'false'
     # Missing/private visibility fails closed; no runner is allocated.
     if: >-
       github.event.repository.visibility == 'public' &&
@@ -277,10 +277,12 @@ jobs:
           node scripts/expo-postbuild.mjs
           node scripts/verify-expo-export.mjs --platform web --output apps/web/build --report apps/web/build/asset-qualification.json
           cat apps/web/build/asset-qualification.json
-          test ! -e apps/web/build/moss
-          if find apps/web/build -type f -path '*/moss/*' -print -quit | grep -q .; then
-            echo 'Default-off video build unexpectedly packaged MOSS runtime assets' >&2
-            exit 1
+          if [ "$EXPO_PUBLIC_ENABLE_VIDEO_LEARNING" != 'true' ]; then
+            test ! -e apps/web/build/moss
+            if find apps/web/build -type f -path '*/moss/*' -print -quit | grep -q .; then
+              echo 'Default-off video build unexpectedly packaged MOSS runtime assets' >&2
+              exit 1
+            fi
           fi
       - name: Execute the actual emitted web pitch worker without Expo globals
         if: ${{ !cancelled() && steps.export.outcome == 'success' && steps.browsers.outcome == 'success' }}

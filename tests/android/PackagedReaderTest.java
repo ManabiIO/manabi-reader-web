@@ -213,7 +213,7 @@ public final class PackagedReaderTest {
     while (SystemClock.uptimeMillis() < deadline) {
       AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
       if (root != null) {
-        for (AccessibilityNodeInfo match : root.findAccessibilityNodeInfosByText(text)) {
+        for (AccessibilityNodeInfo match : findAccessibleText(root, text)) {
           if (!text.contentEquals(match.getText() == null ? "" : match.getText()) &&
               !text.contentEquals(match.getContentDescription() == null ? "" : match.getContentDescription())) continue;
           match.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
@@ -234,12 +234,31 @@ public final class PackagedReaderTest {
     long deadline = SystemClock.uptimeMillis() + 45000;
     while (SystemClock.uptimeMillis() < deadline) {
       AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
-      if (root != null) for (AccessibilityNodeInfo match : root.findAccessibilityNodeInfosByText(text)) {
+      if (root != null) for (AccessibilityNodeInfo match : findAccessibleText(root, text)) {
         if (match.isVisibleToUser() && text.contentEquals(match.getText() == null ? "" : match.getText())) return;
       }
       SystemClock.sleep(200);
     }
     throw new AssertionError("Actual native state was not displayed: " + text);
+  }
+
+  /** Compose exposes virtual semantic children but does not implement the
+   * platform provider's findAccessibilityNodeInfosByText query. Traverse the
+   * actual hierarchy and still require a visible, enabled ACTION_CLICK owner. */
+  private List<AccessibilityNodeInfo> findAccessibleText(AccessibilityNodeInfo root, String text) {
+    List<AccessibilityNodeInfo> matches = new ArrayList<>();
+    collectAccessibleText(root, text, matches);
+    return matches;
+  }
+
+  private void collectAccessibleText(AccessibilityNodeInfo node, String text,
+      List<AccessibilityNodeInfo> matches) {
+    if (text.contentEquals(node.getText() == null ? "" : node.getText()) ||
+        text.contentEquals(node.getContentDescription() == null ? "" : node.getContentDescription())) matches.add(node);
+    for (int index = 0; index < node.getChildCount(); index++) {
+      AccessibilityNodeInfo child = node.getChild(index);
+      if (child != null) collectAccessibleText(child, text, matches);
+    }
   }
 
   private boolean scrollNativeForward(AccessibilityNodeInfo node) {

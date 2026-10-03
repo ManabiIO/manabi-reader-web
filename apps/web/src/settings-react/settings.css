@@ -320,6 +320,7 @@
 }
 
 .react-settings-import-ttu-screen .migration-page {
+  width: 100%;
   max-width: 60rem;
   margin: 0 auto;
   padding: 24px 16px;
@@ -539,6 +540,7 @@
 }
 
 .react-settings-shared-library-screen main {
+  width: 100%;
   max-width: 64rem;
   margin: 0 auto;
   padding: 24px 16px;
@@ -576,7 +578,7 @@
 .react-settings-shared-library-screen p {
   margin: 0.75rem 0;
 }
-.react-settings-shared-library-screen a {
+.react-settings-shared-library-screen main a:not([data-slot=button]) {
   color: var(--primary);
   text-decoration: underline;
 }
@@ -656,4 +658,14 @@
   width: min(20rem, 90vw - 1rem - 2px);
   max-width: 100%;
   overflow-wrap: anywhere;
+}
+
+/* WebKit's native menulist ignores min-height at enlarged text sizes. */
+.settings-select {
+  appearance: none;
+  padding-right: 28px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--foreground) 50%), linear-gradient(135deg, var(--foreground) 50%, transparent 50%);
+  background-position: right 14px center, right 10px center;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
 }

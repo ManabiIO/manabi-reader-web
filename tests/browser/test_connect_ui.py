@@ -462,6 +462,12 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
             self.page.set_viewport_size({'width': width, 'height': 844})
             self.page.evaluate('v => { document.documentElement.style.fontSize = v; scrollTo(0,0); }', scale)
             toolbar = self.page.get_by_role('banner', name='Statistics toolbar')
+            content = self.page.get_by_test_id('statistics-content')
+            # RNW publishes the resized window dimensions on the next render.
+            # Measure the settled layout, retaining the original no-overlap assertion.
+            self.page.wait_for_function(
+                '([toolbar, content]) => content.getBoundingClientRect().top >= toolbar.getBoundingClientRect().bottom - 1',
+                arg=[toolbar.element_handle(), content.element_handle()], timeout=5000)
             self.assert_no_horizontal_overflow(self.page.locator('html'))
             bounds = toolbar.bounding_box()
             self.assertGreaterEqual(self.page.get_by_test_id('statistics-content').bounding_box()['y'], bounds['y'] + bounds['height'] - 1)

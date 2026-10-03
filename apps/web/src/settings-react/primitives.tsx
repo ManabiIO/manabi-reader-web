@@ -88,6 +88,7 @@ export function Dom({
   children,
   ...props
 }: Props) {
+  if (as === 'select') props.className = cn('settings-select', props.className);
   const handlers = { ...events };
   const chain = (name: string, before: (event: any) => void) => {
     const after = handlers[name];

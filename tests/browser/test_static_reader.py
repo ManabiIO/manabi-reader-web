@@ -3,6 +3,7 @@ import base64
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer as BaseThreadingHTTPServer
 import io
 import json
+import os
 from pathlib import Path
 import threading
 import struct
@@ -395,6 +396,15 @@ class ReaderBrowser(unittest.TestCase):
     def test_video_release_gate_keeps_default_build_dormant(self):
         self.page.goto(self.origin + '/reader-web/manage')
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+        # CI retains these original default-off assertions in its independent
+        # regression export; the full web inventory explicitly enables video.
+        if os.environ.get('EXPO_PUBLIC_ENABLE_VIDEO_LEARNING') == 'true':
+            expect(self.page.get_by_role('link', name='Videos', exact=True)).to_be_visible()
+            self.page.goto(self.origin + '/reader-web/videos')
+            expect(self.page.get_by_role('heading', name='Videos', exact=True)).to_be_visible()
+            expect(self.page.locator('.manabi-media')).to_be_visible()
+            expect(self.page.get_by_role('heading', name='Page not found', exact=True)).to_have_count(0)
+            return
         expect(self.page.get_by_role('link', name='Videos', exact=True)).to_have_count(0)
 
         self.page.goto(self.origin + '/reader-web/videos')
