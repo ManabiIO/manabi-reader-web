@@ -28,6 +28,23 @@ Later design/reflow refinements need their own exact-head qualification; consult
 the PR's current full run and [fidelity matrix](FIDELITY-MATRIX.md). This historical
 failure ledger does not close the outstanding native/shared screen inventory.
 
+## October 3 refinement checkpoint
+
+Full [run 37107287438](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37107287438)
+on `d3b0c26c2856233760d869299d48df35439d64e3` passed regression/default web,
+Android, full data safety, production Snippets and source-unchanged checks. Its
+retained full-web inventory failed one Chromium case:
+`test_yatsu_manifest_mismatch_is_rejected_before_any_book_write`.
+The screen briefly rendered the manifest error and `Inspecting ZIPs…` as two
+live statuses while refreshing destination choices. The unchanged error locator
+could encounter that intermediate state. A MutationObserver on the frozen export
+reproduced two simultaneous statuses even when the original final-state check
+passed. The import screen now uses one global status, replacing the inspecting
+message with the error. The existing case additionally observes intermediate DOM
+updates and requires at most one status through completion; manifest rejection
+and the original no-book-write assertion remain. Exact-head CI qualification is
+required after this repair; this failed run remains failure evidence.
+
 ## The 15 observed cases and original repair requirements
 
 1. **Series count spacing** — `test_recursive_series_covers_filters_and_readonly_scanning`
