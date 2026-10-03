@@ -12,19 +12,23 @@ if (
   !provider ||
   !/^[a-z0-9][a-z0-9-]*$/.test(provider.id) ||
   !/^[a-f0-9]{40}$/.test(provider.revision) ||
+  !safeRelativePath(provider.publicRuntimeDirectory) ||
+  provider.publicRuntimeDirectory.includes('/') ||
   typeof provider.build !== 'function' ||
   !Array.isArray(provider.requiredDistributionFiles) ||
   provider.requiredDistributionFiles.some((file) => !safeRelativePath(file)) ||
   !Array.isArray(provider.obsoletePublicPaths) ||
   provider.obsoletePublicPaths.some(
     (file) =>
-      !safeRelativePath(file) || file === 'dictionary-runtime' || file === 'dictionary-archives'
+      !safeRelativePath(file) ||
+      file === provider.publicRuntimeDirectory ||
+      file === 'dictionary-archives'
   )
 )
   throw new Error('Invalid dictionary provider configuration.');
 
 const assets = path.join(root, 'apps/web/static');
-const runtimeRoot = path.join(assets, 'dictionary-runtime');
+const runtimeRoot = path.join(assets, provider.publicRuntimeDirectory);
 const destination = path.join(runtimeRoot, provider.revision);
 const cache = path.join(root, '.cache/dictionary-build', provider.id, provider.revision);
 
