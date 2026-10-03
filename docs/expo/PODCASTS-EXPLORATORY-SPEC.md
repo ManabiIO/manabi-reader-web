@@ -892,6 +892,13 @@ Therefore:
 
 If a safe exact size cannot be established, the source is not eligible for the current random-access ByteSource contract.
 
+CORS/cache variance also matters because the product flow is playback first, ASR later. If a host conditionally emits ACAO based on the request `Origin`, its cacheable response should vary on `Origin`. The Fetch standard warns that a cached non-CORS response can otherwise be reused for a later CORS request and make it appear to lack ACAO. Wildcard ACAO sent consistently avoids this class.
+
+Phase 0 must therefore test both playback-before-ASR and ASR-before-playback from cold contexts and record `Vary: Origin` whenever ACAO is explicit/conditional.
+
+Reference:
+https://fetch.spec.whatwg.org/#cors-protocol-and-http-caches
+
 ## 5. Proposed RemotePodcastSource
 
 Add a remote HTTP implementation behind the existing ByteSource abstraction rather than teaching MOSS about URLs.
