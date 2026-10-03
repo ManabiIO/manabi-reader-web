@@ -38,7 +38,7 @@ const sourceExtensions = /\.(?:[cm]?[jt]sx?|svelte|json)$/;
 const providerTokens =
   /\b(?:ManabiTan|Manabitan|Yomitan|Yomichan)\b|\/manabitan\/|web\/(?:client|render|presets)\.js/i;
 const providerImplementationTokens =
-  /\bManabiTanWebClient\b|\/manabitan\/|web\/(?:client|render|presets)\.js|dictionary-providers\/manabitan/i;
+  /\b(?:ManabiTanWebClient|Manabitan|Yomitan|Yomichan)\b|\/manabitan\/|web\/(?:client|render|presets)\.js|dictionary-providers\/manabitan/i;
 const gplSourceHeader =
   /(?:SPDX-License-Identifier|@license)\s*:?\s*(?:A?GPL|LGPL)(?:-|\b)|GNU (?:AFFERO )?(?:LESSER )?GENERAL PUBLIC LICENSE/i;
 
