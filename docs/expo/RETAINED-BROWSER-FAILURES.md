@@ -81,6 +81,31 @@ full run's earlier runtime pass remains specific to its own disposable host.
 The passing full run and failed PR-event attempt remain separate historical
 evidence; the subsequent repair requires its own exact-head qualification.
 
+## Guarded Back/Forward fixture readiness
+
+Full [run 37122361275](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37122361275)
+on `52fea4ebdbd4c2486c4081582f8506b7adc1ee52` passed regression/default web,
+Android packaged-host runtime, full data safety, production Snippets and source
+integrity. The retained browser step failed one Chromium execution of
+`test_failed_back_keeps_original_reader_and_retries_without_replacing_entries`:
+its final Forward assertion remained in Library. The same case passed in the
+later complete Chromium group and both WebKit groups; the failed execution
+remains failure evidence.
+
+The original fixture accepted the first provisional Library URL from Back,
+then waited for the Reader to disappear. Retirement removes the Reader before
+the guarded native replay settles, so that pair of observations does not prove
+a committed Library arrival. A passive history trace on the frozen application
+observed the outgoing Reader URL, no Reader and no Library immediately before
+Forward. Throttled Chromium reproduces eight failures in ten complete original
+journeys. The fixture now additionally waits for the actual visible Library
+toolbar before issuing Forward. Every existing failure, identity, history-length,
+bookmark, scroll and Back/Forward assertion remains. The same unchanged frozen
+application passes ten amended journeys per engine, including 6× CPU throttling
+in Chromium. This is an interactive readiness correction; application navigation
+and its history/save guards are unchanged. The amended fixture requires its own
+exact-head CI qualification.
+
 ## The 15 observed cases and original repair requirements
 
 1. **Series count spacing** — `test_recursive_series_covers_filters_and_readonly_scanning`

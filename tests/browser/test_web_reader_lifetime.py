@@ -151,6 +151,10 @@ class WebReaderLifetime(LibraryBase):
         self.page.go_back()
         expect(self.page).to_have_url(self.origin + '/reader-web/manage')
         expect(self.page.locator('.book-content')).to_have_count(0)
+        # Retirement removes the Reader before the guarded native Back replay
+        # settles. Its provisional URL is not a committed Library arrival;
+        # wait for that actual screen before issuing the next traversal.
+        expect(self.page.get_by_role('banner', name='Library toolbar', exact=True)).to_be_visible()
         self.page.go_forward()
         expect(self.page).to_have_url(reader_url)
         self.assert_reader()
