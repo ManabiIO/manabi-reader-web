@@ -179,7 +179,9 @@ export function Dom({
   const names = Object.keys(events ?? {})
     .sort()
     .join('|');
-  useEffect(() => {
+  // An enabled control must own its listeners before the commit can paint.
+  // Passive effects leave an interval in which the first interaction is lost.
+  useLayoutEffect(() => {
     const el = node.current;
     if (!el) return;
     const listeners = names

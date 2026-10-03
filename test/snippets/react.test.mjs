@@ -17,7 +17,9 @@ let React,
   Shelf,
   DestinationPicker,
   Workspace,
-  SnippetsRoute;
+  SnippetsRoute,
+  Button,
+  Dom;
 let createReader, createDestinationPicker, createWorkspace, documentAPI, database, dom;
 const mounted = [];
 const pause = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -90,6 +92,7 @@ before(async () => {
   });
   ({ default: React, act } = await import('react'));
   ({ createRoot } = await import('react-dom/client'));
+  ({ Button, Dom } = await import('../../apps/web/src/reader-react/dom'));
   ({ SnippetEditor } = await import('../../apps/web/src/snippets-react/editor'));
   ({ SnippetReader } = await import('../../apps/web/src/snippets-react/reader'));
   ({ SnippetCapture } = await import('../../apps/web/src/snippets-react/capture'));
@@ -427,6 +430,47 @@ test('reader teardown saves the last deliberate reading position and removes lis
   host.remove();
   window.dispatchEvent(new Event('scroll'));
   assert.equal(fixture.memory.progress.length, 1);
+});
+
+test('DOM controls attach, replace and retire listeners at the commit boundary', async () => {
+  const delivered = [];
+  let retiredButton, retiredCustom;
+  function Probe({ phase }) {
+    React.useLayoutEffect(() => {
+      retiredButton = document.querySelector('[data-commit-control]');
+      retiredCustom = document.querySelector('[data-custom-event]');
+      retiredButton.click();
+      retiredCustom.dispatchEvent(new Event('reader-probe-' + phase));
+      if (phase === 2) retiredCustom.dispatchEvent(new Event('reader-probe-1'));
+    }, [phase]);
+    return React.createElement(
+      React.Fragment,
+      null,
+      React.createElement(
+        Button,
+        {
+          'data-commit-control': '',
+          onClick: () => delivered.push('click-' + phase)
+        },
+        'Save snippet'
+      ),
+      React.createElement(Dom, {
+        'data-custom-event': '',
+        events: { ['reader-probe-' + phase]: () => delivered.push('custom-' + phase) }
+      })
+    );
+  }
+  const ui = await mount(Probe, { phase: 1 });
+  assert.deepEqual(delivered, ['click-1', 'custom-1']);
+  await ui.update({ phase: 2 });
+  assert.deepEqual(delivered, ['click-1', 'custom-1', 'click-2', 'custom-2']);
+  const index = mounted.findIndex((record) => record.host === ui.host);
+  const { root } = mounted.splice(index, 1)[0];
+  await act(async () => root.unmount());
+  ui.host.remove();
+  retiredButton.click();
+  retiredCustom.dispatchEvent(new Event('reader-probe-2'));
+  assert.deepEqual(delivered, ['click-1', 'custom-1', 'click-2', 'custom-2']);
 });
 
 test('shelf retains filtering, card view, empty state and range selection contracts', async () => {

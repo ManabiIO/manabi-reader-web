@@ -244,3 +244,66 @@ bounds and document overflow at 320/390/640px and 100/200% text. All eight
 previously selected shelf/editor cases remain; this ninth case runs in both
 engines and both production export modes. This is a web layout refinement, not
 native whole-screen parity or physical-device qualification.
+
+## Saved-sort checkpoint: broad WebKit interactions
+
+Full [run 37134330548](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37134330548)
+on `a473f19c20d6cab8b559490f96dcdb872390a0b4` passed regression/default web
+and Android, including packaged-host instrumentation. The retained actual-app
+assertion step passed, but two later WebKit journeys failed:
+
+- `OfflineAccountProfile.test_owned_book_opens_offline_and_disappears_after_confirmed_signout`
+  timed out on the initial Connections-to-Library document navigation, before
+  offline/signout assertions. The diagnostic URL remained Connections.
+- The assembled Snippets suite timed out waiting for `Move to Trash` after the
+  final modifier selection. The body showed the unselected shelf and overflow
+  menu; the preceding 22 journeys passed and there were no page errors.
+
+The original complete offline-account class passed against the same frozen
+export in both engines. Ten further WebKit repetitions of the original owned-
+book method, preserving its method name and existing teardown/error policy,
+also passed with passive request/frame/dialog witnesses. A complete original
+WebKit Snippets replay instead failed earlier while activating `Default save
+location…`; its menu remained open. Subsequent unchanged and passively observed
+complete replays passed all 23 journeys. These local results do not establish
+the causes of the two CI failures, and neither assertion was removed, weakened
+or retried inside the suite. Original CI logs and local witnesses are retained
+in the comparison gallery's qualification evidence.
+
+A separate deterministic control-readiness regression was established during
+this investigation. `Dom` attached its native click/custom-event listeners in
+a passive effect, so a control was committed before it owned those listeners.
+A parent commit probe delivered neither the first button click nor the custom
+event on the preceding source. Listener installation now uses a layout effect,
+before painting; the same probe also checks replacement callbacks, changed
+event names, retirement of old listeners and unmount cleanup. All existing
+Snippets integration and production-browser assertions remain. This repair
+closes the demonstrated commit-boundary gap; it does not claim an established
+causal explanation for either intermittent CI failure. The new head requires
+its own full three-job qualification.
+
+## Library-readability checkpoint: preference reload readiness
+
+Full [run 37138910595](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37138910595)
+on `960607638a5bdc172dd61fc68d305bd2099e39a1` passed regression/default web,
+Android, all shared/local data-safety groups, all 23 assembled Snippets journeys
+per engine, and source-integrity checks. Its retained broad-web step failed
+`PreferenceSyncRecovery.test_accepted_server_organization_recovers_offline_preserving_later_edit`
+in WebKit: an account change-feed access-control diagnostic reached the final
+empty-error assertion after the bounded offline diagnostic filter had run.
+The same-head PR-event affected workflow passed all three jobs; it does not
+execute the complete preference-recovery group.
+
+A passive local witness observed that returning online wakes personal-data
+sync independently of preference sync. The fixture reloaded after preference
+status became `synced`, even with a personal change-feed GET still in flight.
+A deliberately slow, unchanged change-feed HTTP response made the original
+journey cancel that GET during reload in three of three runs. Those macOS
+WebKit runs did not emit Linux WebKit's page-error diagnostic, so the witness
+establishes the request cancellation, not exact local reproduction of the CI
+error. The test now waits for the loaded document's HTTP work to finish before
+its existing reload. All 60 original assertion expressions and the bounded
+offline error filter remain unchanged. The offline edits/application checks
+still execute with the entire context offline. Three amended held-response
+journeys passed with zero reload-canceled feed requests; full exact-head CI
+remains necessary to close this failed checkpoint.
