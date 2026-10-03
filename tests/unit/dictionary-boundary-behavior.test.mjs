@@ -49,8 +49,7 @@ test('default-install interop marker is isolated to provider-specific forwarded 
 test('external runtime discovery is provider-name agnostic and complete', () => {
   const runtime = [
     'arbitrary-provider/revision/manifest.json',
-    'arbitrary-provider/revision/SOURCE.txt',
-    'arbitrary-provider/revision/corresponding-source.tar.gz',
+    'arbitrary-provider/revision/reader-runtime.json',
     'arbitrary-provider/revision/web/client.js',
     'arbitrary-provider/revision/css/structured-content.css',
     'arbitrary-provider/revision/data/font.ttf'
@@ -59,7 +58,6 @@ test('external runtime discovery is provider-name agnostic and complete', () => 
   assert.deepEqual(
     externalRuntimeAssets([
       'incomplete/revision/manifest.json',
-      'incomplete/revision/SOURCE.txt',
       'unrelated/app.js'
     ]),
     []
