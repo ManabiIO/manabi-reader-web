@@ -6,6 +6,8 @@ You also represent that you have the right to provide those portions under that 
 
 Human pull requests must affirm the BSD-3-Clause contribution grant in the pull-request checklist. CI rejects a human pull request without that checked acknowledgement; dependency/update bots are exempt.
 
+This policy is a copyright-license grant. BSD-3-Clause does not contain an express patent grant. If Reader later needs an explicit contributor patent grant or a broader contributor agreement for proprietary distribution, establish that separately with qualified counsel rather than assuming this policy supplies it.
+
 ## GPL dictionary-runtime boundary
 
 Reader currently interoperates with a separately licensed Manabitan runtime. Manabitan is derived from Yomitan/Yomichan and is GPL-3.0-or-later. The GPL implementation belongs in the Manabitan repository, not in Reader's BSD source.
