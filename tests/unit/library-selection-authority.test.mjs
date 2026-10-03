@@ -596,7 +596,7 @@ function linkFixture(records, links) {
   const api = load('manabi/books.ts', {
     '$lib/webdav/source': {},
     '$lib/webdav/sync': {},
-    'svelte/store': { writable: store },
+    '$lib/state/store': { writable: store },
     '$lib/data/store': { database: { db: Promise.resolve({}) } },
     '$lib/library/organization': {
       stabilizeOrganization: async (all) => {

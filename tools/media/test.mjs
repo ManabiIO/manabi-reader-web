@@ -16,6 +16,10 @@ run('tsc', [
   'bundler',
   '--lib',
   'ES2023,DOM,DOM.Iterable',
+  // Expo replaces process.env flags in the actual app; this isolated strict
+  // module compile needs the same declared environment as the app tsconfig.
+  '--types',
+  'node',
   '--strict',
   '--skipLibCheck',
   '--outDir',

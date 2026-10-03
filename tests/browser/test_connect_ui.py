@@ -67,35 +67,52 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
 
         for route, ready, action, label in cases:
             with self.subTest(route=route):
-                self.page.goto(self.origin + route)
-                self.page.evaluate('''() => {
-                  document.documentElement.style.fontSize = "200%";
-                  scrollTo(0, 0);
-                }''')
-                expect(ready()).to_be_visible()
-                self.assert_no_horizontal_overflow(self.page.locator('html'))
+                self.assert_primary_workspace_operable(route, ready, action, label)
 
-                control = action()
-                expect(control).to_be_attached()
-                control.scroll_into_view_if_needed()
-                expect(control).to_be_visible()
-                box = control.bounding_box()
-                self.assertGreaterEqual(box['height'], 43.99, (route, box))
-                self.assertGreaterEqual(box['x'], -1, (route, box))
-                self.assertGreaterEqual(box['y'], -1, (route, box))
-                self.assertLessEqual(box['x'] + box['width'], 321, (route, box))
-                self.assertLessEqual(box['y'] + box['height'], 321, (route, box))
-                self.assertTrue(control.evaluate('''e => {
-                  const r=e.getBoundingClientRect();
-                  const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
-                  return !!hit && (hit===e || e.contains(hit));
-                }'''), route)
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
 
-                control.focus()
-                expect(control).to_be_focused()
-                self.assert_no_horizontal_overflow(self.page.locator('html'))
-                self.capture(f'connect-short-enlarged-{label}')
+    def assert_primary_workspace_operable(self, route, ready, action, label):
+        self.page.goto(self.origin + route)
+        self.page.evaluate('''() => {
+          document.documentElement.style.fontSize = "200%";
+          scrollTo(0, 0);
+        }''')
+        expect(ready()).to_be_visible()
+        self.assert_no_horizontal_overflow(self.page.locator('html'))
 
+        control = action()
+        expect(control).to_be_attached()
+        control.scroll_into_view_if_needed()
+        expect(control).to_be_visible()
+        box = control.bounding_box()
+        self.assertGreaterEqual(box['height'], 43.99, (route, box))
+        self.assertGreaterEqual(box['x'], -1, (route, box))
+        self.assertGreaterEqual(box['y'], -1, (route, box))
+        self.assertLessEqual(box['x'] + box['width'], 321, (route, box))
+        self.assertLessEqual(box['y'] + box['height'], 321, (route, box))
+        self.assertTrue(control.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''), route)
+
+        control.focus()
+        expect(control).to_be_focused()
+        self.assert_no_horizontal_overflow(self.page.locator('html'))
+        self.capture(f'connect-short-enlarged-{label}')
+
+    def test_statistics_workspace_remains_operable_in_short_enlarged_viewport(self):
+        # Select the same Statistics subcase without replaying unrelated legacy
+        # workspaces in intermediate shared-route qualification. The original
+        # full-workspace test above still runs every original case.
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.assert_primary_workspace_operable(
+            '/reader-web/statistics',
+            lambda: self.page.get_by_role('banner', name='Statistics toolbar', exact=True),
+            lambda: self.page.get_by_role('button', name='Statistics options', exact=True),
+            'statistics'
+        )
+        expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         self.page.evaluate('document.documentElement.style.fontSize = ""')
 
     def test_settings_navigation_and_fields_distinguish_selection_from_actions(self):
@@ -440,13 +457,20 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
 
     def test_statistics_toolbar_and_options_reflow_and_keep_unique_form_labels(self):
         self.page.goto(self.origin + '/reader-web/statistics')
+        expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         for width, scale in ((1200, '100%'), (390, '100%'), (320, '200%')):
             self.page.set_viewport_size({'width': width, 'height': 844})
             self.page.evaluate('v => { document.documentElement.style.fontSize = v; scrollTo(0,0); }', scale)
             toolbar = self.page.get_by_role('banner', name='Statistics toolbar')
+            content = self.page.get_by_test_id('statistics-content')
+            # RNW publishes the resized window dimensions on the next render.
+            # Measure the settled layout, retaining the original no-overlap assertion.
+            self.page.wait_for_function(
+                '([toolbar, content]) => content.getBoundingClientRect().top >= toolbar.getBoundingClientRect().bottom - 1',
+                arg=[toolbar.element_handle(), content.element_handle()], timeout=5000)
             self.assert_no_horizontal_overflow(self.page.locator('html'))
             bounds = toolbar.bounding_box()
-            self.assertGreaterEqual(self.page.locator('[data-statistics-content]').bounding_box()['y'], bounds['y'] + bounds['height'] - 1)
+            self.assertGreaterEqual(self.page.get_by_test_id('statistics-content').bounding_box()['y'], bounds['y'] + bounds['height'] - 1)
             heatmap = toolbar.get_by_role('button', name='Heatmap', exact=True)
             heatmap.click()
             expect(heatmap).to_have_attribute('aria-pressed', 'true')
@@ -504,10 +528,13 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
     def test_heatmap_days_are_real_keyboard_actions(self):
         self.seed_statistics()
         self.page.goto(self.origin + '/reader-web/statistics')
+        expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         self.page.get_by_role('button', name='Heatmap', exact=True).click()
         day = self.page.locator('[data-date="2026-09-25"]')
         self.assertEqual('BUTTON', day.evaluate('e => e.tagName'))
-        expect(day).to_have_attribute('aria-disabled', 'false')
+        # RNW omits aria-disabled for enabled native buttons. Keep the actual
+        # enabled-state assertion, rather than require a redundant false token.
+        expect(day).to_be_enabled()
         # The calendar is one Tab stop; directly focusing a day makes it the
         # retained roving stop, regardless of the machine's current date.
         day.focus()
@@ -525,6 +552,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
         self.seed_statistics()
         history = self.stores('books', ['statistic'])
         self.page.goto(self.origin + '/reader-web/statistics')
+        expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         trigger = self.page.get_by_role('button', name='Filter books', exact=True)
         trigger.click()
         panel = self.page.get_by_role('dialog', name='Filter books', exact=True)

@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { get, writable } from 'svelte/store';
+import { get, writable } from '$lib/state/store';
 import { database } from '$lib/data/store';
 import type {
   BooksDbBookmarkData,

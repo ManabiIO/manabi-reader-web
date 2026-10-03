@@ -1,16 +1,51 @@
 {
-  "extends": "./.svelte-kit/tsconfig.json",
+  "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ESNext",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
     "noImplicitReturns": true,
+    "jsx": "react-jsx",
     "allowSyntheticDefaultImports": true,
     "allowJs": true,
     "checkJs": false,
     "skipLibCheck": true,
-    "allowImportingTsExtensions": true
-  }
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "$lib/*": [
+        "./src/lib/*"
+      ],
+      "$runtime/*": [
+        "./src/runtime/*"
+      ],
+      "$app/*": [
+        "./src/runtime/*"
+      ]
+    },
+    "types": [
+      "react",
+      "react-dom",
+      "node"
+    ]
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "app.config.ts",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "src/**/*.svelte.ts",
+    "src/service-worker.ts",
+    "src/lib/components/ui/**",
+    "src/lib/components/icon-types.ts"
+  ]
 }

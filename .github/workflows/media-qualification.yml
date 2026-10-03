@@ -25,6 +25,14 @@ defaults:
     shell: bash
 jobs:
   application:
+    # This exact migration is qualified once in expo-migration.yml.
+    if: >-
+      !(github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       (github.event_name == 'push' &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration')))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -41,7 +49,7 @@ jobs:
       - name: Require the real dependency lockfile
         # Do not auto-repair an absent Mediabunny lock entry on a qualification run.
         run: pnpm install --frozen-lockfile
-      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: node scripts/prepare-expo.mjs
       - name: Typecheck the actual application and installed media adapter
         run: |
           mkdir -p .cache/media-qualification
@@ -49,7 +57,7 @@ jobs:
       - name: Build the actual enabled subpath application
         env:
           BASE_PATH: /reader-web
-          VITE_ENABLE_VIDEO_LEARNING: 'true'
+          EXPO_PUBLIC_ENABLE_VIDEO_LEARNING: 'true'
         run: pnpm build 2>&1 | tee .cache/media-qualification/app-build.log
       - uses: actions/upload-artifact@v4
         if: always()
@@ -59,6 +67,14 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
   real-cpu:
+    # This exact migration is qualified once in expo-migration.yml.
+    if: >-
+      !(github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       (github.event_name == 'push' &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration')))
     # Independent of the application job: an unresolved app lockfile must not
     # prevent discovering whether the C++ browser port actually compiles.
     runs-on: ubuntu-24.04

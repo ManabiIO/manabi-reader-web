@@ -1,5 +1,6 @@
 """Organization sync must update an already-open Library in another tab."""
 from reader_controls import reveal_reader_controls
+from offline_shell import enter_offline_shell
 import copy
 import time
 import unittest
@@ -353,9 +354,8 @@ class LibraryOrganizationSync(LibraryBase):
         expect(status).to_contain_text('synced', timeout=15000)
         self.page.goto(self.origin + '/reader-web/b?id=' + str(book_id))
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
-        self.page.evaluate('''async () => {await navigator.serviceWorker.ready;
-          if (!navigator.serviceWorker.controller) await new Promise(resolve =>
-            navigator.serviceWorker.addEventListener('controllerchange', resolve, {once:true}));}''')
+        enter_offline_shell(self.page, self.origin + '/reader-web/')
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
         self.context.set_offline(True)
         reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()

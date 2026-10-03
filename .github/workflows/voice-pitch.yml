@@ -17,6 +17,14 @@ concurrency:
   cancel-in-progress: true
 jobs:
   native:
+    # This exact migration is qualified once in expo-migration.yml.
+    if: >-
+      !(github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       (github.event_name == 'push' &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration')))
     name: Pitch ${{ matrix.browser }}
     # Headless Linux WebKit reports play while its WAV media clock stays at 0;
     # macOS WebKit exercises the actual Safari media pipeline.
@@ -66,6 +74,14 @@ jobs:
           path: test-results/
           retention-days: 3
   application:
+    # This exact migration is qualified once in expo-migration.yml.
+    if: >-
+      !(github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       (github.event_name == 'push' &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration')))
     name: Pitch actual app and appearance
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -84,7 +100,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: node scripts/prepare-expo.mjs
       - run: pnpm --dir apps/web check
       - name: Build the committed application
         env:

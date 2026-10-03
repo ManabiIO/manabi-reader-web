@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { get } from 'svelte/store';
+import { get } from '$lib/state/store';
 import {
   account,
   accountScope,

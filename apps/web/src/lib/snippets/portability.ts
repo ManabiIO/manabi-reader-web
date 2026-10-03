@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { get } from 'svelte/store';
+import { get } from '$lib/state/store';
 import { organization, importSnippetCollections } from '../library/organization';
 import { getRecord, mutateRecord, type SnippetRecord } from './database';
 import {

@@ -1,0 +1,203 @@
+@charset "UTF-8";
+/* @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors. */
+.react-statistics-statistics-heatmap .heatmap-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.react-statistics-statistics-heatmap .heatmap-toolbar-label {
+  flex: 1 1 16rem;
+  min-width: 0;
+  text-align: center;
+  text-wrap: balance;
+}
+.react-statistics-statistics-heatmap .heatmap-year {
+  white-space: nowrap;
+}
+.react-statistics-statistics-heatmap .heatmap-toolbar-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+}
+.react-statistics-statistics-heatmap .heatmap-day {
+  padding: 0;
+  border-style: solid;
+  border-radius: 3px;
+  scroll-margin-inline: 8px;
+}
+.react-statistics-statistics-heatmap .heatmap-day:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.react-statistics-statistics-heatmap .heatmap-details {
+  box-sizing: border-box;
+  width: min(320px, 90vw - 2px);
+  padding: 16px;
+  overflow-wrap: anywhere;
+}
+.react-statistics-statistics-heatmap .heatmap-details-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.react-statistics-statistics-heatmap .heatmap-details-header h2 {
+  align-self: center;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.react-statistics-statistics-heatmap .heatmap-details p + p {
+  margin-top: 8px;
+}
+.react-statistics-statistics-heatmap .highlight {
+  box-shadow: 0 0 0 2px var(--primary);
+}
+@media (min-width: 1024px) and (prefers-reduced-motion: no-preference) {
+  .react-statistics-statistics-heatmap .fadeIn {
+    animation: fadeIn 0.1s ease-in backwards;
+  }
+  @keyframes fadeIn {
+    0% {
+      transform: scale3d(0, 0, 0);
+    }
+    100% {
+      transform: scale3d(1, 1, 1);
+    }
+  }
+}
+
+.react-statistics-statistics-settings .statistics-options {
+  display: grid;
+  flex-shrink: 0;
+  min-width: 0;
+  gap: 16px;
+  padding: 20px;
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
+}
+.react-statistics-statistics-settings .options-group {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.react-statistics-statistics-settings legend {
+  padding-inline-end: 12px;
+  font-weight: 600;
+}
+.react-statistics-statistics-settings .fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 16px;
+}
+.react-statistics-statistics-settings .option-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+.react-statistics-statistics-settings label {
+  font-size: 0.875rem;
+}
+.react-statistics-statistics-settings input,
+.react-statistics-statistics-settings select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--input);
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 1rem;
+}
+.react-statistics-statistics-settings input:focus-visible,
+.react-statistics-statistics-settings select:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.react-statistics-statistics-settings .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.react-statistics-statistics-title-filter .filter-panel {
+  display: grid;
+  flex-shrink: 0;
+  min-width: 0;
+  gap: 16px;
+  padding: 20px;
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
+}
+.react-statistics-statistics-title-filter .filter-header,
+.react-statistics-statistics-title-filter .filter-footer {
+  z-index: 2;
+  margin-inline: -20px;
+  padding-inline: 20px;
+  background: var(--popover);
+}
+.react-statistics-statistics-title-filter .filter-panel[data-sticky-chrome='true'] .filter-header,
+.react-statistics-statistics-title-filter .filter-panel[data-sticky-chrome='true'] .filter-footer {
+  position: sticky;
+}
+.react-statistics-statistics-title-filter .filter-header {
+  top: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: -20px;
+  padding-top: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.react-statistics-statistics-title-filter .filter-footer {
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: -20px;
+  padding-top: 12px;
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+}
+.react-statistics-statistics-title-filter .title-list {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.react-statistics-statistics-title-filter .title-row {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  cursor: pointer;
+}
+.react-statistics-statistics-title-filter .title-row + .title-row {
+  border-top: 1px solid var(--border);
+}
+.react-statistics-statistics-title-filter .title-row:hover,
+.react-statistics-statistics-title-filter .title-row:focus-within {
+  background: var(--muted);
+}
+.react-statistics-statistics-title-filter .title-row input {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  accent-color: var(--primary);
+}
+.react-statistics-statistics-title-filter .title-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

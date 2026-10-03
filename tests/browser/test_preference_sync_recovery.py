@@ -358,6 +358,12 @@ class PreferenceSyncRecovery(LibraryBase):
                 del self.errors[error_start:]
         self.page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
         expect(status).to_contain_text('synced', timeout=15000)
+        # Returning online also wakes personal-data sync. Preference status is
+        # independent of that request; finish the loaded document's HTTP work
+        # before testing a fresh document, rather than aborting a concurrent
+        # change-feed GET at reload. Offline recovery and every data assertion
+        # above still run while the entire context is offline.
+        self.page.wait_for_load_state('networkidle')
         self.page.reload()
         expect(self.page.get_by_text('preference-recovery', exact=True)).to_be_visible()
         self.assertTrue(any(item['id'] == 'server-accepted' for item in

@@ -1,0 +1,10 @@
+module.exports = function (api) {
+  api.cache(true);
+  return {
+    presets: ['babel-preset-expo'],
+    plugins: [
+      require.resolve('../../scripts/babel/modular-icons.cjs'),
+      require.resolve('../../scripts/babel/onnx-runtime-imports.cjs')
+    ]
+  };
+};

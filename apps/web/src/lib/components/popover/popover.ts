@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { writable } from 'svelte/store';
+import { writable } from '$lib/state/store';
 
 function popoverStore() {
   const popovers: symbol[] = [];

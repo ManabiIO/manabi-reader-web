@@ -4,6 +4,7 @@ import time
 
 from playwright.sync_api import expect
 from reader_controls import reveal_reader_controls
+from offline_shell import enter_offline_shell
 from test_books_library import LibraryBase
 from test_static_reader import StaticHandler
 
@@ -66,9 +67,8 @@ class OfflineAccountProfile(LibraryBase):
         expect(self.page.get_by_role('button', name='Read Account-only book', exact=True)).to_be_visible()
         self.page.goto(self.origin + '/reader-web/b?id=' + str(book_id))
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
-        self.page.evaluate('''async () => { await navigator.serviceWorker.ready;
-          if (!navigator.serviceWorker.controller) await new Promise(resolve =>
-            navigator.serviceWorker.addEventListener('controllerchange', resolve, {once:true})); }''')
+        enter_offline_shell(self.page, self.origin + '/reader-web/')
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
         if self.engine != 'webkit':
             self.context.set_offline(True)
             self.page.reload()

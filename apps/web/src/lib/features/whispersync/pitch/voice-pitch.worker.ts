@@ -7,9 +7,33 @@ const scope = globalThis as unknown as {
 
 let epoch = -1;
 let levels: number[] = [];
+let initialized = false;
+let ready = false;
 
 scope.onmessage = ({ data }) => {
-  if (data?.type !== 'analyze' || !(data.samples instanceof Float32Array)) return;
+  if (data?.type === 'init') {
+    if (initialized) return;
+    initialized = true;
+    // Wait for our owning document's base before ORT makes any asset request.
+    void Promise.resolve()
+      .then(() => {
+        if (typeof data.assetBaseURL !== 'string') throw new Error('Missing pitch asset base URL');
+        return prepareSwiftF0(data.assetBaseURL);
+      })
+      .then(() => {
+        ready = true;
+        scope.postMessage({ type: 'ready', detector: 'swift-f0-0.3.0' });
+      })
+      .catch((error) =>
+        scope.postMessage({
+          type: 'error',
+          phase: 'load',
+          error: String(error?.message || error || 'SwiftF0 could not load')
+        })
+      );
+    return;
+  }
+  if (!ready || data?.type !== 'analyze' || !(data.samples instanceof Float32Array)) return;
   if (data.epoch !== epoch) {
     epoch = data.epoch;
     levels = [];
@@ -33,13 +57,3 @@ scope.onmessage = ({ data }) => {
       });
     });
 };
-
-void prepareSwiftF0()
-  .then(() => scope.postMessage({ type: 'ready', detector: 'swift-f0-0.3.0' }))
-  .catch((error) =>
-    scope.postMessage({
-      type: 'error',
-      phase: 'load',
-      error: String(error?.message || error || 'SwiftF0 could not load')
-    })
-  );

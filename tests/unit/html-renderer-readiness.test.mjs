@@ -1,63 +1,32 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
-import { compileFunction } from 'node:vm';
-import { fileURLToPath } from 'node:url';
-import process from 'node:process';
 import test from 'node:test';
-import ts from 'typescript';
+import { HtmlReadiness } from '../../apps/web/src/reader-react/html-readiness.ts';
 
-// Execute the complete production component script with explicit Svelte
-// lifecycle/flush boundaries. Native parent binding is qualified in the app.
-const path = 'apps/web/src/lib/components/html-renderer.svelte';
-const root = new URL('../../', import.meta.url);
-const source = process.env.HTML_RENDERER_BASELINE
-  ? execFileSync('git', ['show', `${process.env.HTML_RENDERER_BASELINE}:${path}`], {
-      cwd: fileURLToPath(root),
-      encoding: 'utf8'
-    })
-  : readFileSync(new URL(path, root), 'utf8');
-const script = source.match(/<script lang="ts">([\s\S]*?)<\/script>/)[1];
-
+// Execute the same committed-markup lifetime used by the active React Dom
+// component. Parent ref assignment and actual geometry are covered in browser.
 function fixture() {
-  let update;
-  let destroy = () => {};
-  const waiting = [];
+  const waiting = new Map();
   const loads = [];
-  const { outputText, diagnostics } = ts.transpileModule(script, {
-    fileName: 'html-renderer.ts',
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-    reportDiagnostics: true
-  });
-  assert.equal(diagnostics.length, 0);
-  const module = { exports: {} };
-  compileFunction(outputText, ['require', 'module', 'exports'])(
-    (name) => {
-      assert.equal(name, 'svelte');
-      return {
-        afterUpdate: (callback) => {
-          update = callback;
-        },
-        onDestroy: (callback) => {
-          destroy = callback;
-        },
-        tick: () => new Promise((resolve) => waiting.push(resolve)),
-        createEventDispatcher: () => (type) => {
-          loads.push({ type, html: module.exports.html });
-        }
-      };
+  let html;
+  let nextFrame = 0;
+  const readiness = new HtmlReadiness(
+    (callback) => {
+      waiting.set(++nextFrame, callback);
+      return nextFrame;
     },
-    module,
-    module.exports
+    (frame) => waiting.delete(frame),
+    () => loads.push({ type: 'load', html })
   );
   return {
-    update(html) {
-      module.exports.html = html;
-      update();
+    update(next, identity) {
+      html = next;
+      readiness.update(next, identity);
     },
-    destroy: () => destroy(),
+    destroy: () => readiness.destroy(),
     flush: async () => {
-      waiting.splice(0).forEach((resolve) => resolve());
+      const callbacks = [...waiting.values()];
+      waiting.clear();
+      callbacks.forEach((callback) => callback());
       await Promise.resolve();
     },
     loads
@@ -118,4 +87,13 @@ test('rapid return to previous markup publishes only its current lifetime', asyn
   h.update('<p>A</p>');
   await h.flush();
   assert.deepEqual(h.loads, [{ type: 'load', html: '<p>A</p>' }]);
+});
+
+test('equal markup in a new spine occurrence gets a fresh geometry owner', async () => {
+  const h = fixture();
+  h.update('<p>Repeated chapter</p>', 1);
+  await h.flush();
+  h.update('<p>Repeated chapter</p>', 2);
+  await h.flush();
+  assert.equal(h.loads.length, 2);
 });
