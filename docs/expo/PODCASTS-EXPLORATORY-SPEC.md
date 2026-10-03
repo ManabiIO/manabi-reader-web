@@ -55,19 +55,19 @@ podcast-specific player shell + shared transcript/study presentation
 The first implementation should be deliberately narrow:
 
 1. Japanese-language curated catalog.
-2. Prefer a publisher-provided timed transcript (`podcast:transcript`) when one is present, readable, and valid; use MOSS as the fallback rather than paying to regenerate authored captions.
-3. Only enable MOSS for episodes whose exact publisher enclosure is browser-readable, range-capable, decodable, and sufficiently byte-stable for one admitted rendition session.
+2. Prefer a publisher transcript (`podcast:transcript`) when one is present, readable, and valid; enable timed follow/replay only when its timeline is qualified for the delivered rendition.
+3. Only enable MOSS for episodes whose selected publisher-declared media source is browser-readable, range-capable, decodable, and sufficiently byte-stable for one admitted rendition session.
 4. No proxy fallback.
 5. No automatic transcription.
 6. No automatic 648 MB MOSS model download.
 7. Playback is immediate.
-8. Generate transcript is explicit and transcribes around the playhead first using the existing sparse policy.
+8. Local MOSS captions are explicit and use a new bounded `playback-lead` scheduler built on the existing sparse window/seam format; whole-episode completion is never the hidden default.
 9. Do not overload RSS GUIDs or enclosure URLs as existing ContentKey values.
 10. Do not redesign the synced video record protocol in the first implementation.
 11. Treat native Android presentation as gated by the same domain/view separation still required for Videos on the Expo branch.
 12. Treat sources with personalized/dynamic bytes that cannot satisfy rendition checks as playback-only in v1, not as something to paper over with weak identity.
 
-The largest implementation risk is not MOSS. It is remote episode identity and byte stability. The current video system correctly treats ContentKey as a full-byte SHA-256 identity. Podcast enclosures can be large, redirect through analytics/ad infrastructure, and may be dynamically personalized. That must remain explicit.
+The largest implementation risk is not only MOSS accuracy. It is keeping logical episode identity, delivered rendition identity, transcript timeline, and exact byte identity separate while avoiding unbounded CPU/network work. The current video system correctly treats ContentKey as a full-byte SHA-256 identity. Podcast media can be large, redirect through analytics/ad infrastructure, and may be dynamically personalized. That must remain explicit.
 
 ## 2. What was reviewed on the Expo branch
 
@@ -490,27 +490,56 @@ Add a remote HTTP implementation behind the existing ByteSource abstraction rath
 Conceptual shape:
 
 ~~~ts
+type ShowKey = `show:${string}`
+type EpisodeKey = `episode:${string}`
+
+interface PodcastMediaCandidate {
+  source: 'enclosure' | 'alternate-enclosure'
+  url: string
+  type: string
+  length?: number
+  bitrate?: number
+  language?: string
+  codecs?: string
+  isDefault?: boolean
+  integrity?: {
+    type: string
+    value: string
+  }
+}
+
+interface PodcastTranscriptResource {
+  url: string
+  type: string
+  language?: string
+  rel?: 'captions'
+}
+
 interface PodcastEpisodeLocator {
   version: 1
+  showKey: ShowKey
+  episodeKey: EpisodeKey
 
   feedUrl: string
-  guid: string
-  enclosureUrl: string
-  enclosureType?: string
-  enclosureLength?: number
+  guid?: string
 
   showTitle: string
   episodeTitle: string
   publishedAt?: string
   artworkUrl?: string
   webpageUrl?: string
+
+  media: PodcastMediaCandidate[]
+  transcripts: PodcastTranscriptResource[]
 }
 
-interface QualifiedRemoteSource {
+interface QualifiedRenditionSession {
+  episodeKey: EpisodeKey
   source: ByteSource
 
-  originalUrl: string
-  finalUrl: string
+  publisherUrl: string
+  sourceKind: PodcastMediaCandidate['source']
+  observedFinalUrl?: string
 
   capability: {
     corsReadable: true
@@ -518,7 +547,12 @@ interface QualifiedRemoteSource {
     size: number
   }
 
-  validator?: {
+  evidence: {
+    fixedRangeDigests: Array<{
+      start: number
+      end: number
+      sha256: string
+    }>
     strongEtag?: string
     lastModified?: string
   }
@@ -527,9 +561,13 @@ interface QualifiedRemoteSource {
 
 The exact types should be revised against the implementation. The important separation is:
 
-- PodcastEpisodeLocator = publisher/catalog identity and presentation metadata
-- ByteSource = currently readable bytes
-- ContentKey = SHA-256 identity of one exact complete byte rendition
+- `PodcastEpisodeLocator` = logical publisher/catalog identity and presentation metadata
+- `PodcastMediaCandidate` = publisher-declared ways to obtain episode media
+- `QualifiedRenditionSession` = one admitted byte/timeline session for ASR
+- `ByteSource` = currently readable bytes inside that session
+- `ContentKey` = SHA-256 identity of one exact complete byte representation, only needed when existing portable Track semantics require it
+
+Do not persist `observedFinalUrl` as a replacement media authority merely because redirects revealed it.
 
 ### 5.1 ByteSource needs a generic network/read profile first
 
@@ -576,7 +614,7 @@ Qualification may deliberately bypass/revalidate cache to test source stability.
 
 ### 5.3 playback()
 
-Playback should use the original publisher enclosure URL unless there is a strong reason not to.
+Playback should use the selected publisher-declared media URL (normally the standard RSS enclosure; otherwise an explicitly qualified publisher alternate enclosure).
 
 Do not create a Manabi media copy.
 
@@ -668,23 +706,26 @@ Benchmark two stages separately:
 
 The current Job validator also requires a completed provisional job to have `verifiedMediaKey`, so this is a real scheduler/schema decision. Do not keep a fake ContentKey forever just to satisfy existing types.
 
-If the first implementation chooses the exact-`ContentKey` compatibility path, the flow is:
+If the implementation later chooses the exact-`ContentKey` compatibility path for portable publication, the flow is:
 
 ~~~text
 Open episode
-  -> qualified remote source
+  -> qualified rendition session
   -> playback immediately
-  -> no full hash yet
+  -> optional publisher transcript
+  -> no full hash
 
-User presses Generate transcript
-  -> capture qualified source session
-  -> create provisional v3 job
-  -> start sparse MOSS around current playhead
-  -> in parallel, lazily hash the complete remote rendition
-  -> store audio proofs for MOSS windows
-  -> once full SHA-256 finishes and rendition is still current:
-       promote provisional job to real ContentKey
-       permit complete track publication
+User explicitly enables local captions
+  -> create/re-admit bounded playback-lead job
+  -> transcribe only required sparse windows
+  -> store rendition evidence + audio proofs
+  -> remain a local draft
+
+Only if user/product requests portable Track publication
+  -> finish exact full-byte verification inside the same rendition session
+  -> once SHA-256 finishes and rendition is still current:
+       bind/promote to real ContentKey
+       permit ordinary portable Track publication
 ~~~
 
 This intentionally incurs a complete byte read only when portable publication is required. It does not make browsing or playback download the entire episode.
@@ -968,8 +1009,9 @@ Conceptual only:
 
 ~~~ts
 interface PodcastShow {
-  id: string
+  key: ShowKey
   feedUrl: string
+  feedAliases?: string[]
   title: string
   description?: string
   artworkUrl?: string
@@ -980,22 +1022,37 @@ interface PodcastShow {
 }
 
 interface PodcastEpisode {
-  showId: string
-  logicalId: string
-  guid: string
+  key: EpisodeKey
+  showKey: ShowKey
+  guid?: string
   title: string
   description?: string
   publishedAt?: number
-  duration?: number
-  enclosureUrl: string
-  enclosureType?: string
-  enclosureLength?: number
+
+  // Feed/display hint only; current decoded media owns transport duration.
+  durationHint?: number
+
+  media: PodcastMediaCandidate[]
+  transcripts: PodcastTranscriptResource[]
+
   artworkUrl?: string
   webpageUrl?: string
 }
+
+interface EpisodePlayback {
+  version: 1
+  episodeKey: EpisodeKey
+  position: number
+  durationAtSave: number
+  rate: number
+  finished: boolean
+  updatedAt: number
+}
 ~~~
 
-Do not use show/episode logical IDs as ContentKey.
+`ShowKey` must survive reviewed feed URL migrations/aliases. `EpisodeKey` is scoped to the show and normally derives from the stable RSS GUID; a missing-GUID fallback needs an explicit versioned rule.
+
+Do not use `ShowKey` or `EpisodeKey` as `ContentKey`. Do not bind logical resume state to a particular CDN URL.
 
 ## 10. Player architecture
 
@@ -1092,17 +1149,19 @@ Initial episode screen should include:
 - episode title
 - artwork when safely available
 - publication date
-- duration
+- decoded/known duration
 - source/publisher link
 - native browser audio controls or an accessible minimal custom transport
 - playback rate
 - transcript pane
-- Generate transcript
-- model download notice on first generation
-- previous/replay/next utterance
-- follow playback
-- pause after each line
-- transcript/translation track selectors where applicable
+- explicit **Generate local captions** only when rendition-bound MOSS is useful
+- optional separate **Transcribe full episode** only if/when full mode is actually supported and qualified
+- model download notice on first local MOSS use
+- previous/replay/next utterance only for real timed cues
+- follow playback only for real timed cues
+- pause after each line only for real timed cues
+- transcript/translation/source selectors where applicable
+- clear labeling of Publisher transcript versus Local MOSS captions
 - transcript appearance using Reader settings
 
 Do not add podcast-specific visual gimmicks before the core path is qualified.
@@ -1121,16 +1180,18 @@ Transcript typography remains shared with Reader.
 
 ## 11. MOSS behavior for podcasts
 
-### 11.1 Generation remains explicit
+### 11.1 Local MOSS remains explicit
 
 Opening/browsing/playing a podcast must not:
 
 - download the MOSS model
 - start inference
 - full-hash the episode
-- generate a transcript
+- generate local captions
 
-Generate transcript is the explicit expensive action.
+A publisher transcript is not "generated" by Manabi and may be shown/read independently when available.
+
+**Generate local captions** is the explicit MOSS action. It starts bounded playback-lead work by default. Exact full-byte verification is a separate portable-publication concern, not an automatic side effect of enabling local captions.
 
 ### 11.2 Default language and audio-track admission
 
@@ -1200,25 +1261,31 @@ For provisional remote jobs:
 The existing unified Library search is a good model:
 
 - media code is lazy-loaded
-- video titles and complete published transcript cues participate only in Everything
-- searching never resolves/open media
-- searching never downloads media
+- searching never resolves/opens media
+- searching never downloads podcast audio
 - searching never starts MOSS
-- transcript hits deep-link to paused media time
+- complete saved timed cues may deep-link to a validated playback time
 
-Podcasts should preserve those boundaries.
+Podcasts should preserve those boundaries while also admitting **untimed publisher text**.
 
-Potential deep link:
+Suggested result classes:
 
 ~~~text
-/podcasts?episode=<logical-episode-id>&time=<seconds>&track=<track-id>
+episode-title
+  -> /podcasts?episode=<EpisodeKey>
+
+timed-transcript
+  -> /podcasts?episode=<EpisodeKey>&time=<seconds>&track=<track-id>
+
+untimed-publisher-transcript
+  -> /podcasts?episode=<EpisodeKey>&transcript=<resource-id>
 ~~~
 
-Do not use a mutable enclosure URL as the route identity.
+Do not fabricate `time=0` or another timestamp merely to reuse the video search-row shape.
 
-The search data source should know whether a result is video or podcast and route accordingly.
+Do not use a mutable enclosure/CDN URL as the route identity. `EpisodeKey` is the route identity; a current publisher media candidate is resolved only when opening playback.
 
-If podcast transcripts are local-only in MVP, search them locally. Do not force backend sync just to appear in search.
+If podcast transcript data is local-only in MVP, search it locally. Do not force backend sync just to appear in search. A saved catalog/publisher transcript may be searchable even when the episode's audio is currently unavailable.
 
 ## 13. Expo/shared-UI integration
 
@@ -1557,15 +1624,18 @@ The current Mediabunny `network` prefetch profile is explicitly designed to redu
 
 MOSS throughput is a separate cost. Current repository evidence does not establish realtime v7 podcast transcription on representative devices. The product must remain useful when local captions build slower than playback, and playback-lead mode must stop work when its bounded target is satisfied.
 
-Generate transcript may cause:
+**Generate local captions** may cause:
 
 1. sparse decode/range requests near current position
 2. MOSS model download on first use if absent
-3. lazy full-episode hashing for exact ContentKey in the conservative compatibility MVP
 
-The UI should not misrepresent #3. It may be useful to show a separate "verifying episode" byte progress state from MOSS inference progress.
+Only a later **portable publication / exact-content verification** path may additionally cause:
 
-Avoid running full hash at high concurrency with aggressive MediaBunny prefetch. One source session should budget requests so transcription near the playhead remains responsive.
+3. full-episode byte verification/hashing for an exact `ContentKey`
+
+The UI must not conflate recognition progress with optional byte-verification progress.
+
+If exact verification runs, do not run an independent high-concurrency full hash beside aggressive Mediabunny prefetch. One rendition session should budget/coalesce requests so playback-lead transcription remains responsive.
 
 A later identity protocol could remove the full hash requirement, but only after replacing it with an equally explicit rendition identity model.
 
