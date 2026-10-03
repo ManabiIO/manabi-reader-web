@@ -2089,10 +2089,12 @@ Local fixture server cases:
 - server ignores Range and returns 200
 - range body too short
 - range body too long
+- observed non-identity Content-Encoding / transformed range behavior is rejected unless exact random-access semantics are separately proven
 - missing/zero/invalid declared source size
-- declared last-byte probe fails
-- first-byte-past-EOF unexpectedly returns 206
-- first-byte-past-EOF returns 416 without usable CORS
+- boundary probe `bytes=N-1-N` returns exactly one byte for exact declared size
+- boundary probe returns two bytes when declared size is too small
+- boundary probe returns 416 when declared size is too large
+- boundary probe returns 200 because Range was ignored
 - exposed Content-Range contradicts declared size
 - changed total size
 - redirect success
