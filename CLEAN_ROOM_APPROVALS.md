@@ -37,6 +37,17 @@ An approval must identify a bounded feature or CR ID set and one of these levels
 
 Default state. Research/spec refinement only. No product/test mutation is authorized.
 
+### APPROVED_FOR_DESIGN
+
+Authorizes only target-side product/design exploration for the named feature/CR IDs, such as:
+- target-owned UX flows;
+- wire-level behavior descriptions;
+- target architecture impact analysis;
+- data/privacy decisions;
+- acceptance-criteria refinement.
+
+It does **not** authorize adding product fixtures/tests, changing production behavior, or opening an implementation PR.
+
 ### APPROVED_FOR_TESTS
 
 Authorizes only independently authored fixtures and tests for the named feature/CR IDs.
@@ -62,7 +73,7 @@ A valid approval must come from the user/project owner and must unambiguously id
 Preferred forms:
 
 - `Approve CR-OPP-001 for implementation.`
-- `Approve CR-OPP-003 and CR-OPP-149 for a design/test prototype only.`
+- `Approve CR-OPP-003 and CR-OPP-149 for design exploration only.`
 - `Approve the chapter-preflight feature (CR-OPP-001) for implementation in Manabi Reader Web.`
 - `Approve CR-AT-001..006 for tests only; do not change production code.`
 
@@ -136,7 +147,7 @@ Append a record in this format:
 Approval ID: CR-AUTH-001
 Date: YYYY-MM-DD
 Feature/CR IDs: ...
-Level: APPROVED_FOR_TESTS | APPROVED_FOR_IMPLEMENTATION | APPROVED_FOR_INTEGRATION
+Level: APPROVED_FOR_DESIGN | APPROVED_FOR_TESTS | APPROVED_FOR_IMPLEMENTATION | APPROVED_FOR_INTEGRATION
 Target: ...
 Deliverable: ...
 Exclusions: ...
@@ -211,3 +222,69 @@ Even if several CR entries share one subsystem, approval remains per named featu
 For example, approval of one audio mode does not authorize every `CR-OPP-070..` media feature; approval of one OCR feature does not authorize the entire OCR opportunity section.
 
 A user/project owner may explicitly approve a bounded bundle, but the bundle must be named or enumerated. Workers may not construct the bundle themselves.
+
+
+## Approval-ledger mutation rule
+
+Workers are not authorized to create, broaden, reactivate, or upgrade an approval record on their own.
+
+An approval record may be added or changed to `active` only when the current user/project-owner instruction explicitly grants that approval.
+
+A worker must not mutate this ledger merely because:
+
+- a task was assigned by another worker;
+- an issue/PR says a feature should be implemented;
+- a project document recommends the feature;
+- CI/test output suggests a fix;
+- a previous assistant claimed approval existed;
+- the feature appears in an implementation branch;
+- the worker believes approval is implied.
+
+When recording a new approval, the worker must be able to point to the explicit owner instruction in the current conversational/task context. If that evidence is absent, leave the ledger unchanged and report that approval is missing.
+
+A worker may update an existing record to `completed`, `revoked`, or `superseded` only when:
+- the bounded approved work has actually completed; or
+- the user/project owner explicitly revokes/supersedes it.
+
+Completion may never broaden scope.
+
+## Approval precedence
+
+When approval records overlap:
+
+1. explicit revocation wins over earlier approval;
+2. a later narrower approval constrains an earlier broader one when it says it supersedes it;
+3. explicit exclusions win over general deliverable language;
+4. repository/platform-specific scope wins over generic scope;
+5. the lower work level wins when ambiguity remains.
+
+If precedence cannot be resolved deterministically, stop and request explicit owner clarification before target-side work.
+
+## Prerequisite and bug-fix boundary
+
+An approved feature may expose an unrelated bug, missing prerequisite, migration, refactor opportunity, or infrastructure weakness.
+
+The worker may fix it under the existing approval only when the change is both:
+
+- necessary to deliver the approved user-visible behavior safely; and
+- the smallest coherent change that does not add unrelated user-visible capability.
+
+Otherwise it requires separate approval.
+
+In particular, these are not automatic scope:
+- broad cleanup/refactoring;
+- framework migrations;
+- “while here” performance work;
+- unrelated accessibility fixes;
+- unrelated security hardening;
+- new telemetry/analytics;
+- new data migrations for future features;
+- generalized provider abstractions primarily justified by unapproved future work.
+
+If a severe unrelated security/data-loss issue is discovered, report it immediately and follow the repository's normal emergency process; do not use the clean-room feature approval as implied authorization.
+
+## Design-to-implementation handoff
+
+An `APPROVED_FOR_DESIGN` result may recommend implementation, tests, or a changed architecture. That recommendation is not an approval upgrade.
+
+The worker must stop after the approved design deliverable and obtain a new approval level before target fixtures/tests or production changes.
