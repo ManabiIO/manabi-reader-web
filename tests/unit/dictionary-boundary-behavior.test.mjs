@@ -31,11 +31,14 @@ test('external dictionary bridge detection is isolated to documented DOM markers
   document.documentElement.dataset.manabitanReaderJitendexBridge = 'true';
   assert.equal(preferredDictionaryReaderBridgeReady(document), true);
 
-  assert.deepEqual([...DICTIONARY_EXTENSION_MUTATION_ATTRIBUTES], [
-    'data-manabitan-content-script-loaded',
-    'data-manabitan-content-script-prepared',
-    'data-manabitan-reader-jitendex-bridge'
-  ]);
+  assert.deepEqual(
+    [...DICTIONARY_EXTENSION_MUTATION_ATTRIBUTES],
+    [
+      'data-manabitan-content-script-loaded',
+      'data-manabitan-content-script-prepared',
+      'data-manabitan-reader-jitendex-bridge'
+    ]
+  );
   assert.match(EXTERNAL_DICTIONARY_POPUP_SELECTOR, /yomitan-popup/);
 });
 
@@ -55,8 +58,5 @@ test('generated dictionary runtime never becomes mandatory shell or packaged-fon
   ]) {
     assert.equal(isShellAsset(new URL(path, root)), false, path);
   }
-  assert.equal(
-    isPackagedFont(new URL('dictionary-runtime/revision/data/font.ttf', root)),
-    false
-  );
+  assert.equal(isPackagedFont(new URL('dictionary-runtime/revision/data/font.ttf', root)), false);
 });
