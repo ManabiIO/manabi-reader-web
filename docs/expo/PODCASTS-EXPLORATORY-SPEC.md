@@ -864,13 +864,13 @@ For a selected publisher-declared media source:
 
 1. Require HTTPS in production.
 2. Use explicit `mode: 'cors'`, `credentials: 'omit'`, the exact publisher-declared URL and `redirect: 'follow'`; never substitute an inferred CDN URL.
-3. Attempt GET with **one contiguous** byte Range such as `bytes=0-0`.
-4. A single-byte-range `Range` header is CORS-safelisted and should not itself require a preflight; the server still must opt into CORS for the response body.
+3. Attempt GET with the conventional **2-byte capability probe** `Range: bytes=0-1`.
+4. A single-byte-range `Range` header is CORS-safelisted and should not itself require a preflight; the server still must opt into CORS for the response body. IAB Tech Lab Podcast Measurement v2.3 explicitly identifies `Range: 0-1` as a player capability check and says measurement systems should disregard it as a valid download.
 5. Never combine disjoint reads into a multi-range header such as `bytes=0-99,1000-1099`. Multiple ranges are not CORS-safelisted, can trigger preflight behavior, and return multipart semantics the current ByteSource does not need.
 6. Do not add `If-Range`, `If-Match`, `If-None-Match` or custom validator headers in v1. They leave the simple request path and can introduce preflight/provider incompatibility.
 7. A CORS failure is a hard failure for that readable-byte path.
 8. Require HTTP 206 for the v1 random-access MOSS path. `Accept-Ranges: bytes` is useful diagnostic evidence but is neither required nor sufficient; prove behavior with an actual Range request.
-9. Consume/cancel the tiny body and require exactly the requested bytes.
+9. Consume/cancel the tiny body and require exactly the requested two bytes.
 10. Establish a safe total byte size.
 11. Verify at least one nonzero range.
 12. Test **same-session coherence** with the same runtime-equivalent request/cache policy Manabi will use in production. Repeated fixed ranges used by one active RenditionSession must agree.
@@ -2175,7 +2175,7 @@ Build a small qualification harness for real publisher media URLs:
 - browser CORS GET for ASR
 - redirect behavior and request-Origin/redirect-taint evidence
 - explicit confirmation that these live-provider probes run only in qualification tooling, never as catalog-browse side effects
-- single Range 0-0 and another bounded range
+- conventional `Range: bytes=0-1` capability probe and another bounded range only when needed
 - same-session runtime-cache fixed-range stability
 - fresh-context/reload reopen stability
 - exact-size evidence
@@ -2319,7 +2319,7 @@ Do not let Phase 7 block a useful local-first experiment.
 
 Local fixture server cases:
 
-- 206 correct one-byte range
+- 206 correct `bytes=0-1` two-byte capability range
 - correct nonzero bounded range
 - one contiguous Range remains non-preflighted
 - multiple-range request is never used by production ByteSource
@@ -2522,6 +2522,23 @@ Also avoid accidentally turning a potentially large/changing podcast episode man
 Opening an episode should consume only metadata and ordinary playback demand.
 
 Range count matters in addition to byte count. Podcast hosts and ad systems may observe each request, so dozens of tiny reads are not an acceptable implementation merely because the aggregate bytes are small. Reuse/coalesce Mediabunny reads, honor the existing 4 MiB hard range budget, and measure the real request graph per provider.
+
+IAB Tech Lab Podcast Measurement v2.3 is directly relevant to the request shape:
+
+- it says the 2-byte `Range: 0-1` capability probe should be disregarded for download measurement
+- valid progressive downloads can consist of multiple 206 requests and are de-duplicated/aggregated by compliant measurement systems
+- it recommends progressive players request slices larger than two bytes
+- it recommends not modifying enclosure URLs or appending extra parameters
+- it recommends not server-caching podcast episodes and always requesting the publisher enclosure for an app consumer's download
+- it recommends using item GUID rather than mutable enclosure/title/date for episode identity
+- it recommends against automatic back-catalog downloading by default
+
+Those recommendations align with this design: a tiny conventional admission probe, then meaningful bounded ranges only after the user explicitly enables local captions; no audio proxy/cache; no enclosure rewriting; GUID-based logical episode identity.
+
+This does **not** guarantee every host/prefix implements IAB-compliant de-duplication. Continue measuring actual provider request/analytics behavior.
+
+Reference:
+https://github.com/IABTechLab/Podcast-Technical-Measurement/blob/main/PTM-Guidelines_v2.3.md
 
 The current Mediabunny `network` prefetch profile is explicitly designed to reduce read-call count in high-latency sources. Keep that adapter path and measure it; do not replace it with hand-written MP3 seeking unless a real qualification failure requires it.
 
