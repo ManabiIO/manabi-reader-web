@@ -183,20 +183,32 @@ This should remain one transcription engine for video and podcasts.
 
 Do not design the initial Podcasts experience around "transcribe the whole 90-minute episode, then start studying."
 
-The recovered MOSS qualification documented in docs/moss-video-runtime-review.md showed Japanese recognition was accurate on its pinned short fixture but far slower than real time on the CI host. The existing sparse/playhead-priority work is therefore especially important for podcasts.
+There are two different pieces of historical performance evidence in the media docs and neither qualifies current podcast throughput:
 
-The preferred UX is:
+- the older recovered Japanese smoke in `docs/moss-video-runtime-review.md` measured about **19.5x realtime threaded** on its short CI fixture
+- the later base-v4 CPU qualification recorded in `docs/moss-progressive-transcription.md` improved the small generated-speech fixture to about **3.14x realtime threaded** and **5.7x single-threaded**
+
+The current v7 callback runtime has not been requalified there, those figures are not representative-device measurements, and natural Japanese/music/background-noise/long-form repair behavior remains explicitly unqualified. Even the better 3.14x figure is still slower than playback.
+
+This makes a podcast-specific scheduler distinction necessary. The existing v3 sparse policy is **playhead-prioritized but not playhead-bounded**: once a sparse job runs, `nextSparseWindow()` keeps selecting missing windows until the whole media item is covered.
+
+Do not reuse that behavior unchanged for long podcasts.
+
+The default podcast UX should be:
 
 ~~~text
 open episode
 -> play immediately
--> user presses Generate transcript
--> current / near-future listening window is prioritized
--> accepted transcript grows around playback
--> full episode completion may continue while the page remains eligible to run it
+-> use a valid publisher timed transcript if one is already available
+-> otherwise user explicitly enables local MOSS captions
+-> generate only the bounded caption lead needed around/after the current playhead
+-> park inference when that lead is satisfied
+-> resume bounded work as playback/seek approaches missing coverage
 ~~~
 
-Do not claim background execution after the browser suspends/terminates the page. The current app does not have a magical persistent background inference service.
+Whole-episode transcription must be a separate explicit policy/action, not the hidden consequence of "Generate transcript." It should not ship until representative devices establish acceptable time, power, thermal, memory and repair behavior.
+
+Do not claim background inference after the browser/WebView suspends or terminates the page. Background **playback** and background **MOSS inference** are separate capabilities.
 
 ### 2.7 Existing Expo dependencies change the preferred implementation seam
 
@@ -209,11 +221,24 @@ The Expo branch already depends on:
 
 Do not add another audio playback package or XML parser before evaluating these.
 
-`expo-audio` supports Android and web remote-URL playback and exposes shared play/pause/seek/rate/status APIs. It is a strong candidate for a `PodcastPlaybackPort`, especially on Android where it can support media-session/background playback when explicitly configured. It does **not** replace the MOSS byte path: ASR still needs the CORS-readable `ByteSource`/Mediabunny pipeline.
+`expo-audio` supports Android and web remote-URL playback and exposes shared play/pause/seek/rate/status APIs. Its web player also has an explicit `crossOrigin` option whose default is undefined/no CORS. That is useful because playback and ASR do not have to use the same request mode.
+
+The current Expo config explicitly sets:
+
+~~~ts
+enableBackgroundPlayback: false
+~~~
+
+So background podcast playback is **not** an existing capability of this branch. Enabling it later is a separate native/config decision: Expo's Android path adds a foreground media-playback service, requires the audio mode to allow background playback, and requires active lock-screen controls for sustained background playback. Do not smuggle that permission/service change into the first podcast slice.
+
+`expo-audio` does **not** replace the MOSS byte path. ASR still needs the CORS-readable `ByteSource`/Mediabunny pipeline.
 
 For web, retaining a bounded DOM `<audio>` leaf may still be preferable if it gives materially better browser semantics/accessibility. The shared product controller should depend on a transport port, not on either choice.
 
-For RSS, prefer the already-installed XML parser with a deliberately hostile-input configuration. Reject `DOCTYPE`/custom entity declarations, bound bytes/depth/item counts, and never pass parsed feed HTML directly to the DOM. Do not rely on parser defaults as the security policy.
+For RSS, prefer the already-installed XML parser with a deliberately hostile-input configuration. Reject `DOCTYPE`/custom entity declarations before parsing, bound bytes/depth/item counts, retain namespace prefixes, avoid accidental numeric/boolean coercion of GUIDs and IDs, and never pass parsed feed HTML directly to the DOM. Do not rely on parser defaults as the security policy.
+
+Official Expo Audio reference for the pinned SDK line:
+https://docs.expo.dev/versions/v57.0.0/sdk/audio/
 
 ### 2.8 The newer Expo work strengthens the shared-controller direction
 
@@ -228,7 +253,7 @@ Podcasts should ideally help extract this boundary from Videos rather than addin
 
 ### 2.9 Current identity model is intentionally stronger than an RSS identity
 
-ContentKey currently means full media-byte SHA-256.
+`ContentKey` currently means full media-byte SHA-256.
 
 identify(source) reads and hashes the entire source. This is appropriate for local/cloud files because a portable Track is bound to exact bytes.
 
@@ -252,6 +277,39 @@ Do not create a ContentKey by hashing:
 
 Those are locator/logical identities, not content-byte identities.
 
+### 2.10 Existing service-worker behavior is already favorable
+
+The current service worker already has the right default for remote podcast media:
+
+- requests with a `Range` header are not intercepted
+- unrelated cross-origin requests are not intercepted
+- arbitrary remote resources are not placed in Reader caches
+- public/static audio formats are excluded from the required offline shell
+
+Do not add podcast audio caching to the service worker as part of this feature. Add regression coverage that the new route/catalog does not weaken those boundaries.
+
+A checked-in/generated **metadata manifest** may be an ordinary same-origin application asset. Episode audio and linked publisher transcript bodies remain remote/user-requested resources, not shell assets.
+
+### 2.11 Cross-origin isolation can change playback rules
+
+`MossClient` selects the threaded WASM runtime only when `globalThis.crossOriginIsolated` and `SharedArrayBuffer` are available. The Reader repository itself does not currently establish a universal COOP/COEP deployment contract; production/server headers remain part of runtime qualification.
+
+That matters for podcasts. Under `Cross-Origin-Embedder-Policy: require-corp`, a cross-origin media element requested in normal `no-cors` mode can be blocked unless the response opts into CORP. A CORS-mode media request can instead pass COEP if the media host actually permits CORS. Under `credentialless`, no-cors behavior is different again and cannot be assumed across the entire supported matrix.
+
+Therefore "playback works without CORS" is only true in the ordinary non-COEP case.
+
+Provider qualification must record:
+
+- actual web response headers for the Manabi document
+- `crossOriginIsolated`
+- COEP/COOP mode
+- whether playback succeeds with the transport's default/no-CORS request
+- whether playback succeeds with anonymous CORS when necessary
+- whether MOSS Range fetches remain readable
+
+Do not globally enable or change COOP/COEP merely to speed up podcast MOSS without requalifying the rest of Reader and third-party media. MDN reference:
+https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Cross-Origin-Embedder-Policy
+
 ## 3. Product scope
 
 ### 3.1 Primary use case
@@ -261,12 +319,13 @@ A learner wants a high-quality Japanese immersion source inside Manabi:
 1. Browse Japanese podcasts.
 2. Pick an episode.
 3. Listen normally.
-4. Generate Japanese transcript locally when useful.
-5. Follow the transcript with playback.
-6. Replay/previous/next by utterance.
-7. Select text and use the existing reading/dictionary affordances where technically available.
-8. Resume later.
-9. Search already-generated transcript text without fetching podcast audio.
+4. Use a publisher transcript immediately when it is suitable.
+5. If timed captions are absent or not aligned to the delivered audio rendition, explicitly enable bounded local MOSS captions near the current playhead.
+6. Follow compatible timed text with playback.
+7. Replay/previous/next by utterance.
+8. Select text and use the existing reading/dictionary affordances where technically available.
+9. Resume the logical episode later even if its CDN locator changes.
+10. Search saved transcript text without fetching podcast audio or starting recognition.
 
 This is an immersion product first, not a general-purpose podcast replacement.
 
@@ -364,7 +423,9 @@ Podcast enclosures frequently redirect through tracking/analytics/ad systems.
 
 Do not infer capability from the final CDN hostname alone.
 
-Probe the exact enclosure URL supplied by the publisher. A redirect hop can fail CORS before the browser reaches a CORS-friendly final media CDN.
+Probe the exact media URL supplied by the publisher. For ordinary RSS this is the `<enclosure>` URL. A later section also permits a publisher-declared Podcasting 2.0 `<podcast:alternateEnclosure>` HTTPS source when it is explicitly the same/default content and separately qualified.
+
+A tracking redirect can make a CORS fetch fail before JavaScript receives usable media, even when the final CDN would otherwise be readable. Do not treat a final CDN hostname as an app-facing API or synthesize a direct CDN URL from observed redirects.
 
 ### 4.3 Proposed ASR capability probe
 
@@ -380,9 +441,11 @@ For an episode enclosure:
 8. Consume/cancel the tiny body and require exactly the requested bytes.
 9. Establish a safe total byte size.
 10. Verify at least one nonzero range.
-11. Repeat a small set of fixed ranges within the same qualification session and compare byte digests. If identical requests produce different bytes without an explicit rendition/version transition, mark the source unstable for MOSS.
-12. Run the same source through Mediabunny metadata/audio-track discovery and bounded decode before allowing Generate.
-13. Record request count/redirect count as part of qualification; excessive range fan-out is a publisher-analytics and performance concern, not merely an implementation detail.
+11. Repeat a small set of fixed ranges within the same qualification session and compare byte digests. The **qualification** repeat must force a fresh network validation rather than merely re-reading the browser HTTP cache; otherwise cache hits can falsely make a dynamic source look stable.
+12. If identical fresh requests produce different bytes without an explicit rendition/version transition, mark the source unstable for MOSS.
+13. Run the same source through Mediabunny metadata/audio-track discovery and bounded decode before allowing MOSS.
+14. Record request count/redirect count as part of qualification; excessive range fan-out is a publisher-analytics and performance concern, not merely an implementation detail.
+15. Record whether the document is cross-origin isolated and whether its COEP mode changes playback behavior.
 
 Do not use HEAD as the sole authority. Some media origins implement GET/Range and HEAD differently.
 
@@ -496,16 +559,20 @@ Keep `LIMITS.rangeBytes` as the hard upper bound.
 
 Remote reads should:
 
-- run through the existing assertRange budget
-- fetch the original admitted enclosure URL or a frozen validated redirect result only if safe
-- send one Range
-- use credentials: omit
-- use cache behavior intentionally
-- validate status/body length
-- never accept a full 200 response for a 4 MiB random range and silently buffer the whole episode
+- run through the existing `assertRange` budget
+- fetch the publisher-admitted media URL, not an inferred final CDN URL
+- send exactly one byte `Range`
+- use `credentials: 'omit'`
+- use `referrerPolicy: 'no-referrer'` for JavaScript ASR reads unless provider qualification demonstrates a requirement for referrer delivery
+- avoid cache-busting query parameters
+- prefer normal/default runtime HTTP caching; do **not** copy the cloud source's `cache: 'no-store'` behavior by default, because that would multiply publisher requests and defeat useful CDN/browser caching
+- validate 206 status and exact body length
+- never accept a full 200 response for a bounded random range and silently buffer the whole episode
 - cancel discarded bodies
 - fence all results by source lifetime/generation
 - detect observable source-version changes
+
+Qualification may deliberately bypass/revalidate cache to test source stability. Production reading and qualification stability testing are different policies and should not share one opaque `fetch` helper without an explicit mode.
 
 ### 5.3 playback()
 
@@ -515,7 +582,9 @@ Do not create a Manabi media copy.
 
 For web, an audio element is the natural playback primitive. The MOSS ByteSource and playback element may use separate requests, so remote-rendition stability must be considered; see the identity section below.
 
-Readable playback-element bytes are not required because ASR uses the separate ByteSource path. If the web transport uses `<audio>` or Expo Audio, do not set `crossOrigin="anonymous"` / `crossOrigin: 'anonymous'` merely for MOSS. Forcing CORS on the playback element can make otherwise playable publisher audio fail. Set it only if the playback implementation itself needs CORS-readable media.
+Readable playback-element bytes are not required because ASR uses the separate ByteSource path. In an ordinary non-COEP document, do not set `crossOrigin="anonymous"` / `crossOrigin: 'anonymous'` merely for MOSS: forcing CORS can make otherwise playable publisher audio fail.
+
+This is conditional, not absolute. If the deployed document uses `COEP: require-corp`, a MOSS-capable source may need anonymous CORS on the playback transport too. The playback port should choose/qualify request mode from the actual deployment policy rather than hardcoding one global setting.
 
 ### 5.4 Do not leak Manabi authority
 
@@ -534,11 +603,36 @@ Review referrer behavior; prefer minimizing unnecessary Manabi URL disclosure if
 
 This is the most important design section for the next worker.
 
-### 6.1 Why RSS GUID is insufficient
+### 6.1 Separate show, episode and rendition identity
+
+The podcast domain needs at least three identities with different semantics:
+
+~~~text
+ShowKey
+  stable Manabi/catalog identity for one subscribed/curated show
+
+EpisodeKey
+  logical episode identity
+  normally derived from ShowKey + RSS GUID
+  survives CDN moves and corrected/re-encoded media
+
+RenditionSession
+  one currently admitted delivered byte/timeline rendition
+  URL/size/validators/fixed-range evidence are session data
+
+ContentKey
+  existing portable SHA-256 identity for one exact complete byte representation
+~~~
+
+An RSS GUID is not globally unique by itself; scope it to the show/feed identity. When GUID is missing, the Podcasting 2.0 recommendations allow enclosure URL as a fallback, but that fallback must remain a logical locator identity, not a claim that the audio bytes can never change.
+
+Do not use title + publication date as the primary episode key.
+
+Playback resume belongs primarily to `EpisodeKey`: the user generally wants to continue the same logical episode after a CDN migration or corrected file. Timed generated captions belong to a rendition/content identity and need stronger evidence.
 
 A GUID identifies an episode in a feed. It does not prove that two HTTP responses contain identical bytes.
 
-An enclosure can change because of:
+A media rendition can change because of:
 
 - publisher replacement
 - corrected audio
@@ -563,11 +657,18 @@ Do **not** automatically switch playback or ASR to the final CDN URL merely beca
 
 If repeated reads of the original enclosure are not stable enough to bind transcript timing, v1 should classify that episode as playback-only.
 
-### 6.3 Conservative MVP: preserve full-byte ContentKey
+### 6.3 Full-byte ContentKey is a compatibility path, not the default experiment
 
-For the first implementation, preserve the existing ContentKey invariant rather than changing the sync protocol. Treat this as the conservative compatibility path, not a claim that full hashing is the final podcast identity design.
+Preserving the existing `ContentKey` invariant is the safest path **if** a podcast result is going to become an existing portable/synced `Track`. It is not necessarily the right cost for the first local podcast experiment.
 
-Recommended flow:
+Benchmark two stages separately:
+
+1. **Local bounded draft:** `EpisodeKey + RenditionSession + audio proofs`; enough to display/study accepted MOSS windows locally, but not enough to publish them as an existing portable Track.
+2. **Portable publication:** only if the product requires export/sync/ordinary Track publication, finish exact byte identity or introduce a separately reviewed rendition identity protocol.
+
+The current Job validator also requires a completed provisional job to have `verifiedMediaKey`, so this is a real scheduler/schema decision. Do not keep a fake ContentKey forever just to satisfy existing types.
+
+If the first implementation chooses the exact-`ContentKey` compatibility path, the flow is:
 
 ~~~text
 Open episode
@@ -586,17 +687,19 @@ User presses Generate transcript
        permit complete track publication
 ~~~
 
-This intentionally incurs a complete byte read only for episodes the user asks to transcribe. It does not make browsing or playback download the entire episode.
+This intentionally incurs a complete byte read only when portable publication is required. It does not make browsing or playback download the entire episode.
 
-This is not bandwidth-free, but it is simple, honest, proxyless, and consistent with the existing portable transcript identity model.
+Do not run a second independent full-file verifier blindly beside hours of sparse decode. Measure duplicate byte/request cost first and share a single `RenditionSession` so all reads observe the same source evidence. If whole-file hashing remains necessary, profile its main-thread cost as well as network cost; the current incremental hasher yields but was designed around local/cloud video, not hour-long remote audio.
+
+This path is proxyless and preserves existing portable transcript semantics, but it is deliberately conservative and potentially expensive.
 
 ### 6.4 Remote provisional identity needs a deliberate extension
 
-Today provisional generation is intentionally limited to local File sources.
+Today provisional generation is intentionally limited to local `File` sources.
 
 The next worker should generalize that mechanism only after establishing a stable remote-source session contract.
 
-Do not simply remove the File check.
+Do not simply remove the `File` check, and do not reuse `deviceKey()` verbatim. That helper hashes the literal domain marker `device-video-v1` and local-source name/size/version semantics. Extract a generic sampled-source/rendition-evidence primitive or define a podcast-specific equivalent with an explicit version.
 
 A remote provisional source needs at least:
 
@@ -713,14 +816,22 @@ Treat every feed field as hostile external input.
 Requirements:
 
 - parse XML without executing markup
-- never inject description HTML with innerHTML
-- cap feed bytes, item count, text lengths, image URL lengths
-- reject external entities / XXE-style behavior
+- pre-reject `<!DOCTYPE` / `<!ENTITY` declarations for this feed subset rather than accepting feed-supplied entity definitions
+- set explicit parser depth/entity limits supported by the pinned `fast-xml-parser` version
+- retain namespace prefixes so `podcast:transcript`, `podcast:alternateEnclosure`, `itunes:duration` and similarly named unrelated tags cannot collapse together
+- avoid automatic scalar coercion for GUIDs, IDs, durations and numeric-looking titles; normalize fields deliberately after parse
+- force known repeated structures (`item`, `podcast:transcript`, alternate-enclosure/source collections) into predictable arrays
+- never inject description HTML with `innerHTML`; extract/sanitize plain display text separately
+- cap feed bytes, nesting, item count, per-item transcript/enclosure counts, text lengths and URL lengths
 - normalize dates defensively
-- support common RSS/iTunes podcast fields but ignore unknown fields
-- require one supported enclosure per surfaced episode
+- treat feed `itunes:duration` only as catalog/display metadata; MediaPipeline duration is authoritative for playback/ASR
+- support common RSS/iTunes/Podcasting 2.0 fields but ignore unknown fields
+- require at least one supported publisher media source per surfaced episode
 - canonicalize only enough for dedupe; do not mutate publisher URLs into a different authority
 - use publisher-provided webpage URL for attribution when safe
+- retain `podcast:license` metadata when present for review/display, but do not infer permission or prohibition solely from presence/absence of that tag
+
+The installed parser has had recent entity/security work; that is not a reason to omit application-level limits. Add malicious/entity-bomb, deep-nesting, duplicate-field and huge-feed fixtures.
 
 ### 7.4 Prefer publisher transcripts before MOSS
 
@@ -728,18 +839,45 @@ Current podcast RSS guidance recommends `<podcast:transcript>`, and the Podcasti
 
 When an episode supplies transcript links:
 
-1. prefer a timed publisher transcript over MOSS when it is CORS-readable and validates safely
-2. prefer WebVTT / SRT / timed Podcast JSON for line-synced study
-3. treat plain text / HTML as low-fidelity searchable/readable transcript content unless reliable timing exists
+1. prefer a publisher transcript over MOSS when it is readable and validates safely
+2. prefer WebVTT / SRT / timed Podcast JSON for potential line-synced study
+3. treat plain text / HTML as readable/searchable episode text without fabricating timestamps
 4. preserve publisher language metadata and speaker names when the format provides them
-5. do not confuse publisher speaker names with MOSS window-local diarization IDs
-6. keep MOSS available as an explicit fallback when no usable authored timed transcript exists
+5. honor `rel="captions"` as the publisher's assertion that timing exists, but **not** as proof that those timestamps match every dynamically ad-inserted rendition
+6. do not confuse publisher speaker names with MOSS window-local diarization IDs
+7. keep MOSS available as an explicit fallback for rendition-aligned timing
 
-This requires a new semantic distinction. Do not label a publisher RSS transcript as `origin: 'generated'`, and do not casually call it an embedded video track. Decide whether the existing `sidecar` meaning is sufficient or whether Track origin should grow a reviewed `publisher`/remote-authored value.
+Dynamic advertising creates a second timeline problem: a publisher transcript can be perfectly valid for the editorial master and still drift after a personalized ad insertion. Therefore a linked publisher transcript is initially a **logical-episode transcript resource**, not automatically an existing rendition-bound `Track`.
+
+For hosts/renditions qualified as timeline-stable, timed publisher cues may drive follow/replay. For dynamic or unknown timelines, show the publisher transcript as text but do not promise line-synced seeking; use rendition-bound MOSS when the user wants exact local timing.
+
+The current `Track.origin` validator accepts only `embedded | sidecar | generated`, and `saveImportedTrack()` is similarly strict. Do not permanently mislabel a publisher RSS resource as `sidecar` merely to bypass that schema. If publisher tracks become durable Track records, add reviewed publisher-authored provenance/origin semantics and migrate/test every strict validator, sort, sync and export path that consumes them.
 
 Linked transcript files have their own CORS and hostile-input requirements. Their availability is independent of enclosure CORS.
 
-### 7.5 Arbitrary Add RSS feed
+### 7.5 Publisher-declared alternate enclosures
+
+Podcasting 2.0 can explicitly offer alternate media through `podcast:alternateEnclosure` and `podcast:source`. These are publisher-declared sources and are materially different from scraping a redirect target.
+
+The catalog parser may retain them, but v1 should only consider:
+
+- HTTPS sources
+- finite directly addressable audio files
+- a decodable MIME/codec
+- the same/default content group, or an explicit user-visible alternate
+- separately qualified CORS/range/rendition behavior
+
+Do not silently choose IPFS, torrents, onion URLs, HLS/live playlists or other transport schemes for the first ByteSource implementation.
+
+Do not automatically pick the lowest bitrate: alternate encodes can differ in quality and ASR behavior. Prefer the publisher's standard/default source unless another declared source is intentionally qualified.
+
+If `podcast:integrity` supplies SRI for an alternate enclosure, retain it as useful publisher-declared integrity evidence. It does not become an existing `ContentKey` without a reviewed mapping/verification rule.
+
+References:
+https://podcasting2.org/docs/podcast-namespace/tags/alternate-enclosure
+https://podcasting2.org/docs/podcast-namespace/tags/integrity
+
+### 7.6 Arbitrary Add RSS feed
 
 Defer from the first release unless it is trivial after the curated path.
 
@@ -807,15 +945,19 @@ Do not combine that protocol migration with the first Podcasts feature unless it
 
 ### 9.2 Reuse domain types where their meaning is generic
 
-Cue and Track are already mostly media-generic.
+`Cue` is media-generic. `Track` is only partly generic because it requires a `ContentKey` and has strict video-era origin semantics.
 
-Playback is also generic except for naming around the storage kind.
+Existing `Playback` is **not** a good logical podcast-resume record even though its fields look generic: it requires `mediaKey: ContentKey`. Podcast resume should survive a rendition/CDN replacement and therefore belongs to `EpisodeKey`.
 
-VideoInfo is not generic because width/height are baked in.
+`VideoInfo` is not generic because width/height and video record kinds are baked in.
 
 Recommended direction:
 
-- extract/grow generic transcript and playback domain only where behavior is genuinely common
+- define a small local `EpisodePlayback` / podcast-resume record keyed by `EpisodeKey`
+- clamp/reconcile its saved position when the current delivered rendition has a changed duration; do not pretend byte identity stayed the same
+- keep rendition-bound timed cue data separate from logical episode resume
+- extract/grow generic transcript/player domain only where behavior is genuinely common
+- represent publisher transcript resources separately until/unless they are safely promoted to durable Tracks
 - add podcast-specific catalog/episode metadata
 - leave existing video sync kinds untouched initially
 - decide separately whether podcast resume/transcripts are local-only in MVP or need new backend kinds
@@ -1000,20 +1142,37 @@ If multiple plausible audio tracks exist, retain the existing explicit-choice pr
 
 Still preserve the current principle that metadata is not magical speech detection. A bad feed language tag must not silently force an incompatible behavior. MediaPipeline must still verify the chosen track rather than assuming track ID 0.
 
-### 11.3 Sparse-first behavior
+### 11.3 Sparse-first, bounded-coverage behavior
 
-Use the current v3 sparse/playhead-priority policy as the default.
+Reuse the current v3 sparse **window format and seam safety**, but do not reuse its "eventually cover every window" scheduling policy unchanged.
 
-On Generate:
+Podcast default should be a versioned coverage policy such as:
+
+~~~text
+playback-lead
+  maintain only a bounded accepted/ready lead around the current playback target
+
+full
+  explicitly requested whole-episode completion
+~~~
+
+The exact schema/state name is open, but it must be durable and validator-visible. Do not encode the distinction only in transient UI state.
+
+For `playback-lead`:
 
 - prioritize current playback position
-- keep nearby accepted transcript available first
-- reprioritize as user seeks/plays
-- checkpoint after bounded windows
+- request only the predecessor/current/future windows needed for a bounded lead
+- repair seams required for that lead
+- checkpoint accepted windows normally
+- when the lead is satisfied, **park the job and release MOSS/model ownership**
+- when playback/seek approaches missing coverage, re-admit the same durable job
 - preserve accepted windows on cancel/close
-- do not restart from zero just because the user jumps forward
+- do not restart from zero because the user jumps forward
+- do not let an idle open episode silently consume CPU filling distant hours
 
-This is substantially more useful for long episodes than an all-or-nothing transcript.
+The current Job status/pause-reason model has no "lead satisfied" state and current sparse queue code continues until full coverage. This requires an explicit scheduler/job-state change rather than only calling `queue.prioritize()`.
+
+Whole-episode `full` mode, if eventually offered, must be an explicit separate action and should surface expected cost.
 
 ### 11.4 Model disclosure
 
@@ -1099,27 +1258,35 @@ The Podcasts worker should first establish reusable media-domain/player ports th
 
 Do not introduce a one-off Android native podcast player whose lifecycle/persistence rules diverge from Videos unless the project explicitly chooses that architecture.
 
+Likewise, do not add an Android-native arbitrary HTTP range bridge merely to escape browser CORS in v1. That would expand the trusted native/DOM bridge into a general network capability, create separate SSRF/private-network/security policy, and make Android support a different podcast universe from web. It can be evaluated later as an explicit platform capability.
+
+The first shared catalog should use the web-readable source baseline for MOSS on both platforms; native Expo Audio may still play a broader set of URLs than the DOM ASR layer can transcribe.
+
 ## 14. Proposed implementation phases
 
-### Phase 0 — provider qualification harness
+### Phase 0 — provider and deployment qualification harness
 
 No product UI yet.
 
-Build a small qualification harness for real enclosure URLs:
+Build a small qualification harness for real publisher media URLs:
 
-- exact publisher RSS enclosure URL
+- normal RSS enclosure and any considered publisher alternate-enclosure URL
 - actual target environment/origin: production web origin and packaged Android DOM/WebView origin
-- browser CORS GET
+- document COOP/COEP headers and `crossOriginIsolated`
+- playback with the intended transport/request mode
+- browser CORS GET for ASR
 - redirect behavior
 - Range 0-0
 - second random range
+- fresh-network fixed-range stability checks
 - total size evidence
-- Mediabunny metadata
-- audio track decode
+- Mediabunny request count, metadata and audio track decode
 - 16 kHz PCM production
 - cancellation
 - validator stability
-- repeated-request stability
+- publisher transcript availability/format/timeline behavior
+- service-worker pass-through behavior
+- repeated-request/ad/rendition stability
 
 Produce a machine-readable report.
 
@@ -1165,21 +1332,23 @@ Implement:
 
 This phase should already prove lifecycle/reopen/route behavior.
 
-### Phase 4 — MOSS transcription
+### Phase 4 — bounded local MOSS captions
 
-Connect the remote source to the existing queue.
+Connect the remote source to the existing queue only after adding a podcast-safe coverage policy.
 
 Implement:
 
-- explicit Generate
-- provisional remote job
-- lazy full hash only after Generate
+- explicit enable/generate action
+- remote provisional/rendition session
+- `playback-lead` durable coverage policy
 - playhead priority
-- audio proof
-- verified promotion to ContentKey
-- published Track
+- park/re-admit behavior when lead is satisfied/exhausted
+- audio proofs
 - cancel/resume/switch behavior
 - shared MOSS model cache
+- local accepted-draft study without pretending it is a portable Track
+
+Portable full-byte verification/publication is a separate gate. If exact `ContentKey` publication is selected, start/finish the lazy full hash only when that publication is actually required.
 
 ### Phase 5 — transcript/study convergence
 
@@ -1265,15 +1434,18 @@ Do not add a large copyrighted podcast episode to the repository.
 Reuse existing doubles plus new audio-only integration:
 
 - opening episode does not prepare MOSS
-- Generate prepares MOSS after valid PCM exists
+- enabling local captions prepares MOSS only after valid PCM exists
 - current playhead is first sparse priority
-- seeking reprioritizes
+- playback-lead mode stops scheduling after its bounded lead is satisfied
+- satisfying a lead releases runtime/model ownership rather than filling distant windows
+- seeking into uncovered audio re-admits the same durable job and prioritizes the new region
+- whole-episode work does not begin unless full mode was explicitly selected
 - cancel preserves accepted windows
 - route switch pauses owned job
-- source validator change pauses/fails safely
-- provisional transcript cannot publish before verified ContentKey
+- source validator/fingerprint change pauses/fails safely
+- provisional transcript cannot publish as an existing portable Track before verified ContentKey
 - audio proof mismatch prevents reuse
-- full hash failure does not destroy accepted device-local work
+- full-hash/publication failure does not destroy accepted device-local work
 - model remains one shared cache/runtime
 - another tab cannot run a competing MOSS batch
 
@@ -1285,30 +1457,35 @@ Cover:
 - browser back/forward
 - responsive episode list
 - accessible show/episode names
-- audio controls
+- foreground audio controls
 - keyboard ownership
 - screen-reader names
+- publisher transcript versus local MOSS source labeling
+- plain publisher transcript never fabricates timed seek behavior
+- dynamically unqualified publisher captions do not auto-follow a personalized rendition
 - transcript open/close
 - follow
 - line navigation
 - pause-after-line
 - model-download disclosure
-- Generate progress
+- bounded lead generation/progress/park/resume
 - cancel/resume
 - Reader typography/background
 - no video-only overlay controls
-- deep-link to episode/time
+- deep-link to episode/time only when a real timed cue exists
 - route replacement while reads/inference are pending
+- ordinary no-COEP playback and the actual qualified COEP deployment mode
 
 ### 15.5 Search tests
 
 Assert:
 
 - title search is local
-- transcript search uses only saved/published cues
+- transcript search uses only already-saved publisher/generated text
 - search never requests enclosure bytes
 - search never downloads model
-- opening hit validates episode/track/time
+- timed hits validate episode/track/time
+- untimed publisher transcript hits open the episode/transcript without inventing a timestamp
 - stale/missing episode does not break the whole search route
 
 ### 15.6 External provider qualification
@@ -1360,21 +1537,25 @@ Do not turn one passing show into an eternal hostname allowlist.
 
 Initial expectation:
 
-- catalog metadata previously stored may remain visible
-- saved transcript remains readable/searchable
-- saved playback position remains local
-- remote episode audio is unavailable offline unless already cached by normal browser behavior
+- the validated static catalog manifest can remain available with the application shell
+- saved transcript text remains readable/searchable
+- logical `EpisodeKey` resume remains local
+- remote episode audio is unavailable offline unless the user agent/platform independently retained usable network cache
 - Manabi does not promise an offline MP3 download
 
 An explicit "download episode" feature is out of scope and has different storage/licensing implications.
 
-Do not allow service-worker shell caching to accidentally cache huge podcast media responses.
+The current Reader service worker already passes through Range and unrelated-origin requests and excludes public audio from required shell assets. Preserve that behavior; add tests rather than a new audio caching path.
 
 ## 18. Performance, bandwidth and publisher-request expectations
 
 Opening an episode should consume only metadata and ordinary playback demand.
 
 Range count matters in addition to byte count. Podcast hosts and ad systems may observe each request, so dozens of tiny reads are not an acceptable implementation merely because the aggregate bytes are small. Reuse/coalesce Mediabunny reads, honor the existing 4 MiB hard range budget, and measure the real request graph per provider.
+
+The current Mediabunny `network` prefetch profile is explicitly designed to reduce read-call count in high-latency sources. Keep that adapter path and measure it; do not replace it with hand-written MP3 seeking unless a real qualification failure requires it.
+
+MOSS throughput is a separate cost. Current repository evidence does not establish realtime v7 podcast transcription on representative devices. The product must remain useful when local captions build slower than playback, and playback-lead mode must stop work when its bounded target is satisfied.
 
 Generate transcript may cause:
 
@@ -1395,9 +1576,9 @@ A first shippable Podcasts experiment should satisfy all of the following:
 - Feature is separately gated.
 - Books / Videos / Podcasts category navigation is coherent.
 - Catalog is Japanese-first and curated.
-- Every episode offered for MOSS passed actual browser byte-read/range/decode **and rendition-stability** qualification.
-- Publisher-provided timed transcripts are preferred when safely usable; MOSS is not run merely because it exists.
-- Audio comes from the publisher's original enclosure; no Manabi audio proxy/rehost.
+- Every episode offered for MOSS passed actual browser byte-read/range/decode **and rendition-stability** qualification under the deployed cross-origin-isolation mode.
+- Publisher-provided transcripts are preferred when safely usable; timed follow/replay is enabled only when their timeline is qualified for the delivered rendition.
+- Audio comes from a publisher-declared enclosure or qualified publisher-declared alternate enclosure; no Manabi audio proxy/rehost.
 - Opening an episode does not download MOSS.
 - Opening an episode does not full-hash the complete enclosure.
 - Playback begins independently of transcript generation.
@@ -1407,11 +1588,14 @@ A first shippable Podcasts experiment should satisfy all of the following:
 - Remote verification does not explode into 1 MiB network-range request fan-out.
 - Repeated remote reads cannot silently mix different ad/personalized renditions into one transcript.
 - Sparse inference prioritizes the current playhead.
+- Default podcast inference is bounded playback-lead work and does not silently fill the full episode.
+- Satisfying the lead parks/releases inference resources.
 - In-progress work survives supported pause/reload flows without pretending to be a verified portable Track.
 - Portable transcript publication is bound to exact ContentKey, or a separately reviewed replacement identity protocol.
 - Changed remote bytes cannot silently reuse a timed transcript.
 - Search never downloads podcast media or starts MOSS.
-- Feed text cannot inject HTML/script.
+- Untimed transcript search never fabricates timestamps.
+- Feed text cannot inject HTML/script/entity-expansion/resource-fetch behavior.
 - No existing Video behavior is regressed.
 - No existing video_* sync record is silently reinterpreted as podcast data.
 - Android/web product state moves toward shared composition rather than adding another permanent divergent page.
@@ -1429,7 +1613,9 @@ A first shippable Podcasts experiment should satisfy all of the following:
 - server-side transcription
 - server-side audio ingestion
 - automatic transcription of every subscribed episode
+- silent full-episode transcription as the default Generate behavior
 - background inference after browser/app suspension without a real platform design
+- enabling Android background playback/foreground-service permissions as an incidental side effect of the first podcast slice
 - offline podcast download
 - public generated-transcript corpus
 - transcript SEO pages
@@ -1447,63 +1633,75 @@ A first shippable Podcasts experiment should satisfy all of the following:
 The next worker should revise this spec and answer these before substantial implementation:
 
 ### Identity
-1. Is lazy full-byte hashing acceptable for Generate in the first release after measuring its request count and bandwidth?
-2. Should the first implementation simply exclude dynamically personalized/unstable enclosures from MOSS?
-3. Which remote validator signals are actually exposed by qualified hosts?
-4. How should fixed-range fingerprints and decoded audio proofs divide responsibility?
-5. How should dynamic-ad renditions be detected on reopen?
-6. Which audio-proof subset is sufficient to reject stale transcript reuse cheaply?
+1. Is the first MOSS release intentionally local-draft-only, avoiding full-byte identity until portable publication is requested?
+2. If portable publication is required, is lazy full-byte hashing acceptable after measuring duplicate requests, bandwidth and main-thread cost?
+3. Should dynamically personalized/unstable enclosures simply be excluded from MOSS?
+4. Which remote validator signals are actually exposed by qualified hosts?
+5. How should fixed-range fingerprints and decoded audio proofs divide responsibility?
+6. How should dynamic-ad renditions be detected on reopen?
+7. Which audio-proof subset is sufficient to reject stale transcript reuse cheaply?
+8. What exact `ShowKey`/`EpisodeKey` fallback and feed-redirect alias rules prevent duplicate logical episodes?
 
 ### Storage/sync
-7. Are podcast transcripts local-only initially?
-8. Is playback resume local-only or synced?
-9. Do we add podcast-specific remote record kinds later, or plan a separate generic media-protocol migration?
-10. How are logical episode IDs mapped to one or more byte renditions?
-11. Does publisher-authored transcript storage require a new Track origin value?
+9. Are podcast transcripts local-only initially?
+10. Is logical episode resume local-only or synced?
+11. Do we add podcast-specific remote record kinds later, or plan a separate generic media-protocol migration?
+12. How are logical episode IDs mapped to one or more byte renditions?
+13. Should publisher transcript resources remain a separate episode-domain object until rendition binding?
+14. If publisher transcripts become durable Tracks, what versioned origin/provenance change replaces the current strict three-value Track origin?
 
 ### Catalog
-12. Checked-in source list + generated static manifest, direct client RSS, or another hybrid?
-13. What is the minimum initial native-Japanese catalog?
-14. What does "native" mean for catalog tagging?
-15. How are dead/moved feeds handled?
-16. Which shows expose usable `podcast:transcript` resources so MOSS can be avoided?
+15. Checked-in source list + generated static manifest, direct client RSS, or another hybrid?
+16. What is the minimum initial native-Japanese catalog?
+17. What does "native" mean for catalog tagging?
+18. How are dead/moved feeds and stable ShowKey aliases handled?
+19. Which shows expose usable `podcast:transcript` resources?
+20. Which publisher alternate enclosures materially improve CORS/range/codec support without changing editorial content?
+21. Which feeds expose `podcast:license` metadata useful for internal review/testing?
 
 ### UX
-17. Hide playback-only episodes or show them without Generate?
-18. Should Generate mean "around current playback first" explicitly in copy?
-19. Do we expose full-episode verification progress separately from recognition progress?
-20. What should happen if the user seeks into an untranscribed region while MOSS is far behind?
-21. Should a valid publisher transcript suppress the Generate action by default while still offering MOSS as an advanced fallback?
+22. Hide playback-only episodes or show them without local-caption capability?
+23. What bounded caption lead should playback-lead mode target?
+24. Should a separate "Transcribe full episode" action exist at all in v1?
+25. Do we expose optional full-byte verification progress separately from recognition progress?
+26. What should happen if the user seeks into an untranscribed region while MOSS is far behind?
+27. Should a valid **timeline-compatible** publisher transcript suppress local MOSS by default?
+28. How should a timed-but-rendition-uncertain publisher transcript be presented without implying exact seek alignment?
 
 ### Expo
-22. Should Podcasts wait for Video transcript/player domain extraction, or perform that extraction as its first enabling refactor?
-23. Should the shared playback port use Expo Audio on both platforms or Expo Audio on Android plus a DOM audio leaf on web?
-24. What is the bounded Android DOM/media/ASR leaf?
-25. Which exact shared screen/controller owns episode state?
-26. What lifecycle contract reconciles native background playback with foreground-only/suspendable DOM MOSS work?
+29. Should Podcasts wait for Video transcript/player domain extraction, or perform that extraction as its first enabling refactor?
+30. Should the shared playback port use Expo Audio on both platforms or Expo Audio on Android plus a DOM audio leaf on web?
+31. What COOP/COEP policy is actually deployed for Reader web and packaged Android DOM, and how does that change media request mode?
+32. What is the bounded Android DOM/media/ASR leaf?
+33. Which exact shared screen/controller owns episode state?
+34. Should the first slice remain foreground-playback-only, preserving current `enableBackgroundPlayback: false`?
+35. If background playback is later enabled, what lifecycle contract reconciles native playback with foreground-only/suspendable DOM MOSS work?
 
 ### Provider/legal
-27. Which catalog/provider terms need explicit approval?
-28. Can generated transcripts sync privately, or should v1 keep them on-device?
-29. Which SoundCloud usage path, if any, is acceptable without relying on a restricted proprietary API?
-30. Do repeated range/hash requests distort host analytics, downloads, or dynamic-ad accounting enough to require provider-specific limits or exclusion?
+36. Which catalog/provider terms need explicit approval?
+37. Can generated transcripts sync privately, or should v1 keep them on-device?
+38. Which SoundCloud usage path, if any, is acceptable without relying on a restricted proprietary API?
+39. Do repeated range/hash requests distort host analytics, downloads, dynamic-ad accounting or monetization enough to require provider-specific limits/exclusion?
+40. Does using a publisher-declared alternate enclosure preserve the host's intended measurement/monetization path for that show?
 
 ## 22. Suggested first engineering PR sequence
 
 Keep each implementation PR reviewable.
 
-1. Remote media qualification harness + docs only.
+1. Provider/deployment qualification harness + docs only.
 2. Generic ByteSource network/read-profile refactor + request-count tests.
-3. Remote ByteSource + local fixture tests.
-4. Podcast catalog/parser + `podcast:transcript` domain/security tests.
+3. Remote ByteSource/RenditionSession + local fixture tests.
+4. Podcast identity/catalog/parser domain, including alternate enclosures and transcript resources.
 5. Shared transcript/player seam extraction with zero intended Video behavior changes.
-6. Podcasts route/category + playback only, through a shared playback port.
-7. Publisher timed-transcript import/display.
-8. MOSS remote provisional generation + rendition session + lazy full-hash promotion.
-9. Podcast transcript UI/study controls.
-10. Unified search integration.
-11. Live-provider qualification workflow/report.
-12. Optional sync design as a separately reviewed change.
+6. Podcasts route/category + logical EpisodeKey resume + foreground playback only.
+7. Publisher transcript display/search, with timed follow gated by timeline qualification.
+8. Versioned MOSS `playback-lead` scheduler/job state + local audio-only fixture tests.
+9. Remote bounded local MOSS draft + rendition/audio-proof recovery.
+10. Optional exact ContentKey/full-publication path only after request/bandwidth measurement.
+11. Podcast transcript study UI and unified search integration.
+12. Live-provider qualification workflow/report.
+13. Optional background playback as a separately reviewed native/config capability.
+14. Optional sync/generic media-protocol design as a separately reviewed change.
 
 Do not begin by renaming every media/video type.
 
@@ -1513,24 +1711,27 @@ The current Expo branch is unusually well-positioned for Podcasts because the ha
 
 The main blockers are:
 
-1. remote CORS/range and request-amplification qualification,
-2. remote rendition identity / dynamic-ad stability,
-3. video-specific presentation entanglement,
-4. current Expo Video parity gap,
-5. provider/legal/analytics boundaries around repeated enclosure reads, transcription and transcript persistence.
+1. remote CORS/range, COEP and request-amplification qualification,
+2. logical episode versus delivered-rendition identity,
+3. dynamic-ad and publisher-transcript timeline stability,
+4. the existing sparse scheduler's whole-media completion behavior,
+5. video-specific presentation entanglement and current Expo Video parity gap,
+6. provider/legal/analytics boundaries around repeated enclosure reads, transcription and transcript persistence.
 
 The recommended MVP stays conservative:
 
 - curated Japanese catalog
 - original publisher enclosures
-- publisher timed transcripts first when available
+- publisher transcript resources first, with timed follow only when rendition-compatible
+- publisher enclosure or explicitly declared/qualified alternate enclosure
 - no proxy
-- qualified CORS/range/stable-rendition sources only for MOSS
-- immediate audio playback
+- qualified CORS/range/COEP/stable-rendition sources only for MOSS
+- immediate foreground audio playback
 - explicit on-device MOSS fallback
-- sparse playhead-first transcription
-- lazy full-byte hash only after Generate
-- exact ContentKey before portable Track publication
+- bounded playback-lead MOSS rather than silent whole-episode completion
+- local draft first
+- exact ContentKey only when existing portable Track publication actually requires it
+- logical EpisodeKey resume separated from rendition-bound captions
 - local-first persistence where sync semantics are unresolved
 - no second media stack
 
