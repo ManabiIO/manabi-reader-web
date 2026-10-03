@@ -38,7 +38,11 @@ The contract must not contain competitor names as provenance for individual requ
 
 ### Implementer
 
-The implementer receives only the sanitized specification and this policy. The implementer may inspect and modify Manabi-owned or otherwise authorized target code as needed, subject to the repository's existing licensing boundaries.
+The implementer receives only the sanitized specification, this policy, the approval gate, and authorized target-repository material.
+
+**Receipt of the clean-room handoff is not authorization to implement anything.** Before creating fixtures/tests or modifying target product code, the implementer must read `CLEAN_ROOM_APPROVALS.md` and confirm that the exact feature/CR IDs and requested work level are actively approved.
+
+An implementer may inspect and modify Manabi-owned or otherwise authorized target code only within an active approval, subject to the repository's existing licensing boundaries.
 
 The implementer must not:
 
@@ -169,3 +173,24 @@ Before merging a competitively motivated UI change, reviewers should separately 
 - test fixtures and example content are independently authored.
 
 Clean-room process protects implementation provenance; it is not permission to copy protected visual expression.
+
+
+## Authorization is separate from specification severity
+
+Normative words in the sanitized specifications describe desired behavior **if and when that feature or qualification scope is approved**.
+
+They do not authorize work:
+
+- MUST does not mean “implement now”;
+- a failing acceptance test does not authorize a fix;
+- a benchmark target does not authorize optimization work;
+- an optional opportunity does not authorize a prototype;
+- a feature being already partially present does not authorize completion.
+
+`CLEAN_ROOM_APPROVALS.md` is the sole branch-local record of approval state for this program. When it says no active approvals, no target test or product mutation is authorized by these clean-room documents.
+
+## Research PR state
+
+PR #260 is a research/specification draft. Research/spec refinement may continue when explicitly requested, but workers must preserve Draft state unless the user/project owner explicitly authorizes changing PR #260 to ready, merging it, or otherwise finalizing it.
+
+Per-feature approval is not PR-finalization approval, and PR-finalization approval is not per-feature implementation approval.
