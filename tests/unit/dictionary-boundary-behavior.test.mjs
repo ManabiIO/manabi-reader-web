@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import {
   DICTIONARY_EXTENSION_MUTATION_ATTRIBUTES,
   EXTERNAL_DICTIONARY_POPUP_SELECTOR,
-  markPreferredDefaultDictionaryInstall,
+  PREFERRED_DEFAULT_INSTALL_BUTTON_ATTRIBUTES,
   normalizeDictionarySetupChoice,
   preferredDictionaryExtensionPresent,
   preferredDictionaryReaderBridgeReady
@@ -39,10 +39,10 @@ test('external dictionary bridge detection is isolated to documented DOM markers
   assert.match(EXTERNAL_DICTIONARY_POPUP_SELECTOR, /yomitan-popup/);
 });
 
-test('default-install interop marker is written only by the interop action', () => {
-  const node = { dataset: {} };
-  markPreferredDefaultDictionaryInstall(node);
-  assert.equal(node.dataset.manabitanInstallJitendex, 'true');
+test('default-install interop marker is isolated to provider-specific forwarded props', () => {
+  assert.deepEqual(PREFERRED_DEFAULT_INSTALL_BUTTON_ATTRIBUTES, {
+    'data-manabitan-install-jitendex': 'true'
+  });
 });
 
 test('generated dictionary runtime never becomes mandatory shell or packaged-font cache state', () => {
