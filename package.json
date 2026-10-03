@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/prepare-dictionary.mjs && cd apps/web && pnpm dev",
-    "build": "node scripts/prepare-dictionary.mjs && cd apps/web && pnpm build",
+    "build": "node scripts/check-dictionary-boundary.mjs && node scripts/prepare-dictionary.mjs && cd apps/web && pnpm build",
     "prepare": "husky",
     "check": "eslint --fix-dry-run .",
     "check:pretty": "prettier --debug-check .",
@@ -13,7 +13,8 @@
     "format": "prettier --write .",
     "test:reader": "node test/reader/run.mjs",
     "test:whispersync": "node test/whispersync/run.mjs --coverage",
-    "prepare:dictionary": "node scripts/prepare-dictionary.mjs"
+    "prepare:dictionary": "node scripts/prepare-dictionary.mjs",
+    "test:dictionary-boundary": "node scripts/check-dictionary-boundary.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "21.2.2",

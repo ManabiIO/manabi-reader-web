@@ -79,7 +79,7 @@
       const value = await opened.client.search(needle, detailed, { signal });
       signal.throwIfAborted();
       if (
-        value.version !== 1 ||
+        value.contractVersion !== 1 ||
         value.query !== needle.trim() ||
         typeof value.prefix !== 'boolean'
       )
@@ -170,7 +170,7 @@
   function definitions(node: HTMLElement, value: DictionaryResult) {
     const dispose =
       runtime && value.lookup
-        ? runtime.render(node, value.lookup, runtime.client, onquery)
+        ? runtime.render(node, value.lookup, onquery)
         : undefined;
     return {
       destroy() {
@@ -203,7 +203,7 @@
         onProgress: () => {}
       });
       imported = true;
-      if (!file) await opened.client.setDefault('installed', result.summary.title);
+      if (!file) await opened.client.recordDefaultInstall(result.summary.title);
       if (mounted) setupOpen = false;
       if (mounted)
         message = result.cancelledAfterCommit
@@ -342,7 +342,7 @@
       <summary>Local dictionaries</summary>
       <p class="note">
         These dictionaries stay in this browser and are separate from your extension’s dictionaries.
-        Import your existing Yomitan ZIPs or install Jitendex. Nothing installs automatically.
+        Import a compatible dictionary ZIP or install Jitendex. Nothing installs automatically.
       </p>
       {#if statusLoading}
         <p class="note" role="status">Loading installed dictionaries…</p>
@@ -422,7 +422,7 @@
       <details class="recommendations" ontoggle={recommendationToggle}>
         <summary>Recommended dictionaries</summary>
         <p class="note">
-          From Manabitan’s pinned Japanese catalog. Downloads open on their publisher’s site; Reader
+          From the current provider’s pinned Japanese catalog. Downloads open on their publisher’s site; Reader
           never downloads or installs them in the background.
         </p>
         {#if recommendationsLoading}

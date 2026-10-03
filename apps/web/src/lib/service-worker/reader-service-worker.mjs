@@ -44,13 +44,13 @@ export function registerReaderServiceWorker(worker, config) {
   const immutableFontAssets = new Set(
     config.build
       .map((path) => new URL(path, scope))
-      .filter((url) => inScope(url) && isPackagedFont(url))
+      .filter((url) => inScope(url) && isPackagedFont(url) && !lazyAssets.has(url.href))
       .map((url) => url.href)
   );
   const fontAssets = new Set(
     [...config.build, ...config.files]
       .map((path) => new URL(path, scope))
-      .filter((url) => inScope(url) && isPackagedFont(url))
+      .filter((url) => inScope(url) && isPackagedFont(url) && !lazyAssets.has(url.href))
       .map((url) => url.href)
   );
   const shellAssets = new Set(
@@ -343,7 +343,7 @@ export function isShellAsset(url) {
     return false;
   }
   return (
-    !/(?:^|\/)(?:dictionaries|dictionary-archives|manabitan|moss)(?:\/|$)/.test(path) &&
+    !/(?:^|\/)(?:dictionaries|dictionary-archives|moss)(?:\/|$)/.test(path) &&
     !/\.(?:zip|epub|htmlz|sqlite3?|db|wasm|woff2?|ttf|otf)$/.test(path)
   );
 }
@@ -382,6 +382,6 @@ export function isPackagedFont(url) {
   }
   return (
     /\.(?:woff2?|ttf|otf)$/.test(path) &&
-    !/(?:^|\/)(?:userfonts|dictionaries|dictionary-archives|manabitan)(?:\/|$)/.test(path)
+    !/(?:^|\/)(?:userfonts|dictionaries|dictionary-archives)(?:\/|$)/.test(path)
   );
 }

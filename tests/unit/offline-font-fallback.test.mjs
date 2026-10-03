@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { registerReaderServiceWorker } from '../../apps/web/src/lib/service-worker/reader-service-worker.mjs';
 
-function harness({ cacheDenied = false, immutable = true } = {}) {
+function harness({ cacheDenied = false, immutable = true, lazy = false } = {}) {
   const scope = 'https://reader.example/reader-web/';
   const font = scope + 'font.woff2';
   const handlers = new Map();
@@ -34,7 +34,8 @@ function harness({ cacheDenied = false, immutable = true } = {}) {
       files: immutable ? [] : [font],
       prerendered: [scope],
       version: 'test',
-      userFontsCacheName: 'user-fonts'
+      userFontsCacheName: 'user-fonts',
+      lazyAssets: lazy ? [font] : []
     }
   );
   function request(url = font) {
@@ -84,4 +85,10 @@ test('denied optional cache and missing network still permit CSS fallback', asyn
 test('font fallback does not disguise a missing mandatory shell resource', async () => {
   const h = harness();
   await assert.rejects(h.request(h.scope), /Load failed/);
+});
+
+test('lazy packaged font is not claimed by shell or packaged-font caching', () => {
+  const h = harness({ lazy: true });
+  assert.equal(h.request(), undefined);
+  assert.equal(h.fetches(), 0);
 });
