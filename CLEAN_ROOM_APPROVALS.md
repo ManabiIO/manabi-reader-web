@@ -107,6 +107,7 @@ Each approval record must state:
 - approval level;
 - target repository/platform;
 - bounded deliverable;
+- approval basis: relevant CR IDs plus the sanitized spec blob/revision, or equivalent explicit scope text;
 - explicit exclusions or constraints;
 - status: active, completed, revoked, or superseded.
 
@@ -150,6 +151,7 @@ Feature/CR IDs: ...
 Level: APPROVED_FOR_DESIGN | APPROVED_FOR_TESTS | APPROVED_FOR_IMPLEMENTATION | APPROVED_FOR_INTEGRATION
 Target: ...
 Deliverable: ...
+Approval basis: CR IDs + spec blob/revision, or explicit bounded scope text
 Exclusions: ...
 Status: active
 Evidence of approval: concise paraphrase of the explicit user/project-owner instruction
@@ -288,3 +290,45 @@ If a severe unrelated security/data-loss issue is discovered, report it immediat
 An `APPROVED_FOR_DESIGN` result may recommend implementation, tests, or a changed architecture. That recommendation is not an approval upgrade.
 
 The worker must stop after the approved design deliverable and obtain a new approval level before target fixtures/tests or production changes.
+
+
+## Spec-change invalidation rule
+
+Approval applies to the behavior/scope that existed when it was granted.
+
+If a later research/spec edit materially expands an approved CR entry or changes its behavior, data model, privacy implications, platform reach, migration requirements, or acceptance surface, the prior approval does not automatically cover the new material.
+
+Use this rule:
+
+- editorial clarification with no scope change: approval remains valid;
+- stricter test wording for the same approved behavior: approval may remain valid at the same work level;
+- material behavior/scope expansion: new approval required;
+- new CR ID split out of an approved feature: not approved unless the approval explicitly covered the broader named feature and the new ID is only a non-expanding subdivision;
+- merged/broadened CR IDs: require reapproval when scope increases.
+
+When in doubt, treat the changed portion as unapproved.
+
+## Approval evidence sources
+
+Explicit approval may be recorded from:
+- the user's direct instruction in the current ChatGPT/task context;
+- an explicit GitHub comment/review from the project owner that clearly grants the feature/work level;
+- another authenticated project-owner channel only when its content is directly available to the worker and unambiguous.
+
+A recommendation, review approval, emoji/reaction, label, assignment, milestone, branch name, mergeability state, or CI status is not per-feature clean-room approval by itself.
+
+## Delegation rule
+
+A project owner may explicitly delegate approval authority to another named person/role for this program.
+
+Absent explicit delegation, another worker/agent/contributor cannot approve features on the owner's behalf.
+
+Delegation must itself be recorded with:
+- delegator;
+- delegate;
+- allowed approval levels;
+- allowed repositories/platforms;
+- allowed feature scope;
+- expiration/revocation rule if any.
+
+There is currently no delegated approval authority recorded.
