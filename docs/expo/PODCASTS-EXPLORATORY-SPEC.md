@@ -776,6 +776,7 @@ Do not attempt to bypass failed CORS with:
 - fetch mode no-cors
 - hidden iframe
 - service worker relaying an opaque response
+- `redirect: 'manual'` to discover a cross-origin Location; Fetch exposes an opaque-redirect response to script rather than a readable redirect target
 - canvas/audio capture tricks
 - undocumented Spotify/Apple media endpoints
 - public random CORS proxies
@@ -816,13 +817,13 @@ References:
 For a selected publisher-declared media source:
 
 1. Require HTTPS in production.
-2. Use `credentials: 'omit'`.
-3. Use the exact publisher-declared URL and `redirect: 'follow'`; never substitute an inferred CDN URL.
-4. Attempt GET with **one contiguous** byte Range such as `bytes=0-0`.
-5. A single-byte-range `Range` header is CORS-safelisted and should not itself require a preflight; the server still must opt into CORS for the response body.
-6. Never combine disjoint reads into a multi-range header such as `bytes=0-99,1000-1099`. Multiple ranges are not CORS-safelisted, can trigger preflight behavior, and return multipart semantics the current ByteSource does not need.
+2. Use explicit `mode: 'cors'`, `credentials: 'omit'`, the exact publisher-declared URL and `redirect: 'follow'`; never substitute an inferred CDN URL.
+3. Attempt GET with **one contiguous** byte Range such as `bytes=0-0`.
+4. A single-byte-range `Range` header is CORS-safelisted and should not itself require a preflight; the server still must opt into CORS for the response body.
+5. Never combine disjoint reads into a multi-range header such as `bytes=0-99,1000-1099`. Multiple ranges are not CORS-safelisted, can trigger preflight behavior, and return multipart semantics the current ByteSource does not need.
+6. Do not add `If-Range`, `If-Match`, `If-None-Match` or custom validator headers in v1. They leave the simple request path and can introduce preflight/provider incompatibility.
 7. A CORS failure is a hard failure for that readable-byte path.
-8. Require HTTP 206 for the v1 random-access MOSS path.
+8. Require HTTP 206 for the v1 random-access MOSS path. `Accept-Ranges: bytes` is useful diagnostic evidence but is neither required nor sufficient; prove behavior with an actual Range request.
 9. Consume/cancel the tiny body and require exactly the requested bytes.
 10. Establish a safe total byte size.
 11. Verify at least one nonzero range.
