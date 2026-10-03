@@ -343,7 +343,7 @@ export function isShellAsset(url) {
     return false;
   }
   return (
-    !/(?:^|\/)(?:dictionaries|dictionary-archives|manabitan|moss)(?:\/|$)/.test(path) &&
+    !/(?:^|\/)(?:dictionaries|dictionary-archives|dictionary-runtime|moss)(?:\/|$)/.test(path) &&
     !/\.(?:zip|epub|htmlz|sqlite3?|db|wasm|woff2?|ttf|otf)$/.test(path)
   );
 }
@@ -382,6 +382,6 @@ export function isPackagedFont(url) {
   }
   return (
     /\.(?:woff2?|ttf|otf)$/.test(path) &&
-    !/(?:^|\/)(?:userfonts|dictionaries|dictionary-archives|manabitan)(?:\/|$)/.test(path)
+    !/(?:^|\/)(?:userfonts|dictionaries|dictionary-archives|dictionary-runtime)(?:\/|$)/.test(path)
   );
 }

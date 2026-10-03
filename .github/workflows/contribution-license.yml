@@ -1,0 +1,30 @@
+name: Contribution license acknowledgement
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  acknowledgement:
+    if: ${{ github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]' && github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require BSD contribution grant
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          node <<'NODE'
+          const body = process.env.PR_BODY ?? ''
+          const acknowledgement =
+            'I agree that the copyrightable portions of this contribution that I own are licensed under BSD-3-Clause, and I have the right to grant that license.'
+          const checked = body
+            .split(/\r?\n/)
+            .some((line) => /^\s*-\s*\[[xX]\]\s*/.test(line) && line.includes(acknowledgement))
+          if (!checked) {
+            console.error('Check the BSD contribution-license acknowledgement in the pull request body.')
+            process.exit(1)
+          }
+          NODE

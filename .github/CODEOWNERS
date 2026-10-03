@@ -1,0 +1,11 @@
+# License/provenance-sensitive dictionary boundary
+/apps/web/src/lib/search/dictionary-provider.ts @aehlke
+/apps/web/src/lib/search/dictionary-runtime.ts @aehlke
+/apps/web/src/lib/search/dictionary-provider-selection.ts @aehlke
+/apps/web/src/lib/search/dictionary-providers/ @aehlke
+/scripts/prepare-dictionary.mjs @aehlke
+/scripts/dictionary-source.mjs @aehlke
+/scripts/dictionary-provider-selection.mjs @aehlke
+/scripts/dictionary-providers/ @aehlke
+/scripts/check-dictionary-boundary.mjs @aehlke
+/CONTRIBUTING.md @aehlke
