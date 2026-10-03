@@ -6,6 +6,7 @@
 /apps/web/src/lib/integrations/external-dictionary-interop.ts @aehlke
 /scripts/prepare-dictionary.mjs @aehlke
 /scripts/dictionary-source.mjs @aehlke
+/scripts/dictionary-generated-paths.mjs @aehlke
 /scripts/dictionary-provider-selection.mjs @aehlke
 /scripts/dictionary-providers/ @aehlke
 /scripts/check-dictionary-boundary.mjs @aehlke
