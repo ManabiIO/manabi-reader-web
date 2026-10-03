@@ -178,6 +178,8 @@ jobs:
           for engine in chromium webkit; do
             export LIBRARY_BROWSER="$engine" PICKS_BROWSER="$engine" APPEARANCE_BROWSER="$engine"
             run_suite "default-shared-statistics-$engine" python tests/browser/statistics_acceptance_cases.py --export-mode default
+            run_suite "default-settings-controls-$engine" python tests/browser/test_settings_controls.py
+            run_suite "default-settings-editor-$engine" python tests/browser/test_settings_editor_usability.py
             run_suite "default-reader-lifetime-$engine" python tests/browser/test_web_reader_lifetime.py
             run_suite "default-offline-handoff-$engine" python -m unittest \
               test_library_sync.LibraryOrganizationSync.test_offline_bookmark_survives_reload_and_syncs_on_reconnect \
@@ -310,6 +312,8 @@ jobs:
           for engine in chromium webkit; do
             export LIBRARY_BROWSER="$engine" PICKS_BROWSER="$engine" APPEARANCE_BROWSER="$engine"
             run_suite "gated-shared-statistics-$engine" python tests/browser/statistics_acceptance_cases.py --export-mode gated
+            run_suite "gated-settings-controls-$engine" python tests/browser/test_settings_controls.py
+            run_suite "gated-settings-editor-$engine" python tests/browser/test_settings_editor_usability.py
             run_suite "gated-reader-lifetime-$engine" python tests/browser/test_web_reader_lifetime.py
             run_suite "gated-offline-handoff-$engine" python -m unittest \
               test_library_sync.LibraryOrganizationSync.test_offline_bookmark_survives_reload_and_syncs_on_reconnect \

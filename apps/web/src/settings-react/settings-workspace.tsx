@@ -6,15 +6,7 @@
 
 import React from 'react';
 import { useReaderController } from '../reader-react/controller';
-import {
-  Dom,
-  Button,
-  Input,
-  useLatest,
-  useReaderBindings,
-  slotContent,
-  type ReaderViewProps
-} from './primitives';
+import { useLatest, useReaderBindings, slotContent, type ReaderViewProps } from './primitives';
 import { SettingsContext, useSettingsContext } from './context';
 import {
   createSettingsWorkspace,
@@ -24,6 +16,9 @@ import {
 import { SettingsOfflineStatus } from './settings-offline-status';
 import { SettingsItemGroup } from './settings-item-group';
 import { PageTurnEffectSelect } from './page-turn-effect-select';
+import { SettingsWorkspace as SharedSettingsWorkspace } from '../features/settings/SettingsWorkspace';
+import * as workspaceLayout from '../features/settings/workspace-layout.web';
+
 export function SettingsWorkspace(
   props: Partial<SettingsWorkspaceProps> &
     ReaderViewProps & {
@@ -51,120 +46,33 @@ export function SettingsWorkspace(
   return (
     <SettingsContext.Provider value={context}>
       <div className="react-settings-settings-workspace" style={{ display: 'contents' }}>
-        <Dom
-          as="div"
-          elementRef={(value: typeof c.root) => {
-            c.controller.changed((c.root = value));
-          }}
-          className={[
-            'settings-workspace grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]'
-          ]
-            .filter(Boolean)
-            .join(' ')}
+        <SharedSettingsWorkspace
+          layout={workspaceLayout}
+          filter={c.$filter}
+          rootRef={(value) => c.controller.changed((c.root = value as HTMLElement | null))}
+          onSearch={(query) => c.filter.update((value) => ({ ...value, query }))}
+          onCategory={(category, event) =>
+            c.handleCategoryClick(event as Parameters<typeof c.handleCategoryClick>[0], category)
+          }
+          saveDescription=" Changes save automatically. Reading goals have separate Save and Cancel actions. "
+          resultText={
+            c.visibleCount
+              ? `${c.visibleCount} matching settings`
+              : 'No matching settings. Try a different search.'
+          }
         >
-          <Dom
-            as="aside"
-            aria-label={'Settings sections'}
-            className={['min-w-0 self-start lg:sticky lg:top-20'].filter(Boolean).join(' ')}
+          <SettingsOfflineStatus></SettingsOfflineStatus>
+          <SettingsItemGroup
+            settingId={'page-turn-effect'}
+            category={'layout'}
+            keywords={'pageTurnEffect slide none animation pagination'}
+            title={'Page turn effect'}
+            showHeading={false}
           >
-            <Dom
-              as="label"
-              htmlFor={'settings-search'}
-              className={['mb-2 block text-sm font-medium'].filter(Boolean).join(' ')}
-            >
-              {'Search settings'}
-            </Dom>
-            <Input
-              id={'settings-search'}
-              aria-describedby={c.$filter.query ? 'settings-search-results' : undefined}
-              type={'search'}
-              placeholder={'Search all settings…'}
-              value={c.$filter.query}
-              onInput={(event: React.FormEvent<HTMLInputElement>) =>
-                c.filter.update((value) => ({ ...value, query: event.currentTarget.value }))
-              }
-            ></Input>
-            <Dom
-              as="nav"
-              aria-label={'Settings categories'}
-              className={['section-navigation section-navigation-sidebar mt-3']
-                .filter(Boolean)
-                .join(' ')}
-            >
-              {(c.categories ?? []).map((category, _index0) => (
-                <React.Fragment key={category.id}>
-                  <Button
-                    href={`#${category.id}`}
-                    variant={'ghost'}
-                    shape={'rounded'}
-                    data-section-link={true}
-                    aria-current={
-                      c.$filter.category === category.id && !c.$filter.query ? 'page' : undefined
-                    }
-                    onClick={(event: MouseEvent & { currentTarget: HTMLAnchorElement }) =>
-                      c.handleCategoryClick(event, category.id)
-                    }
-                    className={['justify-start'].filter(Boolean).join(' ')}
-                  >
-                    {category.label}
-                  </Button>
-                </React.Fragment>
-              ))}
-            </Dom>
-          </Dom>
-          <Dom as="main" id={'settings-content'} className={['min-w-0'].filter(Boolean).join(' ')}>
-            <Dom as="div" className={['mb-5'].filter(Boolean).join(' ')}>
-              <Dom
-                as="h1"
-                className={['text-2xl font-semibold tracking-tight'].filter(Boolean).join(' ')}
-              >
-                {c.$filter.query ? 'Search results' : c.selected.label}
-              </Dom>
-              <Dom
-                as="p"
-                className={['mt-1 text-sm text-muted-foreground'].filter(Boolean).join(' ')}
-              >
-                {c.$filter.query
-                  ? 'Results across every settings section.'
-                  : c.selected.description}
-              </Dom>
-              <Dom
-                as="p"
-                className={['mt-2 text-xs text-muted-foreground'].filter(Boolean).join(' ')}
-              >
-                {
-                  ' Changes save automatically. Reading goals have separate Save and Cancel actions. '
-                }
-              </Dom>
-              {c.$filter.query ? (
-                <>
-                  <Dom
-                    as="p"
-                    id={'settings-search-results'}
-                    role={'status'}
-                    aria-label={'Settings search results'}
-                    className={['mt-3 text-sm'].filter(Boolean).join(' ')}
-                  >
-                    {c.visibleCount
-                      ? `${c.visibleCount} matching settings`
-                      : 'No matching settings. Try a different search.'}
-                  </Dom>
-                </>
-              ) : null}
-            </Dom>
-            <SettingsOfflineStatus></SettingsOfflineStatus>
-            <SettingsItemGroup
-              settingId={'page-turn-effect'}
-              category={'layout'}
-              keywords={'pageTurnEffect slide none animation pagination'}
-              title={'Page turn effect'}
-              showHeading={false}
-            >
-              <PageTurnEffectSelect></PageTurnEffectSelect>
-            </SettingsItemGroup>
-            {slotContent(props.children, undefined)}
-          </Dom>
-        </Dom>
+            <PageTurnEffectSelect></PageTurnEffectSelect>
+          </SettingsItemGroup>
+          {slotContent(props.children, undefined)}
+        </SharedSettingsWorkspace>
       </div>
     </SettingsContext.Provider>
   );

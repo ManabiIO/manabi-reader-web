@@ -25,6 +25,7 @@ const options = {
   allowSyntheticDefaultImports: true,
   skipLibCheck: true,
   types: ['react'],
+  typeRoots: [resolve(root, 'apps/web/node_modules/@types'), resolve(root, 'node_modules/@types')],
   paths: { '$lib/*': [resolve(root, 'apps/web/src/lib/*')] }
 };
 try {

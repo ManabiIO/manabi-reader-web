@@ -116,3 +116,39 @@ All work remains in the same unmerged draft PR. Reuse the existing three-job
 standard-runner [zero-remote-storage CI plan](CI-COVERAGE.md), with no new artifact
 uploads/cache writes or paid resources. A successful export or source test is
 not full UI parity; report evidence for the exact source head.
+
+## Settings field foundation after Statistics qualification
+
+Both existing Settings renderers now use the same `SettingsFieldGroup`
+composition for card headings, descriptions, header accessories and editor
+content. Small native/browser layout leaves retain the browser's section IDs,
+labels, hidden-state semantics, original responsive classes and native RN
+containment. The seven-category inventory is also common. Native field cards and
+Expo UI control seeds now consume the same semantic theme vocabulary as the
+shared UI instead of hard-coded light/dark grays.
+
+This is a field-composition slice, not a claim that Settings is one complete
+shared screen. Web font/background/custom-theme/goal/source editors and their
+existing controllers remain intact. Native scalar draft Apply/Cancel, expected
+value checks, account/blur retirement and capability gates remain intact. The
+remaining screen/navigation/controller and specialized-editor divergences must
+be converged explicitly; web is never redirected to the reduced native surface.
+
+Both web export jobs now include all original Settings controls and editor
+usability cases, alongside unchanged Statistics and reader lifetime gates.
+Browser geometry and native control accessibility still require execution;
+server-render and module-graph assertions alone do not establish parity.
+
+The next Settings workspace slice moves the search/category/introduction/content
+composition into `features/settings/SettingsWorkspace.tsx`, consumed by both
+presentations. The same visit-local filter state supplies stable React snapshots
+and the existing browser store adapter. Browser links retain modified-click and
+Back/Forward/hash semantics; native categories remain Compose actions. Native
+search uses the existing Expo TextInput boundary. Both retain their specialized
+editor children and platform-specific save guidance.
+
+This removes duplicated workspace structure and search/category state, but does
+not yet unify every scalar editor, action controller or specialized flow. Browser
+field/filter metadata and native account/blur mutation ownership remain at their
+existing boundaries. No new preference persistence or route-global filter is
+introduced. A common wrapper is not counted as complete screen parity.

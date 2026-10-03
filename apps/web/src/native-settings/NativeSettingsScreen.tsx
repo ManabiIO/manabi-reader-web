@@ -4,7 +4,14 @@
  * All rights reserved.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode
+} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -26,12 +33,7 @@ import {
   dimensionLimits,
   dimensionPixels
 } from '../lib/components/settings/dimension-presets';
-import {
-  matchesNativeSetting,
-  parseSettingDraft,
-  settingCategories,
-  type SettingValue
-} from './schema';
+import { matchesNativeSetting, parseSettingDraft, type SettingValue } from './schema';
 import { NativeSettingsSession, type SettingsViewState } from './lifecycle';
 import type {
   NativeSettingField,
@@ -39,6 +41,14 @@ import type {
   NativeSettingsState,
   NativeTheme
 } from './contract';
+
+import { createUiTheme } from '../shared-ui/theme';
+import { SettingsFieldGroup } from '../features/settings/SettingsFieldGroup';
+import * as settingsFieldLayout from '../features/settings/field-layout';
+
+import { SettingsWorkspace as SharedSettingsWorkspace } from '../features/settings/SettingsWorkspace';
+import * as workspaceLayout from '../features/settings/workspace-layout';
+import { createSettingsWorkspaceState } from '../features/settings/workspace-state';
 
 interface Colors {
   background: string;
@@ -48,6 +58,7 @@ interface Colors {
   border: string;
   error: string;
   mode: 'light' | 'dark';
+  seedColor: string;
 }
 type Act = (action: NativeSettingsAction) => Promise<boolean>;
 function Action({
@@ -64,11 +75,7 @@ function Action({
   colors: Colors;
 }) {
   return (
-    <Host
-      matchContents
-      colorScheme={colors.mode}
-      seedColor={colors.mode === 'dark' ? '#d9b141' : '#a33539'}
-    >
+    <Host matchContents colorScheme={colors.mode} seedColor={colors.seedColor}>
       <Button
         label={label}
         onPress={onPress}
@@ -103,6 +110,7 @@ function DraftInput({
     <Host
       matchContents={{ vertical: true }}
       colorScheme={colors.mode}
+      seedColor={colors.seedColor}
       accessibilityLabel={label}
       style={styles.input}
     >
@@ -192,13 +200,16 @@ function FieldEditor({
   const shownChoices = field.choices ?? [];
   const availableChoice = shownChoices.some((choice) => choice.value === field.value);
   return (
-    <Card colors={colors}>
-      <Text accessibilityRole="header" style={[styles.label, { color: colors.text }]}>
-        {label}
-      </Text>
-      {field.description ? <Text style={{ color: colors.muted }}>{field.description}</Text> : null}
+    <SettingsFieldGroup
+      layout={settingsFieldLayout}
+      settingId={field.key}
+      category={field.category}
+      title={label}
+      description={field.description}
+      colors={colors}
+    >
       {field.kind === 'boolean' ? (
-        <Host matchContents colorScheme={colors.mode}>
+        <Host matchContents colorScheme={colors.mode} seedColor={colors.seedColor}>
           <Switch
             label={field.label}
             value={field.value === true}
@@ -209,7 +220,12 @@ function FieldEditor({
           />
         </Host>
       ) : field.kind === 'choice' ? (
-        <Host matchContents colorScheme={colors.mode} accessibilityLabel={field.label}>
+        <Host
+          matchContents
+          colorScheme={colors.mode}
+          seedColor={colors.seedColor}
+          accessibilityLabel={field.label}
+        >
           <Picker
             selectedValue={typeof field.value === 'string' ? field.value : ''}
             enabled={!disabled}
@@ -240,6 +256,7 @@ function FieldEditor({
               <Host
                 matchContents
                 colorScheme={colors.mode}
+                seedColor={colors.seedColor}
                 accessibilityLabel={`Available ${field.label}`}
               >
                 <Picker
@@ -353,7 +370,7 @@ function FieldEditor({
           {error}
         </Text>
       ) : null}
-    </Card>
+    </SettingsFieldGroup>
   );
 }
 const colorLabels: Record<keyof ThemeOption, string> = {
@@ -401,7 +418,12 @@ function ThemeEditor({
         disabled={busy}
         colors={colors}
       />
-      <Host matchContents colorScheme={colors.mode} accessibilityLabel="Theme to copy">
+      <Host
+        matchContents
+        colorScheme={colors.mode}
+        seedColor={colors.seedColor}
+        accessibilityLabel="Theme to copy"
+      >
         <Picker selectedValue={copyId} enabled={!busy} onValueChange={setCopyId}>
           {data.themes.map((theme) => (
             <Picker.Item key={theme.id} label={theme.label} value={theme.id} />
@@ -461,8 +483,12 @@ export function NativeSettingsScreen() {
     error: '',
     reconcileRequired: false
   });
-  const [category, setCategory] = useState<string>('appearance');
-  const [query, setQuery] = useState('');
+  const [workspace] = useState(() => createSettingsWorkspaceState());
+  const { category, query } = useSyncExternalStore(
+    workspace.subscribe,
+    workspace.getSnapshot,
+    workspace.getSnapshot
+  );
   const [editor, setEditor] = useState<{ original: NativeTheme | null; seed: ThemeOption } | null>(
     null
   );
@@ -508,13 +534,19 @@ export function NativeSettingsScreen() {
     mode,
     selectedTheme?.custom ? { [selectedTheme.id]: selectedTheme.colors } : {}
   );
+  const uiTheme = createUiTheme(
+    selectedTheme?.id ?? 'manabi-theme',
+    mode,
+    selectedTheme?.custom ? { [selectedTheme.id]: selectedTheme.colors } : {}
+  );
   const colors: Colors = {
-    background: resolved.backgroundColor,
-    card: mode === 'dark' ? '#222222' : '#ffffff',
-    text: mode === 'dark' ? '#eeeeee' : '#211f1c',
-    muted: mode === 'dark' ? '#c1c1c1' : '#57534e',
-    border: mode === 'dark' ? '#555555' : '#d4d0c9',
-    error: mode === 'dark' ? '#ffb4b1' : '#a11a1d',
+    background: uiTheme.colors.background,
+    card: uiTheme.colors.card,
+    text: uiTheme.colors.foreground,
+    muted: uiTheme.colors.mutedForeground,
+    border: uiTheme.colors.border,
+    error: uiTheme.colors.destructive,
+    seedColor: uiTheme.seedColor,
     mode
   };
   const busy = view.pending || view.reconcileRequired || !data;
@@ -553,136 +585,126 @@ export function NativeSettingsScreen() {
         />
       </View>
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
-        <Text style={{ color: colors.muted }}>
-          Reader preferences are stored by the local reader. Switches and choices save immediately.
-          Text and numbers save when you tap Apply.
-        </Text>
-        <DraftInput label="Search all settings" value={query} onChange={setQuery} colors={colors} />
-        <View style={styles.row}>
-          {settingCategories.map((item) => (
-            <Action
-              key={item.id}
-              label={item.label}
-              selected={category === item.id && !query.trim()}
-              colors={colors}
-              onPress={() => {
-                setCategory(item.id);
-                setQuery('');
-              }}
-            />
-          ))}
-        </View>
-        {view.pending ? (
-          <ActivityIndicator accessibilityLabel="Loading settings" color={colors.text} />
-        ) : null}
-        {stateOwner === ownerKey && view.error ? (
-          <Card colors={colors}>
-            <Text accessibilityRole="alert" style={{ color: colors.error }}>
-              {view.error}
-            </Text>
-            {view.reconcileRequired && (
-              <Text style={{ color: colors.muted }}>
-                Refresh saved settings to reconcile before making another change. No command will be
-                replayed automatically.
+        <SharedSettingsWorkspace
+          layout={workspaceLayout}
+          filter={{ category, query }}
+          onSearch={workspace.search}
+          onCategory={workspace.choose}
+          colors={colors}
+          saveDescription="Reader preferences are stored by the local reader. Switches and choices save immediately. Text and numbers save when you tap Apply."
+          resultText={
+            data
+              ? `${fields.length} matching controls · ${gates.length} integration notes`
+              : 'Loading settings…'
+          }
+        >
+          {view.pending ? (
+            <ActivityIndicator accessibilityLabel="Loading settings" color={colors.text} />
+          ) : null}
+          {stateOwner === ownerKey && view.error ? (
+            <Card colors={colors}>
+              <Text accessibilityRole="alert" style={{ color: colors.error }}>
+                {view.error}
               </Text>
-            )}
-          </Card>
-        ) : null}
-        {!snapshot.session && (
-          <Text style={{ color: colors.muted }}>The local reader is starting…</Text>
-        )}
-        {query.trim() && data ? (
-          <Text accessibilityRole="text" style={{ color: colors.muted }}>
-            {fields.length} matching controls · {gates.length} integration notes
-          </Text>
-        ) : null}
-        {data && (category === 'appearance' || category === 'all') && !query.trim() && (
-          <Card colors={colors}>
-            <Text style={[styles.label, { color: colors.text }]}>Custom themes</Text>
-            <View style={styles.row}>
-              <Action
-                label="Add custom theme"
-                colors={colors}
-                disabled={busy || !!editor}
-                onPress={() => setEditor({ original: null, seed: { ...resolved } })}
-              />
-              {selectedTheme?.custom && (
-                <>
-                  <Action
-                    label="Edit selected theme"
-                    colors={colors}
-                    disabled={busy || !!editor}
-                    onPress={() =>
-                      setEditor({ original: selectedTheme, seed: { ...selectedTheme.colors } })
-                    }
-                  />
-                  <Action
-                    label="Delete selected theme"
-                    colors={colors}
-                    disabled={busy || !!editor}
-                    onPress={() =>
-                      Alert.alert(
-                        `Delete ${selectedTheme.label}?`,
-                        'This local custom theme will be removed. The existing Manabi preset will be selected.',
-                        [
-                          { text: 'Cancel', style: 'cancel' },
-                          {
-                            text: 'Delete',
-                            style: 'destructive',
-                            onPress: () => {
-                              void act({
-                                type: 'theme.delete',
-                                name: selectedTheme.id,
-                                expectedColors: selectedTheme.colors
-                              });
-                            }
-                          }
-                        ]
-                      )
-                    }
-                  />
-                </>
+              {view.reconcileRequired && (
+                <Text style={{ color: colors.muted }}>
+                  Refresh saved settings to reconcile before making another change. No command will
+                  be replayed automatically.
+                </Text>
               )}
-            </View>
-          </Card>
-        )}
-        {editor && data && (
-          <ThemeEditor
-            original={editor.original}
-            seed={editor.seed}
-            data={data}
-            act={act}
-            busy={busy}
-            colors={colors}
-            close={() => setEditor(null)}
-          />
-        )}
-        {data &&
-          fields.map((field) => (
-            <FieldEditor
-              key={`${ownerKey}:${field.key}`}
-              field={field}
+            </Card>
+          ) : null}
+          {!snapshot.session && (
+            <Text style={{ color: colors.muted }}>The local reader is starting…</Text>
+          )}
+          {data && (category === 'appearance' || category === 'all') && !query.trim() && (
+            <Card colors={colors}>
+              <Text style={[styles.label, { color: colors.text }]}>Custom themes</Text>
+              <View style={styles.row}>
+                <Action
+                  label="Add custom theme"
+                  colors={colors}
+                  disabled={busy || !!editor}
+                  onPress={() => setEditor({ original: null, seed: { ...resolved } })}
+                />
+                {selectedTheme?.custom && (
+                  <>
+                    <Action
+                      label="Edit selected theme"
+                      colors={colors}
+                      disabled={busy || !!editor}
+                      onPress={() =>
+                        setEditor({ original: selectedTheme, seed: { ...selectedTheme.colors } })
+                      }
+                    />
+                    <Action
+                      label="Delete selected theme"
+                      colors={colors}
+                      disabled={busy || !!editor}
+                      onPress={() =>
+                        Alert.alert(
+                          `Delete ${selectedTheme.label}?`,
+                          'This local custom theme will be removed. The existing Manabi preset will be selected.',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            {
+                              text: 'Delete',
+                              style: 'destructive',
+                              onPress: () => {
+                                void act({
+                                  type: 'theme.delete',
+                                  name: selectedTheme.id,
+                                  expectedColors: selectedTheme.colors
+                                });
+                              }
+                            }
+                          ]
+                        )
+                      }
+                    />
+                  </>
+                )}
+              </View>
+            </Card>
+          )}
+          {editor && data && (
+            <ThemeEditor
+              original={editor.original}
+              seed={editor.seed}
               data={data}
               act={act}
               busy={busy}
               colors={colors}
+              close={() => setEditor(null)}
             />
-          ))}
-        {gates.map((gate) => (
-          <Card key={gate.id} colors={colors}>
-            <Text accessibilityRole="header" style={[styles.label, { color: colors.text }]}>
-              {gate.label}
-            </Text>
-            <Text style={{ color: colors.muted }}>{gate.reason}</Text>
-            {gate.id === 'storage-sources' && (
-              <Action
-                label="Accounts and libraries"
+          )}
+          {data &&
+            fields.map((field) => (
+              <FieldEditor
+                key={`${ownerKey}:${field.key}`}
+                field={field}
+                data={data}
+                act={act}
+                busy={busy}
                 colors={colors}
-                onPress={() => router.push('/connections')}
               />
-            )}
-          </Card>
-        ))}
+            ))}
+          {gates.map((gate) => (
+            <Card key={gate.id} colors={colors}>
+              <Text accessibilityRole="header" style={[styles.label, { color: colors.text }]}>
+                {gate.label}
+              </Text>
+              <Text style={{ color: colors.muted }}>{gate.reason}</Text>
+              {gate.id === 'storage-sources' && (
+                <Action
+                  label="Accounts and libraries"
+                  colors={colors}
+                  onPress={() => router.push('/connections')}
+                />
+              )}
+            </Card>
+          ))}
+        </SharedSettingsWorkspace>
       </ScrollView>
       <View style={[styles.navigation, { borderColor: colors.border }]}>
         <Action label="Library" colors={colors} onPress={() => router.replace('/manage')} />
