@@ -3,6 +3,7 @@
 /apps/web/src/lib/search/dictionary-runtime.ts @aehlke
 /apps/web/src/lib/search/dictionary-provider-selection.ts @aehlke
 /apps/web/src/lib/search/dictionary-providers/ @aehlke
+/apps/web/src/lib/integrations/external-dictionary-interop.ts @aehlke
 /scripts/prepare-dictionary.mjs @aehlke
 /scripts/dictionary-source.mjs @aehlke
 /scripts/dictionary-provider-selection.mjs @aehlke
