@@ -1,7 +1,9 @@
 name: Contribution license acknowledgement
 
+# Runs from the trusted base branch. This workflow never checks out or executes
+# pull-request code, so the PR cannot weaken its own acknowledgement gate.
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, edited, synchronize, reopened, ready_for_review]
 
 permissions:
