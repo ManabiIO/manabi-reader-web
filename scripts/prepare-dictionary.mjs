@@ -6,6 +6,28 @@ import { createHash } from 'node:crypto';
 import { selectedDictionaryProvider } from './dictionary-provider-selection.mjs';
 
 const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+function safeRelativePath(value) {
+  return (
+    typeof value === 'string' &&
+    !!value &&
+    !path.isAbsolute(value) &&
+    !value.includes('\\') &&
+    value.split('/').every((part) => part && part !== '.' && part !== '..')
+  );
+}
+
+async function ensureGeneratedDirectory(directory) {
+  try {
+    const metadata = await fs.lstat(directory);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink())
+      throw new Error(`Generated dictionary path must be a real directory: ${directory}`);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    await fs.mkdir(directory, { recursive: true });
+  }
+}
+
 const provider = await selectedDictionaryProvider(root);
 if (
   !provider ||
@@ -13,19 +35,11 @@ if (
   !/^[a-f0-9]{40}$/.test(provider.revision) ||
   typeof provider.build !== 'function' ||
   !Array.isArray(provider.requiredDistributionFiles) ||
-  provider.requiredDistributionFiles.some(
-    (file) =>
-      typeof file !== 'string' || !file || path.isAbsolute(file) || file.split('/').includes('..')
-  ) ||
+  provider.requiredDistributionFiles.some((file) => !safeRelativePath(file)) ||
   !Array.isArray(provider.obsoletePublicPaths) ||
   provider.obsoletePublicPaths.some(
     (file) =>
-      typeof file !== 'string' ||
-      !file ||
-      path.isAbsolute(file) ||
-      file.split('/').includes('..') ||
-      file === 'dictionary-runtime' ||
-      file === 'dictionary-archives'
+      !safeRelativePath(file) || file === 'dictionary-runtime' || file === 'dictionary-archives'
   )
 )
   throw new Error('Invalid dictionary provider configuration.');
@@ -38,7 +52,7 @@ const cache = path.join(root, '.cache/dictionary-build', provider.id, provider.r
 for (const obsolete of provider.obsoletePublicPaths)
   await fs.rm(path.join(assets, obsolete), { recursive: true, force: true });
 
-await fs.mkdir(runtimeRoot, { recursive: true });
+await ensureGeneratedDirectory(runtimeRoot);
 for (const entry of await fs.readdir(runtimeRoot, { withFileTypes: true })) {
   if (entry.name === provider.revision) continue;
   await fs.rm(path.join(runtimeRoot, entry.name), { recursive: true, force: true });
@@ -57,6 +71,8 @@ async function filesUnder(directory, base = directory) {
 
 async function valid() {
   try {
+    const metadata = await fs.lstat(destination);
+    if (!metadata.isDirectory() || metadata.isSymbolicLink()) return false;
     const manifest = JSON.parse(await fs.readFile(path.join(destination, 'manifest.json'), 'utf8'));
     if (
       manifest.revision !== provider.revision ||
@@ -125,7 +141,7 @@ if (
   throw new Error('Invalid dictionary descriptor.');
 
 const archives = path.join(assets, 'dictionary-archives');
-await fs.mkdir(archives, { recursive: true });
+await ensureGeneratedDirectory(archives);
 for (const entry of await fs.readdir(archives, { withFileTypes: true })) {
   if (entry.name === dictionary.fileName) continue;
   await fs.rm(path.join(archives, entry.name), { recursive: true, force: true });
