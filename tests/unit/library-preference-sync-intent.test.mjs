@@ -59,7 +59,7 @@ function harness() {
   };
   const { api } = loadOfflineModule('apps/web/src/lib/manabi/preferences.ts', {
     modules: {
-      'svelte/store': stores,
+      '$lib/state/store': stores,
       '$lib/data/store': new Proxy(
         {},
         { get: (_, key) => subject(key, key === 'customThemes$' ? {} : 0) }

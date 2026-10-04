@@ -1,0 +1,671 @@
+@charset "UTF-8";
+/* @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors. */
+.react-settings-appearance-settings section {
+  padding: 0;
+  writing-mode: horizontal-tb;
+}
+.react-settings-appearance-settings h2 {
+  font-weight: 600;
+  font-size: 1.15rem;
+  margin-bottom: 0.75rem;
+}
+.react-settings-appearance-settings .modes {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+}
+.react-settings-appearance-settings .description {
+  color: var(--muted-foreground);
+  max-width: 65ch;
+  font-size: 0.875rem;
+  margin: 0.75rem 0 1rem;
+}
+.react-settings-appearance-settings summary {
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.5rem 0;
+}
+.react-settings-appearance-settings .backgrounds {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 1rem;
+}
+
+.react-settings-background-settings fieldset {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+.react-settings-background-settings legend {
+  font-weight: 600;
+  padding: 0 0.3rem;
+}
+.react-settings-background-settings .mode-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: 0.9rem;
+}
+.react-settings-background-settings .mode-image {
+  min-width: 0;
+}
+.react-settings-background-settings h3 {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.35rem;
+}
+.react-settings-background-settings .background-preview {
+  height: 7rem;
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.4rem;
+  background-color: #f7f7f7;
+  background-size: cover;
+  background-position: center;
+  margin-bottom: 0.75rem;
+}
+.react-settings-background-settings .background-preview.dark-preview {
+  background-color: #111;
+}
+.react-settings-background-settings .background-preview span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 1;
+  color: #111;
+  text-align: center;
+  align-content: center;
+}
+.react-settings-background-settings .background-preview.dark-preview span {
+  color: #f7f7f7;
+}
+.react-settings-background-settings .filename {
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  margin-top: 0.4rem;
+}
+.react-settings-background-settings .fade-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.85rem 0 0.75rem;
+}
+.react-settings-background-settings .fade-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+.react-settings-background-settings input[type=range] {
+  width: 100%;
+}
+.react-settings-background-settings .fade-note {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  margin-top: 0.3rem;
+}
+.react-settings-background-settings .error {
+  color: var(--destructive);
+  margin-top: 0.5rem;
+}
+
+.react-settings-connections-screen .connections-page {
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 24px 16px;
+  writing-mode: horizontal-tb;
+  line-height: 1.55;
+}
+.react-settings-connections-screen nav,
+.react-settings-connections-screen .actions,
+.react-settings-connections-screen .quick-settings {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.react-settings-connections-screen .page-navigation {
+  margin-inline: -8px;
+}
+.react-settings-connections-screen header {
+  margin: 24px 0;
+}
+.react-settings-connections-screen h1 {
+  font-size: clamp(1.75rem, 5vw, 2rem);
+  font-weight: 700;
+  line-height: 1.1;
+}
+.react-settings-connections-screen h2 {
+  font-size: 1.35rem;
+  font-weight: 650;
+  margin-bottom: 0.6rem;
+}
+.react-settings-connections-screen h3 {
+  font-size: 1.08rem;
+  font-weight: 650;
+  margin-bottom: 0.4rem;
+}
+.react-settings-connections-screen .connections-page > section {
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 16px;
+  padding: 20px;
+  margin: 16px 0;
+  color: var(--card-foreground);
+}
+.react-settings-connections-screen p {
+  margin: 0.6rem 0;
+}
+.react-settings-connections-screen .connections-page a:not([data-slot=button]) {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+.react-settings-connections-screen button:not([data-slot=button]) {
+  display: inline-flex;
+  min-height: 44px;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 14px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  text-align: center;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.react-settings-connections-screen button:not([data-slot=button]):hover {
+  background: var(--muted);
+}
+.react-settings-connections-screen button.destructive-action {
+  border-color: transparent;
+  background: color-mix(in oklch, var(--destructive) 10%, transparent);
+  color: var(--destructive);
+}
+.react-settings-connections-screen button.destructive-action:hover {
+  background: color-mix(in oklch, var(--destructive) 18%, transparent);
+}
+.react-settings-connections-screen button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.react-settings-connections-screen button:focus-visible,
+.react-settings-connections-screen a:focus-visible,
+.react-settings-connections-screen input:focus-visible,
+.react-settings-connections-screen select:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+.react-settings-connections-screen .library,
+.react-settings-connections-screen form {
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+.react-settings-connections-screen label {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.6rem 0;
+  flex-wrap: wrap;
+}
+.react-settings-connections-screen input[type=number] {
+  width: 5rem;
+}
+.react-settings-connections-screen input[type=number],
+.react-settings-connections-screen select {
+  min-height: 44px;
+  background: var(--background);
+  border: 1px solid var(--input);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.react-settings-connections-screen .preference-controls {
+  margin-top: 1rem;
+}
+.react-settings-connections-screen .notice {
+  border-left: 3px solid currentColor;
+  padding: 0.75rem;
+  background: var(--card);
+}
+.react-settings-connections-screen .hint,
+.react-settings-connections-screen small {
+  font-size: 0.87rem;
+  color: var(--muted-foreground);
+}
+.react-settings-connections-screen small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.react-settings-connections-screen .file-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.react-settings-connections-screen .file-entry span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.react-settings-connections-screen .folder-choice {
+  align-items: baseline;
+}
+@media (max-width: 36rem) {
+  .react-settings-connections-screen .connections-page {
+    padding: 16px 12px;
+  }
+  .react-settings-connections-screen .connections-page > section {
+    padding: 16px;
+  }
+  .react-settings-connections-screen .file-entry {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+}
+
+.react-settings-dav-connections .dav-settings {
+  margin-block: 1.5rem;
+}
+.react-settings-dav-connections h2 {
+  font-size: 1.35rem;
+  font-weight: 600;
+}
+.react-settings-dav-connections h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+.react-settings-dav-connections p {
+  margin-block: 0.65rem;
+}
+.react-settings-dav-connections form,
+.react-settings-dav-connections article {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+}
+.react-settings-dav-connections form {
+  display: grid;
+  gap: 0.8rem;
+}
+.react-settings-dav-connections label {
+  display: grid;
+  gap: 0.35rem;
+}
+.react-settings-dav-connections label.choice {
+  display: flex;
+  align-items: start;
+  gap: 0.5rem;
+}
+.react-settings-dav-connections .choice input {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  accent-color: var(--primary);
+}
+
+.react-settings-import-ttu-screen .migration-page {
+  width: 100%;
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 24px 16px;
+  line-height: 1.55;
+  writing-mode: horizontal-tb;
+}
+.react-settings-import-ttu-screen .page-navigation {
+  margin-inline: -8px;
+}
+.react-settings-import-ttu-screen h1 {
+  font-size: clamp(1.75rem, 5vw, 2rem);
+  font-weight: 700;
+  line-height: 1.1;
+  margin: 1rem 0;
+}
+.react-settings-import-ttu-screen h2 {
+  font-size: 1.2rem;
+  font-weight: 650;
+}
+.react-settings-import-ttu-screen nav,
+.react-settings-import-ttu-screen .actions,
+.react-settings-import-ttu-screen .parts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+.react-settings-import-ttu-screen section,
+.react-settings-import-ttu-screen article {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  margin: 16px 0;
+  background: var(--card);
+  color: var(--card-foreground);
+}
+.react-settings-import-ttu-screen ol {
+  list-style: decimal;
+  padding-left: 1.5rem;
+  margin: 0.6rem 0;
+}
+.react-settings-import-ttu-screen p {
+  margin: 0.6rem 0;
+  overflow-wrap: anywhere;
+}
+.react-settings-import-ttu-screen label {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.react-settings-import-ttu-screen .file-picker {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  margin: 16px 0;
+  border: 1px dashed var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  background: var(--card);
+  font-weight: 600;
+}
+.react-settings-import-ttu-screen .book-choice {
+  font-size: 1.1rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.react-settings-import-ttu-screen .details {
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+.react-settings-import-ttu-screen details {
+  margin: 0.75rem 0;
+}
+.react-settings-import-ttu-screen summary {
+  cursor: pointer;
+}
+.react-settings-import-ttu-screen select {
+  min-height: 2.75rem;
+  max-width: 100%;
+  border: 1px solid var(--input);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--background);
+  color: var(--foreground);
+}
+.react-settings-import-ttu-screen input[type=checkbox] {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  accent-color: var(--primary);
+}
+.react-settings-import-ttu-screen input[type=file] {
+  min-height: 2.75rem;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  font-weight: normal;
+}
+.react-settings-import-ttu-screen input[type=file]::file-selector-button {
+  min-height: 2.25rem;
+  margin-inline-end: 10px;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  font: inherit;
+  cursor: pointer;
+}
+.react-settings-import-ttu-screen progress {
+  width: min(24rem, 70vw);
+}
+.react-settings-import-ttu-screen :focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+@media (max-width: 36rem) {
+  .react-settings-import-ttu-screen .migration-page {
+    padding: 16px 12px;
+  }
+  .react-settings-import-ttu-screen section,
+  .react-settings-import-ttu-screen article {
+    padding: 16px;
+  }
+}
+
+.react-settings-settings-dimension-content .dimension-presets {
+  width: min(20rem, 90vw - 1rem);
+  overflow-wrap: anywhere;
+}
+.react-settings-settings-dimension-content input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.react-settings-settings-header .settings-header {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 8px;
+  min-height: 64px;
+  padding: 8px 12px;
+}
+.react-settings-settings-header .settings-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.react-settings-settings-header .settings-navigation {
+  min-width: 0;
+  justify-self: end;
+}
+.react-settings-settings-header .back-label {
+  display: none;
+}
+.react-settings-settings-header .settings-header .settings-back {
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 50%;
+}
+@media (min-width: 640px) {
+  .react-settings-settings-header .settings-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding-inline: 24px;
+  }
+  .react-settings-settings-header .settings-navigation {
+    margin-inline-start: auto;
+  }
+  .react-settings-settings-header .back-label {
+    display: inline;
+  }
+  .react-settings-settings-header .settings-header .settings-back {
+    width: auto;
+    height: auto;
+    padding: 8px 12px;
+    border-radius: 12px;
+  }
+}
+
+.react-settings-settings-item-group .settings-field[hidden] {
+  display: none;
+}
+.react-settings-settings-item-group .settings-field {
+  min-width: 0;
+}
+.react-settings-settings-item-group .settings-field [slot=header] {
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.react-settings-settings-item-group .wide {
+  grid-column: 1/-1;
+}
+
+.react-settings-settings-screen .settings-frame {
+  padding: 24px 16px;
+}
+@media (min-width: 768px) {
+  .react-settings-settings-screen .settings-frame {
+    padding-inline: 32px;
+  }
+}
+
+.react-settings-settings-user-font-dialog .font-manager {
+  overflow-wrap: anywhere;
+}
+
+.react-settings-settings-workspace [data-setting=page-turn-effect]:not([hidden]),
+.react-settings-settings-workspace [data-setting=offline-reading]:not([hidden]) {
+  margin-bottom: 1.25rem;
+}
+
+.react-settings-shared-library-screen main {
+  width: 100%;
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 24px 16px;
+  writing-mode: horizontal-tb;
+  line-height: 1.6;
+}
+.react-settings-shared-library-screen nav,
+.react-settings-shared-library-screen .actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.react-settings-shared-library-screen .page-navigation {
+  gap: 12px;
+}
+.react-settings-shared-library-screen h1 {
+  font-size: clamp(1.75rem, 5vw, 2rem);
+  font-weight: 700;
+  line-height: 1.1;
+  margin: 1rem 0;
+}
+.react-settings-shared-library-screen h2 {
+  font-size: 1.3rem;
+  font-weight: 650;
+}
+.react-settings-shared-library-screen section {
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 16px;
+  padding: 20px;
+  margin: 16px 0;
+  color: var(--card-foreground);
+}
+.react-settings-shared-library-screen p {
+  margin: 0.75rem 0;
+}
+.react-settings-shared-library-screen main a:not([data-slot=button]) {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.react-settings-shared-library-screen label {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 10px 0;
+  flex-wrap: wrap;
+}
+.react-settings-shared-library-screen label > input[type=checkbox] {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  accent-color: var(--primary);
+}
+.react-settings-shared-library-screen select {
+  min-height: 44px;
+  max-width: 100%;
+  background: var(--background);
+  border: 1px solid var(--input);
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: var(--foreground);
+}
+.react-settings-shared-library-screen .note {
+  font-size: 0.9rem;
+}
+.react-settings-shared-library-screen code {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 36rem) {
+  .react-settings-shared-library-screen main {
+    padding: 16px 12px;
+  }
+  .react-settings-shared-library-screen section {
+    padding: 16px;
+  }
+}
+
+.settings-switch {
+  display: inline-flex;
+  width: 2.25rem;
+  height: 1.25rem;
+  align-items: center;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background: var(--input);
+  cursor: pointer;
+}
+
+.settings-switch[aria-checked=true] {
+  background: var(--primary);
+}
+
+.settings-switch span {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 9999px;
+  background: var(--background);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1333333333);
+  transform: translateX(0);
+  transition: transform 0.15s;
+}
+
+.settings-switch[aria-checked=true] span {
+  transform: translateX(1rem);
+}
+
+.settings-switch:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.settings-popover .dimension-presets {
+  width: min(20rem, 90vw - 1rem - 2px);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* WebKit's native menulist ignores min-height at enlarged text sizes. */
+.settings-select {
+  appearance: none;
+  padding-right: 28px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--foreground) 50%), linear-gradient(135deg, var(--foreground) 50%, transparent 50%);
+  background-position: right 14px center, right 10px center;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+}

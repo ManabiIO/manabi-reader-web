@@ -297,8 +297,14 @@ class LibraryOpenCommitStatic(LibraryBase):
             self.phase = 'cancel queued resume via Back'
             self.page.go_back()
             expect(self.page).to_have_url(re.compile('/reader-web/settings$'))
-            # A history URL and SSR heading do not certify SvelteKit startup.
-            expect(self.page.locator('#svelte-announcer')).to_be_attached()
+            # A history URL alone does not certify that the Expo route is
+            # interactive. Exercise its real mounted navigation menu before
+            # releasing the storage blocker and checking the canceled open.
+            expect(self.page.get_by_role('heading',name='Appearance',exact=True)).to_be_visible()
+            self.page.get_by_role('button',name='Settings actions',exact=True).click()
+            expect(self.page.get_by_role('menu',name='Page actions')).to_be_visible()
+            self.page.keyboard.press('Escape')
+            expect(self.page.get_by_role('menu',name='Page actions')).not_to_be_visible()
             holder.evaluate('async()=>{window.releaseResumeBlocker();await window.resumeBlockerDone;}')
             self.assertEqual([{'dataId':ids['Retained book']}],self.stores('books',['lastItem'])['lastItem'])
             self.assertTrue(self.page.url.endswith('/settings'))
@@ -318,7 +324,7 @@ class LibraryOpenCommitStatic(LibraryBase):
                 holder.evaluate('window.releaseResumeBlocker?.()')
                 holder.close()
 
-    def test_back_aborts_the_actual_queued_resume_transaction_in_same_document(self):
+    def test_forward_aborts_the_actual_queued_resume_transaction_in_same_document(self):
         self.import_book('Phase queued book')
         self.import_book('Phase retained book')
         ids = {row['title']:row['id'] for row in self.stores('books',['data'])['data']}
@@ -332,8 +338,7 @@ class LibraryOpenCommitStatic(LibraryBase):
         self.page.get_by_role('button',name='Library actions',exact=True).click()
         self.page.get_by_role('menuitem',name='Settings',exact=True).click()
         expect(self.page.get_by_role('heading',name='Appearance',exact=True)).to_be_visible()
-        self.page.get_by_role('button',name='Navigate',exact=True).click()
-        self.page.get_by_role('navigation',name='Main navigation').get_by_role('link',name='Library',exact=True).click()
+        self.page.get_by_role('link',name='Back',exact=True).click()
         expect(self.page.get_by_role('region',name='Library shelves')).to_have_attribute('data-hydrated','true')
         self.assertTrue(self.page.evaluate('window.sameOpenDocument === true'))
         self.page.evaluate("""()=>{
@@ -363,7 +368,10 @@ class LibraryOpenCommitStatic(LibraryBase):
         try:
             self.page.get_by_role('button',name='Read Phase queued book',exact=True).click()
             expect(self.page.locator('html')).to_have_attribute('data-resume-target-outcome','pending')
-            self.page.go_back()
+            # App Back now pops to the original Library entry. Settings remains
+            # forward in this same document; its native traversal must still
+            # abort the queued resume. The preceding case retains native Back.
+            self.page.go_forward()
             expect(self.page).to_have_url(re.compile('/reader-web/settings$'))
             self.assertTrue(self.page.evaluate('window.sameOpenDocument === true'))
             self.page.evaluate('async()=>{window.releaseResumeBlocker();await window.resumeBlockerDone;}')

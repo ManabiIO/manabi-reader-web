@@ -35,19 +35,21 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
         self.assertEqual(saved, self.stores('books', ['bookmark']))
 
     def test_navigation_uses_shared_close_without_overlapping_enlarged_headers(self):
+        # This pushed screen now uses contextual overflow, not a global navigation sheet.
         self.page.set_viewport_size({'width': 320, 'height': 568})
         self.page.goto(self.origin + '/reader-web/settings')
         self.page.evaluate('document.documentElement.style.fontSize = "125%"')
-        trigger = self.page.get_by_role('button', name='Navigate', exact=True)
+        trigger = self.page.get_by_role('button', name='Settings actions', exact=True)
         trigger.click()
-        panel = self.page.get_by_role('dialog', name='Manabi Reader', exact=True)
-        close = self.check_modal(panel)
-        # A plain w-* loses to the sheet's data-side width; the intended
-        # one-rem gutter must not silently become a cramped 75%-width panel.
-        width = panel.evaluate('e => ({actual:e.getBoundingClientRect().width, expected:innerWidth-parseFloat(getComputedStyle(document.documentElement).fontSize)})')
-        self.assertAlmostEqual(width['actual'], width['expected'], delta=1)
-        self.capture('navigation-shared-close-enlarged-phone')
-        close.click()
+        panel = self.page.get_by_role('menu', name='Page actions', exact=True)
+        expect(panel.get_by_role('menuitem', name='Accounts and libraries', exact=True)).to_be_visible()
+        expect(panel.get_by_role('menuitem', name='Settings', exact=True)).to_have_count(0)
+        bounds = panel.bounding_box()
+        self.assertGreaterEqual(bounds['x'], 7)
+        self.assertLessEqual(bounds['x'] + bounds['width'], 313)
+        self.assertLessEqual(panel.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+        self.capture('navigation-context-enlarged-phone')
+        self.page.keyboard.press('Escape')
         expect(panel).to_have_count(0)
         expect(trigger).to_be_focused()
 

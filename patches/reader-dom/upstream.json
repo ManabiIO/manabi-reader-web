@@ -1,0 +1,12 @@
+{
+  "package": "@expo/dom-webview",
+  "version": "57.0.1",
+  "files": {
+    "android/build.gradle": "770f0e178adbaf96733679c575e042c5789a28937ce515afa9371c78406020af",
+    "android/src/main/java/expo/modules/webview/DomWebView.kt": "b34074934d5a937e0759d49a2f71c8beede3f301f91a8523aef930910b6555ef",
+    "android/src/main/java/expo/modules/webview/DomWebViewModule.kt": "90de025a08623db496c138bd1bd60f71ae944cdea95f3107d56193884b1f633e",
+    "android/src/main/java/expo/modules/webview/DomWebViewEvents.kt": "2b84dab038b4b3b82b43759fb16749fbc4adc828104c6761441bdc6db87ce2f3",
+    "src/DomWebView.types.ts": "f8593f6d0f57ab5f001b66f6ef5e1e810aee9e678e0dfa1e137a98e8c2e2203d",
+    "build/DomWebView.types.d.ts": "9680765857af6aabbc9825ad9cf2f9a5e784c1826ca58b8b9a7f16e4506f29a1"
+  }
+}

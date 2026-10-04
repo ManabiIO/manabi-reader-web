@@ -103,3 +103,18 @@ test('malformed Unicode font filename cannot crash startup', () => {
     ''
   );
 });
+
+test('embedded font CSS accepts only owned blob substitutions after validating original cache metadata', () => {
+  const font = { name: 'Face', fileName: 'face.woff2', path: '/userfonts/face.woff2' };
+  assert.match(
+    buildLocalFontStyleSheet([font], new Map([[font.path, 'blob:https://reader.test/owned-font']])),
+    /src:url\("blob:/
+  );
+  for (const url of ['https://attacker.test/font.woff2', 'data:text/html,bad', 'javascript:bad'])
+    assert.equal(buildLocalFontStyleSheet([font], new Map([[font.path, url]])), '');
+  assert.equal(buildLocalFontStyleSheet([font], new Map()), '');
+  assert.equal(
+    buildLocalFontStyleSheet([{ ...font, path: 'blob:https://reader.test/forged' }], new Map()),
+    ''
+  );
+});

@@ -5,7 +5,7 @@
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import { writable } from 'svelte/store';
+import { writable } from '$lib/state/store';
 import type { BackgroundMode, BackgroundTarget } from './state';
 import {
   backgroundMimeTypes,

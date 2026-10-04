@@ -4,17 +4,17 @@
  * All rights reserved.
  */
 
-import faBug from '@lucide/svelte/icons/bug';
-import faChartLine from '@lucide/svelte/icons/chart-no-axes-combined';
-import faCog from '@lucide/svelte/icons/settings';
-import faFileArrowUp from '@lucide/svelte/icons/file-up';
-import faFileZipper from '@lucide/svelte/icons/file-archive';
-import faFolderPlus from '@lucide/svelte/icons/folder-plus';
-import faHashtag from '@lucide/svelte/icons/hash';
-import faImages from '@lucide/svelte/icons/images';
-import faSignOutAlt from '@lucide/svelte/icons/library';
-import faTriangleExclamation from '@lucide/svelte/icons/triangle-alert';
-import faCloud from '@lucide/svelte/icons/cloud';
+import { Bug as faBug } from 'lucide-react';
+import { ChartNoAxesCombined as faChartLine } from 'lucide-react';
+import { Settings as faCog } from 'lucide-react';
+import { FileUp as faFileArrowUp } from 'lucide-react';
+import { FileArchive as faFileZipper } from 'lucide-react';
+import { FolderPlus as faFolderPlus } from 'lucide-react';
+import { Hash as faHashtag } from 'lucide-react';
+import { Images as faImages } from 'lucide-react';
+import { Library as faSignOutAlt } from 'lucide-react';
+import { TriangleAlert as faTriangleExclamation } from 'lucide-react';
+import { Cloud as faCloud } from 'lucide-react';
 
 export const mergeEntries = {
   MANAGE: { routeId: '/manage', label: 'Manager', icon: faSignOutAlt, title: 'Go to Book Manager' },

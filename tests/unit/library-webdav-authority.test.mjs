@@ -278,7 +278,7 @@ function fixture(options = {}) {
   };
   class DavError extends Error {}
   const sync = load('webdav/sync.ts', {
-    'svelte/store': { writable, get: (store) => store.value },
+    '$lib/state/store': { writable, get: (store) => store.value },
     '$lib/data/store': {
       database: {
         db: Promise.resolve(db),
