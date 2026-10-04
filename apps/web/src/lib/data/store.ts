@@ -188,6 +188,11 @@ export const autoBookmarkTime$ = writableNumberLocalStorageSubject()('autoBookma
 
 export const pageColumns$ = writableNumberLocalStorageSubject()('pageColumns', 0);
 
+export const requestPersistentStorage$ = writableBooleanLocalStorageSubject()(
+  'requestPersistentStorage',
+  true
+);
+
 export const hideExternalReadHint$ = writableBooleanLocalStorageSubject()(
   'hideExternalReadHint',
   false
