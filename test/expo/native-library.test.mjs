@@ -803,3 +803,74 @@ test('layout rejects forged storage scopes, stale accounts, expired admissions a
     assert.equal(g.writes.length, 0);
   }
 });
+
+test('Continue shares canonical reading order outside the sorted page and retains exact access admission', async () => {
+  const f = setup(Array.from({ length: 65 }, (_, i) => book(i + 1)));
+  const state = await f.service.state({ sort: 'title', direction: 'asc', limit: 1 }, f.authority);
+  assert.equal(state.items.length, 1);
+  assert.equal(state.items[0].bookId, 1);
+  assert.deepEqual(
+    state.recentBooks.map((book) => book.bookId),
+    [65, 64, 63, 62, 61, 60, 59, 58, 57, 56]
+  );
+  assert.equal(state.total, 65, 'Continue does not change grid pagination');
+  const request = { token: state.token, keys: [state.recentBooks[0].key], operation: 'open' };
+  const identity = await f.service.admitAccess(request, f.authority);
+  assert.equal(identity[0].bookId, 65);
+  await assert.rejects(f.service.admitAccess(request, f.authority), /expired/);
+  const next = await f.service.state({ limit: 1 }, f.authority);
+  f.data.tree[64].book.contentHash = 'f'.repeat(64);
+  await assert.rejects(
+    f.service.admitAccess(
+      { token: next.token, keys: [next.recentBooks[0].key], operation: 'open' },
+      f.authority
+    ),
+    /book changed/
+  );
+});
+
+test('Continue omits unread and finished books and respects filtered Library views', async () => {
+  const f = setup([
+    book(1, { lastBookOpen: 0, lastBookmarkModified: 0, progress: 0 }),
+    book(2, { completion: { state: 'finished', finishedOn: '2026-10-01' } }),
+    book(3, { lastBookOpen: 0, lastBookmarkModified: 100, progress: 0.2 }),
+    book(4, { lastBookOpen: 50, lastBookmarkModified: 0, progress: 0 })
+  ]);
+  const state = await f.service.state({}, f.authority);
+  assert.deepEqual(
+    state.recentBooks.map((book) => book.bookId),
+    [3, 4]
+  );
+  assert.deepEqual(
+    state.recentBooks.map((book) => book.readingLabel),
+    ['20%', '0%']
+  );
+  for (const query of [
+    { collection: 'finished' },
+    { collection: 'want-to-read' },
+    { query: 'Book' },
+    { unfinished: true }
+  ]) {
+    assert.deepEqual((await f.service.state(query, f.authority)).recentBooks, []);
+  }
+  const grouped = setup();
+  const one = book(1);
+  grouped.data.tree = [
+    {
+      kind: 'series',
+      id: 'series',
+      directoryId: '',
+      name: 'Set',
+      personal: true,
+      books: [one],
+      children: tree([one])
+    }
+  ];
+  const root = await grouped.service.state({}, grouped.authority);
+  assert.equal(root.recentBooks.length, 1);
+  assert.equal(root.items[0].kind, 'series');
+  assert.deepEqual(
+    (await grouped.service.state({ series: root.items[0].key }, grouped.authority)).recentBooks,
+    []
+  );
+});

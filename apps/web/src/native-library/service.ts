@@ -42,6 +42,7 @@ import {
   type LibraryCoverTarget
 } from './cover-service';
 import { libraryNodes, nativeBook, parseLibraryQuery } from './view-model';
+import { continueBooks } from '../lib/library/reading-state';
 import { LIBRARY_SORTS, readLibrarySort } from '../features/library/sort-options';
 
 import {
@@ -289,6 +290,14 @@ export class NativeLibraryService {
             personal: !!node.personal
           }
     );
+    const recentBooks =
+      query.collection === 'books' &&
+      !query.series &&
+      !query.source &&
+      !query.unfinished &&
+      !query.query.trim()
+        ? continueBooks(books).map(bookRow)
+        : [];
     const detailBook = query.detail
       ? physicalBooks(data.tree).find(
           (book) => libraryBookLocator(book) === this.handles.get(query.detail!)
@@ -309,6 +318,7 @@ export class NativeLibraryService {
       token,
       coverToken,
       items,
+      recentBooks,
       total: nodes.length,
       offset,
       limit: query.limit,

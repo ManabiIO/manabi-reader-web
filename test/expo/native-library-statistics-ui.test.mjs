@@ -28,7 +28,7 @@ export const Text=({children,style})=><span data-color={StyleSheet.flatten(style
 export const Platform={OS:"android"}; export const useColorScheme=()=>"light"; export const useWindowDimensions=()=>globalThis.libraryStatisticsUI.dimensions;
 export const ActivityIndicator=()=>null; export const Modal=({visible,children})=>visible?<section>{children}</section>:null;
 export const Pressable=({children,onPress,disabled,accessibilityLabel,accessibilityState,role})=><button role={role} aria-label={accessibilityLabel} aria-selected={accessibilityState?.selected} disabled={disabled} onClick={onPress}>{typeof children==='function'?children({pressed:false}):children}</button>; export const UiIcon=()=>null;
-export const FlatList=({data,renderItem,numColumns,ListEmptyComponent})=><div data-columns={numColumns}>{data.length?data.map(item=><div key={item.key}>{renderItem({item})}</div>):ListEmptyComponent}</div>;
+export const FlatList=({data,renderItem,numColumns,ListEmptyComponent,ListHeaderComponent,onViewableItemsChanged,accessibilityLabel})=>{if(onViewableItemsChanged)globalThis.libraryStatisticsUI.viewports[accessibilityLabel||'books']=onViewableItemsChanged;return <div data-label={accessibilityLabel} data-columns={numColumns}>{ListHeaderComponent}{data.length?data.map(item=><div key={item.key}>{renderItem({item})}</div>):ListEmptyComponent}</div>};
 export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder})=><input value={value.value} onChange={event=>onChangeText?.(event.target.value)} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=({label,value,onValueChange,disabled})=><input type="checkbox" aria-label={label} checked={value} disabled={disabled} onChange={event=>onValueChange(event.target.checked)}/>;
 export const Action=({label,onPress,disabled,theme,variant})=><button data-variant={variant} data-seed={theme?.seedColor} disabled={disabled} onClick={onPress}>{label}</button>;
 export const MenuAction=({label,onPress,disabled})=><NativeMenuButton role="menuitem" variant="ghost" onPress={onPress} disabled={disabled}>{label}</NativeMenuButton>;
@@ -38,7 +38,7 @@ export const useReaderRuntime=()=>globalThis.libraryStatisticsUI.runtime;
 export const usePathname=()=>globalThis.libraryStatisticsUI.pathname;
 export const Link=({children})=>children; export const router={push:path=>globalThis.libraryStatisticsUI.routes.push(path)};
 export const NativeLibraryContentSearch=()=>null,NativeBookCover=()=>null,NativeEditorsPicks=()=>null;
-export class NativeLibraryCoverController{activate(){}dispose(){}viewport(){}setView(){}setActive(){}};`;
+export class NativeLibraryCoverController{activate(){}dispose(){}viewport(keys){globalThis.libraryStatisticsUI.coverViewports.push(keys)}setView(token,keys){globalThis.libraryStatisticsUI.coverViews.push({token,keys})}setActive(){}};`;
 const outfile = join(output, 'library.cjs');
 await build({
   entryPoints: ['apps/web/src/native-library/index.tsx'],
@@ -109,7 +109,13 @@ const deferred = () => {
   });
   return { promise, resolve, reject };
 };
-async function mount(t, override, uiTheme, dimensions = { width: 390, height: 844, fontScale: 1 }) {
+async function mount(
+  t,
+  override,
+  uiTheme,
+  dimensions = { width: 390, height: 844, fontScale: 1 },
+  recentBooks = []
+) {
   const calls = [],
     routes = [],
     confirmations = [];
@@ -130,6 +136,7 @@ async function mount(t, override, uiTheme, dimensions = { width: 390, height: 84
         layout,
         uiTheme,
         coverToken: 'cover',
+        recentBooks,
         items: ['finished', 'want-to-read'].includes(payload.collection) ? [] : [book],
         total: ['finished', 'want-to-read'].includes(payload.collection) ? 0 : 1,
         totalBooks: 1,
@@ -150,6 +157,9 @@ async function mount(t, override, uiTheme, dimensions = { width: 390, height: 84
     pathname: '/manage',
     dimensions,
     layouts: {},
+    viewports: {},
+    coverViews: [],
+    coverViewports: [],
     routes,
     confirmations
   };
@@ -462,6 +472,7 @@ test('changing saved sorting returns to page one, reconciles errors and never re
       return {
         token: 'paged-' + ++serial,
         coverToken: 'cover',
+        recentBooks: [],
         sort: { property: 'author', direction: 'asc' },
         items: [book],
         total: 121,
@@ -550,6 +561,7 @@ test('layout saves retain the current page and selection and reconcile a lost ac
       return {
         token: 'paged-' + ++serial,
         coverToken: 'cover',
+        recentBooks: [],
         layout,
         sort: { property: 'title', direction: 'asc' },
         items: [book],
@@ -670,4 +682,101 @@ test('empty compact shelves explain their collection without asking to reimport 
   assert.ok(!f.container.textContent.includes('Import an EPUB'));
   await f.render('/settings');
   assert.equal(f.container.querySelector('[aria-label="Books (1)"]').disabled, true);
+});
+
+test('Continue uses the shared Library token for opening/details and merges both thumbnail viewports', async (t) => {
+  const recent = {
+    ...book,
+    key: 'recent-key',
+    bookId: 2,
+    title: 'Recent book',
+    hasCover: true,
+    readingLabel: '42%'
+  };
+  const f = await mount(t, undefined, undefined, undefined, [recent]);
+  const shelf = () => f.container.querySelector('[data-label="Continue reading"]');
+  assert.ok(shelf());
+  assert.match(shelf().textContent, /Recent bookAuthor42%/);
+  assert.ok(globalThis.libraryStatisticsUI.coverViews.some((v) => v.keys?.includes('recent-key')));
+  await act(() => {
+    globalThis.libraryStatisticsUI.viewports['Continue reading']({
+      viewableItems: [{ item: recent }]
+    });
+    globalThis.libraryStatisticsUI.viewports.books({
+      viewableItems: [{ item: { ...book, hasCover: true } }]
+    });
+  });
+  assert.deepEqual(globalThis.libraryStatisticsUI.coverViewports.at(-1), [
+    'recent-key',
+    'book-key'
+  ]);
+  await click(f, 'Select');
+  assert.equal(shelf(), null);
+  assert.deepEqual(globalThis.libraryStatisticsUI.coverViewports.at(-1), ['book-key']);
+  await click(f, 'Cancel selection');
+  assert.ok(shelf());
+  await click(f, 'Details: Recent book in Continue');
+  assert.equal(
+    f.calls.filter((c) => c.method === 'library.state').at(-1).payload.detail,
+    'recent-key'
+  );
+  await click(f, 'Close');
+  await click(f, 'Continue Recent book');
+  const opened = f.calls.find((c) => c.method === 'open');
+  assert.equal(opened.payload.bookId, 2);
+  assert.deepEqual(opened.payload.libraryKeys, ['recent-key']);
+  assert.match(opened.payload.libraryToken, /^library-/);
+  assert.deepEqual(f.routes, [{ pathname: '/b', params: { id: 2 } }]);
+});
+
+test('Continue hides for scoped shelves and retired routes cannot navigate after a pending open', async (t) => {
+  const pending = deferred();
+  const recent = { ...book, key: 'recent-key', bookId: 2, title: 'Recent book' };
+  const f = await mount(
+    t,
+    (method) => (method === 'open' ? pending.promise : undefined),
+    undefined,
+    undefined,
+    [recent]
+  );
+  await click(f, 'Finished (0)');
+  assert.equal(f.container.querySelector('[data-label="Continue reading"]'), null);
+  await click(f, 'All Books (1)');
+  const open = f.container.querySelector('[aria-label="Continue Recent book"]');
+  await act(() => open.click());
+  assert.equal(open.disabled, true);
+  await act(() => open.click());
+  assert.equal(f.calls.filter((c) => c.method === 'open').length, 1);
+  await f.render('/settings');
+  await act(() => pending.resolve({ opened: true }));
+  assert.deepEqual(f.routes, []);
+});
+
+test('Continue open failures remain visible and permit an explicit retry', async (t) => {
+  let tries = 0;
+  const f = await mount(
+    t,
+    (method) => {
+      if (method === 'open' && ++tries === 1) throw new Error('Saved copy changed');
+    },
+    undefined,
+    undefined,
+    [{ ...book, title: 'Recent book' }]
+  );
+  await click(f, 'Continue Recent book');
+  assert.match(f.container.textContent, /Saved copy changed/);
+  assert.deepEqual(f.routes, []);
+  assert.equal(
+    f.calls.filter((c) => c.method === 'open').length,
+    1,
+    'failure never replays an open'
+  );
+  await click(f, 'Continue Recent book');
+  const opens = f.calls.filter((c) => c.method === 'open');
+  assert.notEqual(
+    opens[0].payload.libraryToken,
+    opens[1].payload.libraryToken,
+    'explicit retry receives a fresh access admission'
+  );
+  assert.deepEqual(f.routes, [{ pathname: '/b', params: { id: 1 } }]);
 });

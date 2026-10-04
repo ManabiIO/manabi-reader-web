@@ -56,6 +56,7 @@ import {
   type LibraryMetadataLayout
 } from '../features/library/LibraryMetadataFields';
 import { NativeEditorsPicks } from './catalog';
+import { NativeContinueShelf } from './continue-shelf';
 import {
   NativeLibraryFrame,
   NativeLibraryShelves,
@@ -192,12 +193,21 @@ function Library() {
     coverController.current = new NativeLibraryCoverController(command, setCovers, () => {
       if (activeRoute.current) void refreshCoverView.current?.();
     });
+  const visibleBooks = useRef<string[]>([]);
+  const visibleRecent = useRef<string[]>([]);
+  const onRecentViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      visibleRecent.current = viewableItems
+        .filter(({ item }) => item.hasCover)
+        .map(({ item }) => item.key);
+      coverController.current?.viewport([...visibleRecent.current, ...visibleBooks.current]);
+    }
+  ).current;
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
-    coverController.current?.viewport(
-      viewableItems
-        .filter(({ item }) => item.kind === 'book' && item.hasCover)
-        .map(({ item }) => item.key)
-    );
+    visibleBooks.current = viewableItems
+      .filter(({ item }) => item.kind === 'book' && item.hasCover)
+      .map(({ item }) => item.key);
+    coverController.current?.viewport([...visibleRecent.current, ...visibleBooks.current]);
   }).current;
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 15,
@@ -276,7 +286,7 @@ function Library() {
           setState(next);
           coverController.current?.setView(
             next.coverToken,
-            next.items
+            [...next.items, ...(next.recentBooks ?? [])]
               .filter((item) => item.kind === 'book' && item.hasCover)
               .map((item) => item.key)
           );
@@ -327,6 +337,41 @@ function Library() {
     setSelected([]);
     setSelecting(false);
     setQuery((previous) => ({ ...previous, ...change, detail: undefined, offset: 0 }));
+  }
+  async function openBook(book: NativeLibraryBook) {
+    if (!state || loading || mutationActive.current || !activeRoute.current) return;
+    if (!book.available || !book.bookId) {
+      setError(book.unavailableReason ?? 'This book is unavailable.');
+      return;
+    }
+    const request = serial.current;
+    mutationActive.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      await command('open', {
+        bookId: book.bookId,
+        libraryToken: state.token,
+        libraryKeys: [book.key]
+      });
+      if (mounted.current && activeRoute.current && request === serial.current)
+        router.push({ pathname: '/b', params: { id: book.bookId } });
+    } catch (cause) {
+      if (mounted.current && activeRoute.current && request === serial.current) {
+        setError(cause instanceof Error ? cause.message : 'This book could not be opened.');
+        // Access admissions are single-use even on failure. Reconcile before a user retries.
+        await refresh(latestQuery.current);
+      }
+    } finally {
+      mutationActive.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
+  function bookDetails(book: NativeLibraryBook) {
+    if (mutationActive.current || loading || !activeRoute.current) return;
+    setSelected([]);
+    setQuery((previous) => ({ ...previous, detail: book.key }));
+    setSheet('metadata');
   }
   async function chooseSort(property: LibrarySort, direction: 'asc' | 'desc' = sort.direction) {
     if (
@@ -644,6 +689,22 @@ function Library() {
     if (query.unfinished) return 'No unread books in this view.';
     return 'Import an EPUB, HTMLZ, or text file to start reading.';
   }
+  const recentBooks =
+    !selecting &&
+    !loading &&
+    !search.trim() &&
+    query.collection === 'books' &&
+    !query.series &&
+    !query.source &&
+    !query.unfinished
+      ? (state?.recentBooks ?? [])
+      : [];
+  useEffect(() => {
+    if (!recentBooks.length) {
+      visibleRecent.current = [];
+      coverController.current?.viewport(visibleBooks.current);
+    }
+  }, [recentBooks.length]);
   const content = (
     <NativeLibraryFrame
       theme={uiTheme}
@@ -929,6 +990,23 @@ function Library() {
             data={state?.items ?? []}
             keyExtractor={(item) => item.key}
             contentContainerStyle={styles.list}
+            ListHeaderComponent={
+              recentBooks.length ? (
+                <NativeContinueShelf
+                  books={recentBooks}
+                  paneWidth={paneWidth}
+                  fontScale={fontScale}
+                  disabled={busy || importing || !focused}
+                  images={
+                    covers.token === state?.coverToken && !loading ? covers.images : undefined
+                  }
+                  onOpen={(book) => void openBook(book)}
+                  onDetails={bookDetails}
+                  onViewableItemsChanged={onRecentViewableItemsChanged}
+                  viewabilityConfig={viewabilityConfig}
+                />
+              ) : undefined
+            }
             ListEmptyComponent={<Text>{emptyShelfText()}</Text>}
             renderItem={({ item }) =>
               item.kind === 'series' ? (
@@ -962,15 +1040,7 @@ function Library() {
                     }}
                     onPress={() => {
                       if (selecting) toggle(item.key);
-                      else if (item.available && item.bookId)
-                        void command('open', {
-                          bookId: item.bookId,
-                          libraryToken: state?.token,
-                          libraryKeys: [item.key]
-                        })
-                          .then(() => router.push({ pathname: '/b', params: { id: item.bookId! } }))
-                          .catch(() => {});
-                      else setError(item.unavailableReason ?? 'This book is unavailable.');
+                      else void openBook(item);
                     }}
                   >
                     <LibraryBookFace
@@ -1015,11 +1085,7 @@ function Library() {
                     accessibilityLabel={`Details: ${item.title}`}
                     style={grid ? { alignSelf: 'flex-end' } : undefined}
                     disabled={busy}
-                    onPress={() => {
-                      setSelected([]);
-                      setQuery((previous) => ({ ...previous, detail: item.key }));
-                      setSheet('metadata');
-                    }}
+                    onPress={() => bookDetails(item)}
                   >
                     <UiIcon name="more" size={20} />
                   </ActionButton>

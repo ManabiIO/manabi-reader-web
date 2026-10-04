@@ -59,6 +59,8 @@ export interface NativeLibraryState {
   token: string;
   coverToken: string;
   items: (NativeLibraryBook | NativeLibrarySeries)[];
+  /** Bounded canonical Continue shelf, independent of the paged/sorted book grid. */
+  recentBooks: NativeLibraryBook[];
   total: number;
   offset: number;
   limit: number;

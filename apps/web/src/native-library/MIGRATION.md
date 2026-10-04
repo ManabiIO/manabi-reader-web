@@ -69,8 +69,9 @@ Duplicate activation, departed routes and old account replies cannot restore an
 old view. These are local controller/mounted-store guarantees; actual native
 sort control accessibility and process-restart acceptance remain unqualified.
 
-Library/series/finished layout preferences, Continue and the finished timeline
-are separate convergence work. Saved sorting does not close those gaps.
+Saved Library/series/finished layouts and the bounded canonical Continue shelf are
+implemented. The native Finished timeline and series hero remain convergence work;
+saved sorting and Continue do not close those gaps.
 
 ## Implemented controls
 
@@ -169,7 +170,7 @@ controls, cards, sheets and action seeds consume it; this does not grant a setti
 write capability. Cover decoding, virtualized viewport admissions, selection keys,
 source handles, search and mutation owners remain unchanged. This is a shared shelf
 presentation, not yet a complete common Library workspace: the toolbar, series and
-continue sections, menus, specialized dialogs, timeline, backups and provider flows
+hero sections, menus, specialized dialogs, timeline, backups and provider flows
 still need convergence and full browser/native acceptance.
 
 Metadata editing also uses one LibraryMetadataFields composition on web/Android:
@@ -178,3 +179,21 @@ limits (including newline separators). Web label/textarea/form semantics stay in
 a small leaf, native inputs use Expo UI with full-width labeled hosts, and busy
 saves make the native draft read-only. Existing series, direction, cover controls
 and each owner's commit/cancel guards remain intact.
+
+## Continue shelf
+
+The Books root carries at most ten `recentBooks` using the existing DOM-only
+`continueBooks` canonical rule and account-filtered tree. The projection is
+independent of grid sorting/pagination, includes unfinished books with actual
+reading evidence, and is omitted from search and scoped collection/series/source
+views. Native hides it during selection. Recent books enter the existing opaque
+exact-identity, cover and open admissions even when outside the page; no raw
+storage/provider capability or new reading-history write crosses the bridge.
+
+A horizontal virtualized shelf in the grid's scrolling header renders saved
+covers, bounded title/author, canonical progress and the existing details editor.
+Its visible keys merge with ordinary grid visibility in the bounded cover owner.
+The shared open handler ignores retired route/account replies, fences duplicate
+activation, reports errors, and refreshes a consumed admission before explicit
+retry without replaying the open. See the [navigation QA record](../../../../docs/expo/NAVIGATION-ANDROID-PARITY.md)
+for actual release APK captures and remaining platform acceptance boundaries.
