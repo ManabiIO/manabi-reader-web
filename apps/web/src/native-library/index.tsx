@@ -30,7 +30,7 @@ import { Host as ExpoHost, TextInput, useNativeState } from '@expo/ui';
 import { Switch } from '../shared-ui/ExpoToggle';
 import { router, usePathname } from 'expo-router';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
-import { Screen, Action as NativeAction, MenuAction } from '../screens/NativeScreens';
+import { Action as NativeAction, MenuAction } from '../screens/NativeScreens';
 import { UiText as Text } from '../shared-ui/Typography';
 import { ActionButton } from '../shared-ui/ActionButton';
 import { UiIcon } from '../shared-ui/UiIcon';
@@ -56,6 +56,12 @@ import {
   type LibraryMetadataLayout
 } from '../features/library/LibraryMetadataFields';
 import { NativeEditorsPicks } from './catalog';
+import {
+  NativeLibraryFrame,
+  NativeLibraryShelves,
+  hasLibrarySidebar,
+  LIBRARY_SIDEBAR_WIDTH
+} from './shelf-navigation';
 import { NativeLibraryCoverController, type NativeCoverState } from './cover-controller';
 import type {
   NativeStatisticsSelectionAdmission,
@@ -223,8 +229,12 @@ function Library() {
   const [selecting, setSelecting] = useState(false);
   const grid = state?.layout === 'grid';
   const { width, fontScale } = useWindowDimensions();
-  const columns = Math.max(1, Math.floor((width - 28) / (150 * Math.max(1, fontScale))));
-  const cardWidth = (width - 28) / columns - 8;
+  const wide = hasLibrarySidebar(width, fontScale);
+  const [pane, setPane] = useState<{ windowWidth: number; width: number }>();
+  const paneWidth =
+    pane?.windowWidth === width ? pane.width : width - (wide ? LIBRARY_SIDEBAR_WIDTH : 0);
+  const columns = Math.max(1, Math.floor((paneWidth - 28) / (150 * Math.max(1, fontScale))));
+  const cardWidth = (paneWidth - 28) / columns - 8;
   const [catalogVisible, setCatalogVisible] = useState(false);
   const [sheet, setSheet] = useState<
     'filters' | 'collections' | 'membership' | 'series' | 'completion' | 'metadata'
@@ -623,9 +633,43 @@ function Library() {
     setCatalogVisible(false);
     void refresh();
   };
+  function emptyShelfText() {
+    if (loading) return 'Loading…';
+    if (search) return 'No matching books';
+    if (query.collection === 'finished') return 'No finished books yet.';
+    if (query.collection === 'want-to-read') return 'No books marked Want to Read yet.';
+    if (query.collection && query.collection !== 'books') return 'No books in this collection yet.';
+    if (query.series) return 'No books in this series.';
+    if (query.source) return 'No books in this source.';
+    if (query.unfinished) return 'No unread books in this view.';
+    return 'Import an EPUB, HTMLZ, or text file to start reading.';
+  }
   const content = (
-    <Screen
+    <NativeLibraryFrame
       theme={uiTheme}
+      onPaneWidth={(paneWidth) =>
+        setPane((previous) =>
+          previous?.windowWidth === width && previous.width === paneWidth
+            ? previous
+            : { windowWidth: width, width: paneWidth }
+        )
+      }
+      sidebar={
+        wide && (
+          <NativeLibraryShelves
+            state={state}
+            selected={query.collection ?? 'books'}
+            disabled={busy || importing || !snapshot.session || !focused}
+            onSelect={(collection) => view({ collection, series: '' })}
+            onSnippets={() => router.push('/snippets')}
+            onManage={() => {
+              setName('');
+              setCollectionTarget(undefined);
+              setSheet('collections');
+            }}
+          />
+        )
+      }
       title="Manabi Reader"
       actions={
         <Action
@@ -708,30 +752,32 @@ function Library() {
             />
           </Host>
         )}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <View style={styles.row}>
-            {[
-              { id: 'books', name: 'All Books', count: state?.totalBooks ?? 0 },
-              { id: 'finished', name: 'Finished', count: state?.counts.finished ?? 0 },
-              ...choices
-            ].map((collection) => (
-              <View
-                key={collection.id}
-                style={{
-                  borderBottomWidth: 2,
-                  borderBottomColor:
-                    query.collection === collection.id ? uiTheme.colors.primary : 'transparent'
-                }}
-              >
-                <Action
-                  label={`${collection.name} (${collection.count})`}
-                  variant="text"
-                  onPress={() => view({ collection: collection.id, series: '' })}
-                />
-              </View>
-            ))}
-          </View>
-        </ScrollView>
+        {!wide && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={styles.row}>
+              {[
+                { id: 'books', name: 'All Books', count: state?.totalBooks ?? 0 },
+                { id: 'finished', name: 'Finished', count: state?.counts.finished ?? 0 },
+                ...choices
+              ].map((collection) => (
+                <View
+                  key={collection.id}
+                  style={{
+                    borderBottomWidth: 2,
+                    borderBottomColor:
+                      query.collection === collection.id ? uiTheme.colors.primary : 'transparent'
+                  }}
+                >
+                  <Action
+                    label={`${collection.name} (${collection.count})`}
+                    variant="text"
+                    onPress={() => view({ collection: collection.id, series: '' })}
+                  />
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        )}
         {!!state?.trail.length && (
           <ScrollView horizontal>
             <View style={styles.row}>
@@ -883,15 +929,7 @@ function Library() {
             data={state?.items ?? []}
             keyExtractor={(item) => item.key}
             contentContainerStyle={styles.list}
-            ListEmptyComponent={
-              <Text>
-                {loading
-                  ? 'Loading…'
-                  : search
-                    ? 'No matching books'
-                    : 'Import an EPUB, HTMLZ, or text file to start reading.'}
-              </Text>
-            }
+            ListEmptyComponent={<Text>{emptyShelfText()}</Text>}
             renderItem={({ item }) =>
               item.kind === 'series' ? (
                 <Pressable
@@ -1351,7 +1389,7 @@ function Library() {
             ))}
         </Sheet>
       )}
-    </Screen>
+    </NativeLibraryFrame>
   );
   return <UiThemeProvider {...state?.uiTheme}>{content}</UiThemeProvider>;
 }

@@ -23,12 +23,12 @@ const output = mkdtempSync(join(tmpdir(), 'library-statistics-ui-'));
 process.on('exit', () => rmSync(output, { recursive: true, force: true }));
 const fixture = `import React,{useRef} from 'react';
 import {ActionButton as NativeMenuButton} from './apps/web/src/shared-ui/ActionButton';
-export const View=({children})=><div>{children}</div>; export const ScrollView=View,SafeAreaView=View,Host=View;
+export const View=({children,style,accessibilityLabel,testID,onLayout})=>{if(onLayout&&testID)globalThis.libraryStatisticsUI.layouts[testID]=onLayout;return <div data-label={accessibilityLabel} data-testid={testID} data-style={JSON.stringify(StyleSheet.flatten(style))}>{children}</div>}; export const ScrollView=View,SafeAreaView=View,Host=View;
 export const Text=({children,style})=><span data-color={StyleSheet.flatten(style).color}>{children}</span>; export const StyleSheet={create:x=>x,flatten:x=>Object.assign({},...(Array.isArray(x)?x.flat(Infinity):[x]).filter(Boolean))};
-export const Platform={OS:"android"}; export const useColorScheme=()=>"light"; export const useWindowDimensions=()=>({width:390,height:844,fontScale:1});
+export const Platform={OS:"android"}; export const useColorScheme=()=>"light"; export const useWindowDimensions=()=>globalThis.libraryStatisticsUI.dimensions;
 export const ActivityIndicator=()=>null; export const Modal=({visible,children})=>visible?<section>{children}</section>:null;
-export const Pressable=({children,onPress,disabled,accessibilityLabel,role})=><button role={role} aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{typeof children==='function'?children({pressed:false}):children}</button>; export const UiIcon=()=>null;
-export const FlatList=({data,renderItem,numColumns})=><div data-columns={numColumns}>{data.map(item=><div key={item.key}>{renderItem({item})}</div>)}</div>;
+export const Pressable=({children,onPress,disabled,accessibilityLabel,accessibilityState,role})=><button role={role} aria-label={accessibilityLabel} aria-selected={accessibilityState?.selected} disabled={disabled} onClick={onPress}>{typeof children==='function'?children({pressed:false}):children}</button>; export const UiIcon=()=>null;
+export const FlatList=({data,renderItem,numColumns,ListEmptyComponent})=><div data-columns={numColumns}>{data.length?data.map(item=><div key={item.key}>{renderItem({item})}</div>):ListEmptyComponent}</div>;
 export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder})=><input value={value.value} onChange={event=>onChangeText?.(event.target.value)} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=({label,value,onValueChange,disabled})=><input type="checkbox" aria-label={label} checked={value} disabled={disabled} onChange={event=>onValueChange(event.target.checked)}/>;
 export const Action=({label,onPress,disabled,theme,variant})=><button data-variant={variant} data-seed={theme?.seedColor} disabled={disabled} onClick={onPress}>{label}</button>;
 export const MenuAction=({label,onPress,disabled})=><NativeMenuButton role="menuitem" variant="ghost" onPress={onPress} disabled={disabled}>{label}</NativeMenuButton>;
@@ -109,7 +109,7 @@ const deferred = () => {
   });
   return { promise, resolve, reject };
 };
-async function mount(t, override, uiTheme) {
+async function mount(t, override, uiTheme, dimensions = { width: 390, height: 844, fontScale: 1 }) {
   const calls = [],
     routes = [],
     confirmations = [];
@@ -130,8 +130,8 @@ async function mount(t, override, uiTheme) {
         layout,
         uiTheme,
         coverToken: 'cover',
-        items: [book],
-        total: 1,
+        items: ['finished', 'want-to-read'].includes(payload.collection) ? [] : [book],
+        total: ['finished', 'want-to-read'].includes(payload.collection) ? 0 : 1,
         totalBooks: 1,
         offset: 0,
         limit: 60,
@@ -148,6 +148,8 @@ async function mount(t, override, uiTheme) {
   globalThis.libraryStatisticsUI = {
     runtime: { command, snapshot: { session: 'session', epoch: 1 }, busy: false },
     pathname: '/manage',
+    dimensions,
+    layouts: {},
     routes,
     confirmations
   };
@@ -164,7 +166,23 @@ async function mount(t, override, uiTheme) {
     await act(() => root.unmount());
     container.remove();
   });
-  return { calls, routes, confirmations, container, render };
+  return {
+    calls,
+    routes,
+    confirmations,
+    container,
+    render,
+    async resize(dimensions, paneWidth) {
+      globalThis.libraryStatisticsUI.dimensions = dimensions;
+      await render();
+      if (paneWidth !== undefined)
+        await act(() =>
+          globalThis.libraryStatisticsUI.layouts['library-content']({
+            nativeEvent: { layout: { width: paneWidth } }
+          })
+        );
+    }
+  };
 }
 async function click(f, label) {
   const button = [...f.container.querySelectorAll('button')].find(
@@ -580,4 +598,76 @@ test('pending layout saves disable the switch and retire replies on route or acc
     assert.equal(f.calls.filter((call) => call.method === 'library.state').length, reads);
     assert.ok(!f.container.textContent.includes('Departed layout failure'));
   }
+});
+
+test('wide native Library shelves navigate locally and size the grid to the measured content pane', async (t) => {
+  const f = await mount(t, undefined, undefined, { width: 1200, height: 900, fontScale: 1 });
+  assert.ok(f.container.querySelector('[data-label="Library shelves"]'));
+  assert.equal(f.container.querySelector('[data-columns]').dataset.columns, '6');
+  assert.equal(
+    f.container.querySelector('[aria-label="Books (1)"]').getAttribute('aria-selected'),
+    'true'
+  );
+  assert.ok(
+    !f.container.textContent.includes('All Books (1)'),
+    'wide layout has one shelf navigation'
+  );
+  await f.resize({ width: 1200, height: 900, fontScale: 1 }, 870);
+  assert.equal(
+    f.container.querySelector('[data-columns]').dataset.columns,
+    '5',
+    'safe-area/pane measurement controls columns'
+  );
+  await click(f, 'Finished (0)');
+  assert.equal(
+    f.calls.filter((call) => call.method === 'library.state').at(-1).payload.collection,
+    'finished'
+  );
+  assert.equal(
+    f.container.querySelector('[aria-label="Finished (0)"]').getAttribute('aria-selected'),
+    'true'
+  );
+  assert.deepEqual(f.routes, []);
+  assert.match(f.container.textContent, /No finished books yet/);
+  assert.ok(!f.container.textContent.includes('Import an EPUB'));
+  const reads = f.calls.filter((call) => call.method === 'library.state').length;
+  await f.resize({ width: 390, height: 844, fontScale: 1 }, 390);
+  assert.equal(f.container.querySelector('[data-label="Library shelves"]'), null);
+  assert.match(f.container.textContent, /All Books \(1\)/);
+  assert.equal(
+    f.calls.filter((call) => call.method === 'library.state').length,
+    reads,
+    'resize preserves the admitted shelf'
+  );
+  await f.resize({ width: 1200, height: 900, fontScale: 1 }, 960);
+  assert.equal(
+    f.container.querySelector('[aria-label="Finished (0)"]').getAttribute('aria-selected'),
+    'true'
+  );
+  await click(f, 'Snippets');
+  assert.deepEqual(f.routes, ['/snippets']);
+  await click(f, 'Manage collections');
+  assert.match(f.container.textContent, /Manage collections/);
+});
+
+test('enlarged text and compact landscape keep the native Library free of a sidebar drawer', async (t) => {
+  const f = await mount(t, undefined, undefined, { width: 1200, height: 900, fontScale: 2 });
+  assert.equal(f.container.querySelector('[data-label="Library shelves"]'), null);
+  assert.match(f.container.textContent, /All Books \(1\)/);
+  await f.resize({ width: 844, height: 390, fontScale: 1 }, 844);
+  assert.equal(f.container.querySelector('[data-label="Library shelves"]'), null);
+  assert.equal(f.container.querySelector('[data-columns]').dataset.columns, '5');
+});
+
+test('empty compact shelves explain their collection without asking to reimport existing books', async (t) => {
+  const f = await mount(t);
+  await click(f, 'Finished (0)');
+  assert.match(f.container.textContent, /No finished books yet/);
+  assert.ok(!f.container.textContent.includes('Import an EPUB'));
+  await f.resize({ width: 1200, height: 900, fontScale: 1 });
+  await click(f, 'Want to Read (0)');
+  assert.match(f.container.textContent, /No books marked Want to Read yet/);
+  assert.ok(!f.container.textContent.includes('Import an EPUB'));
+  await f.render('/settings');
+  assert.equal(f.container.querySelector('[aria-label="Books (1)"]').disabled, true);
 });
