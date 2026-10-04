@@ -442,3 +442,37 @@ test('native cover module graph contains no DOM database/provider/file capabilit
   assert.match(source, /onViewableItemsChanged/);
   assert.match(source, /covers\.token === state\?\.coverToken && !loading/);
 });
+
+test('expired viewport admission refreshes once without polling failures or retired owners', async () => {
+  let reads = 0,
+    refreshes = 0;
+  const controller = new NativeLibraryCoverController(
+    async (method) => {
+      if (method === 'library.cover.cancel') return { cancelled: true };
+      reads++;
+      throw new Error('This Library cover view expired.');
+    },
+    () => {},
+    () => {
+      refreshes++;
+      controller.setView(`replacement-${refreshes}`, ['a', 'b']);
+    }
+  );
+  controller.setView('idle-view', ['a', 'b']);
+  controller.viewport(['a', 'b']);
+  await tick();
+  assert.equal(refreshes, 1, 'concurrent expiry failures share one refresh');
+  assert.equal(reads, 4, 'each visible cover tried once on each of two admissions');
+  await tick();
+  assert.equal(refreshes, 1, 'a replacement failure does not poll or refresh itself');
+  controller.viewport(['b']);
+  await tick();
+  assert.equal(refreshes, 1, 'cached fallback does not reread on identical visibility');
+  controller.setView('next-user-view', ['a']);
+  controller.viewport(['a']);
+  await tick();
+  assert.equal(refreshes, 2, 'a later user viewport can recover a new expired admission');
+  controller.dispose();
+  await tick();
+  assert.equal(refreshes, 2, 'retired owners cannot refresh');
+});

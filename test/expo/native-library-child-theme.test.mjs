@@ -224,14 +224,13 @@ for (const themeProps of appearances) {
     const container = await mount(
       t,
       NativeBookCover,
-      { title: 'Cover title', creators: 'Writer', blurred: false, grid: true },
+      { title: 'Cover title', creators: 'Writer', blurred: false, grid: true, gridWidth: 360 },
       themeProps
     );
     const frame = style(container.firstChild);
-    assert.equal(frame.width, '100%');
-    assert.equal(frame.height, undefined);
+    assert.equal(frame.width, 200);
+    assert.equal(frame.height, 300);
     assert.equal(frame.aspectRatio, 2 / 3);
-    assert.equal(frame.maxWidth, 200);
     assert.equal(frame.alignSelf, 'center');
     assert.equal(frame.backgroundColor, theme.colors.muted);
     assertText(container, theme);

@@ -180,9 +180,12 @@ function Library() {
   const activeRoute = useRef(focused);
   activeRoute.current = focused;
   const [covers, setCovers] = useState<NativeCoverState>({ token: '', images: new Map() });
+  const refreshCoverView = useRef<(() => Promise<void>) | undefined>(undefined);
   const coverController = useRef<NativeLibraryCoverController | null>(null);
   if (!coverController.current)
-    coverController.current = new NativeLibraryCoverController(command, setCovers);
+    coverController.current = new NativeLibraryCoverController(command, setCovers, () => {
+      if (activeRoute.current) void refreshCoverView.current?.();
+    });
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     coverController.current?.viewport(
       viewableItems
@@ -278,6 +281,7 @@ function Library() {
     },
     [command, query]
   );
+  refreshCoverView.current = () => refresh(latestQuery.current);
   useEffect(() => {
     if (snapshot.session && focused) void refresh();
   }, [refresh, snapshot.session, focused]);
@@ -950,6 +954,7 @@ function Library() {
                       grid={grid}
                       cover={
                         <NativeBookCover
+                          gridWidth={cardWidth}
                           image={
                             covers.token === state?.coverToken && !loading
                               ? covers.images.get(item.key)

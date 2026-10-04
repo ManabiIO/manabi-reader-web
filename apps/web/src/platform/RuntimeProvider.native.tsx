@@ -143,7 +143,14 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
           await receive(reply.value as RuntimeSnapshot);
         return reply.value;
       } catch (cause) {
-        if (owner.session === latest.current.session && owner.epoch === latest.current.epoch)
+        // Thumbnail reads own their fallback and bounded admission refresh. A
+        // cancelled/expired image must not leave an error on a later screen.
+        if (
+          method !== 'library.cover.read' &&
+          method !== 'library.cover.cancel' &&
+          owner.session === latest.current.session &&
+          owner.epoch === latest.current.epoch
+        )
           setError(cause instanceof Error ? cause.message : 'The reader operation failed.');
         throw cause;
       }

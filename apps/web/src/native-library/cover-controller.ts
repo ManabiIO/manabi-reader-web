@@ -29,6 +29,7 @@ export class NativeLibraryCoverController {
   private sequence = 0;
   private instance = ++instances;
   private active = true;
+  private mayRefreshExpiredView = true;
   private disposed = false;
   private admitted = new Set<string>();
   private visible: string[] = [];
@@ -39,7 +40,8 @@ export class NativeLibraryCoverController {
   >();
   constructor(
     private command: CoverCommand,
-    private changed: (state: NativeCoverState) => void
+    private changed: (state: NativeCoverState) => void,
+    private refreshExpiredView?: () => void
   ) {}
   private publish() {
     if (!this.disposed) this.changed({ token: this.token, images: new Map(this.cache) });
@@ -79,6 +81,9 @@ export class NativeLibraryCoverController {
     this.pump();
   }
   viewport(keys: readonly string[]) {
+    // A user viewport change may refresh one expired admission. A replacement
+    // token alone must not turn a repeated failure into an automatic retry loop.
+    this.mayRefreshExpiredView = true;
     this.visible = [...new Set(keys)].slice(0, LIBRARY_COVER_VISIBLE_LIMIT);
     const requests: string[] = [];
     for (const [request, pending] of this.pending)
@@ -119,12 +124,22 @@ export class NativeLibraryCoverController {
           this.trim();
           this.publish();
         })
-        .catch(() => {
-          // Broken/missing/stale covers keep the title card. Never poll failures.
+        .catch((cause) => {
+          // Broken or missing images keep the title card. A long-idle read
+          // admission can be refreshed once for this user viewport change.
           if (this.current(job)) {
             this.cache.set(key, null);
             this.trim();
             this.publish();
+            if (
+              cause instanceof Error &&
+              cause.message === 'This Library cover view expired.' &&
+              this.mayRefreshExpiredView &&
+              this.refreshExpiredView
+            ) {
+              this.mayRefreshExpiredView = false;
+              this.refreshExpiredView();
+            }
           }
         })
         .finally(() => {

@@ -453,7 +453,7 @@ try {
     (await page.locator('html').evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
     'Snippets workspace must not overflow horizontally at 320px / 200% text'
   );
-  await expect(page.getByRole('button', { name: 'Navigate', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Snippets actions', exact: true })).toBeVisible();
   const largeTextEvidence = process.env.SNIPPETS_SCREENSHOT;
   if (largeTextEvidence) {
     const largeTextPath = largeTextEvidence.replace(/\.png$/i, '-large-text.png');

@@ -10,3 +10,5 @@ apps/web/src/app.generated.css
 apps/web/src/runtime/font-assets.ts
 apps/web/static/moss/single/moss.mjs
 apps/web/static/moss/threaded/moss.mjs
+
+apps/web/src/lib/appearance/palettes.scss

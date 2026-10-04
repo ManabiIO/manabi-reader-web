@@ -15,15 +15,18 @@ export function NativeBookCover({
   title,
   creators,
   blurred,
-  grid = false
+  grid = false,
+  gridWidth = 200
 }: {
   image?: NativeLibraryCover | null;
   title: string;
   creators: string;
   blurred: boolean;
   grid?: boolean;
+  gridWidth?: number;
 }) {
   const { colors } = useUiTheme();
+  const width = Math.max(1, Math.min(200, gridWidth));
   const styles = {
     ...baseStyles,
     frame: [baseStyles.frame, { backgroundColor: colors.muted }],
@@ -39,7 +42,7 @@ export function NativeBookCover({
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[styles.frame, grid && styles.grid]}
+      style={[styles.frame, grid && [styles.grid, { width, height: width * 1.5 }]]}
     >
       {uri && uri !== failed ? (
         <Image
@@ -76,9 +79,6 @@ const baseStyles = StyleSheet.create({
     overflow: 'hidden'
   },
   grid: {
-    width: '100%',
-    maxWidth: 200,
-    height: undefined,
     aspectRatio: 2 / 3,
     alignSelf: 'center',
     marginBottom: 9
