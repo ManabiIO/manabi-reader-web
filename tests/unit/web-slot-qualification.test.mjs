@@ -34,12 +34,20 @@ for (const platform of ['web', 'android'])
       };
       Navigator.useContext = () => ({ NavigationContent: passthrough });
       Navigator.Slot = () => React.createElement('section', { 'data-navigator': 'slot' });
+      let statusBarCount = 0;
       const dependencies = {
         'react/jsx-runtime': jsxRuntime,
         'react-native': { Platform: { OS: platform } },
         'react-native-safe-area-context': { SafeAreaProvider: passthrough },
         '../platform/RuntimeProvider': { RuntimeProvider: passthrough },
         '../runtime/web-slot-router': { WebSlotRouter },
+        'expo-status-bar': {
+          StatusBar: ({ style }) => {
+            statusBarCount++;
+            assert.equal(style, 'auto');
+            return null;
+          }
+        },
         'expo-router': {
           Navigator,
           Stack: (props) => {
@@ -59,6 +67,7 @@ for (const platform of ['web', 'android'])
         module.exports
       );
       const markup = renderToStaticMarkup(React.createElement(module.exports.default));
+      assert.equal(statusBarCount, platform === 'web' ? 0 : 1);
       assert.equal(
         markup,
         `<section data-navigator="${platform === 'web' ? 'slot' : 'stack'}"></section>`

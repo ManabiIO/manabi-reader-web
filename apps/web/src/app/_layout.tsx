@@ -5,6 +5,7 @@
  */
 
 import { Navigator, Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { RuntimeProvider } from '../platform/RuntimeProvider';
@@ -28,7 +29,10 @@ export default function RootLayout() {
             <WebSlot />
           </Navigator>
         ) : (
-          <Stack screenOptions={{ headerShown: false, animation: 'none' }} />
+          <>
+            <StatusBar style="auto" />
+            <Stack screenOptions={{ headerShown: false, animation: 'none' }} />
+          </>
         )}
       </RuntimeProvider>
     </SafeAreaProvider>

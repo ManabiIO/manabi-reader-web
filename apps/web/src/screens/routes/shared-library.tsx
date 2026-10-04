@@ -4,7 +4,8 @@
  * All rights reserved.
  */
 
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { UiText as Text } from '../../shared-ui/Typography';
 import { Screen } from '../../screens/NativeScreens';
 export default function NativeRoute() {
   return (

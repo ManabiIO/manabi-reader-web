@@ -390,15 +390,16 @@ export function NativeSettingsScreen() {
 }
 export function NativeConnectionsScreen() {
   const { snapshot, command } = useReaderRuntime();
+  const { colors } = useUiTheme();
   return (
     <Screen title="Accounts and libraries">
       <ScrollView contentContainerStyle={styles.list}>
-        <Text style={styles.title}>
+        <Text style={[styles.title, { color: colors.foreground }]}>
           {snapshot.account.username
             ? `Signed in as ${snapshot.account.username}`
             : 'Manabi account'}
         </Text>
-        <Text>
+        <Text style={{ color: colors.foreground }}>
           {snapshot.account.status === 'unavailable'
             ? 'Manabi account services are not available on this deployment. Local libraries still work.'
             : snapshot.account.status === 'offline'
