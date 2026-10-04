@@ -62,3 +62,11 @@ export function navigationReturnPath(
   }
   return `${base}${fallback}`;
 }
+
+/** The reader's Library action returns to its admitted shelf, including series,
+ * collection, source and search context. Unrelated/cold arrivals use Books. */
+export function readerLibraryReturnPath(current: URL, previous: string | undefined, base: string) {
+  const candidate = navigationReturnPath(current, previous, base);
+  const target = new URL(candidate, current.origin);
+  return target.pathname === `${base}/manage` ? candidate : `${base}/manage`;
+}

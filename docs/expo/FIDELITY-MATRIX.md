@@ -139,7 +139,10 @@ first shared complete composition; the eight remaining screen closures are:
    owner on remount. Native Finished now has calendar-day timeline groups and the
    shared saved date order, verified through release-app controls and restart.
    Continue and the selected-series hero use the shared canonical reading rules;
-   selected-series header/hardware Back retains the parent shelf. Release visual
+   selected-series header/hardware Back retains the parent shelf. Web reader Library
+   return now restores its admitted series/shelf entry, and focused browser
+   Back/Forward keeps that exact shelf URL visible. Matched Svelte/web series
+   screenshots qualify phone and desktop geometry and intentional neutral accents. Release visual
    scope and exact APK provenance are recorded in
    [navigation QA](NAVIGATION-ANDROID-PARITY.md). Collapsed-series card artwork,
    series-level editing, common search/selection composition and full native

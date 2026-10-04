@@ -39,7 +39,9 @@ import {
 } from 'rxjs';
 import { browser } from '../runtime/environment';
 import { page } from '../runtime/stores';
-import { goto } from '../runtime/navigation';
+import { backTo, goto, readNavigationArrival } from '../runtime/navigation';
+import { base } from '../runtime/paths';
+import { readerLibraryReturnPath } from '../shared-ui/navigation-context';
 import type { AutoScroller, BookmarkManager, PageManager } from '$lib/components/book-reader/types';
 import {
   autoBookmark$,
@@ -214,6 +216,9 @@ export function createSession(
   const expectedBook = props.expectedBook && snapshotBookAccessIdentity(props.expectedBook);
   const bookAuthority = props.bookAuthority;
   const readerRouteUrl = props.routeUrl ? new URL(props.routeUrl) : undefined;
+  const libraryReturnPath = readerRouteUrl
+    ? readerLibraryReturnPath(readerRouteUrl, readNavigationArrival(readerRouteUrl)?.from, base)
+    : undefined;
   let ownedDialogs: Dialog[] | undefined;
   function publishSessionDialogs(dialogs: Dialog[]) {
     if (!dialogs.length) {
@@ -2396,6 +2401,8 @@ export function createSession(
       }
       assertCloseCurrent();
       if (routeId === mergeEntries.MANAGE.routeId && exitHandler) exitHandler();
+      else if (routeId === mergeEntries.MANAGE.routeId && libraryReturnPath)
+        await backTo(libraryReturnPath);
       else if (routeId) await goto(`${pagePath}${routeId}`);
       return true;
     } finally {

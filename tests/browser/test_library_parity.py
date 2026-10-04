@@ -321,6 +321,37 @@ class LibraryParityBrowser(LibraryBase):
         finally:
             other.close()
 
+    def test_reader_library_action_restores_series_and_prior_history_entry(self):
+        self.populate(2)
+        self.items().nth(0).click(modifiers=[self.modifier()])
+        self.page.get_by_role('button', name='Select All Visible').click()
+        self.batch_action('Add to Series…')
+        self.dialog().get_by_label('Series', exact=True).fill('Return series')
+        self.dialog().get_by_role('button', name='Save', exact=True).click()
+        expect(self.dialog()).to_have_count(0)
+        self.page.get_by_role('button', name='Cancel selection').click()
+        self.page.get_by_role('button', name='Open series Return series', exact=True).click()
+        series_url = self.page.url
+        self.assertIn('series=', series_url)
+        prior_length = self.page.evaluate('history.length')
+        self.page.get_by_role('button', name='Start Reading Parity 0', exact=True).click()
+        expect(self.page).to_have_url(re.compile(r'/reader-web/b\?id='))
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+        reveal_reader_controls(self.page).get_by_role('button', name='Library', exact=True).click()
+        expect(self.page).to_have_url(series_url)
+        expect(self.page.get_by_role('heading', name='Return series', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Continue Reading Parity 0', exact=True)).to_be_visible()
+        self.assertEqual(prior_length + 1, self.page.evaluate('history.length'))
+        self.page.go_back()
+        expect(self.page.get_by_role('button', name='Open series Return series', exact=True)).to_be_visible()
+        self.assertNotIn('/b?', self.page.url)
+        self.page.go_forward()
+        expect(self.page).to_have_url(series_url)
+        expect(self.page.get_by_role('heading', name='Return series', exact=True)).to_be_visible()
+        self.page.get_by_role('button', name='Back', exact=True).click()
+        expect(self.page.get_by_role('button', name='Open series Return series', exact=True)).to_be_visible()
+        self.assertNotIn('/b?', self.page.url)
+
     def test_single_and_batch_blur_persist_in_grid_list_and_series(self):
         self.populate(2)
         before = self.stores('books', ['data'])

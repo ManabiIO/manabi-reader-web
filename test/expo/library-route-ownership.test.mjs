@@ -67,6 +67,7 @@ test('mounted Library routes own their series, shallow search and return navigat
                 export { StackRouter } from 'installed-expo-stack-router';
                 export const RouteParams = createContext({});
                 export const useRoute = () => ({ params: useContext(RouteParams) });
+                export const useIsFocused = () => true;
               `,
               loader: 'js'
             }));
