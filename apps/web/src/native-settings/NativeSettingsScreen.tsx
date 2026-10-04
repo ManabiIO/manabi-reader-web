@@ -81,7 +81,12 @@ function Action({
   colors: Colors;
 }) {
   return (
-    <Host matchContents colorScheme={colors.mode} seedColor={colors.seedColor}>
+    <Host
+      matchContents={{ vertical: true }}
+      style={{ width: '100%' }}
+      colorScheme={colors.mode}
+      seedColor={colors.seedColor}
+    >
       <Button
         label={label}
         onPress={onPress}

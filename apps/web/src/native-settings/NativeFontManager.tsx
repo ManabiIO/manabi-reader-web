@@ -7,7 +7,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Button, Host, TextInput, useNativeState } from '@expo/ui';
+import { Host, TextInput, useNativeState } from '@expo/ui';
+import { ExpoButton as Button } from '../shared-ui/ExpoButton';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
 import { isNativeFontState, type FontFamily, type NativeFontState } from './font-contract';
 interface FontColors {

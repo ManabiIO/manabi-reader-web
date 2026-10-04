@@ -107,6 +107,8 @@ function Workspace({
   const checkpoint = useRef<(close?: boolean) => void>(() => {});
   const alive = useRef(true);
   const running = useRef(false);
+  const savingCheckpoint = useRef(false);
+  const closeAfterCheckpoint = useRef(false);
   const sequence = useRef(0);
   const latest = useRef({ editor, patch, dirty });
   latest.current = { editor, patch, dirty };
@@ -151,6 +153,8 @@ function Workspace({
   const act = async (payload: Record<string, unknown>, close = false) => {
     if (running.current) return;
     running.current = true;
+    savingCheckpoint.current = payload.type === 'checkpoint';
+    closeAfterCheckpoint.current = close;
     setBusy(true);
     setError('');
     try {
@@ -159,7 +163,7 @@ function Workspace({
       if (result.editor) applyEditor(result.editor);
       if (result.folders) setFolders(result.folders);
       if (result.readerId) await onRead?.(result.readerId);
-      if (result.saved || close) {
+      if (result.saved || closeAfterCheckpoint.current) {
         setEditor(undefined);
         setPatch(undefined);
         setDirty(false);
@@ -172,10 +176,18 @@ function Workspace({
       report(cause);
     } finally {
       running.current = false;
+      savingCheckpoint.current = false;
+      closeAfterCheckpoint.current = false;
       if (alive.current) setBusy(false);
     }
   };
   const saveDraft = (close = false) => {
+    if (running.current) {
+      // Back can arrive during autosave. Honor it after the admitted checkpoint
+      // succeeds, without a second write or leaving an unsaved editor on failure.
+      if (close && savingCheckpoint.current) closeAfterCheckpoint.current = true;
+      return;
+    }
     const current = latest.current;
     if (current.editor && current.patch)
       void act(
@@ -208,7 +220,6 @@ function Workspace({
     });
     const handleBack = () => {
       if (!latest.current.editor) return false;
-      if (running.current) return true;
       checkpoint.current(true);
       return true;
     };

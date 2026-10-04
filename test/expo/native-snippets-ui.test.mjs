@@ -280,3 +280,74 @@ test('header Back shares hardware Back checkpoint ownership and never leaves a f
   }
   assert.equal(f.backHandlerRef.current, undefined);
 });
+
+test('Back during an autosave closes the editor after that same checkpoint succeeds', async () => {
+  let release;
+  const f = setup(async (method, payload) => {
+    if (payload.type === 'checkpoint')
+      return new Promise((resolve) => {
+        release = () =>
+          resolve({
+            editor: { ...structuredClone(editor), title: payload.patch.title, token: 'autosaved' }
+          });
+      });
+  });
+  try {
+    await f.render();
+    await click(f, 'New snippet');
+    await type(f, 'Snippet title', 'Saved while returning');
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 850));
+    });
+    assert.equal(f.calls.filter((c) => c.payload.type === 'checkpoint').length, 1);
+    await act(async () => {
+      assert.equal(f.backHandlerRef.current(), true);
+      assert.equal([...backListeners][0](), true);
+    });
+    assert.ok(f.container.querySelector('[aria-label="Snippet title"]'));
+    await act(async () => release());
+    assert.ok(!f.container.querySelector('[aria-label="Snippet title"]'));
+    assert.equal(f.calls.filter((c) => c.payload.type === 'checkpoint').length, 1);
+    assert.equal(f.backHandlerRef.current(), false);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test('Back during a failing autosave retains the editor and permits an explicit retry', async () => {
+  let reject;
+  let fail = true;
+  const f = setup(async (method, payload) => {
+    if (payload.type === 'checkpoint' && fail)
+      return new Promise((resolve, rejected) => {
+        reject = rejected;
+      });
+  });
+  try {
+    await f.render();
+    await click(f, 'New snippet');
+    await type(f, 'Snippet title', 'Retain this draft');
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 850));
+    });
+    await act(async () => {
+      assert.equal(f.backHandlerRef.current(), true);
+    });
+    await act(async () => reject(new Error('Checkpoint unavailable')));
+    assert.ok(f.container.querySelector('[aria-label="Snippet title"]'));
+    assert.match(f.container.textContent, /Checkpoint unavailable/);
+    assert.equal(f.calls.filter((c) => c.payload.type === 'checkpoint').length, 1);
+    fail = false;
+    await act(async () => {
+      assert.equal(f.backHandlerRef.current(), true);
+    });
+    assert.ok(!f.container.querySelector('[aria-label="Snippet title"]'));
+    assert.equal(f.calls.filter((c) => c.payload.type === 'checkpoint').length, 2);
+    assert.equal(
+      f.calls.filter((c) => c.payload.type === 'checkpoint')[1].payload.patch.title,
+      'Retain this draft'
+    );
+  } finally {
+    await f.dispose();
+  }
+});

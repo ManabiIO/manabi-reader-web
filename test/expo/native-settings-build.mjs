@@ -25,6 +25,7 @@ for (const [name, entry, platform, external] of [
     packages: 'external',
     external,
     jsx: 'automatic',
+    loader: { '.xml': 'text' },
     tsconfig: 'apps/web/tsconfig.json',
     logLevel: 'silent'
   });

@@ -24,9 +24,16 @@ const compiled = await build({
       name: 'native-view-boundaries',
       setup(b) {
         b.onResolve(
-          { filter: /^(react-native|react-native-safe-area-context|@expo\/ui)$/ },
+          {
+            filter:
+              /^(react-native|react-native-safe-area-context|@expo\/ui(?:\/jetpack-compose)?)$/
+          },
           (args) => ({ path: args.path, namespace: 'native-test' })
         );
+        b.onResolve({ filter: /^(?:\.\/theme)$|shared-ui\/theme$/ }, () => ({
+          path: 'theme',
+          namespace: 'native-test'
+        }));
         b.onResolve({ filter: /RuntimeProvider\.native$/ }, () => ({
           path: 'runtime',
           namespace: 'native-test'
@@ -34,11 +41,15 @@ const compiled = await build({
         b.onLoad({ filter: /.*/, namespace: 'native-test' }, ({ path }) => ({
           loader: 'js',
           contents:
-            path === 'runtime'
-              ? `export const useReaderRuntime=()=>globalThis.__fontRuntime;`
-              : path === '@expo/ui'
-                ? `import React from 'react'; export const Host=({children})=>React.createElement('div',{},children);export const Button=({label,onPress,disabled})=>React.createElement('button',{onClick:onPress,disabled},label); export const TextInput=({value,onChangeText,placeholder,editable})=>React.createElement('input',{'aria-label':placeholder,value:value.value,disabled:editable===false,onInput:e=>onChangeText(e.currentTarget.value),onChange:()=>{}});export const useNativeState=value=>React.useRef({value}).current;`
-                : `import React from 'react'; export const alerts=[]; export const Alert={alert:(...args)=>alerts.push(args)};export const View=({children})=>React.createElement('div',{},children);export const Text=({children})=>React.createElement('span',{},children);export const ScrollView=View,SafeAreaView=View,Modal=View,ActivityIndicator=()=>null;export const StyleSheet={create:v=>v};`
+            path === 'theme'
+              ? `export const useUiTheme=()=>({colors:{primary:'#212121',primaryForeground:'#fff',foreground:'#212121',secondary:'#eee',mutedForeground:'#666'}});`
+              : path === '@expo/ui/jetpack-compose'
+                ? `import React from 'react';export const Button=({children,onClick,enabled,colors})=>React.createElement('button',{onClick,disabled:!enabled,'data-compose-colors':JSON.stringify(colors)},children);export const OutlinedButton=Button,TextButton=Button;export const Text=({children,color})=>React.createElement('span',{'data-compose-text':color},children);`
+                : path === 'runtime'
+                  ? `export const useReaderRuntime=()=>globalThis.__fontRuntime;`
+                  : path === '@expo/ui'
+                    ? `import React from 'react'; export const Host=({children})=>React.createElement('div',{},children);export const Button=({label,onPress,disabled})=>React.createElement('button',{onClick:onPress,disabled},label); export const TextInput=({value,onChangeText,placeholder,editable})=>React.createElement('input',{'aria-label':placeholder,value:value.value,disabled:editable===false,onInput:e=>onChangeText(e.currentTarget.value),onChange:()=>{}});export const useNativeState=value=>React.useRef({value}).current;`
+                    : `import React from 'react'; export const alerts=[]; export const Alert={alert:(...args)=>alerts.push(args)};export const View=({children})=>React.createElement('div',{},children);export const Text=({children})=>React.createElement('span',{},children);export const ScrollView=View,SafeAreaView=View,Modal=View,ActivityIndicator=()=>null;export const StyleSheet={create:v=>v};`
         }));
       }
     }
@@ -193,4 +204,18 @@ test('failed mutations require an explicit successful refresh before a retry', a
   assert.equal(f.closeCount, 0);
   await act(async () => f.button('Refresh stored fonts').click());
   assert.equal(f.button('Use Face').disabled, false);
+});
+
+test('font manager utility actions use neutral unfilled Compose controls', async (t) => {
+  await fixture(t);
+  for (const label of ['Close font manager', 'Refresh stored fonts', 'Choose font file and save']) {
+    const button = [...document.querySelectorAll('button')].find(
+      (item) => item.textContent === label
+    );
+    assert.ok(button, label);
+    const colors = JSON.parse(button.getAttribute('data-compose-colors'));
+    assert.equal(colors.containerColor, 'transparent');
+    assert.equal(colors.contentColor, '#212121');
+    assert.equal(colors.disabledContentColor, '#666');
+  }
 });
