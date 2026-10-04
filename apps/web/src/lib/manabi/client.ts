@@ -279,10 +279,11 @@ export async function request<T>(
       credentials: 'same-origin',
       redirect: 'error',
       cache: 'no-store',
-      // Library source discovery can still be in flight when a document closes.
-      // Keep this small account-scoped GET alive so WebKit does not report its
+      // Source discovery and paginated reading feeds can outlive navigation.
+      // Keep these account-scoped GETs alive so WebKit does not report their
       // unload cancellation as an uncaught cross-origin fetch error.
-      keepalive: method === 'GET' && path === 'connections/',
+      keepalive:
+        method === 'GET' && (path === 'connections/' || path.startsWith('personal/changes/?')),
       signal: AbortSignal.timeout(45000)
     });
   } catch {

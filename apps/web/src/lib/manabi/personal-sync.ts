@@ -1455,7 +1455,9 @@ export function startPersonalSync() {
   let running = false,
     rerun = false;
   const run = () => {
-    if (stopped || !currentUser()) return;
+    // navigator.onLine is only a background scheduling hint. Explicit/manual
+    // sync entry points may still probe connectivity when the hint is stale.
+    if (stopped || !currentUser() || globalThis.navigator?.onLine === false) return;
     if (running) {
       rerun = true;
       return;
