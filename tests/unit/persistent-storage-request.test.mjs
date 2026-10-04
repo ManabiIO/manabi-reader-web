@@ -163,3 +163,128 @@ test('later origin-level grant supersedes an earlier denied automatic attempt', 
   assert.equal(persistCalls, 1, 'known persistent origin requested permission again');
 });
 
+test('status waits for an existing request before reading browser persistence', async () => {
+  const granted = deferred();
+  let persistedCalls = 0;
+  const { api } = loadOfflineModule(
+    'apps/web/src/lib/data/window/navigator/persistent-storage.ts',
+    {
+      modules: {
+        './storage-access.mjs': {
+          createStorageAccess() {
+            return {
+              persist: () => granted.promise,
+              persisted: async () => {
+                persistedCalls += 1;
+                return true;
+              }
+            };
+          }
+        }
+      }
+    }
+  );
+  api.requestPersistentStorageOnce();
+  const status = api.persistentStorageStatus();
+  await Promise.resolve();
+  assert.equal(persistedCalls, 0, 'an existing grant must settle before the browser probe');
+  granted.resolve(true);
+  assert.equal(await status, true);
+  assert.equal(persistedCalls, 1);
+});
+
+test('status joins a request started during a stale browser probe', async () => {
+  const persisted = deferred();
+  const granted = deferred();
+  let settled = false;
+  const { api } = loadOfflineModule(
+    'apps/web/src/lib/data/window/navigator/persistent-storage.ts',
+    {
+      modules: {
+        './storage-access.mjs': {
+          createStorageAccess() {
+            return {
+              persisted: () => persisted.promise,
+              persist: () => granted.promise
+            };
+          }
+        }
+      }
+    }
+  );
+  const status = api.persistentStorageStatus().then((result) => {
+    settled = true;
+    return result;
+  });
+  api.requestPersistentStorageOnce();
+  persisted.resolve(false);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(settled, false, 'status must wait for the newer active request');
+  granted.resolve(true);
+  assert.equal(await status, true);
+});
+
+test('denied persistence status remains false and does not repeat an automatic prompt', async () => {
+  const denied = deferred();
+  let persistedCalls = 0;
+  let persistCalls = 0;
+  const { api } = loadOfflineModule(
+    'apps/web/src/lib/data/window/navigator/persistent-storage.ts',
+    {
+      modules: {
+        './storage-access.mjs': {
+          createStorageAccess() {
+            return {
+              persist: () => {
+                persistCalls += 1;
+                return denied.promise;
+              },
+              persisted: async () => {
+                persistedCalls += 1;
+                return false;
+              }
+            };
+          }
+        }
+      }
+    }
+  );
+  api.requestPersistentStorageOnce();
+  const status = api.persistentStorageStatus();
+  await Promise.resolve();
+  assert.equal(persistedCalls, 0);
+  denied.resolve(false);
+  assert.equal(await status, false);
+  assert.equal(await api.requestPersistentStorageOnce(), false);
+  assert.equal(await api.persistentStorageStatus(), false);
+  assert.equal(persistCalls, 1);
+});
+
+test('an origin-level grant discovered during a denied request remains authoritative', async () => {
+  const probe = deferred();
+  const denied = deferred();
+  const { api } = loadOfflineModule(
+    'apps/web/src/lib/data/window/navigator/persistent-storage.ts',
+    {
+      modules: {
+        './storage-access.mjs': {
+          createStorageAccess() {
+            return {
+              persisted: () => probe.promise,
+              persist: () => denied.promise
+            };
+          }
+        }
+      }
+    }
+  );
+  const status = api.persistentStorageStatus();
+  const request = api.requestPersistentStorageOnce();
+  probe.resolve(true);
+  assert.equal(await status, true);
+  denied.resolve(false);
+  assert.equal(await request, false);
+  assert.equal(await api.requestPersistentStorageOnce(), true);
+  assert.equal(await api.retryPersistentStorage(), true);
+});

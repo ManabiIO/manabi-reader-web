@@ -54,13 +54,17 @@ export function retryPersistentStorage(): Promise<boolean> {
  * This never starts browser permission UI.
  */
 export async function persistentStorageStatus(): Promise<boolean> {
+  // Existing requests settle before the browser snapshot. Recheck after that
+  // snapshot as a request may also start or finish while persisted() is pending.
+  const pendingRequest = automaticRequest;
+  if (pendingRequest) await pendingRequest;
   if (await automaticStorage.persisted()) {
     automaticAttempted = true;
     automaticResult = true;
     return true;
   }
   const request = automaticRequest;
-  if (request) return request;
+  if (request) await request;
   return automaticResult === true;
 }
 
