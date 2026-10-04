@@ -5,6 +5,9 @@
  */
 
 import React from 'react';
+import { CaretLeft } from '@phosphor-icons/react';
+import { navigationReturnPath } from '../shared-ui/navigation-context';
+import { readNavigationArrival } from '../runtime/navigation';
 import { useReaderController } from '../reader-react/controller';
 import {
   Dom,
@@ -42,6 +45,13 @@ import { Shelf } from './shelf';
 import { DestinationPicker } from './destination-picker';
 
 export function Workspace(props: WorkspaceProps & ReaderViewProps) {
+  const [returnHref] = React.useState(() => {
+    const current = new URL(
+      props.routeUrl ?? (typeof window === 'undefined' ? `${base}/snippets` : window.location.href),
+      'https://reader.invalid'
+    );
+    return navigationReturnPath(current, readNavigationArrival(current)?.from, base);
+  });
   const latest = useLatest(props);
   const c = useReaderController(
     () =>
@@ -70,13 +80,11 @@ export function Workspace(props: WorkspaceProps & ReaderViewProps) {
           as="header"
           className={['top'].filter(Boolean).join(' ')}
         >
-          <Dom
-            scopeClass="snippet-scope-workspace"
-            as="a"
-            href={resolve('/manage')}
-            className={['brand'].filter(Boolean).join(' ')}
-          >
-            {'Manabi Reader'}
+          <Button href={returnHref} variant="ghost" size="icon-lg" shape="circle" aria-label="Back">
+            <CaretLeft size={20} aria-hidden="true" />
+          </Button>
+          <Dom scopeClass="snippet-scope-workspace" as="span" className="brand">
+            Snippets
           </Dom>
           <AppNav></AppNav>
         </Dom>

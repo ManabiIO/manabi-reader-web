@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { RouteBack } from '../shared-ui/RouteBack.web';
 import { useReaderController } from '../reader-react/controller';
 import {
   Dom,
@@ -52,11 +53,12 @@ export function ImportTtuScreen(
         <Dom
           as="header"
           className={[
-            'app-header flex min-h-12 items-center justify-end border-b border-border bg-card px-3'
+            'app-header flex min-h-14 items-center justify-between border-b border-border bg-card px-3'
           ]
             .filter(Boolean)
             .join(' ')}
         >
+          <RouteBack fallback="/manage" />
           <AppNav></AppNav>
         </Dom>
         <Head>
@@ -67,20 +69,6 @@ export function ImportTtuScreen(
           </Dom>
         </Head>
         <Dom as="main" className={['migration-page'].filter(Boolean).join(' ')}>
-          <Dom
-            as="nav"
-            aria-label={'Context navigation'}
-            className={['page-navigation'].filter(Boolean).join(' ')}
-          >
-            <Button
-              href={resolve('/manage')}
-              variant={'link'}
-              size={'sm'}
-              aria-label={'Back to Library'}
-            >
-              {'← Library'}
-            </Button>
-          </Dom>
           <Dom as="h1">{`Import from ${c.yatsu ? 'Yatsu Reader' : 'Ttu Ebook Reader'}`}</Dom>
           {!c.yatsu ? (
             <>

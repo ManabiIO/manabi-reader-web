@@ -20,6 +20,9 @@ run('tsc', [
   // module compile needs the same declared environment as the app tsconfig.
   '--types',
   'node',
+  // The independent CPU CI job installs its compiler/types in a fresh runner
+  // directory; it intentionally does not install the full Expo dependency graph.
+  ...(process.env.MEDIA_TYPES_ROOT ? ['--typeRoots', process.env.MEDIA_TYPES_ROOT] : []),
   '--strict',
   '--skipLibCheck',
   '--outDir',

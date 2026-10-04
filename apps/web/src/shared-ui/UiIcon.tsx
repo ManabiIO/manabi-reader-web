@@ -22,6 +22,7 @@ import sortDescendingAsset from './icons/sortDescending.xml';
 import menuAsset from './icons/menu.xml';
 import leftAsset from './icons/left.xml';
 import rightAsset from './icons/right.xml';
+import moreAsset from './icons/more.xml';
 const assets = {
   trash: trashAsset,
   edit: editAsset,
@@ -36,7 +37,8 @@ const assets = {
   sortDescending: sortDescendingAsset,
   menu: menuAsset,
   left: leftAsset,
-  right: rightAsset
+  right: rightAsset,
+  more: moreAsset
 };
 export interface UiIconProps {
   name: keyof typeof assets;

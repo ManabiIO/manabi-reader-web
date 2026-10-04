@@ -5,8 +5,9 @@
  */
 
 import { useEffect, type ReactNode } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { Button, Host, TextInput, useNativeState } from '@expo/ui';
+import { StyleSheet, Text, View, ScrollView, useWindowDimensions } from 'react-native';
+import { Host, TextInput, useNativeState } from '@expo/ui';
+import { ExpoButton as Button } from '../../shared-ui/ExpoButton';
 export interface WorkspaceColors {
   text: string;
   muted: string;
@@ -37,10 +38,23 @@ export interface WorkspaceIntroductionProps {
   colors?: WorkspaceColors;
 }
 export function WorkspaceFrame({ children }: WorkspaceFrameProps) {
-  return <View style={styles.frame}>{children}</View>;
+  const { width, fontScale } = useWindowDimensions();
+  return (
+    <View
+      style={[
+        styles.frame,
+        width / fontScale >= 1024 && { flexDirection: 'row', alignItems: 'flex-start' }
+      ]}
+    >
+      {children}
+    </View>
+  );
 }
 export function WorkspaceAside({ children }: { children?: ReactNode }) {
-  return <View style={styles.aside}>{children}</View>;
+  const { width, fontScale } = useWindowDimensions();
+  return (
+    <View style={[styles.aside, width / fontScale >= 1024 && { width: 224 }]}>{children}</View>
+  );
 }
 export function WorkspaceSearch({ query, onSearch, colors }: WorkspaceSearchProps) {
   const value = useNativeState(query);
@@ -73,7 +87,14 @@ export function WorkspaceSearch({ query, onSearch, colors }: WorkspaceSearchProp
   );
 }
 export function WorkspaceNavigation({ children }: { children?: ReactNode }) {
-  return <View style={styles.navigation}>{children}</View>;
+  const { width, fontScale } = useWindowDimensions();
+  return width / fontScale >= 1024 ? (
+    <View style={[styles.navigation, { flexDirection: 'column' }]}>{children}</View>
+  ) : (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+      <View style={[styles.navigation, { flexWrap: 'nowrap' }]}>{children}</View>
+    </ScrollView>
+  );
 }
 export function WorkspaceCategory({ label, selected, onActivate, colors }: WorkspaceCategoryProps) {
   return (
@@ -87,7 +108,7 @@ export function WorkspaceCategory({ label, selected, onActivate, colors }: Works
   );
 }
 export function WorkspaceMain({ children }: { children?: ReactNode }) {
-  return <View style={styles.main}>{children}</View>;
+  return <View style={[styles.main, { flex: 1 }]}>{children}</View>;
 }
 export function WorkspaceIntroduction({
   title,

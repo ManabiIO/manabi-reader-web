@@ -6,6 +6,7 @@
 
 import type { StatisticsPort, StatisticsSnapshot, StatisticsUiTheme } from './contract';
 import { StatisticsTransferAssembly, type StatisticsTransferReply } from './transport';
+import { assertNotAborted } from '../../platform/abort-signal';
 
 export interface NativeStatisticsTransport {
   ownerKey(): string;
@@ -30,7 +31,7 @@ export function createNativeStatisticsPort(transport: NativeStatisticsTransport)
       .catch(() => {});
   };
   const assertCurrent = (signal: AbortSignal) => {
-    signal.throwIfAborted();
+    assertNotAborted(signal);
     if (retired || transport.ownerKey() !== originalOwner)
       throw new Error('Statistics access changed. Return to Library and reopen Statistics.');
     if (transport.error) throw new Error(transport.error);

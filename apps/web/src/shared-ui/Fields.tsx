@@ -5,7 +5,8 @@
  */
 
 import type { ReactNode } from 'react';
-import { Host, Checkbox, Picker, Switch } from '@expo/ui';
+import { Host, Picker } from '@expo/ui';
+import { Checkbox, Switch } from './ExpoToggle';
 import { Platform, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useUiTheme } from './theme';
 import { UiPresentation } from './Presentation';

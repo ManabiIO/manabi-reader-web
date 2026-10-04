@@ -220,7 +220,7 @@ for (const themeProps of appearances) {
     assert.equal(style(title.parentElement).backgroundColor, theme.colors.card);
     assert.equal(style(title.parentElement).borderColor, theme.colors.border);
   });
-  test(`${themeProps.themeId}: cover placeholder follows semantic colors without changing grid dimensions`, async (t) => {
+  test(`${themeProps.themeId}: cover placeholder follows semantic colors with bounded book proportions`, async (t) => {
     const container = await mount(
       t,
       NativeBookCover,
@@ -229,7 +229,10 @@ for (const themeProps of appearances) {
     );
     const frame = style(container.firstChild);
     assert.equal(frame.width, '100%');
-    assert.equal(frame.height, 196);
+    assert.equal(frame.height, undefined);
+    assert.equal(frame.aspectRatio, 2 / 3);
+    assert.equal(frame.maxWidth, 200);
+    assert.equal(frame.alignSelf, 'center');
     assert.equal(frame.backgroundColor, theme.colors.muted);
     assertText(container, theme);
   });

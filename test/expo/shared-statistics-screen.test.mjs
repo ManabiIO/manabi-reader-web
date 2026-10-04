@@ -14,6 +14,8 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', {
 });
 Object.assign(globalThis, {
   window: dom.window,
+  location: dom.window.location,
+  history: dom.window.history,
   document: dom.window.document,
   HTMLElement: dom.window.HTMLElement,
   Node: dom.window.Node,
@@ -88,7 +90,7 @@ await build({
         }));
         b.onResolve({ filter: /^expo-router$/ }, () => ({ path: 'router', namespace: 'router' }));
         b.onLoad({ filter: /.*/, namespace: 'router' }, () => ({
-          contents: `import React from 'react'; export function Link({href,children}) { return React.cloneElement(children,{href}); } let focused=true; const listeners=new Set(); export function setFocus(value){focused=value;for(const listener of listeners)listener();} export function useFocusEffect(callback){React.useEffect(()=>{let cleanup;const update=()=>{cleanup?.();cleanup=focused?callback():undefined;};listeners.add(update);update();return()=>{listeners.delete(update);cleanup?.();};},[callback]);}`,
+          contents: `import React from 'react'; export const usePathname=()=>'/statistics'; export const useRoute=()=>({params:{}}); export function Link({href,children}) { return React.cloneElement(children,{href}); } let focused=true; const listeners=new Set(); export function setFocus(value){focused=value;for(const listener of listeners)listener();} export function useFocusEffect(callback){React.useEffect(()=>{let cleanup;const update=()=>{cleanup?.();cleanup=focused?callback():undefined;};listeners.add(update);update();return()=>{listeners.delete(update);cleanup?.();};},[callback]);}`,
           loader: 'jsx',
           resolveDir: process.cwd()
         }));
@@ -272,7 +274,7 @@ test('production shared screen uses real RNW and ExpoUI controls for every measu
       fixture.container.querySelector('[data-testid="shared-statistics-screen"]')?.tagName,
       'DIV'
     );
-    assert.equal(findButton('Statistics options').dataset.variant, 'secondary');
+    assert.equal(findButton('Statistics options').dataset.variant, 'ghost');
     assert.equal(findButton('Filter books').dataset.variant, 'secondary');
     await press('Heatmap');
     assert.equal(findButton('Heatmap').getAttribute('aria-pressed'), 'true');
@@ -339,13 +341,12 @@ test('shared navigation retains the original external User guide destination and
   const { port } = fakePort();
   const fixture = await mount(port);
   try {
-    await press('Navigate');
-    const current = dialog('Manabi Reader').querySelector('a[aria-current="page"]');
-    assert.ok(current);
-    assert.match(current.textContent, /Statistics/);
-    assert.equal(current.hasAttribute('aria-pressed'), false);
-    assert.equal(current.hasAttribute('aria-selected'), false);
-    const guide = dialog('Manabi Reader').querySelector('a[aria-label="User guide"]');
+    assert.equal(document.querySelector('[aria-label="Primary navigation"]'), null);
+    assert.equal(document.querySelector('a[aria-current="page"]'), null);
+    await press('Statistics options');
+    const guide = document.querySelector(
+      '[role="menu"][aria-label="Statistics options"] a[aria-label="User guide"]'
+    );
     assert.ok(guide);
     assert.equal(guide.getAttribute('href'), '/Manabi-Web/Docs/');
     assert.equal(guide.target, '_blank');

@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Layers,
   Menu,
+  Ellipsis,
   Pen,
   Repeat2,
   Save,
@@ -38,7 +39,8 @@ const icons = {
   sortDescending: ArrowDownWideNarrow,
   menu: Menu,
   left: ArrowLeft,
-  right: ArrowRight
+  right: ArrowRight,
+  more: Ellipsis
 };
 export function UiIcon({ name, size = 16, color }: UiIconProps) {
   const tone = useContext(ControlTone);

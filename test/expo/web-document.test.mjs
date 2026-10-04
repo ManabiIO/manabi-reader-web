@@ -53,6 +53,8 @@ test('Expo only targets Android/web and does not request microphone or unused ba
   assert.equal(config.ios, undefined);
   assert.equal(config.macos, undefined);
   assert.equal(config.updates.enabled, false);
+  assert.equal(config.userInterfaceStyle, 'automatic');
+  assert(config.plugins.includes('expo-system-ui'));
   const audio = config.plugins.find(
     (plugin) => Array.isArray(plugin) && plugin[0] === 'expo-audio'
   )[1];

@@ -24,17 +24,17 @@ process.on('exit', () => rmSync(output, { recursive: true, force: true }));
 const fixture = `import React,{useRef} from 'react';
 export const View=({children})=><div>{children}</div>; export const ScrollView=View,SafeAreaView=View,Host=View;
 export const Text=({children})=><span>{children}</span>; export const StyleSheet={create:x=>x,flatten:x=>Object.assign({},...(Array.isArray(x)?x.flat(Infinity):[x]).filter(Boolean))};
-export const Platform={OS:"android"}; export const useColorScheme=()=>"light";
+export const Platform={OS:"android"}; export const useColorScheme=()=>"light"; export const useWindowDimensions=()=>({width:390,height:844,fontScale:1});
 export const ActivityIndicator=()=>null; export const Modal=({visible,children})=>visible?<section>{children}</section>:null;
-export const Pressable=({children,onPress,disabled})=><button disabled={disabled} onClick={onPress}>{children}</button>;
+export const Pressable=({children,onPress,disabled,accessibilityLabel,role})=><button role={role} aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{typeof children==='function'?children({pressed:false}):children}</button>; export const UiIcon=()=>null;
 export const FlatList=({data,renderItem,numColumns})=><div data-columns={numColumns}>{data.map(item=><div key={item.key}>{renderItem({item})}</div>)}</div>;
 export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder})=><input value={value.value} onChange={event=>onChangeText?.(event.target.value)} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=({label,value,onValueChange,disabled})=><input type="checkbox" aria-label={label} checked={value} disabled={disabled} onChange={event=>onValueChange(event.target.checked)}/>;
 export const Action=({label,onPress,disabled,theme,variant})=><button data-variant={variant} data-seed={theme?.seedColor} disabled={disabled} onClick={onPress}>{label}</button>;
-export const Screen=({actions,children,theme})=><main data-mode={theme?.mode} data-background={theme?.colors.background}>{actions}{children}</main>;
+export const Screen=({actions,children,theme,menuActions})=><main data-mode={theme?.mode} data-background={theme?.colors.background}>{actions}{menuActions?.(()=>{})}{children}</main>;
 export const Alert={alert:(...args)=>globalThis.libraryStatisticsUI.confirmations.push(args)};
 export const useReaderRuntime=()=>globalThis.libraryStatisticsUI.runtime;
 export const usePathname=()=>globalThis.libraryStatisticsUI.pathname;
-export const router={push:path=>globalThis.libraryStatisticsUI.routes.push(path)};
+export const Link=({children})=>children; export const router={push:path=>globalThis.libraryStatisticsUI.routes.push(path)};
 export const NativeLibraryContentSearch=()=>null,NativeBookCover=()=>null,NativeEditorsPicks=()=>null;
 export class NativeLibraryCoverController{activate(){}dispose(){}viewport(){}setView(){}setActive(){}};`;
 const outfile = join(output, 'library.cjs');
@@ -58,7 +58,7 @@ await build({
         b.onResolve(
           {
             filter:
-              /^(react-native|react-native-safe-area-context|@expo\/ui|expo-router)$|\/NativeScreens$|\/RuntimeProvider\.native$|^\.\/(cover|cover-controller|catalog|content-search)$/
+              /^(react-native|react-native-safe-area-context|@expo\/ui|expo-router)$|\/NativeScreens$|\/UiIcon$|\/ExpoToggle$|\/RuntimeProvider\.native$|^\.\/(cover|cover-controller|catalog|content-search)$/
           },
           () => ({ path: 'fixture', namespace: 'fixture' })
         );
@@ -166,7 +166,7 @@ async function mount(t, override, uiTheme) {
 }
 async function click(f, label) {
   const button = [...f.container.querySelectorAll('button')].find(
-    (item) => item.textContent === label
+    (item) => item.textContent === label || item.getAttribute('aria-label') === label
   );
   assert.ok(button, label);
   assert.equal(button.disabled, false, label);
@@ -383,7 +383,9 @@ test('Library restores saved sort controls, saves one choice and keeps filters o
   const f = await mount(t);
   await click(f, 'Sort and filter');
   const button = (label) =>
-    [...f.container.querySelectorAll('button')].find((item) => item.textContent === label);
+    [...f.container.querySelectorAll('button')].find(
+      (item) => item.textContent === label || item.getAttribute('aria-label') === label
+    );
   assert.equal(button('Author').dataset.variant, 'filled');
   assert.equal(button('Ascending').dataset.variant, 'filled');
   await click(f, 'Title');

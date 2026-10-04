@@ -4,7 +4,14 @@
  * All rights reserved.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MutableRefObject,
+  type ComponentProps
+} from 'react';
 import {
   ActivityIndicator,
   AppState,
@@ -14,10 +21,11 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
+  Text as NativeText,
   TextInput,
   View
 } from 'react-native';
+import { useUiTheme, type UiTheme } from '../shared-ui/theme';
 import type {
   NativeSnippetEditor,
   NativeSnippetFolders,
@@ -30,6 +38,8 @@ export interface NativeSnippetsScreenProps extends NativeSnippetsClient {
   identity: string;
   revision?: number;
   onRead?(id: string): void | Promise<void>;
+  backHandlerRef?: MutableRefObject<(() => boolean) | undefined>;
+  onEditingChange?(editing: boolean): void;
 }
 const patchFor = (editor: NativeSnippetEditor): NativeSnippetPatch => ({
   title: editor.title,
@@ -40,6 +50,10 @@ const patchFor = (editor: NativeSnippetEditor): NativeSnippetPatch => ({
   })),
   source: { ...editor.source }
 });
+function Text({ style, ...props }: ComponentProps<typeof NativeText>) {
+  const { colors } = useUiTheme();
+  return <NativeText {...props} style={[{ color: colors.foreground }, style]} />;
+}
 function Button({
   title,
   onPress,
@@ -51,6 +65,7 @@ function Button({
   disabled?: boolean;
   danger?: boolean;
 }) {
+  const styles = createStyles(useUiTheme().colors);
   return (
     <Pressable
       accessibilityRole="button"
@@ -67,7 +82,14 @@ function Button({
 export function NativeSnippetsScreen(props: NativeSnippetsScreenProps) {
   return <Workspace key={props.identity} {...props} />;
 }
-function Workspace({ identity, request, onRead }: NativeSnippetsScreenProps) {
+function Workspace({
+  identity,
+  request,
+  onRead,
+  backHandlerRef,
+  onEditingChange
+}: NativeSnippetsScreenProps) {
+  const styles = createStyles(useUiTheme().colors);
   const [state, setState] = useState<NativeSnippetsState>();
   const [query, setQuery] = useState('');
   const [trash, setTrash] = useState(false);
@@ -184,13 +206,16 @@ function Workspace({ identity, request, onRead }: NativeSnippetsScreenProps) {
     const background = AppState.addEventListener('change', (value) => {
       if (value !== 'active' && latest.current.dirty && !running.current) checkpoint.current();
     });
-    const back = BackHandler.addEventListener('hardwareBackPress', () => {
+    const handleBack = () => {
       if (!latest.current.editor) return false;
       if (running.current) return true;
       checkpoint.current(true);
       return true;
-    });
+    };
+    if (backHandlerRef) backHandlerRef.current = handleBack;
+    const back = BackHandler.addEventListener('hardwareBackPress', handleBack);
     return () => {
+      if (backHandlerRef?.current === handleBack) backHandlerRef.current = undefined;
       alive.current = false;
       sequence.current++;
       background.remove();
@@ -205,7 +230,10 @@ function Workspace({ identity, request, onRead }: NativeSnippetsScreenProps) {
         }).catch(() => {});
       }
     };
-  }, [request]);
+  }, [request, backHandlerRef]);
+  useEffect(() => {
+    onEditingChange?.(!!editor);
+  }, [editor, onEditingChange]);
   const rowAction = (type: string, key: string) => {
     if (state) void act({ type, token: state.token, key });
   };
@@ -215,9 +243,6 @@ function Workspace({ identity, request, onRead }: NativeSnippetsScreenProps) {
   };
   return (
     <View style={styles.root}>
-      <Text accessibilityRole="header" style={styles.heading}>
-        Snippets
-      </Text>
       {!!error && (
         <View accessibilityRole="alert" style={styles.warning}>
           <Text>{error}</Text>
@@ -607,57 +632,58 @@ function Workspace({ identity, request, onRead }: NativeSnippetsScreenProps) {
     </View>
   );
 }
-const styles = StyleSheet.create({
-  root: { flex: 1, padding: 16, backgroundColor: '#f5f6f7' },
-  heading: { fontSize: 27, fontWeight: '700', marginBottom: 12, color: '#14213a' },
-  content: { gap: 12, paddingBottom: 32 },
-  row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
-  filters: { flexGrow: 0, marginVertical: 8, maxHeight: 56 },
-  input: {
-    borderColor: '#8490a2',
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 12,
-    backgroundColor: '#fff',
-    color: '#14213a',
-    fontSize: 16
-  },
-  body: { minHeight: 80, textAlignVertical: 'top' },
-  button: {
-    backgroundColor: '#194fb4',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginVertical: 3
-  },
-  buttonText: { color: '#fff', fontWeight: '600' },
-  disabled: { opacity: 0.45 },
-  danger: { backgroundColor: '#993c33' },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: '#d7deea'
-  },
-  panel: { gap: 8, padding: 12, borderRadius: 10, backgroundColor: '#e9eef7' },
-  title: { fontSize: 19, fontWeight: '700', color: '#14213a' },
-  label: { fontWeight: '600', color: '#203555', marginTop: 6 },
-  notice: { fontSize: 13, color: '#45556b', lineHeight: 19 },
-  warning: {
-    backgroundColor: '#fff1cb',
-    color: '#503a08',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8
-  },
-  overlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#0008',
-    padding: 24
-  },
-  dialog: { backgroundColor: '#fff', borderRadius: 14, padding: 24, gap: 20, maxWidth: 520 }
-});
+const createStyles = (colors: UiTheme['colors']) =>
+  StyleSheet.create({
+    root: { flex: 1, padding: 16, backgroundColor: colors.background },
+    heading: { fontSize: 27, fontWeight: '700', marginBottom: 12, color: colors.foreground },
+    content: { gap: 12, paddingBottom: 32 },
+    row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+    filters: { flexGrow: 0, marginVertical: 8, maxHeight: 56 },
+    input: {
+      borderColor: colors.border,
+      borderWidth: 1,
+      borderRadius: 8,
+      padding: 12,
+      backgroundColor: colors.card,
+      color: colors.foreground,
+      fontSize: 16
+    },
+    body: { minHeight: 80, textAlignVertical: 'top' },
+    button: {
+      backgroundColor: colors.primary,
+      borderRadius: 8,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      marginVertical: 3
+    },
+    buttonText: { color: colors.primaryForeground, fontWeight: '600' },
+    disabled: { opacity: 0.45 },
+    danger: { backgroundColor: colors.destructive },
+    card: {
+      backgroundColor: colors.card,
+      borderRadius: 12,
+      padding: 16,
+      gap: 10,
+      borderWidth: 1,
+      borderColor: colors.border
+    },
+    panel: { gap: 8, padding: 12, borderRadius: 10, backgroundColor: colors.secondary },
+    title: { fontSize: 19, fontWeight: '700', color: colors.foreground },
+    label: { fontWeight: '600', color: colors.foreground, marginTop: 6 },
+    notice: { fontSize: 13, color: colors.mutedForeground, lineHeight: 19 },
+    warning: {
+      backgroundColor: colors.secondary,
+      color: colors.foreground,
+      padding: 12,
+      borderRadius: 8,
+      marginBottom: 8
+    },
+    overlay: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: '#0008',
+      padding: 24
+    },
+    dialog: { backgroundColor: colors.card, borderRadius: 14, padding: 24, gap: 20, maxWidth: 520 }
+  });

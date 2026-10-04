@@ -5,10 +5,10 @@
  */
 
 import React from 'react';
+import { CaretLeft } from '@phosphor-icons/react';
 import { useReaderController } from '../reader-react/controller';
 import {
   Dom,
-  Icon,
   Button,
   AppNav,
   useLatest,
@@ -56,11 +56,7 @@ export function SettingsHeader(
             aria-label={'Back'}
             className={['settings-back'].filter(Boolean).join(' ')}
           >
-            <Icon
-              name="CaretLeftIcon"
-              aria-hidden={'true'}
-              className={['size-5 shrink-0'].filter(Boolean).join(' ')}
-            ></Icon>
+            <CaretLeft size={20} aria-hidden="true" />
             <Dom as="span" className={['back-label'].filter(Boolean).join(' ')}>
               {'Back'}
             </Dom>

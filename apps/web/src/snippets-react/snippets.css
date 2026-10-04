@@ -420,6 +420,8 @@ label.snippet-scope-editor {
   font-weight: 700;
   font-size: 1.1rem;
   overflow-wrap: anywhere;
+  margin: 0;
+  flex: 1;
 }
 
 .heading.snippet-scope-workspace {

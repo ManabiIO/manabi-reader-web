@@ -88,8 +88,8 @@ async function fixture(run) {
   const open = async () => {
     trigger().focus();
     trigger().click();
-    await until(() => window.document.querySelector('dialog[open]'), 'the real sheet opens');
-    return window.document.querySelector('dialog[open]');
+    await until(() => window.document.querySelector('[role="menu"]'), 'the contextual menu opens');
+    return window.document.querySelector('[role="menu"]');
   };
   try {
     await run({ window, api, until, trigger, open });
@@ -100,148 +100,115 @@ async function fixture(run) {
   assert.deepEqual(errors, [], 'mounted navigation must not emit React or DOM errors');
 }
 
-test('AppNav restores primary navigation and the complete accessible destination sheet', async () => {
+test('pushed Settings exposes related actions without global tabs or a Settings self-link', async () => {
   for (const strict of [false, true])
     await fixture(async ({ window, api, until, trigger, open }) => {
       api.render({ compact: true }, strict);
-      await until(trigger, 'Navigate mounts');
-      const primary = window.document.querySelector('nav[aria-label="Primary navigation"]');
-      assert.deepEqual(
-        [...primary.querySelectorAll('a')].map((link) => [
-          link.textContent,
-          link.getAttribute('href')
-        ]),
-        destinations.slice(0, 4).map(([label, path]) => [label, '/reader-web' + path])
-      );
-      assert.equal(primary.querySelector('[aria-current="page"]').textContent, 'Settings');
-      assert.equal(trigger().getAttribute('aria-label'), 'Navigate');
-      assert.equal(trigger().getAttribute('aria-haspopup'), 'dialog');
+      await until(trigger, 'overflow mounts');
+      assert.equal(window.document.querySelector('[aria-label="Primary navigation"]'), null);
+      assert.equal(trigger().getAttribute('aria-haspopup'), 'menu');
       assert.equal(trigger().getAttribute('aria-expanded'), 'false');
-      assert.ok(trigger().closest('.app-navigation-compact'));
-      const panel = await open();
+      const menu = await open();
       assert.equal(trigger().getAttribute('aria-expanded'), 'true');
-      assert.equal(trigger().getAttribute('aria-controls'), panel.id);
-      assert.equal(panel.getAttribute('role'), 'dialog');
-      assert.equal(panel.getAttribute('aria-modal'), 'true');
-      assert.equal(panel.dataset.side, 'right');
-      assert.equal(
-        window.document.getElementById(panel.getAttribute('aria-labelledby')).textContent,
-        'Manabi Reader'
+      assert.equal(menu.getAttribute('aria-label'), 'Page actions');
+      assert.deepEqual(
+        [...menu.querySelectorAll('[role="menuitem"]')].map((x) => x.getAttribute('aria-label')),
+        ['Accounts and libraries', 'User guide']
       );
-      assert.equal(
-        window.document.getElementById(panel.getAttribute('aria-describedby')).textContent,
-        'Your books. Your reading space.'
-      );
-      const navigation = panel.querySelector('nav[aria-label="Main navigation"]');
-      assert.equal(navigation.querySelectorAll('a').length, 8);
-      for (const [label, path, detail] of destinations) {
-        const link = navigation.querySelector(`a[aria-label="${label}"]`);
-        assert.equal(link.getAttribute('href'), '/reader-web' + path);
-        assert.equal(link.querySelector('.app-navigation-label').textContent, label);
-        assert.equal(link.querySelector('.app-navigation-detail').textContent, detail);
-        assert.equal(link.querySelector('svg').getAttribute('aria-hidden'), 'true');
-        assert.equal(link.getAttribute('aria-current'), path === '/settings' ? 'page' : null);
-      }
-      assert.ok(navigation.querySelector('[role="separator"]'));
-      const guide = navigation.querySelector('[aria-label="User guide"]');
+      assert.equal(menu.querySelector('[aria-current="page"]'), null);
+      const guide = menu.querySelector('[aria-label="User guide"]');
       assert.equal(guide.getAttribute('href'), '/Manabi-Web/Docs/');
       assert.equal(guide.getAttribute('target'), '_blank');
       assert.equal(guide.getAttribute('rel'), 'noopener noreferrer');
-      assert.equal(
-        guide.querySelector('.app-navigation-detail').textContent,
-        'Reading, libraries, and data'
-      );
+      assert.equal(guide.querySelector('svg').getAttribute('aria-hidden'), 'true');
     });
 });
 
-test('closing, canceling, and backdrop dismissal restore the trigger through repeated opens', async () => {
+test('Escape, trigger and outside dismissal work repeatedly and preserve the route', async () => {
   for (const strict of [false, true])
     await fixture(async ({ window, api, until, trigger, open }) => {
       api.render({}, strict);
-      await until(trigger, 'Navigate mounts');
-      for (const method of ['close', 'cancel', 'backdrop', 'close']) {
-        const panel = await open();
-        const close = panel.querySelector('button[aria-label="Close"]');
-        assert.equal(window.document.activeElement, close, 'focus starts on reachable dismissal');
-        if (method === 'close') close.click();
-        if (method === 'cancel') {
-          const cancel = new window.Event('cancel', { bubbles: false, cancelable: true });
-          panel.dispatchEvent(cancel);
-          assert.equal(cancel.defaultPrevented, true);
-        }
-        if (method === 'backdrop')
-          panel.dispatchEvent(
-            new window.MouseEvent('click', { bubbles: true, clientX: -1, clientY: -1 })
+      await until(trigger, 'overflow mounts');
+      for (const method of ['escape', 'trigger', 'outside', 'escape']) {
+        const menu = await open();
+        assert.equal(window.document.activeElement, menu.querySelector('[role="menuitem"]'));
+        if (method === 'escape')
+          menu.dispatchEvent(
+            new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
           );
-        await until(() => !window.document.querySelector('dialog'), method + ' dismisses');
-        assert.equal(window.document.activeElement, trigger());
+        if (method === 'trigger') trigger().click();
+        if (method === 'outside')
+          window.document.body.dispatchEvent(new window.Event('pointerdown', { bubbles: true }));
+        await until(() => !window.document.querySelector('[role="menu"]'), method + ' dismisses');
+        if (method === 'escape') assert.equal(window.document.activeElement, trigger());
         assert.equal(trigger().getAttribute('aria-expanded'), 'false');
         assert.equal(window.location.href, 'https://reader.example/reader-web/settings#appearance');
       }
     });
 });
 
-test('iconOnly uses the left sheet and omits primary navigation without dropping destinations', async () => {
+test('iconOnly is a 44px contextual overflow, without a compact global sidebar', async () => {
   await fixture(async ({ window, api, until, trigger, open }) => {
     api.render({ iconOnly: true, compact: true }, true);
-    await until(trigger, 'Main menu mounts');
+    await until(trigger, 'overflow mounts');
     assert.equal(trigger().getAttribute('aria-label'), 'Main menu');
-    assert.equal(trigger().getAttribute('title'), 'Main menu');
     assert.equal(trigger().querySelector('.navigation-label'), null);
     assert.equal(window.document.querySelector('[aria-label="Primary navigation"]'), null);
     assert.equal(window.getComputedStyle(trigger()).width, '44px');
     assert.equal(window.getComputedStyle(trigger()).height, '44px');
-    const panel = await open();
-    assert.equal(panel.dataset.side, 'left');
-    assert.equal(panel.querySelectorAll('nav a').length, 8);
+    const menu = await open();
+    assert.equal(window.document.querySelector('dialog'), null);
+    assert.equal(menu.querySelectorAll('[role="menuitem"]').length, 2);
   });
 });
 
-test('ordinary navigation uses the real route adapter and current-page markers follow history', async () => {
+test('navigation uses the actual adapter and contextual choices follow Back and Forward', async () => {
   await fixture(async ({ window, api, until, trigger, open }) => {
     api.render();
-    await until(trigger, 'Navigate mounts');
-    const panel = await open();
-    panel.querySelector('[aria-label="Import from Ttu Ebook Reader"]').click();
+    await until(trigger, 'overflow mounts');
+    (await open()).querySelector('[aria-label="Accounts and libraries"]').click();
+    await until(
+      () => window.location.pathname.endsWith('/connections'),
+      'Accounts routes through goto'
+    );
+    assert.equal(window.document.querySelector('[role="menu"]'), null);
+    let menu = await open();
+    assert.equal(menu.querySelector('[aria-label="Accounts and libraries"]'), null);
+    menu.querySelector('[aria-label="Import from Ttu Ebook Reader"]').click();
     await until(
       () => window.location.pathname.endsWith('/import-ttu'),
       'Import routes through goto'
     );
-    assert.equal(window.document.querySelector('dialog'), null);
-    const reopened = await open();
-    assert.equal(
-      reopened.querySelector('[aria-current="page"]').getAttribute('aria-label'),
-      'Import from Ttu Ebook Reader'
-    );
-    reopened.querySelector('[aria-label="Close"]').click();
-    await until(() => !window.document.querySelector('dialog'), 'sheet closes');
-    const primary = window.document.querySelector('[aria-label="Primary navigation"]');
-    primary.querySelector('a[href$="/snippets"]').click();
-    await until(
-      () => window.location.pathname.endsWith('/snippets'),
-      'primary link routes through goto'
-    );
-    assert.equal(primary.querySelector('[aria-current="page"]').textContent, 'Snippets');
+    menu = await open();
+    assert.equal(menu.querySelector('[aria-label="Import from Ttu Ebook Reader"]'), null);
+    trigger().click();
     window.history.back();
     await until(
-      () => window.location.pathname.endsWith('/import-ttu'),
-      'browser Back updates the route'
+      () => window.location.pathname.endsWith('/connections'),
+      'browser Back restores Accounts'
     );
-    assert.equal(primary.querySelector('[aria-current="page"]'), null);
+    assert.ok((await open()).querySelector('[aria-label="Import from Ttu Ebook Reader"]'));
+    trigger().click();
+    await until(
+      () => !window.document.querySelector('[role="menu"]'),
+      'menu closes before Forward'
+    );
     window.history.forward();
     await until(
-      () => primary.querySelector('[aria-current="page"]')?.textContent === 'Snippets',
-      'browser Forward restores current-page marker'
+      () => window.location.pathname.endsWith('/import-ttu'),
+      'browser Forward restores Import'
+    );
+    assert.equal((await open()).querySelector('[aria-label="Import from Ttu Ebook Reader"]'), null);
+    trigger().click();
+    await until(
+      () => !window.document.querySelector('[role="menu"]'),
+      'menu closes before adapter'
     );
     const calls = [];
-    const stopRouter = api.installRouter({
-      push: (path) => calls.push(path),
-      replace() {}
-    });
+    const stopRouter = api.installRouter({ push: (path) => calls.push(path), replace() {} });
     try {
-      const adapted = await open();
-      adapted.querySelector('[aria-label="Accounts and libraries"]').click();
-      await until(() => calls.length === 1, 'Expo adapter receives navigation');
+      (await open()).querySelector('[aria-label="Accounts and libraries"]').click();
+      await until(() => calls.length === 1, 'Expo receives the related route');
       assert.deepEqual(calls, ['/connections']);
     } finally {
       stopRouter();
@@ -249,14 +216,13 @@ test('ordinary navigation uses the real route adapter and current-page markers f
   });
 });
 
-test('navigation guards are honored and modified links retain browser gestures', async () => {
+test('navigation guards and modified links preserve their original behavior', async () => {
   await fixture(async ({ window, api, until, trigger, open }) => {
     api.render();
-    await until(trigger, 'Navigate mounts');
+    await until(trigger, 'overflow mounts');
     const stopGuard = api.beforeNavigate((event) => event.cancel());
-    const panel = await open();
-    panel.querySelector('[aria-label="Library"]').click();
-    await until(() => !window.document.querySelector('dialog'), 'guarded sheet closes');
+    (await open()).querySelector('[aria-label="Accounts and libraries"]').click();
+    await until(() => !window.document.querySelector('[role="menu"]'), 'guarded menu closes');
     assert.equal(window.location.pathname, '/reader-web/settings');
     stopGuard();
     for (const modifiers of [
@@ -266,9 +232,7 @@ test('navigation guards are honored and modified links retain browser gestures',
       { altKey: true }
     ]) {
       const menu = await open();
-      const link = menu.querySelector('[aria-label="Library"]');
       let intercepted;
-      // Observe React's result, then suppress JSDOM's unsupported new-document navigation.
       window.addEventListener(
         'click',
         (event) => {
@@ -277,11 +241,16 @@ test('navigation guards are honored and modified links retain browser gestures',
         },
         { once: true }
       );
-      link.dispatchEvent(
-        new window.MouseEvent('click', { bubbles: true, cancelable: true, ...modifiers })
+      menu
+        .querySelector('[aria-label="Accounts and libraries"]')
+        .dispatchEvent(
+          new window.MouseEvent('click', { bubbles: true, cancelable: true, ...modifiers })
+        );
+      await until(
+        () => !window.document.querySelector('[role="menu"]'),
+        'modified link closes menu'
       );
-      await until(() => !window.document.querySelector('dialog'), 'modified link closes the sheet');
-      assert.equal(intercepted, false, 'the app must not cancel native modified-click handling');
+      assert.equal(intercepted, false);
       assert.equal(window.location.pathname, '/reader-web/settings');
     }
     const menu = await open();
@@ -295,43 +264,32 @@ test('navigation guards are honored and modified links retain browser gestures',
       { once: true }
     );
     menu.querySelector('[aria-label="User guide"]').click();
-    await until(() => !window.document.querySelector('dialog'), 'the guide closes the sheet');
-    assert.equal(intercepted, false, 'guide remains a native external-document link');
+    await until(() => !window.document.querySelector('[role="menu"]'), 'guide closes menu');
+    assert.equal(intercepted, false);
     assert.equal(window.location.pathname, '/reader-web/settings');
   });
 });
 
-test('the real sheet owns explicit geometry and scrolling independently of its 44px Close control', async () => {
+test('Library retains global destinations while every pushed route excludes itself', async () => {
   await fixture(async ({ window, api, until, trigger, open }) => {
-    api.render({ compact: true });
-    await until(trigger, 'Navigate mounts');
-    const panel = await open();
-    const style = window.getComputedStyle(panel);
-    assert.equal(style.display, 'flex');
-    assert.equal(style.flexDirection, 'column');
-    assert.equal(style.padding, '0px');
-    assert.equal(style.margin, '0px');
-    assert.equal(style.overflow, 'hidden');
-    assert.equal(style.height, '100dvh');
-    assert.equal(style.maxHeight, '100dvh');
-    assert.equal(style.maxWidth, 'min(24rem, calc(100vw - 1rem))');
-    const navigation = panel.querySelector('nav');
-    const scroll = window.getComputedStyle(navigation);
-    assert.equal(scroll.minHeight, '0');
-    assert.equal(scroll.overflowY, 'auto');
-    assert.equal(scroll.overscrollBehavior, 'contain');
-    assert.equal(window.getComputedStyle(panel.querySelector('header')).flexShrink, '0');
-    const close = panel.querySelector('[aria-label="Close"]');
-    assert.equal(
-      navigation.contains(close),
-      false,
-      'Close is outside the scrolling destination list'
-    );
-    const closeStyle = window.getComputedStyle(close);
-    assert.equal(closeStyle.position, 'absolute');
-    assert.equal(closeStyle.width, '44px');
-    assert.equal(closeStyle.height, '44px');
+    api.render();
+    await until(trigger, 'overflow mounts');
+    for (const [label, path] of destinations) {
+      await api.goto('/reader-web' + path);
+      const menu = await open();
+      assert.equal(menu.querySelector(`[aria-label="${label}"]`), null);
+      assert.equal(window.document.querySelector('[aria-label="Primary navigation"]'), null);
+      if (path === '/manage') {
+        for (const [next, destination] of destinations.slice(1))
+          assert.equal(
+            menu.querySelector(`[aria-label="${next}"]`).getAttribute('href'),
+            '/reader-web' + destination
+          );
+      }
+      menu.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await until(() => !window.document.querySelector('[role="menu"]'), 'menu closes');
+    }
     api.clear();
-    await until(() => !window.document.querySelector('dialog'), 'unmount removes the portal');
+    await until(() => !trigger(), 'unmount removes the menu and trigger');
   });
 });

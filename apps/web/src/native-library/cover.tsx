@@ -75,7 +75,14 @@ const baseStyles = StyleSheet.create({
     borderRadius: 4,
     overflow: 'hidden'
   },
-  grid: { width: '100%', height: 196, marginBottom: 9 },
+  grid: {
+    width: '100%',
+    maxWidth: 200,
+    height: undefined,
+    aspectRatio: 2 / 3,
+    alignSelf: 'center',
+    marginBottom: 9
+  },
   image: { width: '100%', height: '100%' },
   placeholder: {
     flex: 1,

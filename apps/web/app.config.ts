@@ -43,11 +43,13 @@ const config: ExpoConfig = {
   slug: 'manabi-reader',
   version: '2.0.0',
   scheme: 'manabi-reader',
+  userInterfaceStyle: 'automatic',
   platforms: ['android', 'web'],
   android: { package: 'io.manabi.reader' },
   web: { bundler: 'metro', output: 'single', name: 'Manabi Reader', lang: 'ja' },
   plugins: [
     'expo-router',
+    'expo-system-ui',
     'expo-document-picker',
     'expo-file-system',
     [

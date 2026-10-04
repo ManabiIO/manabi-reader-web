@@ -16,8 +16,16 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
-import { Button, Host, Switch, TextInput, useNativeState } from '@expo/ui';
+import { router, usePathname } from 'expo-router';
+import { Host, TextInput, useNativeState } from '@expo/ui';
+import { Switch } from '../shared-ui/ExpoToggle';
+import { ExpoButton } from '../shared-ui/ExpoButton';
+import { ActionButton } from '../shared-ui/ActionButton';
+import { Menu } from '../shared-ui/Menu';
+import { UiIcon } from '../shared-ui/UiIcon';
+import { RouteBack } from '../shared-ui/RouteBack';
+import { useUiTheme } from '../shared-ui/theme';
+import { contextualDestinations } from '../shared-ui/navigation-context';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
 import type { UiTheme } from '../shared-ui/theme';
 import type { SettingField } from '../platform/runtime-contract';
@@ -37,7 +45,13 @@ export function Action({
 }) {
   return (
     <Host matchContents colorScheme={theme?.mode} seedColor={theme?.seedColor}>
-      <Button label={label} onPress={onPress} disabled={disabled} variant={variant} />
+      <ExpoButton
+        theme={theme}
+        label={label}
+        onPress={onPress}
+        disabled={disabled}
+        variant={variant}
+      />
     </Host>
   );
 }
@@ -45,25 +59,33 @@ export function Screen({
   title,
   children,
   actions,
-  theme
+  theme,
+  menuActions,
+  onBeforeBack,
+  hideMenu
 }: {
   title: string;
   children: ReactNode;
   actions?: ReactNode;
   theme?: UiTheme;
+  menuActions?: (close: () => void) => ReactNode;
+  onBeforeBack?: () => boolean;
+  hideMenu?: boolean;
 }) {
   const { error, clearError } = useReaderRuntime();
+  const provided = useUiTheme();
   return (
-    <SafeAreaView style={[styles.screen, theme && { backgroundColor: theme.colors.background }]}>
-      <View style={styles.header}>
-        <Text
-          accessibilityRole="header"
-          style={[styles.heading, theme && { color: theme.colors.foreground }]}
-        >
-          {title}
-        </Text>
-        {actions}
-      </View>
+    <SafeAreaView
+      style={[styles.screen, { backgroundColor: (theme ?? provided).colors.background }]}
+    >
+      <NativeScreenHeader
+        title={title}
+        theme={theme}
+        actions={actions}
+        menuActions={menuActions}
+        onBeforeBack={onBeforeBack}
+        hideMenu={hideMenu}
+      />
       {error ? (
         <View
           accessibilityRole="alert"
@@ -74,14 +96,75 @@ export function Screen({
         </View>
       ) : null}
       {children}
-      <View style={[styles.navigation, theme && { borderTopColor: theme.colors.border }]}>
-        <Action theme={theme} label="Library" onPress={() => router.replace('/manage')} />
-        <Action theme={theme} label="Snippets" onPress={() => router.push('/snippets')} />
-        <Action theme={theme} label="Statistics" onPress={() => router.push('/statistics')} />
-        <Action theme={theme} label="Settings" onPress={() => router.push('/settings')} />
-        <Action theme={theme} label="Accounts" onPress={() => router.push('/connections')} />
-      </View>
     </SafeAreaView>
+  );
+}
+export function NativeScreenHeader({
+  title,
+  actions,
+  menuActions,
+  theme,
+  onBeforeBack,
+  hideMenu
+}: {
+  title: string;
+  actions?: ReactNode;
+  menuActions?: (close: () => void) => ReactNode;
+  theme?: UiTheme;
+  onBeforeBack?: () => boolean;
+  hideMenu?: boolean;
+}) {
+  const provided = useUiTheme();
+  const colors = (theme ?? provided).colors;
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+  const root = pathname === '/manage' || pathname === '/';
+  return (
+    <View style={styles.header}>
+      {!root && <RouteBack onBeforeBack={onBeforeBack} />}
+      <Text
+        accessibilityRole="header"
+        style={[
+          styles.heading,
+          { color: colors.foreground, flex: 1, flexShrink: 1, fontSize: root ? 20 : 22 }
+        ]}
+      >
+        {title}
+      </Text>
+      {actions}
+      {!hideMenu && (
+        <View>
+          <ActionButton
+            variant="ghost"
+            size="icon-lg"
+            shape="circle"
+            accessibilityLabel={`${title} actions`}
+            aria-haspopup="menu"
+            aria-expanded={open}
+            onPress={() => setOpen(true)}
+          >
+            <UiIcon name="more" size={22} color={colors.foreground} />
+          </ActionButton>
+          <Menu visible={open} label={`${title} actions`} onClose={() => setOpen(false)}>
+            {menuActions?.(() => setOpen(false))}
+            {contextualDestinations(pathname).map((item) => (
+              <ActionButton
+                key={item.path}
+                variant="ghost"
+                role="menuitem"
+                style={{ justifyContent: 'flex-start' }}
+                onPress={() => {
+                  setOpen(false);
+                  router.push(item.path);
+                }}
+              >
+                {item.label}
+              </ActionButton>
+            ))}
+          </Menu>
+        </View>
+      )}
+    </View>
   );
 }
 export function NativeLibraryScreen() {
@@ -253,7 +336,7 @@ function Setting({ field }: { field: SettingField }) {
   if (field.kind === 'boolean')
     return (
       <View style={styles.setting}>
-        <Host matchContents>
+        <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
           <Switch label={field.label} value={!!field.value} onValueChange={save} />
         </Host>
       </View>
@@ -358,11 +441,11 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#faf9f6' },
   header: {
     minHeight: 64,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 12
+    gap: 8
   },
   heading: { fontSize: 26, fontWeight: '700', color: '#222923' },
   title: { fontSize: 17, fontWeight: '600', color: '#222923' },

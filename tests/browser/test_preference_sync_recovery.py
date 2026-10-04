@@ -130,6 +130,10 @@ class PreferenceSyncRecovery(LibraryBase):
         font = self.page.get_by_label('Font size', exact=True)
         font.fill('30')
         font.press('Tab')
+        expect(font).to_have_value('30')
+        # Observe the real setting write before admitting the first-sync intent.
+        # No repeated edit or timer sleep: a lost input still fails this assertion.
+        self.page.wait_for_function("localStorage.getItem('fontSize') === '30'")
         self.page.get_by_label('When first enabling sync').select_option('local')
         toggle = self.page.get_by_label(
             'Sync reader settings with this Manabi account', exact=True)

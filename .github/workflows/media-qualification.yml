@@ -104,7 +104,8 @@ jobs:
           .cache/emsdk/emsdk activate 4.0.23
           python -m pip install 'playwright==1.63.0'
           python -m playwright install --with-deps chromium
-          npm install --prefix "$RUNNER_TEMP/media-typescript" --ignore-scripts --no-audit --no-fund typescript@6.0.3
+          npm install --prefix "$RUNNER_TEMP/media-typescript" --ignore-scripts --no-audit --no-fund typescript@6.0.3 @types/node@24.13.3
+          echo "MEDIA_TYPES_ROOT=$RUNNER_TEMP/media-typescript/node_modules/@types" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/media-typescript/node_modules/.bin" >> "$GITHUB_PATH"
           python - <<'PY' >> "$GITHUB_ENV"
           from playwright.sync_api import sync_playwright

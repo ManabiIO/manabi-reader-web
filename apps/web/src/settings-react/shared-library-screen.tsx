@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { RouteBack } from '../shared-ui/RouteBack.web';
 import { useReaderController } from '../reader-react/controller';
 import {
   Dom,
@@ -56,31 +57,18 @@ export function SharedLibraryScreen(
         <Dom
           as="header"
           className={[
-            'app-header flex min-h-12 items-center justify-end border-b border-border bg-card px-3'
+            'app-header flex min-h-14 items-center justify-between border-b border-border bg-card px-3'
           ]
             .filter(Boolean)
             .join(' ')}
         >
+          <RouteBack fallback="/connections" />
           <AppNav></AppNav>
         </Dom>
         <Head>
           <Dom as="title">{'Shared Ttu Ebook Reader libraries · Manabi Reader'}</Dom>
         </Head>
         <Dom as="main">
-          <Dom
-            as="nav"
-            aria-label={'Context navigation'}
-            className={['page-navigation'].filter(Boolean).join(' ')}
-          >
-            <Button
-              href={resolve('/connections')}
-              variant={'link'}
-              size={'sm'}
-              aria-label={'Back to Accounts and libraries'}
-            >
-              {'← Accounts and libraries'}
-            </Button>
-          </Dom>
           <Dom as="h1">{'Shared Ttu Ebook Reader libraries'}</Dom>
           <Dom as="p">
             {' Use the same '}

@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { RouteBack } from '../shared-ui/RouteBack.web';
 import { useReaderController } from '../reader-react/controller';
 import {
   Dom,
@@ -96,31 +97,18 @@ export function ConnectionsScreen(
         <Dom
           as="header"
           className={[
-            'app-header flex min-h-12 items-center justify-end border-b border-border bg-card px-3'
+            'app-header flex min-h-14 items-center justify-between border-b border-border bg-card px-3'
           ]
             .filter(Boolean)
             .join(' ')}
         >
+          <RouteBack fallback="/manage" />
           <AppNav></AppNav>
         </Dom>
         <Head>
           <Dom as="title">{'Accounts and libraries · Manabi Reader'}</Dom>
         </Head>
         <Dom as="main" className={['connections-page'].filter(Boolean).join(' ')}>
-          <Dom
-            as="nav"
-            aria-label={'Context navigation'}
-            className={['page-navigation'].filter(Boolean).join(' ')}
-          >
-            <Button
-              href={resolve('/manage')}
-              variant={'link'}
-              size={'sm'}
-              aria-label={'Back to Library'}
-            >
-              {'← Library'}
-            </Button>
-          </Dom>
           <Dom as="header">
             <Dom as="h1">{'Accounts and libraries'}</Dom>
             <Dom as="p">{'Read locally. Connect only the services you choose.'}</Dom>

@@ -1167,3 +1167,49 @@ test('accepted query changes persist immediately and newer reads supersede older
     stop();
   }
 });
+
+test('native Statistics loads, cancels and refuses stale owners without browser-only AbortSignal methods', async () => {
+  const f = fixture();
+  const { StatisticsTransfers } = f.load('features/statistics/transport.ts');
+  const transfers = new StatisticsTransfers();
+  let owner = 'hermes-owner',
+    reads = 0,
+    actions = 0;
+  const port = f.load('features/statistics/native-port.ts').createNativeStatisticsPort({
+    ownerKey: () => owner,
+    command: async (method, payload) => {
+      if (method === 'statistics.action') {
+        actions++;
+        return;
+      }
+      reads++;
+      return transfers.begin('hermes-projection', owner, 'query', {
+        ...sharedSnapshot(payload.query),
+        snapshotId: 'hermes-projection'
+      });
+    }
+  });
+  const active = new AbortController();
+  Object.defineProperty(active.signal, 'throwIfAborted', { value: undefined });
+  const data = await port.load(sharedQuery(), active.signal);
+  assert.equal(data.snapshotId, 'hermes-projection');
+  assert.equal(reads, 1);
+  await port.mutate(
+    { type: 'delete', snapshotId: data.snapshotId, scope: 'selection' },
+    active.signal
+  );
+  assert.equal(actions, 1);
+  active.abort(new Error('native-cancelled'));
+  await assert.rejects(port.load(sharedQuery(), active.signal), /native-cancelled/);
+  await assert.rejects(
+    port.mutate({ type: 'delete', snapshotId: data.snapshotId, scope: 'selection' }, active.signal),
+    /native-cancelled/
+  );
+  assert.equal(reads, 1);
+  assert.equal(actions, 1);
+  owner = 'replacement-owner';
+  const next = new AbortController();
+  Object.defineProperty(next.signal, 'throwIfAborted', { value: undefined });
+  await assert.rejects(port.load(sharedQuery(), next.signal), /access changed/);
+  assert.equal(reads, 1);
+});

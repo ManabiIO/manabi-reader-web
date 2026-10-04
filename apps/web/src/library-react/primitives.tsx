@@ -27,6 +27,7 @@ import { cn } from '$lib/utils';
 import { goto } from '$app/navigation';
 import { focusModalStart } from '$lib/hooks/focus-modal-start';
 import { cycleModalTab } from '$lib/hooks/cycle-modal-tab';
+import { readerMenuPosition } from '../reader-react/menu-position';
 type AnyProps = Record<string, any> & {
   children?: ReactNode;
   className?: string;
@@ -415,6 +416,16 @@ function MenuContent({
       const height = menu.getBoundingClientRect().height;
       const width = menu.offsetWidth;
       const inline = side === 'right' || side === 'left';
+      // A compact submenu must fit above/below its own trigger. Clamping the
+      // whole popup to the viewport can cover that trigger during hover/click.
+      const bounded =
+        context.submenu && !inline
+          ? readerMenuPosition(
+              r,
+              { width, height },
+              { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight }
+            )
+          : undefined;
       let left = inline
         ? side === 'right'
           ? r.right + 4
@@ -431,10 +442,12 @@ function MenuContent({
         // the resize event refreshes the trigger's measured coordinates.
         '--library-menu-top': `${inline ? r.top : r.bottom + 4}px`,
         '--library-menu-left': `${left}px`,
-        top: `clamp(8px, var(--library-menu-top), calc(100dvh - ${height}px - 8px))`,
+        top: bounded
+          ? `${bounded.top}px`
+          : `clamp(8px, var(--library-menu-top), calc(100dvh - ${height}px - 8px))`,
         left: `clamp(8px, var(--library-menu-left), calc(100vw - ${width}px - 8px))`,
         maxWidth: 'calc(100vw - 16px)',
-        maxHeight: '80dvh',
+        maxHeight: bounded ? `${bounded.maxHeight}px` : '80dvh',
         overflowY: 'auto'
       } as CSSProperties);
     };
@@ -530,7 +543,25 @@ function MenuItem({ children, onSelect, variant, disabled, ...props }: AnyProps)
     </button>
   );
 }
+function MenuLink({ children, ...props }: AnyProps) {
+  const context = useContext(MenuContext)!;
+  return (
+    <Button
+      {...props}
+      role="menuitem"
+      variant="ghost"
+      className="app-context-link"
+      onClick={() => {
+        context.closeTree();
+        context.rootTrigger.current?.focus();
+      }}
+    >
+      {children}
+    </Button>
+  );
+}
 export const Menu = {
+  Link: MenuLink,
   RadioGroup,
   RadioItem,
   Sub: MenuRoot,

@@ -21,15 +21,19 @@ import {
   ScrollView,
   StyleSheet,
   useColorScheme,
+  useWindowDimensions,
   View,
   type ViewToken
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Host as ExpoHost, Switch, TextInput, useNativeState } from '@expo/ui';
+import { Host as ExpoHost, TextInput, useNativeState } from '@expo/ui';
+import { Switch } from '../shared-ui/ExpoToggle';
 import { router, usePathname } from 'expo-router';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
 import { Screen, Action as NativeAction } from '../screens/NativeScreens';
 import { UiText as Text } from '../shared-ui/Typography';
+import { ActionButton } from '../shared-ui/ActionButton';
+import { UiIcon } from '../shared-ui/UiIcon';
 import { UiThemeProvider, useUiTheme, createUiTheme, type UiTheme } from '../shared-ui/theme';
 import {
   type LibraryAction,
@@ -72,7 +76,7 @@ function useLibraryStyles(override?: UiTheme) {
   return {
     ...baseStyles,
     label: [baseStyles.label, { color: colors.foreground }],
-    card: [baseStyles.card, { backgroundColor: colors.card, borderColor: colors.border }],
+    card: [baseStyles.card, { backgroundColor: 'transparent', borderColor: colors.border }],
     selected: [
       baseStyles.selected,
       { backgroundColor: colors.accent, borderColor: colors.primary }
@@ -215,6 +219,9 @@ function Library() {
   const [selected, setSelected] = useState<string[]>([]);
   const [selecting, setSelecting] = useState(false);
   const grid = state?.layout === 'grid';
+  const { width, fontScale } = useWindowDimensions();
+  const columns = Math.max(1, Math.floor((width - 28) / (150 * Math.max(1, fontScale))));
+  const cardWidth = (width - 28) / columns - 8;
   const [catalogVisible, setCatalogVisible] = useState(false);
   const [sheet, setSheet] = useState<
     'filters' | 'collections' | 'membership' | 'series' | 'completion' | 'metadata'
@@ -602,6 +609,10 @@ function Library() {
       setQuery((previous) => (previous.detail ? { ...previous, detail: undefined } : previous));
     }
   };
+  const searchNative = useNativeState(search);
+  useEffect(() => {
+    searchNative.value = search;
+  }, [search, searchNative]);
   const choices = state?.collections ?? [];
   const selectedSource = state?.sources.find((source) => source.id === query.source);
   const closeCatalog = () => {
@@ -611,10 +622,10 @@ function Library() {
   const content = (
     <Screen
       theme={uiTheme}
-      title="Library"
+      title="Manabi Reader"
       actions={
         <Action
-          label={importing ? 'Importing…' : 'Import Books'}
+          label={importing ? 'Importing…' : 'Add Books'}
           disabled={importing || busy || !snapshot.session}
           variant="filled"
           onPress={() => {
@@ -622,42 +633,40 @@ function Library() {
           }}
         />
       }
-    >
-      <View style={styles.controls}>
-        <View style={styles.row}>
+      menuActions={(close) => (
+        <View style={{ gap: 4 }}>
           <Action
-            label="Titles and authors"
-            variant={searchMode === 'metadata' ? 'filled' : 'outlined'}
-            onPress={() => setSearchMode('metadata')}
-          />
-          <Action
-            label="Passages"
-            variant={searchMode === 'passages' ? 'filled' : 'outlined'}
+            label={searchMode === 'metadata' ? 'Search passages' : 'Search titles and authors'}
+            variant="text"
             onPress={() => {
-              setSearchMode('passages');
+              close();
+              setSearchMode(searchMode === 'metadata' ? 'passages' : 'metadata');
               setSelected([]);
               setSelecting(false);
             }}
           />
-        </View>
-        {searchMode === 'metadata' && (
-          <Field
-            label="Search books, authors, or series"
-            value={search}
-            onChange={setSearch}
-            limit={500}
-          />
-        )}
-        <View style={styles.row}>
           <Action
             label="Editor's Picks"
+            variant="text"
             disabled={busy || importing || !snapshot.session}
-            onPress={() => setCatalogVisible(true)}
+            onPress={() => {
+              close();
+              setCatalogVisible(true);
+            }}
           />
-          <Action label="Sort and filter" onPress={() => setSheet('filters')} />
+          <Action
+            label="Sort and filter"
+            variant="text"
+            onPress={() => {
+              close();
+              setSheet('filters');
+            }}
+          />
           <Action
             label="Collections"
+            variant="text"
             onPress={() => {
+              close();
               setName('');
               setCollectionTarget(undefined);
               setSheet('collections');
@@ -665,39 +674,63 @@ function Library() {
           />
           <Action
             label={selecting ? 'Cancel selection' : 'Select'}
+            variant="text"
             disabled={busy || searchMode === 'passages'}
             onPress={() => {
+              close();
               setSelecting(!selecting);
               setSelected([]);
             }}
           />
           <Action
             label="Refresh"
+            variant="text"
             disabled={busy || loading}
             onPress={() => {
+              close();
               void refresh();
             }}
           />
         </View>
+      )}
+    >
+      <View style={styles.controls}>
+        {searchMode === 'metadata' && (
+          <Host matchContents={{ vertical: true }} style={{ width: '100%', minHeight: 44 }}>
+            <TextInput
+              value={searchNative}
+              placeholder="Search books, authors, or series"
+              textStyle={{ color: uiTheme.colors.foreground }}
+              cursorColor={uiTheme.colors.foreground}
+              onChangeText={(text) => {
+                searchNative.value = text;
+                setSearch(text);
+              }}
+              style={{ padding: 10, backgroundColor: uiTheme.colors.muted, borderRadius: 10 }}
+            />
+          </Host>
+        )}
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View style={styles.row}>
-            <Action
-              label={`All Books (${state?.totalBooks ?? 0})`}
-              variant={query.collection === 'books' ? 'filled' : 'outlined'}
-              onPress={() => view({ collection: 'books', series: '' })}
-            />
-            <Action
-              label={`Finished (${state?.counts.finished ?? 0})`}
-              variant={query.collection === 'finished' ? 'filled' : 'outlined'}
-              onPress={() => view({ collection: 'finished', series: '' })}
-            />
-            {choices.map((collection) => (
-              <Action
+            {[
+              { id: 'books', name: 'All Books', count: state?.totalBooks ?? 0 },
+              { id: 'finished', name: 'Finished', count: state?.counts.finished ?? 0 },
+              ...choices
+            ].map((collection) => (
+              <View
                 key={collection.id}
-                label={`${collection.name} (${collection.count})`}
-                variant={query.collection === collection.id ? 'filled' : 'outlined'}
-                onPress={() => view({ collection: collection.id, series: '' })}
-              />
+                style={{
+                  borderBottomWidth: 2,
+                  borderBottomColor:
+                    query.collection === collection.id ? uiTheme.colors.primary : 'transparent'
+                }}
+              >
+                <Action
+                  label={`${collection.name} (${collection.count})`}
+                  variant="text"
+                  onPress={() => view({ collection: collection.id, series: '' })}
+                />
+              </View>
             ))}
           </View>
         </ScrollView>
@@ -842,8 +875,8 @@ function Library() {
       ) : (
         <>
           <FlatList
-            key={grid ? 'grid' : 'list'}
-            numColumns={grid ? 2 : 1}
+            key={grid ? `grid-${columns}` : 'list'}
+            numColumns={grid ? columns : 1}
             initialNumToRender={6}
             maxToRenderPerBatch={6}
             windowSize={3}
@@ -866,7 +899,7 @@ function Library() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`Open series ${item.title}, ${item.count} books`}
-                  style={[styles.card, grid && styles.grid]}
+                  style={[styles.card, grid && [styles.grid, { width: cardWidth }]]}
                   onPress={() => view({ series: item.key })}
                 >
                   <Text style={styles.title}>{item.title}</Text>
@@ -878,11 +911,12 @@ function Library() {
                 <View
                   style={[
                     styles.card,
-                    grid && styles.grid,
+                    grid && [styles.grid, { width: cardWidth }],
                     selected.includes(item.key) && styles.selected
                   ]}
                 >
                   <Pressable
+                    style={{ flex: 1, minWidth: 0 }}
                     accessibilityRole="button"
                     accessibilityState={{ selected: selected.includes(item.key), disabled: busy }}
                     disabled={busy}
@@ -929,21 +963,29 @@ function Library() {
                       }
                     />
                     {item.wantToRead && <Text>Want to Read</Text>}
-                    <Text>
-                      {item.source}
-                      {item.coverBlur ? ' · Cover blurred' : ''}
-                    </Text>
+                    {(item.source !== 'On this device' || item.coverBlur) && (
+                      <Text>
+                        {item.source}
+                        {item.coverBlur ? ' · Cover blurred' : ''}
+                      </Text>
+                    )}
                     {!item.available && <Text>Import required</Text>}
                   </Pressable>
-                  <Action
-                    label={`Details: ${item.title.slice(0, 40)}`}
+                  <ActionButton
+                    variant="ghost"
+                    size="icon-lg"
+                    shape="circle"
+                    accessibilityLabel={`Details: ${item.title}`}
+                    style={grid ? { alignSelf: 'flex-end' } : undefined}
                     disabled={busy}
                     onPress={() => {
                       setSelected([]);
                       setQuery((previous) => ({ ...previous, detail: item.key }));
                       setSheet('metadata');
                     }}
-                  />
+                  >
+                    <UiIcon name="more" size={20} />
+                  </ActionButton>
                 </View>
               )
             }
@@ -1029,19 +1071,23 @@ function Library() {
                   onPress={() => void chooseSort(sort.property, 'desc')}
                 />
               </View>
-              <Host matchContents>
-                <Switch
-                  label="Unfinished books only"
-                  value={!!query.unfinished}
-                  onValueChange={(unfinished) => view({ unfinished })}
-                />
-                <Switch
-                  label="Grid layout"
-                  value={grid}
-                  disabled={!state || busy || loading}
-                  onValueChange={(value) => void chooseLayout(value)}
-                />
-              </Host>
+              <View style={{ gap: 8 }}>
+                <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
+                  <Switch
+                    label="Unfinished books only"
+                    value={!!query.unfinished}
+                    onValueChange={(unfinished) => view({ unfinished })}
+                  />
+                </Host>
+                <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
+                  <Switch
+                    label="Grid layout"
+                    value={grid}
+                    disabled={!state || busy || loading}
+                    onValueChange={(value) => void chooseLayout(value)}
+                  />
+                </Host>
+              </View>
               <Text style={styles.title}>Sources</Text>
               <Action label="All sources" onPress={() => view({ source: '' })} />
               {state?.sources.map((source) => (
@@ -1393,7 +1439,7 @@ function MetadataEditor({
           })[name](value)
         }
       />
-      <Host matchContents>
+      <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
         <Switch label="Blur cover" value={blur} onValueChange={setBlur} />
       </Host>
       <Text style={styles.label}>Page direction</Text>
@@ -1420,14 +1466,22 @@ const baseStyles = StyleSheet.create({
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' },
   list: { padding: 14, gap: 9 },
   card: {
-    padding: 14,
-    gap: 5,
+    paddingVertical: 16,
+    gap: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
     borderRadius: 14,
     backgroundColor: 'white',
-    borderWidth: 1,
+    borderBottomWidth: 1,
     borderColor: '#dce2db'
   },
-  grid: { flex: 1, margin: 4 },
+  grid: {
+    margin: 4,
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    borderBottomWidth: 0,
+    paddingVertical: 8
+  },
   selected: { borderColor: '#387147', borderWidth: 2, backgroundColor: '#eef5ea' },
   selection: { paddingVertical: 7, gap: 6 },
   pagination: {

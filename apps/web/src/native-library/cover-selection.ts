@@ -13,6 +13,7 @@ import {
   type BridgeScope
 } from '../platform/bridge-contract';
 import { bytesToBase64 } from '../platform/transfer-encoding';
+import { assertNotAborted } from '../platform/abort-signal';
 
 interface CoverAsset {
   uri: string;
@@ -40,7 +41,7 @@ export async function selectNativeLibraryCover(
   const owner = { session, epoch };
   const target = { ...selection };
   const check = () => {
-    signal.throwIfAborted();
+    assertNotAborted(signal);
     if (!owner.session || !sameScope(owner, dependencies.scope()))
       throw new Error(
         'The reader or account changed. Reopen the book details before choosing a cover.'

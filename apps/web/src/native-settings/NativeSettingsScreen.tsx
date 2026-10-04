@@ -24,7 +24,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
-import { Button, Host, Picker, Switch, TextInput, useNativeState } from '@expo/ui';
+import { Host, Picker, TextInput, useNativeState } from '@expo/ui';
+import { Switch } from '../shared-ui/ExpoToggle';
+import { ExpoButton as Button } from '../shared-ui/ExpoButton';
+import { NativeScreenHeader } from '../screens/NativeScreens';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
 import { themeForMode, type ThemeOption } from '../lib/data/theme-option';
 import {
@@ -42,7 +45,7 @@ import type {
   NativeTheme
 } from './contract';
 
-import { createUiTheme } from '../shared-ui/theme';
+import { createUiTheme, UiThemeProvider } from '../shared-ui/theme';
 import { SettingsFieldGroup } from '../features/settings/SettingsFieldGroup';
 import * as settingsFieldLayout from '../features/settings/field-layout';
 
@@ -214,7 +217,12 @@ function FieldEditor({
       colors={colors}
     >
       {field.kind === 'boolean' ? (
-        <Host matchContents colorScheme={colors.mode} seedColor={colors.seedColor}>
+        <Host
+          matchContents={{ vertical: true }}
+          style={{ width: '100%' }}
+          colorScheme={colors.mode}
+          seedColor={colors.seedColor}
+        >
           <Switch
             label={field.label}
             value={field.value === true}
@@ -594,151 +602,156 @@ export function NativeSettingsScreen() {
         : category === 'all' || category === gate.category
     ) ?? [];
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]}>
-      <View style={styles.header}>
-        <Text accessibilityRole="header" style={[styles.heading, { color: colors.text }]}>
-          Settings
-        </Text>
-        <Action
-          label="Refresh saved settings"
-          colors={colors}
-          disabled={view.pending || !snapshot.session}
-          onPress={() => {
-            void sessionRef.current?.refresh();
-          }}
-        />
-      </View>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
-        <SharedSettingsWorkspace
-          layout={workspaceLayout}
-          filter={{ category, query }}
-          onSearch={workspace.search}
-          onCategory={workspace.choose}
-          colors={colors}
-          saveDescription="Reader preferences are stored by the local reader. Switches and choices save immediately. Text and numbers save when you tap Apply."
-          resultText={
-            data
-              ? `${fields.length} matching controls · ${gates.length} integration notes`
-              : 'Loading settings…'
-          }
-        >
-          {view.pending ? (
-            <ActivityIndicator accessibilityLabel="Loading settings" color={colors.text} />
-          ) : null}
-          {stateOwner === ownerKey && view.error ? (
-            <Card colors={colors}>
-              <Text accessibilityRole="alert" style={{ color: colors.error }}>
-                {view.error}
-              </Text>
-              {view.reconcileRequired && (
-                <Text style={{ color: colors.muted }}>
-                  Refresh saved settings to reconcile before making another change. No command will
-                  be replayed automatically.
-                </Text>
-              )}
-            </Card>
-          ) : null}
-          {!snapshot.session && (
-            <Text style={{ color: colors.muted }}>The local reader is starting…</Text>
-          )}
-          {data && (category === 'appearance' || category === 'all') && !query.trim() && (
-            <Card colors={colors}>
-              <Text style={[styles.label, { color: colors.text }]}>Custom themes</Text>
-              <View style={styles.row}>
-                <Action
-                  label="Add custom theme"
-                  colors={colors}
-                  disabled={busy || !!editor}
-                  onPress={() => setEditor({ original: null, seed: { ...resolved } })}
-                />
-                {selectedTheme?.custom && (
-                  <>
-                    <Action
-                      label="Edit selected theme"
-                      colors={colors}
-                      disabled={busy || !!editor}
-                      onPress={() =>
-                        setEditor({ original: selectedTheme, seed: { ...selectedTheme.colors } })
-                      }
-                    />
-                    <Action
-                      label="Delete selected theme"
-                      colors={colors}
-                      disabled={busy || !!editor}
-                      onPress={() =>
-                        Alert.alert(
-                          `Delete ${selectedTheme.label}?`,
-                          'This local custom theme will be removed. The existing Manabi preset will be selected.',
-                          [
-                            { text: 'Cancel', style: 'cancel' },
-                            {
-                              text: 'Delete',
-                              style: 'destructive',
-                              onPress: () => {
-                                void act({
-                                  type: 'theme.delete',
-                                  name: selectedTheme.id,
-                                  expectedColors: selectedTheme.colors
-                                });
-                              }
-                            }
-                          ]
-                        )
-                      }
-                    />
-                  </>
-                )}
-              </View>
-            </Card>
-          )}
-          {editor && data && (
-            <ThemeEditor
-              original={editor.original}
-              seed={editor.seed}
-              data={data}
-              act={act}
-              busy={busy}
+    <UiThemeProvider
+      themeId={selectedTheme?.id ?? 'manabi-theme'}
+      appearance={mode}
+      customThemes={
+        selectedTheme?.custom ? { [selectedTheme.id]: selectedTheme.colors } : undefined
+      }
+    >
+      <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]}>
+        <NativeScreenHeader
+          title="Settings"
+          theme={uiTheme}
+          menuActions={(close) => (
+            <Action
+              label="Refresh saved settings"
               colors={colors}
-              close={() => setEditor(null)}
+              disabled={view.pending || !snapshot.session}
+              onPress={() => {
+                close();
+                void sessionRef.current?.refresh();
+              }}
             />
           )}
-          {data &&
-            fields.map((field) => (
-              <FieldEditor
-                key={`${ownerKey}:${field.key}`}
-                field={field}
-                refresh={() => {
-                  void sessionRef.current?.refresh();
-                }}
+        />
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+          <SharedSettingsWorkspace
+            layout={workspaceLayout}
+            filter={{ category, query }}
+            onSearch={workspace.search}
+            onCategory={workspace.choose}
+            colors={colors}
+            saveDescription="Reader preferences are stored by the local reader. Switches and choices save immediately. Text and numbers save when you tap Apply."
+            resultText={
+              data
+                ? `${fields.length} matching controls · ${gates.length} integration notes`
+                : 'Loading settings…'
+            }
+          >
+            {view.pending ? (
+              <ActivityIndicator accessibilityLabel="Loading settings" color={colors.text} />
+            ) : null}
+            {stateOwner === ownerKey && view.error ? (
+              <Card colors={colors}>
+                <Text accessibilityRole="alert" style={{ color: colors.error }}>
+                  {view.error}
+                </Text>
+                {view.reconcileRequired && (
+                  <Text style={{ color: colors.muted }}>
+                    Refresh saved settings to reconcile before making another change. No command
+                    will be replayed automatically.
+                  </Text>
+                )}
+              </Card>
+            ) : null}
+            {!snapshot.session && (
+              <Text style={{ color: colors.muted }}>The local reader is starting…</Text>
+            )}
+            {data && (category === 'appearance' || category === 'all') && !query.trim() && (
+              <Card colors={colors}>
+                <Text style={[styles.label, { color: colors.text }]}>Custom themes</Text>
+                <View style={styles.row}>
+                  <Action
+                    label="Add custom theme"
+                    colors={colors}
+                    disabled={busy || !!editor}
+                    onPress={() => setEditor({ original: null, seed: { ...resolved } })}
+                  />
+                  {selectedTheme?.custom && (
+                    <>
+                      <Action
+                        label="Edit selected theme"
+                        colors={colors}
+                        disabled={busy || !!editor}
+                        onPress={() =>
+                          setEditor({ original: selectedTheme, seed: { ...selectedTheme.colors } })
+                        }
+                      />
+                      <Action
+                        label="Delete selected theme"
+                        colors={colors}
+                        disabled={busy || !!editor}
+                        onPress={() =>
+                          Alert.alert(
+                            `Delete ${selectedTheme.label}?`,
+                            'This local custom theme will be removed. The existing Manabi preset will be selected.',
+                            [
+                              { text: 'Cancel', style: 'cancel' },
+                              {
+                                text: 'Delete',
+                                style: 'destructive',
+                                onPress: () => {
+                                  void act({
+                                    type: 'theme.delete',
+                                    name: selectedTheme.id,
+                                    expectedColors: selectedTheme.colors
+                                  });
+                                }
+                              }
+                            ]
+                          )
+                        }
+                      />
+                    </>
+                  )}
+                </View>
+              </Card>
+            )}
+            {editor && data && (
+              <ThemeEditor
+                original={editor.original}
+                seed={editor.seed}
                 data={data}
                 act={act}
                 busy={busy}
                 colors={colors}
+                close={() => setEditor(null)}
               />
-            ))}
-          {gates.map((gate) => (
-            <Card key={gate.id} colors={colors}>
-              <Text accessibilityRole="header" style={[styles.label, { color: colors.text }]}>
-                {gate.label}
-              </Text>
-              <Text style={{ color: colors.muted }}>{gate.reason}</Text>
-              {gate.id === 'storage-sources' && (
-                <Action
-                  label="Accounts and libraries"
+            )}
+            {data &&
+              fields.map((field) => (
+                <FieldEditor
+                  key={`${ownerKey}:${field.key}`}
+                  field={field}
+                  refresh={() => {
+                    void sessionRef.current?.refresh();
+                  }}
+                  data={data}
+                  act={act}
+                  busy={busy}
                   colors={colors}
-                  onPress={() => router.push('/connections')}
                 />
-              )}
-            </Card>
-          ))}
-        </SharedSettingsWorkspace>
-      </ScrollView>
-      <View style={[styles.navigation, { borderColor: colors.border }]}>
-        <Action label="Library" colors={colors} onPress={() => router.replace('/manage')} />
-        <Action label="Statistics" colors={colors} onPress={() => router.push('/statistics')} />
-        <Action label="Accounts" colors={colors} onPress={() => router.push('/connections')} />
-      </View>
-    </SafeAreaView>
+              ))}
+            {gates.map((gate) => (
+              <Card key={gate.id} colors={colors}>
+                <Text accessibilityRole="header" style={[styles.label, { color: colors.text }]}>
+                  {gate.label}
+                </Text>
+                <Text style={{ color: colors.muted }}>{gate.reason}</Text>
+                {gate.id === 'storage-sources' && (
+                  <Action
+                    label="Accounts and libraries"
+                    colors={colors}
+                    onPress={() => router.push('/connections')}
+                  />
+                )}
+              </Card>
+            ))}
+          </SharedSettingsWorkspace>
+        </ScrollView>
+      </SafeAreaView>
+    </UiThemeProvider>
   );
 }
 const styles = StyleSheet.create({

@@ -29,7 +29,7 @@ export const bookFaceLayout: LibraryBookFaceLayout = {
   Unread: () => {
     const { colors } = useUiTheme();
     return (
-      <Text accessibilityLabel="Unread" style={[styles.unread, { color: colors.primary }]}>
+      <Text accessibilityLabel="Unread" style={[styles.unread, { color: colors.mutedForeground }]}>
         NEW
       </Text>
     );
@@ -53,7 +53,7 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'column', gap: 5 },
   thumbnail: { position: 'relative' },
   copy: { flexShrink: 1, minWidth: 0, gap: 4 },
-  title: { fontSize: 17, fontWeight: '600' },
+  title: { fontSize: 16, fontWeight: '600' },
   author: { fontSize: 14 },
   detail: { fontSize: 13 },
   unread: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },

@@ -25,7 +25,7 @@ const output = mkdtempSync(join(tmpdir(), 'native-snippets-ui-'));
 const fixture = join(output, 'native.tsx');
 writeFileSync(
   fixture,
-  `import React from 'react';export const stateListeners=new Set();export const backListeners=new Set();export const AppState={addEventListener(_,callback){stateListeners.add(callback);return{remove(){stateListeners.delete(callback)}}}};export const BackHandler={addEventListener(_,callback){backListeners.add(callback);return{remove(){backListeners.delete(callback)}}}};export const View=({children})=><div>{children}</div>;export const Text=({children})=><span>{children}</span>;export const Pressable=({children,disabled,onPress})=><button disabled={disabled} onClick={onPress}>{children}</button>;export const ScrollView=View;export const TextInput=({value,onChangeText,editable,accessibilityLabel})=><textarea aria-label={accessibilityLabel} disabled={editable===false} value={value} onChange={e=>onChangeText(e.target.value)}/>;export const FlatList=({data,ListHeaderComponent,ListEmptyComponent,ListFooterComponent,renderItem})=><div>{ListHeaderComponent}{data.length?data.map(item=><div key={item.key}>{renderItem({item})}</div>):ListEmptyComponent}{ListFooterComponent}</div>;export const Modal=({visible,children})=>visible?<div>{children}</div>:null;export const ActivityIndicator=()=> <div>Loading</div>;export const StyleSheet={create:x=>x};`
+  `import React from 'react';export const useUiTheme=()=>({colors:{foreground:"#212121",background:"#fff",primary:"#212121",primaryForeground:"#fff",secondary:"#eee",border:"#ddd",card:"#fff",mutedForeground:"#666",destructive:"#a33539"}});export const stateListeners=new Set();export const backListeners=new Set();export const AppState={addEventListener(_,callback){stateListeners.add(callback);return{remove(){stateListeners.delete(callback)}}}};export const BackHandler={addEventListener(_,callback){backListeners.add(callback);return{remove(){backListeners.delete(callback)}}}};export const View=({children})=><div>{children}</div>;export const Text=({children})=><span>{children}</span>;export const Pressable=({children,disabled,onPress})=><button disabled={disabled} onClick={onPress}>{children}</button>;export const ScrollView=View;export const TextInput=({value,onChangeText,editable,accessibilityLabel})=><textarea aria-label={accessibilityLabel} disabled={editable===false} value={value} onChange={e=>onChangeText(e.target.value)}/>;export const FlatList=({data,ListHeaderComponent,ListEmptyComponent,ListFooterComponent,renderItem})=><div>{ListHeaderComponent}{data.length?data.map(item=><div key={item.key}>{renderItem({item})}</div>):ListEmptyComponent}{ListFooterComponent}</div>;export const Modal=({visible,children})=>visible?<div>{children}</div>:null;export const ActivityIndicator=()=> <div>Loading</div>;export const StyleSheet={create:x=>x};`
 );
 const outfile = join(output, 'screen.cjs');
 await build({
@@ -48,7 +48,9 @@ await build({
           path: require.resolve(args.path),
           external: true
         }));
-        b.onResolve({ filter: /^react-native$|^native-ui-fixture$/ }, () => ({ path: fixture }));
+        b.onResolve({ filter: /^react-native$|^native-ui-fixture$|\/shared-ui\/theme$/ }, () => ({
+          path: fixture
+        }));
       }
     }
   ]
@@ -101,14 +103,18 @@ function setup(override) {
     if (payload.type === 'discard' || payload.type === 'save') return { saved: true };
     return {};
   };
+  const backHandlerRef = { current: undefined };
   return {
+    backHandlerRef,
     root,
     container,
     calls,
     request,
     async render(identity = 'session:0') {
       await act(async () => {
-        root.render(React.createElement(NativeSnippetsScreen, { identity, request }));
+        root.render(
+          React.createElement(NativeSnippetsScreen, { identity, request, backHandlerRef })
+        );
         await new Promise((r) => setTimeout(r, 220));
       });
       await act(async () => {
@@ -236,4 +242,41 @@ test('Back refresh retains the current search instead of a first-render closure'
 test.after(() => {
   dom.window.close();
   rmSync(output, { recursive: true, force: true });
+});
+
+test('header Back shares hardware Back checkpoint ownership and never leaves a failed draft', async () => {
+  let release,
+    fail = false;
+  const f = setup(async (method, payload) => {
+    if (payload.type === 'checkpoint') {
+      if (fail) throw new Error('Checkpoint unavailable');
+      return new Promise((resolve) => {
+        release = () => resolve({ editor: { ...structuredClone(editor), token: 'saved-header' } });
+      });
+    }
+  });
+  try {
+    await f.render();
+    assert.equal(f.backHandlerRef.current(), false);
+    await click(f, 'New snippet');
+    await type(f, 'Snippet title', 'Keep through header Back');
+    await act(async () => {
+      assert.equal(f.backHandlerRef.current(), true);
+      assert.equal(f.backHandlerRef.current(), true);
+    });
+    assert.equal(f.calls.filter((c) => c.payload.type === 'checkpoint').length, 1);
+    assert.ok(f.container.querySelector('[aria-label="Snippet title"]'));
+    await act(async () => release());
+    assert.ok(!f.container.querySelector('[aria-label="Snippet title"]'));
+    await click(f, 'New snippet');
+    fail = true;
+    await act(async () => {
+      assert.equal(f.backHandlerRef.current(), true);
+    });
+    assert.ok(f.container.querySelector('[aria-label="Snippet title"]'));
+    assert.match(f.container.textContent, /Checkpoint unavailable/);
+  } finally {
+    await f.dispose();
+  }
+  assert.equal(f.backHandlerRef.current, undefined);
 });

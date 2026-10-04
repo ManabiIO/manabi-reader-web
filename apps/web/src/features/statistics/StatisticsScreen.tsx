@@ -7,6 +7,7 @@
 import { ExternalLink } from '../../shared-ui/ExternalLink';
 import { AppFrame } from '../../shared-ui/AppFrame';
 import { UiIcon } from '../../shared-ui/UiIcon';
+import { RouteBack } from '../../shared-ui/RouteBack';
 import { UiText as Text } from '../../shared-ui/Typography';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, View, StyleSheet, useWindowDimensions } from 'react-native';
@@ -34,27 +35,6 @@ import { StatisticsHeatmap } from './StatisticsHeatmap';
 import { StatisticsTitleFilter, StatisticsTitleFilterFooter } from './StatisticsTitleFilter';
 import { ShortcutListener } from '../../shared-ui/ShortcutListener';
 import { rangeTemplates, summaryPageSize, type StatisticsViewProps } from './view-model';
-const destinations = [
-  { href: '/manage', label: 'Library', detail: 'Books and snippets across your connected storage' },
-  { href: '/snippets', label: 'Snippets', detail: 'Read, edit, and collect short texts' },
-  { href: '/statistics', label: 'Statistics', detail: 'Reading time, characters, and activity' },
-  { href: '/settings', label: 'Settings', detail: 'Appearance, reading, data, and goals' },
-  {
-    href: '/connections',
-    label: 'Accounts and libraries',
-    detail: 'Manabi account, cloud drives, and local folders'
-  },
-  {
-    href: '/shared-library',
-    label: 'Shared libraries',
-    detail: 'Manage shared local-folder libraries'
-  },
-  {
-    href: '/import-ttu',
-    label: 'Import from Ttu Ebook Reader',
-    detail: 'Bring books, bookmarks, and reading data'
-  }
-];
 /** Both Expo route entries resolve this exact composition and controller.
  * Only typed effects and bounded semantic/interaction leaves vary by platform. */
 export function StatisticsScreen() {
@@ -113,7 +93,6 @@ export function StatisticsView({
   const { colors } = useUiTheme();
   const { width, height, fontScale } = useWindowDimensions();
   const [optionsOpen, setOptionsOpen] = useState(false);
-  const [navigationOpen, setNavigationOpen] = useState(false);
   const [newDayBook, setNewDayBook] = useState('');
   const pageSize = summaryPageSize(width, height, fontScale);
   useEffect(() => {
@@ -138,7 +117,6 @@ export function StatisticsView({
           !state.confirmation &&
           !state.settingsOpen &&
           !state.titleFilterOpen &&
-          !navigationOpen &&
           !optionsOpen
         }
         bindings={state.data?.shortcuts ?? {}}
@@ -164,43 +142,78 @@ export function StatisticsView({
         style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.card }]}
       >
         <View style={[styles.topbar, { paddingHorizontal: width >= 640 ? 24 : 12 }]}>
-          <Heading level={1}>Statistics</Heading>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+            <RouteBack />
+            <Heading level={1}>Statistics</Heading>
+          </View>
+          <View style={{ position: 'relative', zIndex: 20 }}>
+            <ActionButton
+              variant="ghost"
+              size="icon-lg"
+              shape="circle"
+              accessibilityLabel="Statistics options"
+              title="Statistics options"
+              aria-haspopup="menu"
+              aria-expanded={optionsOpen}
+              onPress={() => setOptionsOpen(!optionsOpen)}
+            >
+              <UiIcon name="more" size={22} />
+            </ActionButton>
+            <Menu
+              visible={optionsOpen}
+              label="Statistics options"
+              onClose={() => setOptionsOpen(false)}
+            >
+              <ActionButton role="menuitem" variant="ghost" onPress={beginSettings}>
+                Statistics Settings
+              </ActionButton>
+              <View
+                role="separator"
+                style={{ borderTopWidth: 1, borderColor: colors.border, marginVertical: 4 }}
+              />
+              <Text style={{ color: colors.mutedForeground, fontSize: 12, margin: 8 }}>
+                Copy TMW log data
+              </Text>
+              <ActionButton
+                role="menuitem"
+                variant="ghost"
+                disabled={state.busy || !state.capabilities.clipboard.available}
+                onPress={() => {
+                  setOptionsOpen(false);
+                  void dispatch({ type: 'copy', measurement: 'readingTime' });
+                }}
+              >
+                Copy Reading Time
+              </ActionButton>
+              <ActionButton
+                role="menuitem"
+                variant="ghost"
+                disabled={state.busy || !state.capabilities.clipboard.available}
+                onPress={() => {
+                  setOptionsOpen(false);
+                  void dispatch({ type: 'copy', measurement: 'charactersRead' });
+                }}
+              >
+                Copy Characters Read
+              </ActionButton>
+              {!state.capabilities.clipboard.available && (
+                <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>
+                  {state.capabilities.clipboard.reason}
+                </Text>
+              )}
+              {userGuideHref && (
+                <ExternalLink href={userGuideHref} accessibilityLabel="User guide">
+                  <Text>User guide</Text>
+                </ExternalLink>
+              )}
+            </Menu>
+          </View>
           <View style={styles.navigation}>
             {state.data?.currentBookId !== undefined && (
               <NavLink href={`/b?id=${state.data.currentBookId}`} variant="ghost">
                 Resume reading
               </NavLink>
             )}
-            {width >= 1024 && (
-              <View
-                role="navigation"
-                accessibilityLabel="Primary navigation"
-                style={styles.primaryNav}
-              >
-                {destinations.slice(0, 4).map((item) => (
-                  <NavLink
-                    key={item.href}
-                    href={item.href}
-                    variant="ghost"
-                    size="sm"
-                    shape="rounded"
-                    selected={item.href === '/statistics'}
-                  >
-                    {item.label}
-                  </NavLink>
-                ))}
-              </View>
-            )}
-            <ActionButton
-              variant="ghost"
-              accessibilityLabel="Navigate"
-              aria-haspopup="dialog"
-              aria-expanded={navigationOpen}
-              onPress={() => setNavigationOpen(true)}
-            >
-              <UiIcon name="menu" />
-              Navigate
-            </ActionButton>
           </View>
         </View>
         <View style={[styles.toolbar, { paddingHorizontal: width >= 640 ? 24 : 12 }]}>
@@ -262,62 +275,6 @@ export function StatisticsView({
           >
             Filter books
           </ActionButton>
-          <View style={{ position: 'relative', zIndex: 20 }}>
-            <ActionButton
-              variant="secondary"
-              accessibilityLabel="Statistics options"
-              title="Statistics options"
-              aria-haspopup="menu"
-              aria-expanded={optionsOpen}
-              onPress={() => setOptionsOpen(!optionsOpen)}
-            >
-              Options
-              <UiIcon name="down" size={14} />
-            </ActionButton>
-            <Menu
-              visible={optionsOpen}
-              label="Statistics options"
-              onClose={() => setOptionsOpen(false)}
-            >
-              <ActionButton role="menuitem" variant="ghost" onPress={beginSettings}>
-                Statistics Settings
-              </ActionButton>
-              <View
-                role="separator"
-                style={{ borderTopWidth: 1, borderColor: colors.border, marginVertical: 4 }}
-              />
-              <Text style={{ color: colors.mutedForeground, fontSize: 12, margin: 8 }}>
-                Copy TMW log data
-              </Text>
-              <ActionButton
-                role="menuitem"
-                variant="ghost"
-                disabled={state.busy || !state.capabilities.clipboard.available}
-                onPress={() => {
-                  setOptionsOpen(false);
-                  void dispatch({ type: 'copy', measurement: 'readingTime' });
-                }}
-              >
-                Copy Reading Time
-              </ActionButton>
-              <ActionButton
-                role="menuitem"
-                variant="ghost"
-                disabled={state.busy || !state.capabilities.clipboard.available}
-                onPress={() => {
-                  setOptionsOpen(false);
-                  void dispatch({ type: 'copy', measurement: 'charactersRead' });
-                }}
-              >
-                Copy Characters Read
-              </ActionButton>
-              {!state.capabilities.clipboard.available && (
-                <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>
-                  {state.capabilities.clipboard.reason}
-                </Text>
-              )}
-            </Menu>
-          </View>
         </View>
       </View>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}>
@@ -452,45 +409,6 @@ export function StatisticsView({
         )}
         <StatisticsTitleFilter {...viewProps} />
       </Sheet>
-      <Sheet
-        visible={navigationOpen}
-        onClose={() => setNavigationOpen(false)}
-        title="Manabi Reader"
-        description="Your books. Your reading space."
-        closeLabel="Close navigation"
-        maxWidth={384}
-      >
-        <View role="navigation" accessibilityLabel="Main navigation" style={{ gap: 8 }}>
-          {destinations.map((item) => (
-            <NavLink
-              href={item.href}
-              key={item.href}
-              variant="ghost"
-              selected={item.href === '/statistics'}
-              accessibilityLabel={item.label}
-            >
-              <Text>
-                {item.label}
-                {'\n'}
-                <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{item.detail}</Text>
-              </Text>
-            </NavLink>
-          ))}
-          {userGuideHref && (
-            <>
-              <View role="separator" style={{ borderTopWidth: 1, borderTopColor: colors.border }} />
-              <ExternalLink href={userGuideHref} accessibilityLabel="User guide">
-                <Text>
-                  User guide{'\n'}
-                  <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>
-                    Reading, libraries, and data
-                  </Text>
-                </Text>
-              </ExternalLink>
-            </>
-          )}
-        </View>
-      </Sheet>
       <Dialog
         visible={!!state.confirmation}
         onClose={() => void dispatch({ type: 'confirm', accept: false })}
@@ -577,6 +495,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, minWidth: 0 },
   header: { borderBottomWidth: 1, zIndex: 10 },
   topbar: {
+    zIndex: 20,
     width: '100%',
     maxWidth: 1280,
     alignSelf: 'center',

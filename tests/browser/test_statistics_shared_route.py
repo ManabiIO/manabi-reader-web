@@ -155,7 +155,7 @@ class SharedStatisticsBrowser(LibraryBase):
         self.assertAlmostEqual(enlarged_streak_size, normal_streak_size * 2, delta=0.5)
         self.page.wait_for_function('document.documentElement.scrollWidth - innerWidth <= 1')
         self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth - innerWidth'), 1)
-        for role, name in [('link', 'Resume reading'), ('button', 'Navigate')]:
+        for role, name in [('link', 'Resume reading'), ('link', 'Back')]:
             control = self.page.get_by_role(role, name=name, exact=True)
             control.scroll_into_view_if_needed()
             expect(control).to_be_in_viewport()

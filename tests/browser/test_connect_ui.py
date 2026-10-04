@@ -10,6 +10,25 @@ CatalogLifetimeBrowser = previous.CatalogLifetimeBrowser
 
 
 class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrowser):
+    def test_enlarged_library_submenu_keeps_trigger_outside_popup(self):
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        for mode in ('light', 'dark'):
+            self.page.evaluate('m => localStorage.setItem("appearance", m)', mode)
+            self.go_library()
+            self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+            for layout in ('List', 'Grid'):
+                self.page.get_by_role('button', name='Library actions', exact=True).click()
+                trigger = self.page.get_by_role('menuitem', name='View Options', exact=True)
+                trigger.click()
+                menu = self.page.locator('[data-slot="dropdown-menu-sub-content"]')
+                expect(menu).to_be_visible()
+                anchor, popup = trigger.bounding_box(), menu.bounding_box()
+                self.assertTrue(popup['y'] >= anchor['y'] + anchor['height'] or
+                                popup['y'] + popup['height'] <= anchor['y'])
+                menu.get_by_role('menuitemradio', name=layout, exact=True).click()
+                expect(menu).to_have_count(0)
+                self.assert_no_horizontal_overflow(self.page.locator('html'))
+
     def assert_no_horizontal_overflow(self, root):
         # The root's clientWidth excludes a native vertical scrollbar. Compare
         # it with the full viewport, but keep real horizontal overflow visible.
@@ -128,13 +147,8 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
                 header = self.page.locator('header').first.bounding_box()
                 self.assertGreaterEqual(self.page.locator('[data-settings-content]').bounding_box()['y'], header['y'] + header['height'] - 1)
                 self.assertAlmostEqual(search.evaluate('e => parseFloat(getComputedStyle(e).borderTopLeftRadius)'), 10, delta=0.1)
-                if width >= 1280:
-                    primary = self.page.get_by_role('navigation', name='Primary navigation')
-                    for destination in ('Library', 'Statistics', 'Settings'):
-                        expect(primary.get_by_role('link', name=destination, exact=True)).to_be_visible()
-                    expect(primary.get_by_role('link', name='Settings', exact=True)).to_have_attribute(
-                        'aria-current', 'page'
-                    )
+                expect(self.page.get_by_role('navigation', name='Primary navigation')).to_have_count(0)
+                expect(self.page.get_by_role('button', name='Settings actions', exact=True)).to_be_visible()
                 nav = self.page.get_by_role('navigation', name='Settings categories')
                 typography = nav.get_by_role('link', name='Fonts & text', exact=True)
                 typography.click()
@@ -155,12 +169,12 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
     def test_primary_workspace_navigation_appears_at_standard_desktop_width(self):
         self.page.set_viewport_size({'width': 1024, 'height': 768})
         self.page.goto(self.origin + '/reader-web/settings')
-        primary = self.page.get_by_role('navigation', name='Primary navigation')
-        for destination in ('Library', 'Snippets', 'Statistics', 'Settings'):
-            expect(primary.get_by_role('link', name=destination, exact=True)).to_be_visible()
-        expect(primary.get_by_role('link', name='Settings', exact=True)).to_have_attribute(
-            'aria-current', 'page'
-        )
+        expect(self.page.get_by_role('navigation', name='Primary navigation')).to_have_count(0)
+        self.page.get_by_role('button', name='Settings actions', exact=True).click()
+        menu = self.page.get_by_role('menu', name='Page actions', exact=True)
+        expect(menu.get_by_role('menuitem', name='Accounts and libraries', exact=True)).to_be_visible()
+        expect(menu.get_by_role('menuitem', name='Settings', exact=True)).to_have_count(0)
+        self.page.keyboard.press('Escape')
         self.assert_no_horizontal_overflow(self.page.locator('html'))
 
     def test_settings_section_links_follow_url_history_without_scrolling(self):
@@ -218,8 +232,8 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
                 self.page.evaluate('v => document.documentElement.style.fontSize = v', scale)
                 heading = self.page.get_by_role('heading', name='Accounts and libraries', exact=True)
                 expect(heading).to_be_visible()
-                context = self.page.get_by_role('navigation', name='Context navigation')
-                expect(context.get_by_role('link', name='Back to Library', exact=True)).to_be_visible()
+                context = self.page.locator('header.app-header')
+                expect(context.get_by_role('link', name='Back', exact=True)).to_be_visible()
                 expect(context.get_by_role('link')).to_have_count(1)
                 sign_in = self.page.get_by_role('link', name='Sign in to Manabi', exact=True)
                 create = self.page.get_by_role('link', name='Create a Manabi account', exact=True)
@@ -263,9 +277,9 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
                 'heading', name='Shared Ttu Ebook Reader libraries', exact=True
             )
             expect(heading).to_be_visible()
-            context = self.page.get_by_role('navigation', name='Context navigation')
+            context = self.page.locator('header.app-header')
             expect(
-                context.get_by_role('link', name='Back to Accounts and libraries', exact=True)
+                context.get_by_role('link', name='Back', exact=True)
             ).to_be_visible()
             expect(context.get_by_role('link')).to_have_count(1)
             self.assert_no_horizontal_overflow(self.page.locator('html'))
@@ -310,8 +324,8 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
                 'heading', name='Import from Ttu Ebook Reader', exact=True
             )
             expect(heading).to_be_visible()
-            context = self.page.get_by_role('navigation', name='Context navigation')
-            expect(context.get_by_role('link', name='Back to Library', exact=True)).to_be_visible()
+            context = self.page.locator('header.app-header')
+            expect(context.get_by_role('link', name='Back', exact=True)).to_be_visible()
             expect(context.get_by_role('link')).to_have_count(1)
             file_input = self.page.get_by_label('Choose Ttu export ZIPs', exact=True)
             expect(file_input).to_be_visible()
@@ -478,7 +492,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
             filter_books = toolbar.get_by_role('button', name='Filter books', exact=True)
             expect(filter_books).to_have_attribute('data-variant', 'secondary')
             trigger = toolbar.get_by_role('button', name='Statistics options', exact=True)
-            expect(trigger).to_have_attribute('data-variant', 'secondary')
+            expect(trigger).to_have_attribute('data-variant', 'ghost')
             trigger.click()
             self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()
             panel = self.page.get_by_role('dialog', name='Statistics options', exact=True)
