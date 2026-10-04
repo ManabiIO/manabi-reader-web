@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { CaretLeft } from '@phosphor-icons/react';
+import { handleRouteBack } from '../shared-ui/route-back-click.web';
 import { useReaderController } from '../reader-react/controller';
 import {
   Dom,
@@ -52,6 +53,7 @@ export function SettingsHeader(
         >
           <Button
             href={c.leavePageLink}
+            onClick={(event: MouseEvent) => handleRouteBack(event, c.leavePageLink)}
             variant={'ghost'}
             aria-label={'Back'}
             className={['settings-back'].filter(Boolean).join(' ')}

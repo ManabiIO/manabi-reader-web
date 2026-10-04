@@ -109,6 +109,7 @@ export function installQualifiedWebNavigation(
   const stopRouter = installRouter({
     ...router,
     sameDocumentHistory: true,
+    returnTo: (href, isCurrent) => broker.returnTo(href, isCurrent),
     currentUrl: () => broker.currentEntry.href,
     prepareNavigation: async () => {
       const request = ++version;

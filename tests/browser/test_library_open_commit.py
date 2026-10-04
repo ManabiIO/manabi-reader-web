@@ -324,7 +324,7 @@ class LibraryOpenCommitStatic(LibraryBase):
                 holder.evaluate('window.releaseResumeBlocker?.()')
                 holder.close()
 
-    def test_back_aborts_the_actual_queued_resume_transaction_in_same_document(self):
+    def test_forward_aborts_the_actual_queued_resume_transaction_in_same_document(self):
         self.import_book('Phase queued book')
         self.import_book('Phase retained book')
         ids = {row['title']:row['id'] for row in self.stores('books',['data'])['data']}
@@ -368,7 +368,10 @@ class LibraryOpenCommitStatic(LibraryBase):
         try:
             self.page.get_by_role('button',name='Read Phase queued book',exact=True).click()
             expect(self.page.locator('html')).to_have_attribute('data-resume-target-outcome','pending')
-            self.page.go_back()
+            # App Back now pops to the original Library entry. Settings remains
+            # forward in this same document; its native traversal must still
+            # abort the queued resume. The preceding case retains native Back.
+            self.page.go_forward()
             expect(self.page).to_have_url(re.compile('/reader-web/settings$'))
             self.assertTrue(self.page.evaluate('window.sameOpenDocument === true'))
             self.page.evaluate('async()=>{window.releaseResumeBlocker();await window.resumeBlockerDone;}')

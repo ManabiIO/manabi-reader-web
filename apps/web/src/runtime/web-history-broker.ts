@@ -57,6 +57,10 @@ export interface WebHistoryBrokerOptions {
 export interface WebHistoryBroker {
   /** Last accepted entry, excluding temporary veto/restoration targets. */
   readonly currentEntry: WebHistoryEntry;
+  /** Call after app navigation guards admit departure. Return to the nearest
+   * tracked earlier matching URL. Undefined means no local
+   * entry exists; false means an issued return was revoked/restored. */
+  returnTo(href: string, isCurrent: () => boolean): Promise<boolean | undefined>;
   /** Revoke a save/retirement completion before a newer app/account intent. */
   invalidate(): void;
   /** Call after invalidate(), before app push/replace. Rejects on unsafe recovery. */
@@ -299,6 +303,32 @@ class HistoryGuard implements WebHistoryBroker {
   get currentEntry(): WebHistoryEntry {
     return this.transport.current;
   }
+
+  returnTo = (href: string, isCurrent: () => boolean): Promise<boolean | undefined> => {
+    this.beforeWrite();
+    if (this.disposed || !isCurrent()) return Promise.resolve(false);
+    const from = this.currentEntry;
+    const to = [...this.transport.entries.values()]
+      .filter((entry) => entry.position < from.position && entry.href === href)
+      .sort((a, b) => b.position - a.position)[0];
+    if (!to) return Promise.resolve(undefined);
+    this.invalidate();
+    this.origin = from;
+    const pending: PendingIntent = {
+      version: this.version,
+      from,
+      to,
+      published: true,
+      isCurrentOwner: isCurrent
+    };
+    this.pending = pending;
+    pending.replay = new Promise((resolve) => {
+      pending.resolveReplay = resolve;
+    });
+    this.replayCanceled = false;
+    this.start('replay', from, to);
+    return pending.replay;
+  };
 
   notifyEntry(
     entry: WebHistoryEntry,

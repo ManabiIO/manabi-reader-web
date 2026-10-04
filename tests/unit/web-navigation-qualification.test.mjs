@@ -456,3 +456,86 @@ test('a self-link admitted during retirement restores saved content before keepi
     assert.deepEqual(h.dispatched, ['/b?id=7']);
     assert.deepEqual(h.errors, []);
   }));
+
+test('app Back returns to the exact prior entry across local categories without adding history', async () =>
+  fixture(async (h) => {
+    await h.goto('/reader-web/b?id=7#paragraph');
+    const state = globalThis.history.state;
+    await h.goto('/reader-web/settings');
+    const arrival = h.readNavigationArrival(location.href);
+    await h.goto('/reader-web/settings#typography');
+    const length = globalThis.history.length,
+      dispatched = h.dispatched.length;
+    await h.backTo('/reader-web/b?id=7#paragraph');
+    assert.equal(location.href, 'https://reader.example/reader-web/b?id=7#paragraph');
+    assert.deepEqual(globalThis.history.state, state);
+    assert.equal(globalThis.history.length, length);
+    assert.equal(h.dispatched.length, dispatched);
+    globalThis.history.forward();
+    await until(() => location.pathname.endsWith('/settings'));
+    assert.equal(h.readNavigationArrival(location.href).from, arrival.from);
+    assert.deepEqual(h.errors, []);
+  }));
+
+test('app Back observes synchronous cancellation and failed reader saves', async () =>
+  fixture(async (h) => {
+    await h.goto('/reader-web/b?id=7');
+    const state = globalThis.history.state,
+      length = globalThis.history.length;
+    const cancel = h.beforeNavigate((n) => n.cancel());
+    await h.backTo('/reader-web/manage');
+    cancel();
+    assert.deepEqual(globalThis.history.state, state);
+    const reader = h.reader(async () => false);
+    await h.backTo('/reader-web/manage');
+    await reader.gate.settled();
+    assert.equal(reader.saves(), 1);
+    assert.equal(reader.retired(), false);
+    assert.equal(location.pathname, '/reader-web/b');
+    assert.deepEqual(globalThis.history.state, state);
+    assert.equal(globalThis.history.length, length);
+    assert.deepEqual(h.errors, []);
+  }));
+
+test('cold app Back replaces a local fallback without inventing an earlier entry', async () =>
+  fixture(async (h) => {
+    const length = globalThis.history.length;
+    await h.backTo('/reader-web/snippets');
+    assert.equal(location.pathname, '/reader-web/snippets');
+    assert.equal(globalThis.history.length, length);
+    assert.deepEqual(h.dispatched, ['/snippets']);
+    assert.deepEqual(h.errors, []);
+  }));
+
+test('a newer app intent restores an issued Back before dispatching its replacement', async () =>
+  fixture(async (h) => {
+    await h.goto('/reader-web/settings');
+    h.pauseCommands();
+    const back = h.backTo('/reader-web/manage');
+    await until(() => h.commands.length === 1);
+    const next = h.goto('/reader-web/connections');
+    h.flushCommand();
+    await until(() => h.commands.length === 1);
+    assert.equal(location.pathname, '/reader-web/manage');
+    h.flushCommand();
+    await Promise.all([back, next]);
+    assert.equal(location.pathname, '/reader-web/connections');
+    assert.deepEqual(h.observed, []);
+    assert.deepEqual(h.errors, []);
+  }));
+
+test('app Back waits for a successful reader save and preserves the original target state', async () =>
+  fixture(async (h) => {
+    const target = globalThis.history.state;
+    await h.goto('/reader-web/b?id=7');
+    const reader = h.reader();
+    await h.backTo('/reader-web/manage');
+    await reader.gate.settled();
+    assert.equal(reader.saves(), 1);
+    assert.equal(reader.retired(), true);
+    assert.equal(reader.gate.departed, true);
+    assert.equal(location.pathname, '/reader-web/manage');
+    assert.deepEqual(globalThis.history.state, target);
+    assert.equal(h.dispatched.length, 1);
+    assert.deepEqual(h.errors, []);
+  }));

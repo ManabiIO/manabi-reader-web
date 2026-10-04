@@ -10,6 +10,7 @@ let router:
   | {
       push(path: string): void;
       replace(path: string): void;
+      returnTo?(href: string, isCurrent: () => boolean): Promise<boolean | undefined>;
       sameDocumentHistory?: boolean;
       prepareNavigation?(): Promise<boolean | (() => boolean)>;
       currentUrl?(): string;
@@ -83,6 +84,7 @@ export async function goto(
   href: string | URL,
   options: {
     replaceState?: boolean;
+    returnTo?: boolean;
     noScroll?: boolean;
     keepFocus?: boolean;
     state?: Record<string, unknown>;
@@ -98,6 +100,10 @@ export async function goto(
   // Guards still observe an impossible attempt so an explicit reader close can
   // settle its save and resume, rather than stranding blockDataUpdates on error.
   return navigate(url, captured, intent, undefined, prepared);
+}
+/** Return to an admitted prior browser entry; cold visits replace their local fallback. */
+export function backTo(href: string | URL): Promise<void> {
+  return goto(href, { returnTo: true, replaceState: true });
 }
 async function navigate(
   href: string,
@@ -184,7 +190,18 @@ async function navigate(
             ? url.pathname.slice(base.length)
             : url.pathname;
       const path = `${pathname}${url.search}${url.hash}`;
-      router[options.replaceState ? 'replace' : 'push'](path);
+      const returned = options.returnTo ? await router.returnTo?.(url.href, current) : undefined;
+      if (returned === false) {
+        if (arrival === admitted) arrival = previousArrival;
+        return;
+      }
+      if (returned === undefined) {
+        if (!current()) {
+          if (arrival === admitted) arrival = previousArrival;
+          return;
+        }
+        router[options.replaceState ? 'replace' : 'push'](path);
+      }
     } else
       history[options.replaceState ? 'replaceState' : 'pushState'](options.state ?? {}, '', url);
   } catch (error) {

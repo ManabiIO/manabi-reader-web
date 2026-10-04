@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { usePathname, useRoute } from 'expo-router';
 import { Button } from '../library-react/primitives';
 import { readNavigationArrival } from '../runtime/navigation';
+import { handleRouteBack } from './route-back-click.web';
 import { base } from '../runtime/paths';
 import { navigationReturnPath } from './navigation-context';
 import { CaretLeft } from '@phosphor-icons/react';
@@ -29,7 +30,14 @@ export function RouteBack({ fallback = '/manage' }: { fallback?: string }) {
     return navigationReturnPath(current, readNavigationArrival(current)?.from, base, fallback);
   });
   return (
-    <Button href={href} variant="ghost" size="icon-lg" shape="circle" aria-label="Back">
+    <Button
+      href={href}
+      onClick={(event: MouseEvent) => handleRouteBack(event, href)}
+      variant="ghost"
+      size="icon-lg"
+      shape="circle"
+      aria-label="Back"
+    >
       <CaretLeft size={20} aria-hidden="true" />
     </Button>
   );

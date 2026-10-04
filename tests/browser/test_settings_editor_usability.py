@@ -297,6 +297,51 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
         expect(typography).to_have_attribute('aria-current', 'page')
         expect(back).to_have_attribute('href', '/reader-web/manage')
 
+    def test_app_back_restores_library_entry_and_forward_restores_settings_visit(self):
+        original = self.page.evaluate('history.state')
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Settings', exact=True).click()
+        expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
+        self.page.get_by_role('navigation', name='Settings categories').get_by_role(
+            'link', name='Fonts & text', exact=True).click()
+        expect(self.page).to_have_url(self.origin + '/reader-web/settings#typography')
+        length = self.page.evaluate('history.length')
+        self.page.get_by_role('link', name='Back', exact=True).click()
+        expect(self.page).to_have_url(self.origin + '/reader-web/manage')
+        expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
+            'aria-busy', 'false')
+        self.assertEqual(original, self.page.evaluate('history.state'))
+        self.assertEqual(length, self.page.evaluate('history.length'))
+        self.page.go_forward()
+        expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('link', name='Back', exact=True)).to_have_attribute(
+            'href', '/reader-web/manage')
+        self.page.get_by_role('link', name='Back', exact=True).click()
+        expect(self.page).to_have_url(self.origin + '/reader-web/manage')
+        self.assertEqual(original, self.page.evaluate('history.state'))
+        self.assertEqual(length, self.page.evaluate('history.length'))
+
+    def test_other_pushed_screens_back_restores_original_library_entry(self):
+        original = self.page.evaluate('history.state')
+        for destination in ['Accounts and Libraries', 'Snippets', 'Statistics']:
+            with self.subTest(destination=destination):
+                if destination == 'Snippets':
+                    self.page.locator('.library-rail').get_by_role('link').filter(
+                        has_text='Snippets').click()
+                else:
+                    self.page.get_by_role('button', name='Library actions', exact=True).click()
+                    self.page.get_by_role('menuitem', name=destination, exact=True).click()
+                back = self.page.get_by_role('link', name='Back', exact=True)
+                expect(back).to_be_visible()
+                expect(back).to_have_attribute('href', '/reader-web/manage')
+                length = self.page.evaluate('history.length')
+                back.click()
+                expect(self.page).to_have_url(self.origin + '/reader-web/manage')
+                expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
+                    'aria-busy', 'false')
+                self.assertEqual(original, self.page.evaluate('history.state'))
+                self.assertEqual(length, self.page.evaluate('history.length'))
+
     def test_reader_origin_survives_settings_category_navigation(self):
         self.import_book('Settings back origin')
         self.page.get_by_role('button', name='Read Settings back origin', exact=True).click()

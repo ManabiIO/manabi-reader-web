@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { CaretLeft } from '@phosphor-icons/react';
+import { handleRouteBack } from '../shared-ui/route-back-click.web';
 import { navigationReturnPath } from '../shared-ui/navigation-context';
 import { readNavigationArrival } from '../runtime/navigation';
 import { useReaderController } from '../reader-react/controller';
@@ -80,7 +81,14 @@ export function Workspace(props: WorkspaceProps & ReaderViewProps) {
           as="header"
           className={['top'].filter(Boolean).join(' ')}
         >
-          <Button href={returnHref} variant="ghost" size="icon-lg" shape="circle" aria-label="Back">
+          <Button
+            href={returnHref}
+            onClick={(event: MouseEvent) => handleRouteBack(event, returnHref)}
+            variant="ghost"
+            size="icon-lg"
+            shape="circle"
+            aria-label="Back"
+          >
             <CaretLeft size={20} aria-hidden="true" />
           </Button>
           <Dom scopeClass="snippet-scope-workspace" as="span" className="brand">
