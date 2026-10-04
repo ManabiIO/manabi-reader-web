@@ -16,7 +16,7 @@ export const appDestinations = [
 
 /** Global destinations belong to the Library. Pushed screens expose only
  * related destinations; their back action owns the return to the previous view. */
-export function contextualDestinations(path: string) {
+export function contextualDestinations(path: string, platform: 'web' | 'android' = 'web') {
   const related: Record<string, readonly string[]> = {
     '/settings': ['/connections'],
     '/connections': ['/shared-library', '/import-ttu'],
@@ -29,7 +29,12 @@ export function contextualDestinations(path: string) {
   };
   const allowed = related[path];
   return appDestinations.filter(
-    (item) => item.path !== path && (!allowed || allowed.includes(item.path))
+    (item) =>
+      item.path !== path &&
+      (!allowed || allowed.includes(item.path)) &&
+      // Keep direct routes for migration diagnostics, but do not offer unfinished
+      // native integrations as destinations in a user-facing menu.
+      (platform !== 'android' || !['/shared-library', '/import-ttu'].includes(item.path))
   );
 }
 

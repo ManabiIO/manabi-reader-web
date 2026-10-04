@@ -22,14 +22,16 @@ const { createRoot } = require('react-dom/client');
 const output = mkdtempSync(join(tmpdir(), 'library-statistics-ui-'));
 process.on('exit', () => rmSync(output, { recursive: true, force: true }));
 const fixture = `import React,{useRef} from 'react';
+import {ActionButton as NativeMenuButton} from './apps/web/src/shared-ui/ActionButton';
 export const View=({children})=><div>{children}</div>; export const ScrollView=View,SafeAreaView=View,Host=View;
-export const Text=({children})=><span>{children}</span>; export const StyleSheet={create:x=>x,flatten:x=>Object.assign({},...(Array.isArray(x)?x.flat(Infinity):[x]).filter(Boolean))};
+export const Text=({children,style})=><span data-color={StyleSheet.flatten(style).color}>{children}</span>; export const StyleSheet={create:x=>x,flatten:x=>Object.assign({},...(Array.isArray(x)?x.flat(Infinity):[x]).filter(Boolean))};
 export const Platform={OS:"android"}; export const useColorScheme=()=>"light"; export const useWindowDimensions=()=>({width:390,height:844,fontScale:1});
 export const ActivityIndicator=()=>null; export const Modal=({visible,children})=>visible?<section>{children}</section>:null;
 export const Pressable=({children,onPress,disabled,accessibilityLabel,role})=><button role={role} aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{typeof children==='function'?children({pressed:false}):children}</button>; export const UiIcon=()=>null;
 export const FlatList=({data,renderItem,numColumns})=><div data-columns={numColumns}>{data.map(item=><div key={item.key}>{renderItem({item})}</div>)}</div>;
 export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder})=><input value={value.value} onChange={event=>onChangeText?.(event.target.value)} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=({label,value,onValueChange,disabled})=><input type="checkbox" aria-label={label} checked={value} disabled={disabled} onChange={event=>onValueChange(event.target.checked)}/>;
 export const Action=({label,onPress,disabled,theme,variant})=><button data-variant={variant} data-seed={theme?.seedColor} disabled={disabled} onClick={onPress}>{label}</button>;
+export const MenuAction=({label,onPress,disabled})=><NativeMenuButton role="menuitem" variant="ghost" onPress={onPress} disabled={disabled}>{label}</NativeMenuButton>;
 export const Screen=({actions,children,theme,menuActions})=><main data-mode={theme?.mode} data-background={theme?.colors.background}>{actions}{menuActions?.(()=>{})}{children}</main>;
 export const Alert={alert:(...args)=>globalThis.libraryStatisticsUI.confirmations.push(args)};
 export const useReaderRuntime=()=>globalThis.libraryStatisticsUI.runtime;
@@ -341,7 +343,7 @@ test('Library account ABA permanently retires an in-flight navigation-only admis
   assert.equal(f.calls.filter((call) => call.method === 'statistics.action').length, 0);
 });
 
-test('mounted native Library applies the saved appearance to its screen and Expo actions and refreshes without settings writes', async (t) => {
+test('mounted native Library applies saved appearance to its screen, native menu and Expo actions without settings writes', async (t) => {
   const uiTheme = { themeId: 'manabi-theme', appearance: 'dark', customThemes: {} };
   const f = await mount(t, undefined, uiTheme);
   const root = () => f.container.querySelector('main');
@@ -350,14 +352,21 @@ test('mounted native Library applies the saved appearance to its screen and Expo
   const action = [...f.container.querySelectorAll('button')].find(
     (button) => button.textContent === 'Refresh'
   );
-  const darkSeed = action.dataset.seed;
+  const expoAction = [...f.container.querySelectorAll('button')].find(
+    (button) => button.textContent === 'Add Books'
+  );
+  const darkSeed = expoAction.dataset.seed;
   assert.ok(darkSeed);
+  const menuColor = () => action.querySelector('[data-color]').dataset.color;
+  const darkMenuColor = menuColor();
+  assert.ok(darkMenuColor);
   assert.match(f.container.textContent, /NEW/);
   uiTheme.appearance = 'light';
   await click(f, 'Refresh');
   assert.equal(root().dataset.mode, 'light');
   assert.notEqual(root().dataset.background, dark);
-  assert.notEqual(action.dataset.seed, darkSeed);
+  assert.notEqual(expoAction.dataset.seed, darkSeed);
+  assert.notEqual(menuColor(), darkMenuColor);
   assert.ok(f.calls.every((call) => call.method === 'library.state'));
 });
 

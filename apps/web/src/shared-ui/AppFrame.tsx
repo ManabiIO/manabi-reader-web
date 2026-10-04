@@ -6,7 +6,13 @@
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { ViewProps } from 'react-native';
+import { ScreenStatusBar } from './ScreenStatusBar';
 /** Preserve the native route's safe-area ownership without changing its content. */
-export function AppFrame(props: ViewProps) {
-  return <SafeAreaView {...props} />;
+export function AppFrame({ children, ...props }: ViewProps) {
+  return (
+    <SafeAreaView {...props}>
+      <ScreenStatusBar />
+      {children}
+    </SafeAreaView>
+  );
 }

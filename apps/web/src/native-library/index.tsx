@@ -30,7 +30,7 @@ import { Host as ExpoHost, TextInput, useNativeState } from '@expo/ui';
 import { Switch } from '../shared-ui/ExpoToggle';
 import { router, usePathname } from 'expo-router';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
-import { Screen, Action as NativeAction } from '../screens/NativeScreens';
+import { Screen, Action as NativeAction, MenuAction } from '../screens/NativeScreens';
 import { UiText as Text } from '../shared-ui/Typography';
 import { ActionButton } from '../shared-ui/ActionButton';
 import { UiIcon } from '../shared-ui/UiIcon';
@@ -639,9 +639,8 @@ function Library() {
       }
       menuActions={(close) => (
         <View style={{ gap: 4 }}>
-          <Action
+          <MenuAction
             label={searchMode === 'metadata' ? 'Search passages' : 'Search titles and authors'}
-            variant="text"
             onPress={() => {
               close();
               setSearchMode(searchMode === 'metadata' ? 'passages' : 'metadata');
@@ -649,26 +648,23 @@ function Library() {
               setSelecting(false);
             }}
           />
-          <Action
+          <MenuAction
             label="Editor's Picks"
-            variant="text"
             disabled={busy || importing || !snapshot.session}
             onPress={() => {
               close();
               setCatalogVisible(true);
             }}
           />
-          <Action
+          <MenuAction
             label="Sort and filter"
-            variant="text"
             onPress={() => {
               close();
               setSheet('filters');
             }}
           />
-          <Action
+          <MenuAction
             label="Collections"
-            variant="text"
             onPress={() => {
               close();
               setName('');
@@ -676,9 +672,8 @@ function Library() {
               setSheet('collections');
             }}
           />
-          <Action
+          <MenuAction
             label={selecting ? 'Cancel selection' : 'Select'}
-            variant="text"
             disabled={busy || searchMode === 'passages'}
             onPress={() => {
               close();
@@ -686,9 +681,8 @@ function Library() {
               setSelected([]);
             }}
           />
-          <Action
+          <MenuAction
             label="Refresh"
-            variant="text"
             disabled={busy || loading}
             onPress={() => {
               close();

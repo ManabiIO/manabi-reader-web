@@ -7,7 +7,8 @@
 import { useEffect, type ReactNode } from 'react';
 import { StyleSheet, Text, View, ScrollView, useWindowDimensions } from 'react-native';
 import { Host, TextInput, useNativeState } from '@expo/ui';
-import { ExpoButton as Button } from '../../shared-ui/ExpoButton';
+import { ActionButton } from '../../shared-ui/ActionButton';
+import { useUiTheme } from '../../shared-ui/theme';
 export interface WorkspaceColors {
   text: string;
   muted: string;
@@ -89,7 +90,11 @@ export function WorkspaceSearch({ query, onSearch, colors }: WorkspaceSearchProp
 export function WorkspaceNavigation({ children }: { children?: ReactNode }) {
   const { width, fontScale } = useWindowDimensions();
   return width / fontScale >= 1024 ? (
-    <View style={[styles.navigation, { flexDirection: 'column' }]}>{children}</View>
+    <View
+      style={[styles.navigation, { flexDirection: 'column', flexWrap: 'nowrap', width: '100%' }]}
+    >
+      {children}
+    </View>
   ) : (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
       <View style={[styles.navigation, { flexWrap: 'nowrap' }]}>{children}</View>
@@ -97,14 +102,36 @@ export function WorkspaceNavigation({ children }: { children?: ReactNode }) {
   );
 }
 export function WorkspaceCategory({ label, selected, onActivate, colors }: WorkspaceCategoryProps) {
+  const { width, fontScale } = useWindowDimensions();
+  const { colors: palette } = useUiTheme();
+  const wide = width / fontScale >= 1024;
   return (
-    <Host matchContents colorScheme={colors?.mode} seedColor={colors?.seedColor}>
-      <Button
-        label={label}
-        variant={selected ? 'filled' : 'outlined'}
-        onPress={() => onActivate()}
-      />
-    </Host>
+    <ActionButton
+      variant="ghost"
+      selected={selected}
+      onPress={() => onActivate()}
+      style={{
+        justifyContent: 'flex-start',
+        width: wide ? '100%' : undefined,
+        alignSelf: wide ? 'stretch' : undefined,
+        borderWidth: 0,
+        borderRadius: wide ? 8 : 0,
+        borderBottomWidth: wide ? 0 : 2,
+        borderBottomColor: selected ? (colors?.text ?? palette.foreground) : 'transparent',
+        backgroundColor: wide && selected ? palette.muted : 'transparent',
+        paddingHorizontal: 12,
+        paddingVertical: 10
+      }}
+      textStyle={{
+        color: selected
+          ? (colors?.text ?? palette.foreground)
+          : (colors?.muted ?? palette.mutedForeground),
+        textAlign: 'left',
+        fontWeight: '500'
+      }}
+    >
+      {label}
+    </ActionButton>
   );
 }
 export function WorkspaceMain({ children }: { children?: ReactNode }) {

@@ -24,6 +24,7 @@ import { ActionButton } from '../shared-ui/ActionButton';
 import { Menu } from '../shared-ui/Menu';
 import { UiIcon } from '../shared-ui/UiIcon';
 import { RouteBack } from '../shared-ui/RouteBack';
+import { ScreenStatusBar } from '../shared-ui/ScreenStatusBar';
 import { useUiTheme } from '../shared-ui/theme';
 import { contextualDestinations } from '../shared-ui/navigation-context';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
@@ -55,6 +56,28 @@ export function Action({
     </Host>
   );
 }
+export function MenuAction({
+  label,
+  onPress,
+  disabled
+}: {
+  label: string;
+  onPress(): void;
+  disabled?: boolean;
+}) {
+  return (
+    <ActionButton
+      role="menuitem"
+      variant="ghost"
+      disabled={disabled}
+      onPress={onPress}
+      style={{ justifyContent: 'flex-start' }}
+      textStyle={{ textAlign: 'left' }}
+    >
+      {label}
+    </ActionButton>
+  );
+}
 export function Screen({
   title,
   children,
@@ -74,10 +97,10 @@ export function Screen({
 }) {
   const { error, clearError } = useReaderRuntime();
   const provided = useUiTheme();
+  const activeTheme = theme ?? provided;
   return (
-    <SafeAreaView
-      style={[styles.screen, { backgroundColor: (theme ?? provided).colors.background }]}
-    >
+    <SafeAreaView style={[styles.screen, { backgroundColor: activeTheme.colors.background }]}>
+      <ScreenStatusBar theme={activeTheme} />
       <NativeScreenHeader
         title={title}
         theme={theme}
@@ -89,10 +112,10 @@ export function Screen({
       {error ? (
         <View
           accessibilityRole="alert"
-          style={[styles.error, theme && { backgroundColor: theme.colors.destructiveBackground }]}
+          style={[styles.error, { backgroundColor: activeTheme.colors.destructiveBackground }]}
         >
-          <Text style={theme && { color: theme.colors.foreground }}>{error}</Text>
-          <Action theme={theme} label="Dismiss" onPress={clearError} />
+          <Text style={{ color: activeTheme.colors.foreground }}>{error}</Text>
+          <Action theme={activeTheme} label="Dismiss" onPress={clearError} />
         </View>
       ) : null}
       {children}
@@ -117,6 +140,7 @@ export function NativeScreenHeader({
   const provided = useUiTheme();
   const colors = (theme ?? provided).colors;
   const pathname = usePathname();
+  const destinations = contextualDestinations(pathname, 'android');
   const [open, setOpen] = useState(false);
   const root = pathname === '/manage' || pathname === '/';
   return (
@@ -132,7 +156,7 @@ export function NativeScreenHeader({
         {title}
       </Text>
       {actions}
-      {!hideMenu && (
+      {!hideMenu && (!!menuActions || destinations.length > 0) && (
         <View>
           <ActionButton
             variant="ghost"
@@ -147,12 +171,16 @@ export function NativeScreenHeader({
           </ActionButton>
           <Menu visible={open} label={`${title} actions`} onClose={() => setOpen(false)}>
             {menuActions?.(() => setOpen(false))}
-            {contextualDestinations(pathname).map((item) => (
+            {menuActions && destinations.length > 0 && (
+              <View style={{ borderTopWidth: 1, borderColor: colors.border, marginVertical: 4 }} />
+            )}
+            {destinations.map((item) => (
               <ActionButton
                 key={item.path}
                 variant="ghost"
                 role="menuitem"
                 style={{ justifyContent: 'flex-start' }}
+                textStyle={{ textAlign: 'left' }}
                 onPress={() => {
                   setOpen(false);
                   router.push(item.path);

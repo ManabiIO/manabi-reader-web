@@ -27,7 +27,8 @@ import { router, useFocusEffect } from 'expo-router';
 import { Host, Picker, TextInput, useNativeState } from '@expo/ui';
 import { Switch } from '../shared-ui/ExpoToggle';
 import { ExpoButton as Button } from '../shared-ui/ExpoButton';
-import { NativeScreenHeader } from '../screens/NativeScreens';
+import { MenuAction, NativeScreenHeader } from '../screens/NativeScreens';
+import { ScreenStatusBar } from '../shared-ui/ScreenStatusBar';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
 import { themeForMode, type ThemeOption } from '../lib/data/theme-option';
 import {
@@ -610,13 +611,13 @@ export function NativeSettingsScreen() {
       }
     >
       <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]}>
+        <ScreenStatusBar />
         <NativeScreenHeader
           title="Settings"
           theme={uiTheme}
           menuActions={(close) => (
-            <Action
+            <MenuAction
               label="Refresh saved settings"
-              colors={colors}
               disabled={view.pending || !snapshot.session}
               onPress={() => {
                 close();
@@ -632,7 +633,7 @@ export function NativeSettingsScreen() {
             onSearch={workspace.search}
             onCategory={workspace.choose}
             colors={colors}
-            saveDescription="Reader preferences are stored by the local reader. Switches and choices save immediately. Text and numbers save when you tap Apply."
+            saveDescription="Switches and choices save immediately. Text and numbers save when you tap Apply."
             resultText={
               data
                 ? `${fields.length} matching controls · ${gates.length} integration notes`
@@ -658,6 +659,20 @@ export function NativeSettingsScreen() {
             {!snapshot.session && (
               <Text style={{ color: colors.muted }}>The local reader is starting…</Text>
             )}
+            {data &&
+              fields.map((field) => (
+                <FieldEditor
+                  key={`${ownerKey}:${field.key}`}
+                  field={field}
+                  refresh={() => {
+                    void sessionRef.current?.refresh();
+                  }}
+                  data={data}
+                  act={act}
+                  busy={busy}
+                  colors={colors}
+                />
+              ))}
             {data && (category === 'appearance' || category === 'all') && !query.trim() && (
               <Card colors={colors}>
                 <Text style={[styles.label, { color: colors.text }]}>Custom themes</Text>
@@ -719,20 +734,6 @@ export function NativeSettingsScreen() {
                 close={() => setEditor(null)}
               />
             )}
-            {data &&
-              fields.map((field) => (
-                <FieldEditor
-                  key={`${ownerKey}:${field.key}`}
-                  field={field}
-                  refresh={() => {
-                    void sessionRef.current?.refresh();
-                  }}
-                  data={data}
-                  act={act}
-                  busy={busy}
-                  colors={colors}
-                />
-              ))}
             {gates.map((gate) => (
               <Card key={gate.id} colors={colors}>
                 <Text accessibilityRole="header" style={[styles.label, { color: colors.text }]}>
@@ -767,7 +768,7 @@ const styles = StyleSheet.create({
   },
   heading: { fontSize: 26, fontWeight: '700' },
   label: { fontSize: 17, fontWeight: '600' },
-  content: { padding: 16, gap: 14 },
+  content: { padding: 16, gap: 14, width: '100%', maxWidth: 1000, alignSelf: 'center' },
   card: { padding: 14, borderRadius: 14, borderWidth: 1, gap: 10 },
   row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
   gap: { gap: 6 },

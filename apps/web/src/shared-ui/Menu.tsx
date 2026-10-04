@@ -16,7 +16,7 @@ export interface MenuProps {
 }
 export function Menu({ visible, onClose, label, children }: MenuProps) {
   const { colors } = useUiTheme();
-  const { height } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   return (
     <Modal visible={visible} transparent onRequestClose={onClose} animationType="fade">
@@ -39,7 +39,7 @@ export function Menu({ visible, onClose, label, children }: MenuProps) {
           accessibilityLabel={label}
           accessibilityViewIsModal
           style={{
-            minWidth: 220,
+            width: Math.min(280, width - 32),
             maxHeight: Math.max(44, height - insets.top - insets.bottom - 88),
             maxWidth: '100%',
             padding: 8,
