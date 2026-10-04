@@ -54,7 +54,9 @@ jobs:
        (github.event_name == 'push' &&
         github.ref == 'refs/heads/feat/expo-android-web-migration')))
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # Both browser engines plus setup/build reached 20 minutes with every case passing.
+    # Leave time for suite completion and evidence upload; module timeouts stay bounded below.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
