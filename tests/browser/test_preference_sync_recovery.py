@@ -120,6 +120,55 @@ class PreferenceSyncRecovery(LibraryBase):
             self.assertEqual([], self.errors)
 
 
+    def test_font_size_draft_survives_account_refresh_and_rejects_invalid_sizes(self):
+        self.page.goto(self.origin + '/reader-web/connections')
+        expect(self.page.get_by_text('preference-recovery', exact=True)).to_be_visible()
+        font = self.page.get_by_label('Font size', exact=True)
+        font.fill('30')
+        font.press('Tab')
+        expect(font).to_have_value('30')
+        self.page.wait_for_function("localStorage.getItem('fontSize') === '30'")
+        font.fill('')
+        expect(font).to_have_value('')
+        self.assertEqual('30', self.page.evaluate("localStorage.getItem('fontSize')"))
+        # A genuine account refresh rerenders this screen while the edit is empty.
+        # Keep focus in the numeric field: moving away intentionally cancels it.
+        def session_requests():
+            return sum(request['path'].endswith('/session/')
+                       for request in StaticHandler.account_requests)
+
+        count = session_requests()
+        refresh = self.page.get_by_role('button', name='Refresh connections', exact=True)
+        # Activate the actual Refresh action while retaining input focus.
+        refresh.evaluate('(button) => button.click()')
+        deadline = time.monotonic() + 10
+        while session_requests() == count:
+            self.assertLess(time.monotonic(), deadline, 'Account refresh did not reach the fixture')
+            self.page.wait_for_timeout(25)
+        expect(refresh).to_be_enabled()
+        expect(font).to_have_value('')
+        font.press_sequentially('31')
+        font.press('Tab')
+        expect(font).to_have_value('31')
+        self.page.wait_for_function("localStorage.getItem('fontSize') === '31'")
+        for invalid in ['7', '97', '31.5', '']:
+            font.fill(invalid)
+            expect(font).to_have_value(invalid)
+            self.assertEqual('31', self.page.evaluate("localStorage.getItem('fontSize')"))
+            font.press('Tab')
+            expect(font).to_have_value('31')
+        self.page.reload()
+        expect(self.page.get_by_label('Font size', exact=True)).to_have_value('31')
+        # A synced external value owns the field even during an unfinished edit.
+        font.fill('')
+        toggle = self.page.get_by_label(
+            'Sync reader settings with this Manabi account', exact=True)
+        toggle.evaluate('(toggle) => toggle.click()')
+        expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text(
+            'synced', timeout=15000)
+        expect(font).to_have_value('12')
+        self.page.wait_for_function("localStorage.getItem('fontSize') === '12'")
+
     def preference_request_count(self):
         return sum(1 for request in StaticHandler.account_requests
                    if request['path'].endswith('/preferences/'))

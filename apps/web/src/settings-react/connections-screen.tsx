@@ -45,6 +45,39 @@ import { resolvePersonalConflict } from '$lib/manabi/personal-sync';
 import { removeLocalLibrary, supportedBook } from '$lib/manabi/sources';
 
 import { DavConnections } from './dav-connections';
+/** Keep an unfinished numeric edit separate from the persisted reader setting.
+ * A cleared/invalid input must not publish the store's default back into itself. */
+function FontSizeInput({
+  value,
+  onValueChange
+}: {
+  value: number;
+  onValueChange(value: number): void;
+}) {
+  const [edit, setEdit] = React.useState({ saved: value, text: String(value) });
+  // A real external preference update owns the field. Unrelated account renders
+  // retain its draft, without a delayed effect replacing the next user edit.
+  const text = edit.saved === value ? edit.text : String(value);
+  if (edit.saved !== value) setEdit({ saved: value, text });
+  return (
+    <input
+      type="number"
+      min={8}
+      max={96}
+      step={1}
+      required
+      value={text}
+      onChange={(event) => {
+        const input = event.currentTarget;
+        setEdit({ saved: value, text: input.value });
+        if (input.validity.valid) onValueChange(input.valueAsNumber);
+      }}
+      onBlur={(event) => {
+        if (!event.currentTarget.validity.valid) setEdit({ saved: value, text: String(value) });
+      }}
+    />
+  );
+}
 export function ConnectionsScreen(
   props: Partial<ConnectionsScreenProps> &
     ReaderViewProps & {
@@ -251,17 +284,10 @@ export function ConnectionsScreen(
                   <Dom as="div" className={['quick-settings'].filter(Boolean).join(' ')}>
                     <Dom as="label">
                       {'Font size'}
-                      <Dom
-                        as="input"
-                        type={'number'}
-                        min={'8'}
-                        max={'96'}
-                        step={'1'}
+                      <FontSizeInput
                         value={c.$fontSize$}
-                        bindings={{
-                          value: (value: typeof c.$fontSize$) => {
-                            c.controller.changed((c.$fontSize$ = value));
-                          }
+                        onValueChange={(value) => {
+                          c.controller.changed((c.$fontSize$ = value));
                         }}
                       />
                     </Dom>

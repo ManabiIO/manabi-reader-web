@@ -60,6 +60,12 @@ Selecting a dark app appearance on a light Android device reproduced invisible s
 
 Wide Settings Appearance and Fonts & text were also inspected using an emulator display override of 1800×2400 pixels at density 240 (1200×1600 dp). This is a responsive layout check on the existing Pixel emulator, not full Android tablet acceptance. The default phone geometry is restored afterward.
 
+## Connections numeric editing review
+
+The `a1c0a810` main run passed the other application workflows but Books failed in WebKit before preference-sync consent: the first font-size edit still showed 20. The unchanged case, full recovery suite and 20 fresh-profile first edits passed locally. That intermittent failure alone does not establish its cause.
+
+A focused browser check did reproduce a separate control defect: clearing Font size immediately persisted/restored the default 20, preventing a normal replacement edit. The Connections control now keeps a React editing draft, publishes only whole sizes in its advertised 8–96 range, restores the last saved value on invalid blur, and admits real external preference updates. The new browser case fails against the preceding build and checks clear/type, account refresh, invalid sizes, reload durability and account-sync replacement. Original lost-reply and conflict assertions remain intact. The eight-case recovery suite passes in Chromium and WebKit; 33 selected Settings unit checks, strict types, lint and the production web export pass. Native source and the qualified APK are unchanged by this web field repair. Final CI results are recorded separately in the ignored qualification evidence.
+
 ## Remaining qualification boundaries
 
 Native Shared libraries and Ttu import still render migration placeholders, and native Library does not yet have the wide web sidebar. Those are incomplete parity surfaces, not merely visual differences. Full Android tablet or whole-app parity is not claimed. This work qualifies phone navigation and selected native controls rather than every native screen action. Physical-device TalkBack/keyboard, system gestures, provider login, native document/font picking and the complete platform acceptance matrix remain separate gates.
