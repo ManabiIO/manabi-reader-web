@@ -279,11 +279,14 @@ export async function request<T>(
       credentials: 'same-origin',
       redirect: 'error',
       cache: 'no-store',
-      // Source discovery and paginated reading feeds can outlive navigation.
+      // Background source, reading-feed and preference reads can outlive navigation.
       // Keep these account-scoped GETs alive so WebKit does not report their
       // unload cancellation as an uncaught cross-origin fetch error.
       keepalive:
-        method === 'GET' && (path === 'connections/' || path.startsWith('personal/changes/?')),
+        method === 'GET' &&
+        (path === 'connections/' ||
+          path.startsWith('personal/changes/?') ||
+          path.split('?', 1)[0] === 'preferences/'),
       signal: AbortSignal.timeout(45000)
     });
   } catch {

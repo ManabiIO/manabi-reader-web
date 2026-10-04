@@ -6,6 +6,7 @@ HTTP fixture returns controlled 503s; no Playwright route or storage substitute.
 import copy
 import json
 import socket
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -55,6 +56,49 @@ class PreferenceSyncRecovery(LibraryBase):
             });
           } finally { db.close(); }
         }''', key)
+
+    def test_pending_preference_read_survives_document_navigation(self):
+        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.get_by_label('When first enabling sync').select_option('local')
+        self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
+        expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
+        before = self.snapshot()
+        self.page.evaluate('''() => {
+          const original = window.fetch.bind(window);
+          window.__preferenceNavigationReads = [];
+          window.fetch = (input, options) => {
+            if (new URL(String(input), location.href).pathname === '/api/reader-web/preferences/')
+              window.__preferenceNavigationReads.push({method: options?.method,
+                keepalive: options?.keepalive});
+            return original(input, options);
+          };
+        }''')
+        started = threading.Event()
+        release = threading.Event()
+        original = StaticHandler.do_GET
+
+        def hold_once(handler):
+            if (urlsplit(handler.path).path == '/api/reader-web/preferences/' and
+                    not started.is_set()):
+                started.set()
+                if not release.wait(timeout=15):
+                    raise AssertionError('Preference navigation response was not released')
+            return original(handler)
+
+        # Hold a real server response, then retire the requesting document.
+        # No fetch substitute, route abort, or page-error exclusion is used.
+        with patch.object(StaticHandler, 'do_GET', hold_once):
+            try:
+                self.page.get_by_role('button', name='Sync settings now', exact=True).click()
+                self.assertTrue(started.wait(timeout=5), 'Preference GET did not reach the server')
+                self.assertEqual([{'method': 'GET', 'keepalive': True}],
+                                 self.page.evaluate('window.__preferenceNavigationReads'))
+                self.page.goto(self.origin + '/reader-web/settings')
+            finally:
+                release.set()
+        expect(self.page.get_by_role('heading', name='Settings', exact=True)).to_be_visible()
+        self.assertEqual(before['local'], self.snapshot()['local'])
+        self.assertEqual([], self.errors)
 
     def exercise(self, method, *, reload=False):
         self.page.goto(self.origin + '/reader-web/connections')

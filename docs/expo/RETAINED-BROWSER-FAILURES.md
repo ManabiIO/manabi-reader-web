@@ -307,3 +307,30 @@ offline error filter remain unchanged. The offline edits/application checks
 still execute with the entire context offline. Three amended held-response
 journeys passed with zero reload-canceled feed requests; full exact-head CI
 remains necessary to close this failed checkpoint.
+
+## Series checkpoint: preference read during WebKit navigation
+
+[Books run 37237028585](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37237028585)
+on `cdb33cd50556bcbeda9958f9d81f63d0ba99b5fb` failed the WebKit
+`test_offline_preference_save_failure_retries_without_another_edit` teardown.
+The edit, durable retry and reload assertions passed, but an in-flight versioned
+preferences GET produced an access-control page error. Other application
+workflows, including Appearance, passed on that commit.
+
+The focused original case and complete collection group passed against its
+frozen export on macOS WebKit; this does not reproduce the Linux diagnostic.
+Preference GETs lacked the existing navigation keepalive protection used for
+source/change-feed reads. They now retain that lifetime with the same account
+and response fences; writes and lookalike paths do not. A real-browser test
+holds the HTTP reply, verifies the actual fetch lifetime, navigates, and checks
+local preferences plus the unchanged empty-error assertion. Its lifetime
+assertion failed on the previous export and passes on the repair in both engines.
+
+The old WebKit outage glob also missed the version query. A corrected route
+plus a positive interception assertion exposed unreliable keepalive interception
+in the local WebKit harness. The fixture now returns a real preferences-only
+HTTP 503, including query variants, and waits for an observed failure before
+the edit. Chromium still uses context offline mode. The original durability,
+retry, appearance and empty-error assertions remain; none are filtered or
+weakened. Both complete collection and preference-recovery groups are required
+on the repair, followed by exact-head CI. These failed attempts remain evidence.
