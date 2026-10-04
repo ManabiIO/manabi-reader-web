@@ -961,3 +961,115 @@ test('Finished order writes require a root Finished admission and retain single-
   await assert.rejects(g.service.action({ ...request, token: current.token }, g.authority));
   assert.equal(g.writes.length, 0);
 });
+
+test('series overview uses canonical full-series resume and bounded unique art outside the current page', async () => {
+  const books = Array.from({ length: 72 }, (_, index) =>
+    book(index + 1, {
+      title: `Volume ${index + 1}`,
+      creators: [{ name: 'Writer' }],
+      imagePath: 'cover',
+      lastBookOpen: 0,
+      lastBookmarkModified: 0,
+      progress: 0,
+      series: { name: 'Long series', index: index + 1 }
+    })
+  );
+  books[71].lastBookOpen = 999;
+  books[71].progress = 0.2;
+  const f = setup(books);
+  f.data.coverIdentities = Object.fromEntries(books.map((b) => [b.bookId, b.contentHash]));
+  f.data.tree = [
+    {
+      kind: 'series',
+      id: 'secret-directory',
+      directoryId: 'secret-directory',
+      name: 'Long series',
+      personal: true,
+      books,
+      children: tree(books)
+    }
+  ];
+  const root = await f.service.state({}, f.authority);
+  const state = await f.service.state(
+    { series: root.items[0].key, sort: 'title', direction: 'desc', limit: 1, offset: 12 },
+    f.authority
+  );
+  assert.equal(state.items.length, 1);
+  assert.equal(state.seriesOverview.count, 72);
+  assert.equal(state.seriesOverview.books.length, 5);
+  assert.equal(new Set(state.seriesOverview.books.map((b) => b.key)).size, 5);
+  assert.ok(state.seriesOverview.books.every((b) => b.hasCover));
+  assert.equal(state.seriesOverview.creators, 'Writer');
+  assert.equal(state.seriesOverview.resume.bookId, 72);
+  assert.equal(state.seriesOverview.resumeLabel, 'Continue Reading');
+  assert.equal(state.seriesOverview.collection, '');
+  assert.ok(!JSON.stringify(state).includes('secret-directory'));
+  const open = await f.service.admitAccess(
+    { token: state.token, keys: [state.seriesOverview.resume.key], operation: 'open' },
+    f.authority
+  );
+  assert.equal(open[0].bookId, 72);
+  const renewed = await f.service.state({ series: root.items[0].key }, f.authority);
+  f.data.tree[0].books[71].contentHash = 'e'.repeat(64);
+  await assert.rejects(
+    f.service.admitAccess(
+      { token: renewed.token, keys: [renewed.seriesOverview.resume.key], operation: 'open' },
+      f.authority
+    ),
+    /changed|no longer|replaced/i
+  );
+  assert.equal(f.writes.length, 0, 'overview does not write reading or preferences');
+});
+
+test('series overview follows scoped membership, volume order, shared creators and all-finished states', async () => {
+  const books = [book(2), book(1), book(3)].map((b) => ({
+    ...b,
+    lastBookOpen: 0,
+    lastBookmarkModified: 0,
+    progress: 0,
+    creators: [{ name: 'Writer' }]
+  }));
+  const f = setup(books);
+  f.data.tree = [
+    {
+      kind: 'series',
+      id: 'parent',
+      directoryId: 'parent',
+      name: 'Set',
+      books,
+      children: tree(books)
+    }
+  ];
+  f.data.organization.collections = [
+    {
+      id: 'picked',
+      name: 'Selected Books',
+      members: [books[1].organizationKey],
+      createdAt: 1,
+      modifiedAt: 1
+    }
+  ];
+  const root = await f.service.state({}, f.authority);
+  const series = root.items[0].key;
+  const start = await f.service.state({ series, sort: 'title' }, f.authority);
+  assert.equal(start.seriesOverview.resume.bookId, 2, 'original volume order wins over grid sort');
+  assert.equal(start.seriesOverview.resumeLabel, 'Start Reading');
+  const picked = await f.service.state({ series, collection: 'picked' }, f.authority);
+  assert.equal(picked.seriesOverview.count, 1);
+  assert.equal(picked.seriesOverview.collection, 'Selected Books');
+  assert.equal(picked.seriesOverview.resume.bookId, 1);
+  const search = await f.service.state({ series, query: 'Book' }, f.authority);
+  assert.equal(search.seriesOverview, undefined, 'search shows matching rows without a hero');
+  books[0].creators = [{ name: 'Other' }];
+  f.data.tree[0].books = books;
+  f.data.tree[0].children = tree(books);
+  assert.equal((await f.service.state({ series }, f.authority)).seriesOverview.creators, undefined);
+  for (const b of books) b.completion = { state: 'finished', finishedOn: '2026-10-04' };
+  const finished = await f.service.state({ series, collection: 'finished' }, f.authority);
+  assert.equal(finished.seriesOverview.count, 3);
+  assert.equal(finished.seriesOverview.resume, undefined);
+  const empty = await f.service.state({ series, unfinished: true }, f.authority);
+  assert.equal(empty.seriesOverview.count, 0);
+  assert.deepEqual(empty.seriesOverview.books, []);
+  assert.equal(empty.seriesOverview.resume, undefined);
+});

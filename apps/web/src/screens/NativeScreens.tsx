@@ -85,6 +85,7 @@ export function Screen({
   theme,
   menuActions,
   onBeforeBack,
+  backAction,
   hideMenu
 }: {
   title: string;
@@ -93,6 +94,7 @@ export function Screen({
   theme?: UiTheme;
   menuActions?: (close: () => void) => ReactNode;
   onBeforeBack?: () => boolean;
+  backAction?: ReactNode;
   hideMenu?: boolean;
 }) {
   const { error, clearError } = useReaderRuntime();
@@ -107,6 +109,7 @@ export function Screen({
         actions={actions}
         menuActions={menuActions}
         onBeforeBack={onBeforeBack}
+        backAction={backAction}
         hideMenu={hideMenu}
       />
       {error ? (
@@ -128,6 +131,7 @@ export function NativeScreenHeader({
   menuActions,
   theme,
   onBeforeBack,
+  backAction,
   hideMenu
 }: {
   title: string;
@@ -135,6 +139,7 @@ export function NativeScreenHeader({
   menuActions?: (close: () => void) => ReactNode;
   theme?: UiTheme;
   onBeforeBack?: () => boolean;
+  backAction?: ReactNode;
   hideMenu?: boolean;
 }) {
   const provided = useUiTheme();
@@ -145,7 +150,7 @@ export function NativeScreenHeader({
   const root = pathname === '/manage' || pathname === '/';
   return (
     <View style={styles.header}>
-      {!root && <RouteBack onBeforeBack={onBeforeBack} />}
+      {backAction ?? (!root && <RouteBack onBeforeBack={onBeforeBack} />)}
       <Text
         accessibilityRole="header"
         style={[

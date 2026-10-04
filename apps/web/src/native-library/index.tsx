@@ -16,6 +16,7 @@ import {
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   FlatList,
   Modal,
   Pressable,
@@ -59,6 +60,7 @@ import {
 } from '../features/library/LibraryMetadataFields';
 import { NativeEditorsPicks } from './catalog';
 import { NativeContinueShelf } from './continue-shelf';
+import { NativeSeriesHero, seriesHeaderVisible } from './series-overview';
 import {
   NativeLibraryFrame,
   NativeLibraryShelves,
@@ -198,19 +200,40 @@ function Library() {
     });
   const visibleBooks = useRef<string[]>([]);
   const visibleRecent = useRef<string[]>([]);
+  const visibleSeries = useRef<string[]>([]);
+  const seriesBooks = useRef<NativeLibraryBook[]>([]);
+  const seriesHeight = useRef(0);
+  const listOffset = useRef(0);
+  const listHeight = useRef(0);
+  const publishCoverViewport = () =>
+    coverController.current?.viewport([
+      ...visibleSeries.current,
+      ...visibleRecent.current,
+      ...visibleBooks.current
+    ]);
+  const updateSeriesViewport = () => {
+    visibleSeries.current = seriesHeaderVisible(
+      seriesHeight.current,
+      listOffset.current,
+      listHeight.current
+    )
+      ? seriesBooks.current.filter((book) => book.hasCover).map((book) => book.key)
+      : [];
+    publishCoverViewport();
+  };
   const onRecentViewableItemsChanged = useRef(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
       visibleRecent.current = viewableItems
         .filter(({ item }) => item.hasCover)
         .map(({ item }) => item.key);
-      coverController.current?.viewport([...visibleRecent.current, ...visibleBooks.current]);
+      publishCoverViewport();
     }
   ).current;
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     visibleBooks.current = viewableItems
       .filter(({ item }) => item.kind === 'book' && item.hasCover)
       .map(({ item }) => item.key);
-    coverController.current?.viewport([...visibleRecent.current, ...visibleBooks.current]);
+    publishCoverViewport();
   }).current;
   const viewabilityConfig = useRef(libraryCoverViewability).current;
   const [query, setQuery] = useState<LibraryQuery>({
@@ -218,6 +241,10 @@ function Library() {
     collection: 'books',
     offset: 0
   });
+  useEffect(() => {
+    listOffset.current = 0;
+    updateSeriesViewport();
+  }, [query.series]);
   const latestQuery = useRef(query);
   latestQuery.current = query;
   const [search, setSearch] = useState('');
@@ -288,7 +315,7 @@ function Library() {
           setState(next);
           coverController.current?.setView(
             next.coverToken,
-            [...next.items, ...(next.recentBooks ?? [])]
+            [...next.items, ...(next.recentBooks ?? []), ...(next.seriesOverview?.books ?? [])]
               .filter((item) => item.kind === 'book' && item.hasCover)
               .map((item) => item.key)
           );
@@ -346,6 +373,31 @@ function Library() {
       offset: 0
     }));
   }
+  const parentSeries = state?.trail.at(-2);
+  const backLabel =
+    parentSeries?.name ??
+    (query.collection === 'finished'
+      ? 'Finished'
+      : query.collection === 'want-to-read'
+        ? 'Want to Read'
+        : choicesForBack());
+  function choicesForBack() {
+    return state?.collections.find((item) => item.id === query.collection)?.name ?? 'Library';
+  }
+  function backSeries() {
+    if (!activeRoute.current || !latestQuery.current.series) return false;
+    if (mutationActive.current || loading) return true;
+    if (selecting) {
+      setSelecting(false);
+      setSelected([]);
+    } else view({ series: parentSeries?.id ?? '' });
+    return true;
+  }
+  useEffect(() => {
+    if (!focused || !query.series || sheet || catalogVisible) return;
+    const listener = BackHandler.addEventListener('hardwareBackPress', backSeries);
+    return () => listener.remove();
+  }, [focused, query.series, state?.trail, loading, selecting, sheet, catalogVisible]);
   async function openBook(book: NativeLibraryBook) {
     if (!state || loading || mutationActive.current || !activeRoute.current) return;
     if (!book.available || !book.bookId) {
@@ -722,9 +774,18 @@ function Library() {
   useEffect(() => {
     if (!recentBooks.length) {
       visibleRecent.current = [];
-      coverController.current?.viewport(visibleBooks.current);
+      publishCoverViewport();
     }
   }, [recentBooks.length]);
+  const seriesOverview =
+    !selecting && !loading && !search.trim() && query.series && searchMode === 'metadata'
+      ? state?.seriesOverview
+      : undefined;
+  useEffect(() => {
+    seriesBooks.current = seriesOverview?.books ?? [];
+    if (!seriesOverview) seriesHeight.current = 0;
+    updateSeriesViewport();
+  }, [seriesOverview]);
   const content = (
     <NativeLibraryFrame
       theme={uiTheme}
@@ -751,16 +812,32 @@ function Library() {
           />
         )
       }
-      title="Manabi Reader"
+      title={query.series ? (state?.trail.at(-1)?.name ?? 'Series') : 'Manabi Reader'}
+      backAction={
+        query.series ? (
+          <ActionButton
+            variant="ghost"
+            size="icon-lg"
+            shape="circle"
+            accessibilityLabel={`Back to ${backLabel}`}
+            disabled={busy || loading}
+            onPress={backSeries}
+          >
+            <UiIcon name="left" size={20} />
+          </ActionButton>
+        ) : undefined
+      }
       actions={
-        <Action
-          label={importing ? 'Importing…' : 'Add Books'}
-          disabled={importing || busy || !snapshot.session}
-          variant="filled"
-          onPress={() => {
-            void importBooks().then(() => refresh());
-          }}
-        />
+        !query.series && (
+          <Action
+            label={importing ? 'Importing…' : 'Add Books'}
+            disabled={importing || busy || !snapshot.session}
+            variant="filled"
+            onPress={() => {
+              void importBooks().then(() => refresh());
+            }}
+          />
+        )
       }
       menuActions={(close) => (
         <View style={{ gap: 4 }}>
@@ -833,7 +910,7 @@ function Library() {
             />
           </Host>
         )}
-        {!wide && (
+        {!wide && !query.series && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.row}>
               {[
@@ -855,16 +932,6 @@ function Library() {
                     onPress={() => view({ collection: collection.id, series: '' })}
                   />
                 </View>
-              ))}
-            </View>
-          </ScrollView>
-        )}
-        {!!state?.trail.length && (
-          <ScrollView horizontal>
-            <View style={styles.row}>
-              <Action label="All series" onPress={() => view({ series: '' })} />
-              {state.trail.map((item) => (
-                <Action key={item.id} label={item.name} onPress={() => view({ series: item.id })} />
               ))}
             </View>
           </ScrollView>
@@ -1000,8 +1067,19 @@ function Library() {
       ) : (
         <>
           <FlatList
-            key={grid ? `grid-${columns}` : 'list'}
+            key={`${grid ? `grid-${columns}` : 'list'}:${query.series ?? ''}`}
             numColumns={grid ? columns : 1}
+            testID="library-book-list"
+            onLayout={({ nativeEvent: { layout } }) => {
+              listHeight.current = layout.height;
+              updateSeriesViewport();
+            }}
+            onScroll={({ nativeEvent }) => {
+              listOffset.current = nativeEvent.contentOffset.y;
+              listHeight.current = nativeEvent.layoutMeasurement.height;
+              updateSeriesViewport();
+            }}
+            scrollEventThrottle={32}
             initialNumToRender={6}
             maxToRenderPerBatch={6}
             windowSize={3}
@@ -1011,7 +1089,23 @@ function Library() {
             keyExtractor={(item) => item.key}
             contentContainerStyle={styles.list}
             ListHeaderComponent={
-              recentBooks.length ? (
+              seriesOverview ? (
+                <View
+                  testID="library-series-header"
+                  onLayout={({ nativeEvent: { layout } }) => {
+                    seriesHeight.current = layout.height;
+                    updateSeriesViewport();
+                  }}
+                >
+                  <NativeSeriesHero
+                    overview={seriesOverview}
+                    paneWidth={paneWidth}
+                    disabled={busy || importing || !focused}
+                    images={covers.token === state?.coverToken ? covers.images : undefined}
+                    onOpen={(book) => void openBook(book)}
+                  />
+                </View>
+              ) : recentBooks.length ? (
                 <NativeContinueShelf
                   books={recentBooks}
                   paneWidth={paneWidth}

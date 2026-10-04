@@ -136,11 +136,14 @@ first shared complete composition; the eight remaining screen closures are:
    shared labels/validation and the existing DOM-owned preference. Shelf layout
    keys/defaults now share one definition; native grid/list saves use the admitted
    Library/series/Finished destination and restore from the existing DOM storage
-   owner on remount. Finished preserves the web grid/timeline preference, with a
-   native list fallback until the timeline composition is implemented. Actual
-   packaged layout-control/process-restart and accessibility acceptance remain
-   unqualified. Continue/series heroes, finished timeline and common
-   search/selection composition still differ.
+   owner on remount. Native Finished now has calendar-day timeline groups and the
+   shared saved date order, verified through release-app controls and restart.
+   Continue and the selected-series hero use the shared canonical reading rules;
+   selected-series header/hardware Back retains the parent shelf. Release visual
+   scope and exact APK provenance are recorded in
+   [navigation QA](NAVIGATION-ANDROID-PARITY.md). Collapsed-series card artwork,
+   series-level editing, common search/selection composition and full native
+   accessibility acceptance remain open.
    Native backup/export destinations and
    provider/folder access remain open. This is the largest next everyday-screen
    implementation now underway. Ordinary book-face and eight-field metadata-editor compositions and canonical

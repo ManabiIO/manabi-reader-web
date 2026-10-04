@@ -42,7 +42,13 @@ import {
   type LibraryCoverTarget
 } from './cover-service';
 import { libraryNodes, nativeBook, parseLibraryQuery } from './view-model';
-import { continueBooks, finishedGroups } from '../lib/library/reading-state';
+import {
+  continueBooks,
+  finishedGroups,
+  hasReadingEvidence,
+  seriesReadingTarget
+} from '../lib/library/reading-state';
+import { sharedCreatorLine } from '../lib/library/book-metadata';
 import { LIBRARY_SORTS, readLibrarySort } from '../features/library/sort-options';
 
 import {
@@ -259,7 +265,12 @@ export class NativeLibraryService {
     if (inheritSort) query.sort = savedSort.property;
     if (inheritDirection) query.direction = savedSort.direction;
     const books = allBooks(data.tree);
-    const { nodes: filteredNodes, trail } = libraryNodes(
+    const {
+      nodes: filteredNodes,
+      trail,
+      seriesBooks,
+      volumeOrder
+    } = libraryNodes(
       data.tree,
       data.organization,
       query,
@@ -310,6 +321,36 @@ export class NativeLibraryService {
       !query.query.trim()
         ? continueBooks(books).map(bookRow)
         : [];
+    const selectedSeries = trail.at(-1);
+    const resume = selectedSeries ? seriesReadingTarget(seriesBooks, volumeOrder) : undefined;
+    const seriesOverview =
+      selectedSeries && !query.query.trim()
+        ? {
+            title: selectedSeries.name.slice(0, 240),
+            count: seriesBooks.length,
+            creators: sharedCreatorLine(seriesBooks)?.slice(0, 4096),
+            collection:
+              query.collection === 'books'
+                ? ''
+                : query.collection === 'finished'
+                  ? 'Finished'
+                  : query.collection === WANT_TO_READ_ID
+                    ? 'Want to Read'
+                    : (data.organization.collections.find((item) => item.id === query.collection)
+                        ?.name ?? ''),
+            books: Array.from(new Map(seriesBooks.map((book) => [book.key, book])).values())
+              .slice(0, 5)
+              .map(bookRow),
+            ...(resume
+              ? {
+                  resume: bookRow(resume),
+                  resumeLabel: hasReadingEvidence(resume)
+                    ? ('Continue Reading' as const)
+                    : ('Start Reading' as const)
+                }
+              : {})
+          }
+        : undefined;
     const detailBook = query.detail
       ? physicalBooks(data.tree).find(
           (book) => libraryBookLocator(book) === this.handles.get(query.detail!)
@@ -332,6 +373,7 @@ export class NativeLibraryService {
       coverToken,
       items,
       recentBooks,
+      ...(seriesOverview ? { seriesOverview } : {}),
       total: nodes.length,
       offset,
       limit: query.limit,

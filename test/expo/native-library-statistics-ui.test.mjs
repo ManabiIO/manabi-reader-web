@@ -28,11 +28,12 @@ export const Text=({children,style,accessibilityRole})=><span role={accessibilit
 export const Platform={OS:"android"}; export const useColorScheme=()=>"light"; export const useWindowDimensions=()=>globalThis.libraryStatisticsUI.dimensions;
 export const ActivityIndicator=()=>null; export const Modal=({visible,children})=>visible?<section>{children}</section>:null;
 export const Pressable=({children,onPress,disabled,accessibilityLabel,accessibilityState,role})=><button role={role} aria-label={accessibilityLabel} aria-selected={accessibilityState?.selected} disabled={disabled} onClick={onPress}>{typeof children==='function'?children({pressed:false}):children}</button>; export const UiIcon=()=>null;
-export const FlatList=({data,renderItem,numColumns,ListEmptyComponent,ListHeaderComponent,onViewableItemsChanged,accessibilityLabel})=>{if(onViewableItemsChanged)globalThis.libraryStatisticsUI.viewports[accessibilityLabel||'books']=onViewableItemsChanged;return <div data-label={accessibilityLabel} data-columns={numColumns}>{ListHeaderComponent}{data.length?data.map((item,index)=><div key={item.key}>{renderItem({item,index})}</div>):ListEmptyComponent}</div>};
+export const FlatList=({data,renderItem,numColumns,ListEmptyComponent,ListHeaderComponent,onViewableItemsChanged,accessibilityLabel,testID,onLayout,onScroll})=>{if(testID){globalThis.libraryStatisticsUI.layouts[testID]=onLayout;globalThis.libraryStatisticsUI.scrolls[testID]=onScroll;}if(onViewableItemsChanged)globalThis.libraryStatisticsUI.viewports[accessibilityLabel||'books']=onViewableItemsChanged;return <div data-label={accessibilityLabel} data-columns={numColumns}>{ListHeaderComponent}{data.length?data.map((item,index)=><div key={item.key}>{renderItem({item,index})}</div>):ListEmptyComponent}</div>};
 export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder})=><input value={value.value} onChange={event=>onChangeText?.(event.target.value)} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=({label,value,onValueChange,disabled})=><input type="checkbox" aria-label={label} checked={value} disabled={disabled} onChange={event=>onValueChange(event.target.checked)}/>;
 export const Action=({label,onPress,disabled,theme,variant})=><button data-variant={variant} data-seed={theme?.seedColor} disabled={disabled} onClick={onPress}>{label}</button>;
 export const MenuAction=({label,onPress,disabled})=><NativeMenuButton role="menuitem" variant="ghost" onPress={onPress} disabled={disabled}>{label}</NativeMenuButton>;
-export const Screen=({actions,children,theme,menuActions})=><main data-mode={theme?.mode} data-background={theme?.colors.background}>{actions}{menuActions?.(()=>{})}{children}</main>;
+export const BackHandler={addEventListener:(_name,fn)=>{globalThis.libraryStatisticsUI.back=fn;return {remove(){if(globalThis.libraryStatisticsUI.back===fn)globalThis.libraryStatisticsUI.back=undefined;}}}};
+export const Screen=({actions,backAction,children,theme,menuActions})=><main data-mode={theme?.mode} data-background={theme?.colors.background}>{backAction}{actions}{menuActions?.(()=>{})}{children}</main>;
 export const Alert={alert:(...args)=>globalThis.libraryStatisticsUI.confirmations.push(args)};
 export const useReaderRuntime=()=>globalThis.libraryStatisticsUI.runtime;
 export const usePathname=()=>globalThis.libraryStatisticsUI.pathname;
@@ -157,6 +158,7 @@ async function mount(
     pathname: '/manage',
     dimensions,
     layouts: {},
+    scrolls: {},
     viewports: {},
     coverViews: [],
     coverViewports: [],
@@ -924,4 +926,156 @@ test('pending Finished order saves fence duplicate activation and retire on rout
   await f.render('/settings');
   await act(() => pending.resolve());
   assert.equal(f.calls.filter((c) => c.method === 'library.state').length, reads);
+});
+
+async function seriesFixture(t, onOpen) {
+  const target = {
+    ...book,
+    key: 'resume-key',
+    bookId: 72,
+    title: 'Volume 72',
+    hasCover: true,
+    readingLabel: '20%'
+  };
+  const art = Array.from({ length: 5 }, (_, index) => ({
+    ...book,
+    key: `art-${index}`,
+    title: `Volume ${index + 1}`,
+    hasCover: true
+  }));
+  const series = {
+    kind: 'series',
+    key: 'series-key',
+    title: 'Long Series',
+    count: 72,
+    personal: true
+  };
+  const f = await mount(t, (method, payload) => {
+    if (method === 'open') return onOpen?.(payload) ?? {};
+    if (method !== 'library.state') return;
+    return {
+      token: 'series-token',
+      coverToken: 'series-cover',
+      sort: { property: 'title', direction: 'asc' },
+      layout: 'grid',
+      items: payload.series ? [book] : [series],
+      recentBooks: [],
+      total: 1,
+      totalBooks: 72,
+      offset: 0,
+      limit: 60,
+      collections: [],
+      sources: [],
+      counts: { finished: 0, wantToRead: 0 },
+      trail: payload.series ? [{ id: 'series-key', name: 'Long Series' }] : [],
+      ...(payload.series
+        ? {
+            seriesOverview: {
+              title: 'Long Series',
+              count: 72,
+              collection: '',
+              books: art,
+              resume: target,
+              resumeLabel: 'Continue Reading'
+            }
+          }
+        : {})
+    };
+  });
+  await click(f, 'Open series Long Series, 72 books');
+  return { ...f, target, art };
+}
+
+test('native series owns a Back action without shelf tabs or current-series links and admits measured hero art', async (t) => {
+  const f = await seriesFixture(t);
+  assert.equal(f.container.querySelector('[data-testid="library-series-hero"]') !== null, true);
+  assert.match(f.container.textContent, /Series · 72 Books/);
+  assert.equal(
+    [...f.container.querySelectorAll('button')].some(
+      (b) =>
+        b.textContent === 'All Books (72)' ||
+        b.textContent === 'Long Series' ||
+        b.textContent === 'All series'
+    ),
+    false
+  );
+  assert.ok(f.container.querySelector('[aria-label="Back to Library"]'));
+  assert.equal(
+    globalThis.libraryStatisticsUI.coverViews.at(-1).keys.length,
+    5,
+    'art uses current cover admission'
+  );
+  await act(() => {
+    globalThis.libraryStatisticsUI.layouts['library-book-list']({
+      nativeEvent: { layout: { height: 500 } }
+    });
+    globalThis.libraryStatisticsUI.layouts['library-series-header']({
+      nativeEvent: { layout: { height: 400 } }
+    });
+  });
+  assert.deepEqual(
+    globalThis.libraryStatisticsUI.coverViewports.at(-1),
+    f.art.map((b) => b.key)
+  );
+  await act(() =>
+    globalThis.libraryStatisticsUI.scrolls['library-book-list']({
+      nativeEvent: { contentOffset: { y: 401 }, layoutMeasurement: { height: 500 } }
+    })
+  );
+  assert.deepEqual(
+    globalThis.libraryStatisticsUI.coverViewports.at(-1),
+    [],
+    'scrolled-out hero cancels art reads'
+  );
+  await act(() =>
+    globalThis.libraryStatisticsUI.scrolls['library-book-list']({
+      nativeEvent: { contentOffset: { y: 0 }, layoutMeasurement: { height: 500 } }
+    })
+  );
+  assert.deepEqual(
+    globalThis.libraryStatisticsUI.coverViewports.at(-1),
+    f.art.map((b) => b.key)
+  );
+  await click(f, 'Continue Reading: Volume 72');
+  assert.deepEqual(f.calls.find((c) => c.method === 'open').payload, {
+    bookId: 72,
+    libraryToken: 'series-token',
+    libraryKeys: ['resume-key']
+  });
+  assert.equal(f.routes.at(-1).pathname, '/b');
+  await f.render('/settings');
+  assert.equal(
+    globalThis.libraryStatisticsUI.back,
+    undefined,
+    'pushed route retires local hardware Back'
+  );
+});
+
+test('series hardware and header Back return to the existing shelf and consume input during an admitted open', async (t) => {
+  const wait = deferred();
+  const f = await seriesFixture(t, () => wait.promise);
+  assert.equal(typeof globalThis.libraryStatisticsUI.back, 'function');
+  await act(() => {
+    assert.equal(globalThis.libraryStatisticsUI.back(), true);
+  });
+  assert.equal(f.calls.filter((c) => c.method === 'library.state').at(-1).payload.series, '');
+  await click(f, 'Open series Long Series, 72 books');
+  await click(f, 'Back to Library');
+  assert.equal(f.calls.filter((c) => c.method === 'library.state').at(-1).payload.series, '');
+  await click(f, 'Open series Long Series, 72 books');
+  const button = f.container.querySelector('[aria-label="Continue Reading: Volume 72"]');
+  await act(() => {
+    button.click();
+  });
+  const before = f.calls.filter((c) => c.method === 'library.state').length;
+  await act(() => {
+    assert.equal(globalThis.libraryStatisticsUI.back(), true);
+  });
+  assert.equal(
+    f.calls.filter((c) => c.method === 'library.state').length,
+    before,
+    'Back cannot replace a pending admitted open'
+  );
+  await act(() => wait.resolve({}));
+  assert.equal(f.routes.length, 1);
 });

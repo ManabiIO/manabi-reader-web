@@ -50,6 +50,16 @@ export interface NativeLibrarySeries {
   count: number;
   personal: boolean;
 }
+export interface NativeSeriesOverview {
+  title: string;
+  count: number;
+  creators?: string;
+  collection: string;
+  /** At most five unique covers, independent of paging. */
+  books: NativeLibraryBook[];
+  resume?: NativeLibraryBook;
+  resumeLabel?: 'Start Reading' | 'Continue Reading';
+}
 export type LibraryUiTheme = Pick<UiThemeProviderProps, 'themeId' | 'appearance' | 'customThemes'>;
 export interface NativeLibraryState {
   sort: LibrarySortPreference;
@@ -62,6 +72,7 @@ export interface NativeLibraryState {
   items: (NativeLibraryBook | NativeLibrarySeries)[];
   /** Bounded canonical Continue shelf, independent of the paged/sorted book grid. */
   recentBooks: NativeLibraryBook[];
+  seriesOverview?: NativeSeriesOverview;
   total: number;
   offset: number;
   limit: number;

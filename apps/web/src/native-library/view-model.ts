@@ -144,7 +144,9 @@ export function libraryNodes(
       },
       !!trail.at(-1)?.personal
     ),
-    trail
+    trail,
+    seriesBooks: trail.at(-1)?.books.filter(include) ?? [],
+    volumeOrder: trail.length ? allBooks(trail.at(-1)!.children).filter(include) : []
   };
 }
 export function nativeBook(
