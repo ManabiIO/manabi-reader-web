@@ -14,6 +14,13 @@ const success = (reply) => {
 test('the persistent DOM forwards resolved appearance and custom chrome without reopening the book', async (t) => {
   const f = await runtimeOwner(t);
   assert.equal(f.appearances.at(-1).mode, 'light');
+  const notifications = f.appearances.length;
+  await f.rebindAppearance();
+  assert.equal(
+    f.appearances.length,
+    notifications,
+    'Expo callback proxy renewal must not echo unchanged appearance back to native'
+  );
   success(await f.command('open', openPayload(1)));
   const session = f.sessions.at(-1);
   await act(async () => f.appearanceStores.mode.set('dark'));

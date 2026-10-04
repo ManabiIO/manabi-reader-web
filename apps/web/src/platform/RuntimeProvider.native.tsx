@@ -75,7 +75,9 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     background: '#ffffff'
   });
   const receiveAppearance = useCallback(async (next: ReaderAppearance) => {
-    setReaderAppearance(next);
+    setReaderAppearance((current) =>
+      current.mode === next.mode && current.background === next.background ? current : next
+    );
   }, []);
   const ref = useRef<ReaderRuntimeRef>(null);
   const [snapshot, setSnapshot] = useState(EMPTY_SNAPSHOT);

@@ -637,6 +637,17 @@ export async function runtimeOwner(t, { strict = false } = {}) {
       await f.replyBarrier?.(value);
     }
   });
+  f.rebindAppearance = async () => {
+    const rebound = React.createElement(runtime.default, {
+      ...component.props,
+      async onAppearance(value) {
+        appearances.push(value);
+      }
+    });
+    await act(async () =>
+      root.render(strict ? React.createElement(React.StrictMode, {}, rebound) : rebound)
+    );
+  };
   await act(async () =>
     root.render(strict ? React.createElement(React.StrictMode, {}, component) : component)
   );

@@ -5,7 +5,7 @@
  */
 
 'use dom';
-import { useCallback, useEffect, useMemo, useRef, useState, type Ref } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type Ref } from 'react';
 import { useDOMImperativeHandle, type DOMImperativeFactory, type DOMProps } from 'expo/dom';
 import {
   BridgeAuthority,
@@ -88,11 +88,14 @@ export default function ReaderRuntime({
   const mode = useStore(resolvedMode$);
   const theme = useStore(theme$);
   const custom = useStore(customThemes$);
+  // Expo renews action proxies on prop delivery; only appearance changes publish chrome.
+  const publishAppearance = useEffectEvent((next: ReaderAppearance) => onAppearance(next));
   useEffect(() => {
-    void onAppearance({ mode, background: themeProperties(theme, mode, custom).background }).catch(
-      () => {}
-    );
-  }, [mode, theme, custom, onAppearance]);
+    void publishAppearance({
+      mode,
+      background: themeProperties(theme, mode, custom).background
+    }).catch(() => {});
+  }, [mode, theme, custom]);
   const [snippet, setSnippet] = useState<{ record: SnippetRecord; scope: SnippetScope }>();
   const snippets = useMemo(() => new NativeSnippetsService(createNativeSnippetsRepository()), []);
   const [bookId, setBookId] = useState<number>();
