@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { buildSync } from 'esbuild';
+import vm from 'node:vm';
 import 'fake-indexeddb/auto';
 import { openDB, deleteDB } from 'idb';
 const output = mkdtempSync(join(tmpdir(), 'native-library-cover-'));
@@ -26,6 +27,7 @@ function bundle(name) {
 const { NativeLibraryService } = bundle('service');
 const { NativeLibraryCoverService } = bundle('cover-service');
 const { NativeLibraryCoverController } = bundle('cover-controller');
+const { libraryCoverViewability } = bundle('cover-viewability');
 const { renderNativeLibraryCover } = bundle('cover-dom');
 const { readNativeLibrarySummaries } = bundle('cover-records');
 const { nativeOwnedCards } = bundle('view-model');
@@ -475,4 +477,113 @@ test('expired viewport admission refreshes once without polling failures or reti
   controller.dispose();
   await tick();
   assert.equal(refreshes, 2, 'retired owners cannot refresh');
+});
+
+test('installed React Native cover viewability keeps the newest measured viewport without delayed retirement', async () => {
+  const app = createRequire(resolve('apps/web/package.json'));
+  const rn = createRequire(app.resolve('react-native/package.json'));
+  const lists = createRequire(rn.resolve('@react-native/virtualized-lists/package.json'));
+  const preset = createRequire(app.resolve('babel-preset-expo/package.json'));
+  const code = preset('@babel/core').transformSync(
+    readFileSync(lists.resolve('./Lists/ViewabilityHelper.js'), 'utf8'),
+    {
+      babelrc: false,
+      configFile: false,
+      plugins: [
+        preset.resolve('@babel/plugin-transform-flow-strip-types'),
+        preset.resolve('@babel/plugin-transform-modules-commonjs')
+      ]
+    }
+  ).code;
+  const run = (config, retainedViewport = false) => {
+    const timers = [],
+      module = { exports: {} },
+      reads = [],
+      cancels = [],
+      states = [];
+    vm.runInNewContext(code, {
+      module,
+      exports: module.exports,
+      // The helper accepts metrics below; this constructor is only a Flow import.
+      require: (id) => (id === './ListMetricsAggregator' ? class {} : lists(id)),
+      setTimeout: (fn) => {
+        timers.push(fn);
+        return timers.length;
+      },
+      clearTimeout() {},
+      console
+    });
+    const controller = new NativeLibraryCoverController(
+      (method, payload) => {
+        if (method.endsWith('cancel')) {
+          cancels.push(payload);
+          return Promise.resolve({});
+        }
+        const wait = deferred();
+        reads.push({ ...payload, resolve: wait.resolve });
+        return wait.promise;
+      },
+      (state) => states.push(state)
+    );
+    controller.setView('view', ['a', 'b']);
+    if (retainedViewport) controller.viewport(['a', 'b']);
+    const props = { data: ['a', 'b'], getItemCount: (data) => data.length };
+    const metrics = { getCellMetrics: (index) => ({ offset: index * 156, length: 156 }) };
+    const token = (index, isViewable) => ({
+      key: props.data[index],
+      item: props.data[index],
+      index,
+      isViewable
+    });
+    const callbacks = [];
+    const helper = new module.exports.default(config);
+    const update = (height) =>
+      helper.onUpdate(props, 0, height, metrics, token, (info) => {
+        const keys = Array.from(info.viewableItems, (v) => v.key);
+        callbacks.push(keys);
+        controller.viewport(keys);
+      });
+    update(170);
+    update(559);
+    // The older partial-layout notification can settle after the complete one.
+    for (const timer of [...timers].reverse()) timer();
+    return { controller, reads, cancels, states, callbacks, update };
+  };
+  const delayed = run({ ...libraryCoverViewability, minimumViewTime: 80 });
+  assert.deepEqual(
+    delayed.callbacks,
+    [['a', 'b'], ['a']],
+    'reproduces the observed stale callback'
+  );
+  assert.ok(delayed.cancels.some((c) => c.requests?.includes(delayed.reads[1].request)));
+  delayed.controller.dispose();
+  for (const read of delayed.reads) read.resolve({ ...read, image: jpeg });
+  await tick();
+  const current = run(libraryCoverViewability);
+  assert.deepEqual(current.callbacks.at(-1), ['a', 'b']);
+  assert.equal(current.cancels.length, 0, 'both visible requests remain admitted');
+  for (const read of current.reads) read.resolve({ ...read, image: jpeg });
+  await tick();
+  assert.equal(current.states.at(-1).images.size, 2, 'both first-load thumbnails publish');
+  current.update(170);
+  assert.deepEqual(
+    current.callbacks.at(-1),
+    ['a'],
+    'an actual viewport change still retires the row'
+  );
+  current.controller.dispose();
+  const retained = run(libraryCoverViewability, true);
+  assert.deepEqual(retained.callbacks.at(-1), ['a', 'b']);
+  assert.equal(retained.reads.length, 2, 'cancelled slots remain occupied until replies settle');
+  for (const read of retained.reads.slice()) read.resolve({ ...read, image: jpeg });
+  await tick();
+  assert.equal(
+    retained.reads.length,
+    3,
+    'a cancelled row reentering the measured viewport gets a fresh read'
+  );
+  retained.reads[2].resolve({ ...retained.reads[2], image: jpeg });
+  await tick();
+  assert.equal(retained.states.at(-1).images.size, 2);
+  retained.controller.dispose();
 });

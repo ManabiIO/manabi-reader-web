@@ -66,6 +66,7 @@ import {
   LIBRARY_SIDEBAR_WIDTH
 } from './shelf-navigation';
 import { NativeLibraryCoverController, type NativeCoverState } from './cover-controller';
+import { libraryCoverViewability } from './cover-viewability';
 import type {
   NativeStatisticsSelectionAdmission,
   NativeStatisticsSnapshot
@@ -211,10 +212,7 @@ function Library() {
       .map(({ item }) => item.key);
     coverController.current?.viewport([...visibleRecent.current, ...visibleBooks.current]);
   }).current;
-  const viewabilityConfig = useRef({
-    itemVisiblePercentThreshold: 15,
-    minimumViewTime: 80
-  }).current;
+  const viewabilityConfig = useRef(libraryCoverViewability).current;
   const [query, setQuery] = useState<LibraryQuery>({
     query: '',
     collection: 'books',
