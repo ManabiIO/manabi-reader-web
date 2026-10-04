@@ -73,6 +73,8 @@ export interface NativeLibraryState {
   /** Bounded canonical Continue shelf, independent of the paged/sorted book grid. */
   recentBooks: NativeLibraryBook[];
   seriesOverview?: NativeSeriesOverview;
+  /** A previously admitted series disappeared; the response is its root shelf. */
+  seriesRetired?: true;
   total: number;
   offset: number;
   limit: number;

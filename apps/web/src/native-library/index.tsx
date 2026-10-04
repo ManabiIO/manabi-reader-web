@@ -313,6 +313,12 @@ function Library() {
         )) as NativeLibraryState;
         if (mounted.current && request === serial.current) {
           setState(next);
+          if (next.seriesRetired && view.series) {
+            setQuery((previous) => ({ ...previous, series: '', detail: undefined, offset: 0 }));
+            setSelected([]);
+            setSelecting(false);
+            setSheet(undefined);
+          }
           coverController.current?.setView(
             next.coverToken,
             [...next.items, ...(next.recentBooks ?? []), ...(next.seriesOverview?.books ?? [])]

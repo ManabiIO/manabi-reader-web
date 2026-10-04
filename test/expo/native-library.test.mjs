@@ -1073,3 +1073,46 @@ test('series overview follows scoped membership, volume order, shared creators a
   assert.deepEqual(empty.seriesOverview.books, []);
   assert.equal(empty.seriesOverview.resume, undefined);
 });
+
+test('a known series removed by organization changes reconciles to its scoped root with fresh layout admission', async () => {
+  const books = [book(1), book(2)];
+  const f = setup(books);
+  f.data.layouts = { library: 'grid', series: 'list' };
+  f.data.tree = [
+    {
+      kind: 'series',
+      id: 'removed-series',
+      directoryId: 'removed-series',
+      name: 'Set',
+      books,
+      children: tree(books)
+    }
+  ];
+  const root = await f.service.state({}, f.authority);
+  const series = root.items[0].key;
+  f.data.tree = tree(books);
+  const recovered = await f.service.state({ series, source: '', offset: 60 }, f.authority);
+  assert.equal(recovered.seriesRetired, true);
+  assert.equal(recovered.seriesOverview, undefined);
+  assert.deepEqual(recovered.trail, []);
+  assert.equal(recovered.offset, 0);
+  assert.equal(recovered.items.length, 2);
+  assert.equal(recovered.layout, 'grid');
+  await f.service.action({ token: recovered.token, type: 'layout', value: 'list' }, f.authority);
+  assert.equal(
+    f.writes.at(-1)[0].scope,
+    'library',
+    'reconciled admission cannot overwrite series layout'
+  );
+  const finished = await f.service.state({ series, collection: 'finished' }, f.authority);
+  assert.equal(finished.seriesRetired, true);
+  assert.equal(finished.items.length, 0, 'root recovery retains Finished scope');
+  await assert.rejects(f.service.state({ series: 'forged-handle' }, f.authority), /expired/);
+  f.changeScope('new-session');
+  f.authority.key = 'new-session';
+  await assert.rejects(
+    f.service.state({ series }, f.authority),
+    /expired/,
+    'cross-account series handle cannot recover'
+  );
+});

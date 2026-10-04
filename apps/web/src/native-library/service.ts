@@ -8,7 +8,13 @@
  * DOM-owned admission service. No storage, handles, source URLs, or executable callbacks cross the bridge.
  */
 
-import { allBooks, physicalBooks, type ShelfBook, type ShelfNode } from '../lib/library/view-model';
+import {
+  allBooks,
+  physicalBooks,
+  seriesTrail,
+  type ShelfBook,
+  type ShelfNode
+} from '../lib/library/view-model';
 import {
   validBookMetadata,
   validBookSeries,
@@ -252,18 +258,26 @@ export class NativeLibraryService {
     this.covers.dispose();
     const coverGeneration = ++this.coverGeneration;
     const query = parseLibraryQuery(payload);
-    const layoutScope = libraryLayoutScope(query);
+
     const inheritSort = record(payload) && payload.sort === undefined;
     const inheritDirection = record(payload) && payload.direction === undefined;
-    const seriesId = query.series ? this.handles.get(query.series) : '';
+    let seriesId = query.series ? this.handles.get(query.series) : '';
     const sourceId = query.source ? this.handles.get(query.source) : '';
     if ((query.series && !seriesId) || (query.source && !sourceId))
       throw new Error('The Library view expired. Return to All Books.');
     const data = await this.repository.load(authority);
     this.assert(authority);
+    const seriesRetired = !!seriesId && !seriesTrail(data.tree, seriesId).length;
+    if (seriesRetired) {
+      query.series = '';
+      seriesId = '';
+      query.detail = undefined;
+      query.offset = 0;
+    }
     const savedSort = readLibrarySort(data.sort);
     if (inheritSort) query.sort = savedSort.property;
     if (inheritDirection) query.direction = savedSort.direction;
+    const layoutScope = libraryLayoutScope(query);
     const books = allBooks(data.tree);
     const {
       nodes: filteredNodes,
@@ -371,6 +385,7 @@ export class NativeLibraryService {
       ...(data.uiTheme ? { uiTheme: structuredClone(data.uiTheme) } : {}),
       token,
       coverToken,
+      ...(seriesRetired ? { seriesRetired: true as const } : {}),
       items,
       recentBooks,
       ...(seriesOverview ? { seriesOverview } : {}),

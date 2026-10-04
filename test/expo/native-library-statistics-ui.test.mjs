@@ -1079,3 +1079,55 @@ test('series hardware and header Back return to the existing shelf and consume i
   await act(() => wait.resolve({}));
   assert.equal(f.routes.length, 1);
 });
+
+test('retired series response clears old hero, selection and local Back without leaving the scoped shelf', async (t) => {
+  let retired = false;
+  const f = await mount(t, (method, payload) => {
+    if (method === 'library.action' && payload.type === 'presentation') {
+      retired = true;
+      return {};
+    }
+    if (method !== 'library.state') return;
+    return {
+      token: 'retirement-token',
+      coverToken: 'retirement-cover',
+      sort: { property: 'title', direction: 'asc' },
+      layout: 'list',
+      recentBooks: [],
+      total: 1,
+      totalBooks: 1,
+      offset: 0,
+      limit: 60,
+      collections: [],
+      sources: [],
+      counts: { finished: 0, wantToRead: 0 },
+      items:
+        payload.series && !retired
+          ? [book]
+          : [{ kind: 'series', key: 'series-key', title: 'Set', count: 1, personal: true }],
+      trail: payload.series && !retired ? [{ id: 'series-key', name: 'Set' }] : [],
+      ...(payload.series && !retired
+        ? {
+            seriesOverview: {
+              title: 'Set',
+              count: 1,
+              collection: '',
+              books: [book],
+              resume: book,
+              resumeLabel: 'Start Reading'
+            }
+          }
+        : {}),
+      ...(payload.series && retired ? { seriesRetired: true } : {})
+    };
+  });
+  await click(f, 'Open series Set, 1 books');
+  await click(f, 'Select');
+  await click(f, 'Select page');
+  await click(f, 'Set series');
+  await click(f, 'Save series');
+  assert.equal(f.container.querySelector('[data-testid="library-series-hero"]'), null);
+  assert.equal(f.container.querySelector('[aria-label="Back to Library"]'), null);
+  assert.equal(globalThis.libraryStatisticsUI.back, undefined);
+  assert.equal(f.calls.filter((c) => c.method === 'library.state').at(-1).payload.series, '');
+});
