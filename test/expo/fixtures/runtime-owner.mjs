@@ -291,6 +291,12 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     })
   );
   Object.assign(reader, settingSubjects);
+  const appearanceStores = {
+    mode: observable('light'),
+    theme: observable('manabi-theme'),
+    custom: observable({})
+  };
+  const appearances = [];
   const snippetsRepository = {
     async load(authority) {
       authority.assertCurrent();
@@ -380,7 +386,14 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     './bridge-contract': bridge,
     './settings-fields': settings,
     '$lib/data/store': reader,
-    '$lib/appearance/state': { appearance$: settingSubjects.appearance$ },
+    '$lib/appearance/state': {
+      appearance$: settingSubjects.appearance$,
+      resolvedMode$: appearanceStores.mode,
+      theme$: appearanceStores.theme,
+      customThemes$: appearanceStores.custom
+    },
+    '$lib/data/theme-option': production('lib/data/theme-option.ts'),
+    '../runtime/use-store': production('runtime/use-store.ts'),
     '$lib/manabi/client': client,
     '$lib/state/store': stores,
     '$lib/data/database/books-db/book-records': {
@@ -498,6 +511,8 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     flushes,
     navigations,
     snapshots,
+    appearances,
+    appearanceStores,
     replies,
     records,
     pages,
@@ -608,6 +623,9 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     ref,
     async onSnapshot(value) {
       snapshots.push(value);
+    },
+    async onAppearance(value) {
+      appearances.push(value);
     },
     async onNavigate(value) {
       navigations.push(value);

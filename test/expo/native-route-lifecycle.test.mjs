@@ -30,7 +30,10 @@ import React, {useEffect,useImperativeHandle,useSyncExternalStore} from 'react';
 export const appListeners=new Set(),backListeners=new Set(),routeListeners=new Set();
 export const AppState={addEventListener(_,fn){appListeners.add(fn);return{remove(){appListeners.delete(fn)}}}};
 export const BackHandler={addEventListener(_,fn){backListeners.add(fn);return{remove(){backListeners.delete(fn)}}}};
-export const View=({children,pointerEvents})=><div data-reader-visible={pointerEvents==='auto'?'true':pointerEvents==='none'?'false':undefined}>{children}</div>;
+export const View=({children,pointerEvents,style})=><div style={Object.assign({},...[style].flat())} data-reader-visible={pointerEvents==='auto'?'true':pointerEvents==='none'?'false':undefined}>{children}</div>;
+export const StatusBar=({style})=><span data-status-bar={style}/>;
+let insets={top:48,right:0,bottom:24,left:0};export function useSafeAreaInsets(){return useSyncExternalStore(fn=>{routeListeners.add(fn);return()=>routeListeners.delete(fn)},()=>insets)}
+export function changeInsets(next){insets=next;for(const fn of routeListeners)fn()}
 export const Text=({children,accessibilityRole})=><span role={accessibilityRole}>{children}</span>;
 export const ActivityIndicator=({accessibilityLabel})=><span aria-label={accessibilityLabel}/>;
 export const Pressable=({children,onPress})=><button onClick={onPress}>{children}</button>;
@@ -47,6 +50,7 @@ export function usePreventRemove(prevent,callback){useEffect(()=>{guard=prevent?
 export function removeRoute(){guard?.({data:{action:{type:'POP'}}})}
 export const getDocumentAsync=async()=>({canceled:true});export class File{};export const openBrowserAsync=async()=>{};
 export async function snapshot(next){await props.onSnapshot(next)}
+export async function appearance(next){await props.onAppearance(next)}
 export async function hostError(message){props.dom.onReaderHostError({nativeEvent:{message}})}
 export async function navigate(path){await props.onNavigate(path)}
 export function reset(){calls.length=0;navigationCalls.length=0;dispatched.length=0;handler=async()=>undefined;guard=undefined;changeRoute('/b',{id:'1'})}
@@ -77,7 +81,7 @@ await build({
         b.onResolve(
           {
             filter:
-              /^(react-native|expo-router(?:\/react-navigation)?|expo-document-picker|expo-file-system|expo-web-browser|runtime-fixture)$/
+              /^(react-native(?:-safe-area-context)?|expo-status-bar|expo-router(?:\/react-navigation)?|expo-document-picker|expo-file-system|expo-web-browser|runtime-fixture)$/
           },
           () => ({ path: fixture })
         );
@@ -161,6 +165,44 @@ test('mounted StrictMode provider hydrates /b once; duplicate snapshots do not r
   }
   assert.equal(runtime.backListeners.size, 0);
   assert.equal(runtime.appListeners.size, 0);
+});
+test('reader appearance and rotation preserve the host while keeping controls outside system bars', async () => {
+  const save = deferred();
+  const view = await mount({
+    handler: (req) => (req.method === 'close' ? save.promise : undefined)
+  });
+  const frame = () => view.container.querySelector('[data-reader-visible="true"]');
+  const iconStyle = () => view.container.querySelector('[data-status-bar]')?.dataset.statusBar;
+  const host = view.container.querySelector('[data-reader-host]');
+  try {
+    await act(async () => runtime.appearance({ mode: 'dark', background: 'rgb(0, 0, 0)' }));
+    assert.equal(iconStyle(), 'light', 'forced dark appearance must not inherit light OS icons');
+    assert.equal(frame().style.backgroundColor, 'rgb(0, 0, 0)');
+    assert.equal(frame().style.paddingTop, '48px');
+    assert.equal(frame().style.paddingBottom, '24px');
+    await act(async () => runtime.changeInsets({ top: 0, right: 0, bottom: 24, left: 48 }));
+    assert.equal(frame().style.paddingTop, '0px');
+    assert.equal(frame().style.paddingLeft, '48px', 'landscape cutout stays outside controls');
+    await act(async () => runtime.appearance({ mode: 'light', background: 'rgb(247, 242, 231)' }));
+    assert.equal(iconStyle(), 'dark');
+    assert.equal(
+      frame().style.backgroundColor,
+      'rgb(247, 242, 231)',
+      'preset canvas reaches the insets'
+    );
+    assert.equal(view.container.querySelector('[data-reader-host]'), host);
+    assert.equal(runtime.calls.filter((call) => call.method === 'open').length, 1);
+    await act(async () => runtime.changeRoute('/settings'));
+    await flush();
+    assert.equal(iconStyle(), 'dark', 'reader owns chrome while its save remains pending');
+    await act(async () => save.resolve({ allowed: true }));
+    await flush();
+    assert.equal(iconStyle(), undefined, 'closed reader releases chrome to the pushed screen');
+    assert.equal(view.container.querySelector('[data-reader-host]'), host);
+  } finally {
+    await view.close();
+    runtime.changeInsets({ top: 48, right: 0, bottom: 24, left: 0 });
+  }
 });
 test('mounted native route transition preserves DOM until save succeeds', async () => {
   const save = deferred();

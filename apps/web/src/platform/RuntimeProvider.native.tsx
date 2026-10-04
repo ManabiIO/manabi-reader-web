@@ -14,6 +14,8 @@ import {
   type ReactNode
 } from 'react';
 import { View, StyleSheet, AppState, BackHandler } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 import { router, useGlobalSearchParams, usePathname } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
@@ -27,7 +29,7 @@ import {
   type BridgeMethod,
   type BridgeReply
 } from './bridge-contract';
-import { EMPTY_SNAPSHOT, type RuntimeSnapshot } from './runtime-contract';
+import { EMPTY_SNAPSHOT, type ReaderAppearance, type RuntimeSnapshot } from './runtime-contract';
 import { bytesToBase64 } from './transfer-encoding';
 import { BridgeClient } from './bridge-client';
 import {
@@ -67,6 +69,14 @@ export function useReaderRuntime() {
 }
 let serial = 0;
 export function RuntimeProvider({ children }: { children: ReactNode }) {
+  const insets = useSafeAreaInsets();
+  const [readerAppearance, setReaderAppearance] = useState<ReaderAppearance>({
+    mode: 'light',
+    background: '#ffffff'
+  });
+  const receiveAppearance = useCallback(async (next: ReaderAppearance) => {
+    setReaderAppearance(next);
+  }, []);
   const ref = useRef<ReaderRuntimeRef>(null);
   const [snapshot, setSnapshot] = useState(EMPTY_SNAPSHOT);
   const latest = useRef(snapshot);
@@ -403,12 +413,27 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
           pointerEvents={reading ? 'auto' : 'none'}
           accessibilityElementsHidden={!reading}
           importantForAccessibility={reading ? 'auto' : 'no-hide-descendants'}
-          style={reading ? styles.reader : styles.hidden}
+          style={
+            reading
+              ? [
+                  styles.reader,
+                  {
+                    backgroundColor: readerAppearance.background,
+                    paddingTop: insets.top,
+                    paddingRight: insets.right,
+                    paddingBottom: insets.bottom,
+                    paddingLeft: insets.left
+                  }
+                ]
+              : styles.hidden
+          }
         >
+          {reading && <StatusBar style={readerAppearance.mode === 'dark' ? 'light' : 'dark'} />}
           <ReaderRuntime
             ref={ref}
             onReply={receiveReply}
             onSnapshot={receive}
+            onAppearance={receiveAppearance}
             onNavigate={async (destination) => {
               const accepted = nativeNavigationPath(destination, '');
               if (!accepted) return;

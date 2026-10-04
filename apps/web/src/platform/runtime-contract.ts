@@ -5,6 +5,11 @@
  */
 
 import type { BridgeScope } from './bridge-contract';
+/** The DOM resolves saved appearance and custom themes for the native reader frame. */
+export interface ReaderAppearance {
+  mode: 'light' | 'dark';
+  background: string;
+}
 export interface NativeBook {
   id: number;
   title: string;

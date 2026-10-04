@@ -1,6 +1,7 @@
 /** @license BSD-3-Clause */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { act } from 'react';
 import { runtimeOwner, deferred } from './fixtures/runtime-owner.mjs';
 
 const openPayload = (id) => ({ bookId: id, libraryToken: `library_${id}`, libraryKeys: [id] });
@@ -9,6 +10,35 @@ const success = (reply) => {
   assert.equal(reply.stale, false);
   return reply.value;
 };
+
+test('the persistent DOM forwards resolved appearance and custom chrome without reopening the book', async (t) => {
+  const f = await runtimeOwner(t);
+  assert.equal(f.appearances.at(-1).mode, 'light');
+  success(await f.command('open', openPayload(1)));
+  const session = f.sessions.at(-1);
+  await act(async () => f.appearanceStores.mode.set('dark'));
+  assert.deepEqual(f.appearances.at(-1), { mode: 'dark', background: 'rgba(0, 0, 0, 1)' });
+  await act(async () => {
+    f.appearanceStores.custom.set({
+      'reader-custom': {
+        fontColor: '#dddddd',
+        backgroundColor: '#123456',
+        selectionFontColor: '#eeeeee',
+        selectionBackgroundColor: '#777777',
+        hintFuriganaShadowColor: '#333333',
+        hintFuriganaFontColor: '#cccccc',
+        tooltipTextFontColor: '#eeeeee'
+      }
+    });
+    f.appearanceStores.theme.set('reader-custom');
+  });
+  assert.equal(f.appearances.at(-1).mode, 'dark');
+  assert.notEqual(f.appearances.at(-1).background, 'rgba(0, 0, 0, 1)');
+  assert.equal(f.sessions.at(-1), session);
+  assert.equal(session.unmounts, 0);
+  await f.unmount();
+  for (const store of Object.values(f.appearanceStores)) assert.equal(store.listeners.size, 0);
+});
 
 test('the DOM owner retains a real book authority beyond its bridge reply and retires it only on replacement or allowed close', async (t) => {
   const f = await runtimeOwner(t);

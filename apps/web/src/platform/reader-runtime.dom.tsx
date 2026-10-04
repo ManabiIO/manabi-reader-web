@@ -14,10 +14,12 @@ import {
   type BridgeReply,
   BRIDGE_VERSION
 } from './bridge-contract';
-import type { RuntimeSnapshot, SettingField } from './runtime-contract';
+import type { ReaderAppearance, RuntimeSnapshot, SettingField } from './runtime-contract';
 import { settingDefinitions, validateSetting } from './settings-fields';
 import * as reader from '$lib/data/store';
-import { appearance$ } from '$lib/appearance/state';
+import { appearance$, resolvedMode$, theme$, customThemes$ } from '$lib/appearance/state';
+import { themeProperties } from '$lib/data/theme-option';
+import { useStore } from '../runtime/use-store';
 import {
   account,
   accountGeneration,
@@ -73,14 +75,24 @@ export default function ReaderRuntime({
   ref,
   onSnapshot,
   onNavigate,
-  onReply
+  onReply,
+  onAppearance
 }: {
   ref?: Ref<ReaderRuntimeRef>;
   dom?: DOMProps;
   onSnapshot(snapshot: RuntimeSnapshot): Promise<void>;
   onNavigate(path: string): Promise<void>;
   onReply(reply: BridgeReply): Promise<void>;
+  onAppearance(appearance: ReaderAppearance): Promise<void>;
 }) {
+  const mode = useStore(resolvedMode$);
+  const theme = useStore(theme$);
+  const custom = useStore(customThemes$);
+  useEffect(() => {
+    void onAppearance({ mode, background: themeProperties(theme, mode, custom).background }).catch(
+      () => {}
+    );
+  }, [mode, theme, custom, onAppearance]);
   const [snippet, setSnippet] = useState<{ record: SnippetRecord; scope: SnippetScope }>();
   const snippets = useMemo(() => new NativeSnippetsService(createNativeSnippetsRepository()), []);
   const [bookId, setBookId] = useState<number>();
