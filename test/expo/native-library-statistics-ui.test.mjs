@@ -24,11 +24,11 @@ process.on('exit', () => rmSync(output, { recursive: true, force: true }));
 const fixture = `import React,{useRef} from 'react';
 import {ActionButton as NativeMenuButton} from './apps/web/src/shared-ui/ActionButton';
 export const View=({children,style,accessibilityLabel,testID,onLayout})=>{if(onLayout&&testID)globalThis.libraryStatisticsUI.layouts[testID]=onLayout;return <div data-label={accessibilityLabel} data-testid={testID} data-style={JSON.stringify(StyleSheet.flatten(style))}>{children}</div>}; export const ScrollView=View,SafeAreaView=View,Host=View;
-export const Text=({children,style})=><span data-color={StyleSheet.flatten(style).color}>{children}</span>; export const StyleSheet={create:x=>x,flatten:x=>Object.assign({},...(Array.isArray(x)?x.flat(Infinity):[x]).filter(Boolean))};
+export const Text=({children,style,accessibilityRole})=><span role={accessibilityRole==='header'?'heading':undefined} data-color={StyleSheet.flatten(style).color}>{children}</span>; export const StyleSheet={create:x=>x,flatten:x=>Object.assign({},...(Array.isArray(x)?x.flat(Infinity):[x]).filter(Boolean))};
 export const Platform={OS:"android"}; export const useColorScheme=()=>"light"; export const useWindowDimensions=()=>globalThis.libraryStatisticsUI.dimensions;
 export const ActivityIndicator=()=>null; export const Modal=({visible,children})=>visible?<section>{children}</section>:null;
 export const Pressable=({children,onPress,disabled,accessibilityLabel,accessibilityState,role})=><button role={role} aria-label={accessibilityLabel} aria-selected={accessibilityState?.selected} disabled={disabled} onClick={onPress}>{typeof children==='function'?children({pressed:false}):children}</button>; export const UiIcon=()=>null;
-export const FlatList=({data,renderItem,numColumns,ListEmptyComponent,ListHeaderComponent,onViewableItemsChanged,accessibilityLabel})=>{if(onViewableItemsChanged)globalThis.libraryStatisticsUI.viewports[accessibilityLabel||'books']=onViewableItemsChanged;return <div data-label={accessibilityLabel} data-columns={numColumns}>{ListHeaderComponent}{data.length?data.map(item=><div key={item.key}>{renderItem({item})}</div>):ListEmptyComponent}</div>};
+export const FlatList=({data,renderItem,numColumns,ListEmptyComponent,ListHeaderComponent,onViewableItemsChanged,accessibilityLabel})=>{if(onViewableItemsChanged)globalThis.libraryStatisticsUI.viewports[accessibilityLabel||'books']=onViewableItemsChanged;return <div data-label={accessibilityLabel} data-columns={numColumns}>{ListHeaderComponent}{data.length?data.map((item,index)=><div key={item.key}>{renderItem({item,index})}</div>):ListEmptyComponent}</div>};
 export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder})=><input value={value.value} onChange={event=>onChangeText?.(event.target.value)} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=({label,value,onValueChange,disabled})=><input type="checkbox" aria-label={label} checked={value} disabled={disabled} onChange={event=>onValueChange(event.target.checked)}/>;
 export const Action=({label,onPress,disabled,theme,variant})=><button data-variant={variant} data-seed={theme?.seedColor} disabled={disabled} onClick={onPress}>{label}</button>;
 export const MenuAction=({label,onPress,disabled})=><NativeMenuButton role="menuitem" variant="ghost" onPress={onPress} disabled={disabled}>{label}</NativeMenuButton>;
@@ -779,4 +779,149 @@ test('Continue open failures remain visible and permit an explicit retry', async
     'explicit retry receives a fresh access admission'
   );
   assert.deepEqual(f.routes, [{ pathname: '/b', params: { id: 1 } }]);
+});
+
+async function finishedFixture(t, change) {
+  let order = 'desc',
+    layout = 'list',
+    serial = 0;
+  const books = [
+    {
+      ...book,
+      key: 'old',
+      bookId: 2,
+      title: 'Older book',
+      readingLabel: 'Finished',
+      finished: true,
+      finishedOn: '2026-10-01'
+    },
+    {
+      ...book,
+      key: 'new',
+      bookId: 3,
+      title: 'Newer book',
+      readingLabel: 'Finished',
+      finished: true,
+      finishedOn: '2026-10-03'
+    },
+    {
+      ...book,
+      key: 'unknown',
+      bookId: 4,
+      title: 'Undated book',
+      readingLabel: 'Finished',
+      finished: true
+    }
+  ];
+  return mount(t, async (method, payload) => {
+    if (method === 'library.action') {
+      await change?.(payload);
+      if (payload.type === 'finished.order') order = payload.value;
+      if (payload.type === 'layout') layout = payload.value;
+    }
+    if (method === 'library.state')
+      return {
+        token: 'finished-' + ++serial,
+        coverToken: 'finished-cover',
+        sort: { property: 'title', direction: 'asc' },
+        finishedOrder: order,
+        layout: payload.collection === 'finished' ? layout : 'grid',
+        recentBooks: [],
+        items:
+          payload.collection === 'finished'
+            ? order === 'desc'
+              ? [books[1], books[0], books[2]]
+              : books
+            : books,
+        total: 3,
+        totalBooks: 3,
+        offset: 0,
+        limit: 60,
+        collections: [],
+        sources: [],
+        trail: [],
+        counts: { finished: 3, wantToRead: 0 },
+        ...(payload.detail
+          ? {
+              detail: {
+                ...books.find((b) => b.key === payload.detail),
+                metadata: {},
+                direction: 'unknown'
+              }
+            }
+          : {})
+      };
+  });
+}
+
+test('Finished timeline renders calendar-day headers, restores layout/order and keeps contextual controls', async (t) => {
+  const f = await finishedFixture(t);
+  await click(f, 'Sort and filter');
+  await act(() => f.container.querySelector('[aria-label="Unfinished books only"]').click());
+  await click(f, 'Close');
+  await click(f, 'Finished (3)');
+  assert.equal(
+    f.calls.filter((c) => c.method === 'library.state').at(-1).payload.unfinished,
+    false
+  );
+  const headings = () =>
+    [...f.container.querySelectorAll('[role="heading"]')].map((h) => h.textContent);
+  assert.deepEqual(headings(), ['Oct 3, 2026', 'Oct 1, 2026', 'Date not set']);
+  assert.equal(f.container.querySelector('[data-columns]').dataset.columns, '1');
+  assert.match(f.container.textContent, /Finished · Oct 3, 2026/);
+  await click(f, 'Sort and filter');
+  assert.ok(![...f.container.querySelectorAll('button')].some((b) => b.textContent === 'Author'));
+  assert.equal(f.container.querySelector('[aria-label="Unfinished books only"]'), null);
+  await click(f, 'Oldest first');
+  assert.deepEqual(
+    headings().filter((h) => h !== 'Sort and filter'),
+    ['Oct 1, 2026', 'Oct 3, 2026', 'Date not set']
+  );
+  assert.deepEqual(
+    f.calls.filter((c) => c.method === 'library.action').map((c) => c.payload.type),
+    ['finished.order']
+  );
+  const grid = f.container.querySelector('[aria-label="Grid layout (off uses timeline)"]');
+  await act(() => grid.click());
+  assert.equal(f.container.querySelector('[data-columns]').dataset.columns, '2');
+  assert.deepEqual(
+    headings().filter((h) => h !== 'Sort and filter'),
+    []
+  );
+  await f.render('/manage', 2);
+  await click(f, 'Finished (3)');
+  assert.equal(
+    f.container.querySelector('[data-columns]').dataset.columns,
+    '2',
+    'Finished grid persists independently after remount'
+  );
+  await click(f, 'Sort and filter');
+  const restored = f.container.querySelector('[aria-label="Grid layout (off uses timeline)"]');
+  await act(() => restored.click());
+  await click(f, 'Close');
+  assert.deepEqual(headings(), ['Oct 1, 2026', 'Oct 3, 2026', 'Date not set']);
+  await click(f, 'Select');
+  await click(f, 'Select page');
+  assert.match(f.container.textContent, /3 selected on this page/);
+  assert.deepEqual(headings(), ['Oct 1, 2026', 'Oct 3, 2026', 'Date not set']);
+});
+
+test('pending Finished order saves fence duplicate activation and retire on route departure', async (t) => {
+  const pending = deferred();
+  const f = await finishedFixture(t, (payload) =>
+    payload.type === 'finished.order' ? pending.promise : undefined
+  );
+  await click(f, 'Finished (3)');
+  await click(f, 'Sort and filter');
+  const oldest = [...f.container.querySelectorAll('button')].find(
+    (b) => b.textContent === 'Oldest first'
+  );
+  await act(() => oldest.click());
+  assert.equal(oldest.disabled, true);
+  await act(() => oldest.click());
+  assert.equal(f.calls.filter((c) => c.method === 'library.action').length, 1);
+  const reads = f.calls.filter((c) => c.method === 'library.state').length;
+  await f.render('/settings');
+  await act(() => pending.resolve());
+  assert.equal(f.calls.filter((c) => c.method === 'library.state').length, reads);
 });

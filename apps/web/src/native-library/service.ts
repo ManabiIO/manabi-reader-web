@@ -42,10 +42,11 @@ import {
   type LibraryCoverTarget
 } from './cover-service';
 import { libraryNodes, nativeBook, parseLibraryQuery } from './view-model';
-import { continueBooks } from '../lib/library/reading-state';
+import { continueBooks, finishedGroups } from '../lib/library/reading-state';
 import { LIBRARY_SORTS, readLibrarySort } from '../features/library/sort-options';
 
 import {
+  readFinishedOrder,
   libraryLayoutScope,
   readLibraryLayouts,
   type LibraryLayouts,
@@ -54,6 +55,7 @@ import {
 
 export interface LibraryData {
   layouts?: LibraryLayouts;
+  finishedOrder?: 'asc' | 'desc';
   sort?: NativeLibraryState['sort'];
   uiTheme?: NativeLibraryState['uiTheme'];
   tree: ShelfNode[];
@@ -97,6 +99,7 @@ function parseAction(value: unknown): LibraryActionRequest {
     throw new Error('Invalid Library action.');
   const fields: Record<string, string[]> = {
     sort: ['property', 'direction'],
+    'finished.order': ['value'],
     layout: ['value'],
     presentation: ['keys', 'change', 'preserveSeriesIndex'],
     membership: ['keys', 'collection', 'included'],
@@ -119,6 +122,8 @@ function parseAction(value: unknown): LibraryActionRequest {
       !['asc', 'desc'].includes(value.direction as string))
   )
     throw new Error('Invalid Library sort.');
+  if (value.type === 'finished.order' && !['asc', 'desc'].includes(value.value as string))
+    throw new Error('Invalid Finished order.');
   if (value.type === 'layout' && !['grid', 'list'].includes(value.value as string))
     throw new Error('Invalid Library layout.');
   if (
@@ -254,13 +259,20 @@ export class NativeLibraryService {
     if (inheritSort) query.sort = savedSort.property;
     if (inheritDirection) query.direction = savedSort.direction;
     const books = allBooks(data.tree);
-    const { nodes, trail } = libraryNodes(
+    const { nodes: filteredNodes, trail } = libraryNodes(
       data.tree,
       data.organization,
       query,
       seriesId,
       (book) => !sourceId || (!!book.source && sourceKey(book.source) === sourceId)
     );
+    const finishedOrder = readFinishedOrder(data.finishedOrder);
+    const nodes =
+      query.collection === 'finished' && !query.series
+        ? finishedGroups(allBooks(filteredNodes), finishedOrder).flatMap((group) =>
+            group.books.map((book) => ({ kind: 'book' as const, id: book.key, book }))
+          )
+        : filteredNodes;
     const offset = Math.min(
       query.offset,
       Math.max(0, Math.ceil(nodes.length / query.limit) * query.limit - query.limit)
@@ -313,6 +325,7 @@ export class NativeLibraryService {
     const coverToken = this.token();
     const response: NativeLibraryState = {
       sort: readLibrarySort({ property: query.sort, direction: query.direction }),
+      finishedOrder,
       layout: readLibraryLayouts(data.layouts)[layoutScope] === 'grid' ? 'grid' : 'list',
       ...(data.uiTheme ? { uiTheme: structuredClone(data.uiTheme) } : {}),
       token,
@@ -509,6 +522,8 @@ export class NativeLibraryService {
     )
       throw new Error('The Library selection expired. Refresh before saving.');
     if (this.busy) throw new Error('Another Library change is in progress.');
+    if (action.type === 'finished.order' && admitted.layoutScope !== 'finished')
+      throw new Error('Choose a Finished shelf before changing its order.');
     const keys = 'keys' in action ? (action.keys ?? []) : [];
     const targets = keys.map((key) => {
       const book = admitted.targets.get(key);

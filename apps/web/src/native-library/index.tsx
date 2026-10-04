@@ -5,6 +5,7 @@
  */
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useRef,
@@ -49,6 +50,7 @@ import {
 } from '../features/library/sort-options';
 import { NativeLibraryContentSearch } from './content-search';
 import { NativeBookCover } from './cover';
+import { formatCalendarDay } from '../lib/library/reading-state';
 import { LibraryBookFace } from '../features/library/LibraryBookFace';
 import { bookFaceLayout } from '../features/library/book-face';
 import {
@@ -238,6 +240,8 @@ function Library() {
   const [selected, setSelected] = useState<string[]>([]);
   const [selecting, setSelecting] = useState(false);
   const grid = state?.layout === 'grid';
+  const finishedShelf = query.collection === 'finished' && !query.series;
+  const timeline = finishedShelf && !grid;
   const { width, fontScale } = useWindowDimensions();
   const wide = hasLibrarySidebar(width, fontScale);
   const [pane, setPane] = useState<{ windowWidth: number; width: number }>();
@@ -336,7 +340,13 @@ function Library() {
     setError('');
     setSelected([]);
     setSelecting(false);
-    setQuery((previous) => ({ ...previous, ...change, detail: undefined, offset: 0 }));
+    setQuery((previous) => ({
+      ...previous,
+      ...change,
+      ...(change.collection === 'finished' ? { unfinished: false } : {}),
+      detail: undefined,
+      offset: 0
+    }));
   }
   async function openBook(book: NativeLibraryBook) {
     if (!state || loading || mutationActive.current || !activeRoute.current) return;
@@ -384,13 +394,25 @@ function Library() {
       return;
     await savePreference({ type: 'sort', property, direction }, true);
   }
+  async function chooseFinishedOrder(value: 'asc' | 'desc') {
+    if (
+      !state ||
+      !finishedShelf ||
+      mutationActive.current ||
+      loading ||
+      !activeRoute.current ||
+      value === state.finishedOrder
+    )
+      return;
+    await savePreference({ type: 'finished.order', value }, true);
+  }
   async function chooseLayout(value: boolean) {
     if (!state || mutationActive.current || loading || !activeRoute.current || value === grid)
       return;
     await savePreference({ type: 'layout', value: value ? 'grid' : 'list' }, false);
   }
   async function savePreference(
-    action: Extract<LibraryAction, { type: 'sort' | 'layout' }>,
+    action: Extract<LibraryAction, { type: 'sort' | 'layout' | 'finished.order' }>,
     resetPage: boolean
   ) {
     if (!state) return;
@@ -1008,90 +1030,113 @@ function Library() {
               ) : undefined
             }
             ListEmptyComponent={<Text>{emptyShelfText()}</Text>}
-            renderItem={({ item }) =>
-              item.kind === 'series' ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open series ${item.title}, ${item.count} books`}
-                  style={[styles.card, grid && [styles.grid, { width: cardWidth }]]}
-                  onPress={() => view({ series: item.key })}
-                >
-                  <Text style={styles.title}>{item.title}</Text>
-                  <Text>
-                    {item.count} books · {item.personal ? 'Personal series' : 'Source folder'}
-                  </Text>
-                </Pressable>
-              ) : (
-                <View
-                  style={[
-                    styles.card,
-                    grid && [styles.grid, { width: cardWidth }],
-                    selected.includes(item.key) && styles.selected
-                  ]}
-                >
+            renderItem={({ item, index }) => (
+              <Fragment>
+                {timeline &&
+                  item.kind === 'book' &&
+                  (index === 0 ||
+                    (state?.items[index - 1] as NativeLibraryBook)?.finishedOn !==
+                      item.finishedOn) && (
+                    <Text
+                      accessibilityRole="header"
+                      style={{
+                        fontSize: 18,
+                        fontWeight: '600',
+                        marginTop: index ? 24 : 0,
+                        marginBottom: 12
+                      }}
+                    >
+                      {item.finishedOn ? formatCalendarDay(item.finishedOn) : 'Date not set'}
+                    </Text>
+                  )}
+                {item.kind === 'series' ? (
                   <Pressable
-                    style={{ flex: 1, minWidth: 0 }}
                     accessibilityRole="button"
-                    accessibilityState={{ selected: selected.includes(item.key), disabled: busy }}
-                    disabled={busy}
-                    onLongPress={() => {
-                      setSelecting(true);
-                      toggle(item.key);
-                    }}
-                    onPress={() => {
-                      if (selecting) toggle(item.key);
-                      else void openBook(item);
-                    }}
+                    accessibilityLabel={`Open series ${item.title}, ${item.count} books`}
+                    style={[styles.card, grid && [styles.grid, { width: cardWidth }]]}
+                    onPress={() => view({ series: item.key })}
                   >
-                    <LibraryBookFace
-                      layout={bookFaceLayout}
-                      title={item.title}
-                      author={item.creators}
-                      readingLabel={item.readingLabel}
-                      finishedDay={item.finishedOn}
-                      readingNow={
-                        item.available && !!item.bookId && item.bookId === snapshot.lastBookId
-                      }
-                      selected={selected.includes(item.key)}
-                      grid={grid}
-                      cover={
-                        <NativeBookCover
-                          gridWidth={cardWidth}
-                          image={
-                            covers.token === state?.coverToken && !loading
-                              ? covers.images.get(item.key)
-                              : undefined
-                          }
-                          title={item.title}
-                          creators={item.creators}
-                          blurred={item.coverBlur}
-                          grid={grid}
-                        />
-                      }
-                    />
-                    {item.wantToRead && <Text>Want to Read</Text>}
-                    {(item.source !== 'On this device' || item.coverBlur) && (
-                      <Text>
-                        {item.source}
-                        {item.coverBlur ? ' · Cover blurred' : ''}
-                      </Text>
-                    )}
-                    {!item.available && <Text>Import required</Text>}
+                    <Text style={styles.title}>{item.title}</Text>
+                    <Text>
+                      {item.count} books · {item.personal ? 'Personal series' : 'Source folder'}
+                    </Text>
                   </Pressable>
-                  <ActionButton
-                    variant="ghost"
-                    size="icon-lg"
-                    shape="circle"
-                    accessibilityLabel={`Details: ${item.title}`}
-                    style={grid ? { alignSelf: 'flex-end' } : undefined}
-                    disabled={busy}
-                    onPress={() => bookDetails(item)}
+                ) : (
+                  <View
+                    style={[
+                      styles.card,
+                      grid && [styles.grid, { width: cardWidth }],
+                      selected.includes(item.key) && styles.selected
+                    ]}
                   >
-                    <UiIcon name="more" size={20} />
-                  </ActionButton>
-                </View>
-              )
-            }
+                    <Pressable
+                      style={{ flex: 1, minWidth: 0 }}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: selected.includes(item.key), disabled: busy }}
+                      disabled={busy}
+                      onLongPress={() => {
+                        setSelecting(true);
+                        toggle(item.key);
+                      }}
+                      onPress={() => {
+                        if (selecting) toggle(item.key);
+                        else void openBook(item);
+                      }}
+                    >
+                      <LibraryBookFace
+                        layout={bookFaceLayout}
+                        title={item.title}
+                        author={item.creators}
+                        readingLabel={item.readingLabel}
+                        finishedDay={
+                          timeline && item.finishedOn
+                            ? formatCalendarDay(item.finishedOn)
+                            : item.finishedOn
+                        }
+                        readingNow={
+                          item.available && !!item.bookId && item.bookId === snapshot.lastBookId
+                        }
+                        selected={selected.includes(item.key)}
+                        grid={grid}
+                        cover={
+                          <NativeBookCover
+                            gridWidth={cardWidth}
+                            image={
+                              covers.token === state?.coverToken && !loading
+                                ? covers.images.get(item.key)
+                                : undefined
+                            }
+                            title={item.title}
+                            creators={item.creators}
+                            blurred={item.coverBlur}
+                            grid={grid}
+                          />
+                        }
+                      />
+                      {item.wantToRead && <Text>Want to Read</Text>}
+                      {(item.source !== 'On this device' || item.coverBlur) && (
+                        <Text>
+                          {item.source}
+                          {item.coverBlur ? ' · Cover blurred' : ''}
+                        </Text>
+                      )}
+                      {!item.available && <Text>Import required</Text>}
+                    </Pressable>
+                    <ActionButton
+                      variant="ghost"
+                      size="icon-lg"
+                      shape="circle"
+                      accessibilityLabel={`Details: ${item.title}`}
+                      style={grid ? { alignSelf: 'flex-end' } : undefined}
+                      disabled={busy}
+                      onPress={() => bookDetails(item)}
+                    >
+                      <UiIcon name="more" size={20} />
+                    </ActionButton>
+                  </View>
+                )}
+              </Fragment>
+            )}
           />
           <View style={styles.pagination}>
             <Action
@@ -1149,42 +1194,63 @@ function Library() {
           ) : null}
           {sheet === 'filters' && (
             <>
-              <View style={styles.row}>
-                {librarySortChoices.map((choice) => (
+              {finishedShelf ? (
+                <View style={styles.row}>
                   <Action
-                    key={choice.property}
-                    label={choice.label}
-                    variant={sort.property === choice.property ? 'filled' : 'outlined'}
+                    label="Newest first"
+                    variant={state?.finishedOrder !== 'asc' ? 'filled' : 'outlined'}
                     disabled={busy || loading}
-                    onPress={() => void chooseSort(choice.property)}
+                    onPress={() => void chooseFinishedOrder('desc')}
                   />
-                ))}
-              </View>
-              <View style={styles.row}>
-                <Action
-                  label="Ascending"
-                  variant={sort.direction === 'asc' ? 'filled' : 'outlined'}
-                  disabled={busy || loading}
-                  onPress={() => void chooseSort(sort.property, 'asc')}
-                />
-                <Action
-                  label="Descending"
-                  variant={sort.direction === 'desc' ? 'filled' : 'outlined'}
-                  disabled={busy || loading}
-                  onPress={() => void chooseSort(sort.property, 'desc')}
-                />
-              </View>
+                  <Action
+                    label="Oldest first"
+                    variant={state?.finishedOrder === 'asc' ? 'filled' : 'outlined'}
+                    disabled={busy || loading}
+                    onPress={() => void chooseFinishedOrder('asc')}
+                  />
+                </View>
+              ) : (
+                <>
+                  <View style={styles.row}>
+                    {librarySortChoices.map((choice) => (
+                      <Action
+                        key={choice.property}
+                        label={choice.label}
+                        variant={sort.property === choice.property ? 'filled' : 'outlined'}
+                        disabled={busy || loading}
+                        onPress={() => void chooseSort(choice.property)}
+                      />
+                    ))}
+                  </View>
+                  <View style={styles.row}>
+                    <Action
+                      label="Ascending"
+                      variant={sort.direction === 'asc' ? 'filled' : 'outlined'}
+                      disabled={busy || loading}
+                      onPress={() => void chooseSort(sort.property, 'asc')}
+                    />
+                    <Action
+                      label="Descending"
+                      variant={sort.direction === 'desc' ? 'filled' : 'outlined'}
+                      disabled={busy || loading}
+                      onPress={() => void chooseSort(sort.property, 'desc')}
+                    />
+                  </View>
+                </>
+              )}
               <View style={{ gap: 8 }}>
+                {query.collection !== 'finished' && (
+                  <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
+                    <Switch
+                      label="Unfinished books only"
+                      value={!!query.unfinished}
+                      onValueChange={(unfinished) => view({ unfinished })}
+                    />
+                  </Host>
+                )}
                 <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
                   <Switch
-                    label="Unfinished books only"
-                    value={!!query.unfinished}
-                    onValueChange={(unfinished) => view({ unfinished })}
-                  />
-                </Host>
-                <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
-                  <Switch
-                    label="Grid layout"
+                    label={finishedShelf ? 'Grid layout (off uses timeline)' : 'Grid layout'}
                     value={grid}
                     disabled={!state || busy || loading}
                     onValueChange={(value) => void chooseLayout(value)}

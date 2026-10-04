@@ -91,6 +91,7 @@ function setup(books = [book()]) {
       async write(...args) {
         args[3].assertCurrent();
         args[3].signal.throwIfAborted();
+        if (args[0].type === 'finished.order') data.finishedOrder = args[0].value;
         if (args[0].type === 'sort') data.sort = readLibrarySort(args[0]);
         if (args[0].type === 'layout') {
           const { scope, value } = args[0];
@@ -873,4 +874,90 @@ test('Continue omits unread and finished books and respects filtered Library vie
     (await grouped.service.state({ series: root.items[0].key }, grouped.authority)).recentBooks,
     []
   );
+});
+
+test('Finished dates order the complete filtered shelf before paging, with unknown dates last in either direction', async () => {
+  const completed = (id, title, day) =>
+    book(id, {
+      title,
+      progress: 0.2,
+      completion: { state: 'finished', finishedOn: day, modifiedAt: 1 }
+    });
+  const f = setup([
+    completed(1, 'Zulu', '2026-10-01'),
+    completed(2, 'Beta', '2026-10-03'),
+    completed(3, 'Alpha', '2026-10-03'),
+    book(4, { title: 'Undated', progress: 1 }),
+    completed(5, 'Damaged date', '2026-02-31'),
+    book(6)
+  ]);
+  f.data.sort = { property: 'lastBookOpen', direction: 'asc' };
+  const query = { collection: 'finished', limit: 2 };
+  const newest = await f.service.state(query, f.authority);
+  assert.equal(newest.finishedOrder, 'desc');
+  assert.deepEqual(
+    newest.items.map((b) => b.title),
+    ['Alpha', 'Beta']
+  );
+  assert.equal(newest.total, 5);
+  assert.equal(newest.layout, 'list');
+  assert.deepEqual(
+    (await f.service.state({ ...query, offset: 2 }, f.authority)).items.map((b) => b.title),
+    ['Zulu', 'Damaged date']
+  );
+  const unknown = await f.service.state({ ...query, offset: 4 }, f.authority);
+  assert.equal(unknown.items[0].finishedOn, undefined);
+  const state = await f.service.state({ collection: 'finished' }, f.authority);
+  await f.service.action({ token: state.token, type: 'finished.order', value: 'asc' }, f.authority);
+  const oldest = await f.service.state({ collection: 'finished' }, f.authority);
+  assert.deepEqual(
+    oldest.items.map((b) => b.title),
+    ['Zulu', 'Alpha', 'Beta', 'Damaged date', 'Undated']
+  );
+  assert.equal(
+    oldest.items[3].finishedOn,
+    undefined,
+    'damaged restored dates become undated rather than crashing formatting'
+  );
+  assert.deepEqual(
+    f.data.sort,
+    { property: 'lastBookOpen', direction: 'asc' },
+    'Finished order never rewrites Library sort'
+  );
+  assert.deepEqual(f.writes[0][1], [], 'ordering does not mutate book records');
+});
+
+test('Finished order writes require a root Finished admission and retain single-use, cancellation and account guards', async () => {
+  const f = setup([book(1, { progress: 1 })]);
+  const root = await f.service.state({}, f.authority);
+  await assert.rejects(
+    f.service.action({ token: root.token, type: 'finished.order', value: 'asc' }, f.authority),
+    /Finished shelf/
+  );
+  const finished = await f.service.state({ collection: 'finished' }, f.authority);
+  for (const extra of [
+    { value: 'sideways' },
+    { value: true },
+    { value: 'asc', storageKey: 'account' },
+    {}
+  ])
+    await assert.rejects(
+      f.service.action({ token: finished.token, type: 'finished.order', ...extra }, f.authority)
+    );
+  const request = { token: finished.token, type: 'finished.order', value: 'asc' };
+  await f.service.action(request, f.authority);
+  await assert.rejects(f.service.action(request, f.authority), /expired/);
+  assert.equal(f.writes.length, 1);
+  const fresh = await f.service.state({ collection: 'finished' }, f.authority);
+  f.hook(() => f.changeScope('replacement'));
+  await assert.rejects(
+    f.service.action({ ...request, token: fresh.token }, f.authority),
+    /account changed/
+  );
+  assert.equal(f.writes.length, 1);
+  const g = setup([book(1, { progress: 1 })]);
+  const current = await g.service.state({ collection: 'finished' }, g.authority);
+  g.hook(() => g.cancel());
+  await assert.rejects(g.service.action({ ...request, token: current.token }, g.authority));
+  assert.equal(g.writes.length, 0);
 });

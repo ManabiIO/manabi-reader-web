@@ -53,8 +53,9 @@ export interface NativeLibrarySeries {
 export type LibraryUiTheme = Pick<UiThemeProviderProps, 'themeId' | 'appearance' | 'customThemes'>;
 export interface NativeLibraryState {
   sort: LibrarySortPreference;
-  /** Finished uses a list until the shared timeline composition is implemented. */
+  /** Native normalizes saved Finished timeline to list-shaped virtualized rows. */
   layout: 'grid' | 'list';
+  finishedOrder: 'asc' | 'desc';
   uiTheme?: LibraryUiTheme;
   token: string;
   coverToken: string;
@@ -80,6 +81,7 @@ export interface NativeLibraryState {
 export type LibraryAction =
   | { type: 'layout'; value: 'grid' | 'list' }
   | { type: 'sort'; property: LibrarySort; direction: 'asc' | 'desc' }
+  | { type: 'finished.order'; value: 'asc' | 'desc' }
   | {
       type: 'presentation';
       keys: string[];

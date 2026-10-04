@@ -54,7 +54,7 @@ import {
   type ShelfBook,
   type ShelfSeries
 } from '$lib/library/view-model';
-import { isFinished, finishedDay, calendarDay } from '$lib/library/completion';
+import { isFinished, finishedDay, calendarDay, validDay } from '$lib/library/completion';
 import { visibleLibraryEntries } from '$lib/library/account-visibility';
 import {
   WANT_TO_READ_ID,
@@ -95,7 +95,12 @@ import {
 } from '$lib/library/cloud-series';
 import type { LibraryMenuModel } from '$lib/library/library-menu';
 import { librarySortChoices, readLibrarySort } from '../features/library/sort-options';
-import { libraryLayoutKeys, loadLibraryLayouts } from '../features/library/layout-preferences';
+import {
+  finishedOrderKey,
+  loadFinishedOrder,
+  libraryLayoutKeys,
+  loadLibraryLayouts
+} from '../features/library/layout-preferences';
 import { continueBooks, finishedGroups, seriesReadingTarget } from '$lib/library/reading-state';
 import { ObservableController, readStore, tick } from './observable-controller';
 export class WorkspaceController extends ObservableController {
@@ -236,8 +241,10 @@ export class WorkspaceController extends ObservableController {
   orderFinishedNodes(nodes: ShelfNode[], direction: 'asc' | 'desc'): ShelfNode[] {
     return [...nodes].sort((left, right) => {
       if (left.kind !== 'book' || right.kind !== 'book') return 0;
-      const leftDay = finishedDay(left.book),
-        rightDay = finishedDay(right.book);
+      const leftSavedDay = finishedDay(left.book),
+        rightSavedDay = finishedDay(right.book);
+      const leftDay = validDay(leftSavedDay) ? leftSavedDay : undefined,
+        rightDay = validDay(rightSavedDay) ? rightSavedDay : undefined;
       if (!leftDay || !rightDay) {
         if (leftDay) return -1;
         if (rightDay) return 1;
@@ -713,7 +720,7 @@ export class WorkspaceController extends ObservableController {
     if (value !== 'asc' && value !== 'desc') return;
     this.finishedOrder = value;
     try {
-      localStorage.setItem('manabi-finished-order', value);
+      localStorage.setItem(finishedOrderKey, value);
     } catch {
       /* preference is optional */
     }
@@ -1294,8 +1301,7 @@ export class WorkspaceController extends ObservableController {
         this.layout = layouts.library;
         this.seriesLayout = layouts.series;
         this.finishedLayout = layouts.finished;
-        this.finishedOrder =
-          localStorage.getItem('manabi-finished-order') === 'asc' ? 'asc' : 'desc';
+        this.finishedOrder = loadFinishedOrder(localStorage);
       } catch {
         /* default */
       }

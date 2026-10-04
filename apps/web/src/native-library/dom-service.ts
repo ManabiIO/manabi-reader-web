@@ -11,7 +11,12 @@
 import { database, booklistSortOptions$ } from '$lib/data/store';
 import { StorageKey } from '$lib/data/storage/storage-types';
 import { readLibrarySort } from '../features/library/sort-options';
-import { libraryLayoutKeys, loadLibraryLayouts } from '../features/library/layout-preferences';
+import {
+  finishedOrderKey,
+  loadFinishedOrder,
+  libraryLayoutKeys,
+  loadLibraryLayouts
+} from '../features/library/layout-preferences';
 import { theme$, appearance$, customThemes$ } from '$lib/appearance/state';
 import { get } from '$lib/state/store';
 import { integrationDB, metadata } from '$lib/manabi/persistence';
@@ -127,6 +132,7 @@ export function createNativeLibraryService() {
         return {
           sort: readLibrarySort(get(booklistSortOptions$)[StorageKey.BROWSER]),
           layouts: loadLibraryLayouts(localStorage),
+          finishedOrder: loadFinishedOrder(localStorage),
           tree: buildShelf(visible.cards, visible.links, catalogs, sources, value, get(previews)),
           organization: value,
           uiTheme: selectedLibraryTheme(get(theme$), get(appearance$), get(customThemes$)),
@@ -146,6 +152,11 @@ export function createNativeLibraryService() {
             libraryLayoutKeys[action.scope],
             action.scope === 'finished' && action.value === 'list' ? 'timeline' : action.value
           );
+          return;
+        }
+        if (action.type === 'finished.order') {
+          current();
+          localStorage.setItem(finishedOrderKey, action.value);
           return;
         }
         if (action.type === 'sort') {

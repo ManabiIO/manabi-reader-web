@@ -44,7 +44,7 @@ export function changeRoute(path,params={}){location={path,params};for(const fn 
 export function usePathname(){return useSyncExternalStore(fn=>{routeListeners.add(fn);return()=>routeListeners.delete(fn)},()=>location).path}
 export function useGlobalSearchParams(){return useSyncExternalStore(fn=>{routeListeners.add(fn);return()=>routeListeners.delete(fn)},()=>location).params}
 function go(type,path){navigationCalls.push({type,path});const url=new URL(path,'https://native.test');changeRoute(url.pathname,Object.fromEntries(url.searchParams))}
-export const router={push:path=>go('push',path),replace:path=>go('replace',path)};
+export const router={push:path=>go('push',path),replace:path=>go('replace',path),dismissTo:path=>go('dismissTo',path)};
 export const useNavigation=()=>({dispatch(action){dispatched.push(action);go('dispatch','/manage')}});
 export function usePreventRemove(prevent,callback){useEffect(()=>{guard=prevent?callback:undefined;return()=>{guard=undefined}},[prevent,callback])}
 export function removeRoute(){guard?.({data:{action:{type:'POP'}}})}
@@ -238,7 +238,7 @@ test('mounted repeated hardware Back cannot close or navigate twice', async () =
     assert.equal(runtime.navigationCalls.length, 0);
     await act(async () => save.resolve({ allowed: true, destination: '/manage' }));
     await flush();
-    assert.equal(runtime.navigationCalls.filter((call) => call.type === 'replace').length, 1);
+    assert.deepEqual(runtime.navigationCalls, [{ type: 'dismissTo', path: '/manage' }]);
     assert.equal(view.visible(), false);
   } finally {
     await view.close();
@@ -344,11 +344,12 @@ test('account retirement settles pending native close without waiting on old hos
     await view.close();
   }
 });
-test('DOM-confirmed exit does not invoke a second close', async () => {
+test('DOM-confirmed exit returns to its existing workspace without a second close', async () => {
   const view = await mount();
   try {
     await act(async () => runtime.navigate('/manage'));
     await flush();
+    assert.deepEqual(runtime.navigationCalls, [{ type: 'dismissTo', path: '/manage' }]);
     assert.equal(view.visible(), false);
     assert.equal(runtime.calls.filter((call) => call.method === 'close').length, 0);
   } finally {

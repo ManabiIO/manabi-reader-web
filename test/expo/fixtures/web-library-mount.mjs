@@ -286,6 +286,53 @@ for (const strict of [false, true]) {
   } finally {
     window.Storage.prototype.setItem = setItem;
   }
+  const previousFinishedOrder = window.localStorage.getItem('manabi-finished-order');
+  try {
+    await act(async () => workspace.setFinishedOrder('asc'));
+    assert.equal(
+      (await remountedNativeLibrary.state({ collection: 'finished' }, authority)).finishedOrder,
+      'asc'
+    );
+    const finishedAdmission = await remountedNativeLibrary.state(
+      { collection: 'finished' },
+      authority
+    );
+    await remountedNativeLibrary.action(
+      { token: finishedAdmission.token, type: 'finished.order', value: 'desc' },
+      authority
+    );
+    assert.equal(window.localStorage.getItem('manabi-finished-order'), 'desc');
+    const restartedFinished = createNativeLibraryService();
+    assert.equal(
+      (await restartedFinished.state({ collection: 'finished' }, authority)).finishedOrder,
+      'desc'
+    );
+    const deniedOrder = await restartedFinished.state({ collection: 'finished' }, authority);
+    window.Storage.prototype.setItem = function (key, value) {
+      if (key === 'manabi-finished-order') throw new Error('Finished persistence unavailable');
+      return setItem.call(this, key, value);
+    };
+    try {
+      await assert.rejects(
+        restartedFinished.action(
+          { token: deniedOrder.token, type: 'finished.order', value: 'asc' },
+          authority
+        ),
+        /Finished persistence unavailable/
+      );
+      assert.equal(
+        (await restartedFinished.state({ collection: 'finished' }, authority)).finishedOrder,
+        'desc'
+      );
+      assert.deepEqual(workspace.sort, { property: 'title', direction: 'desc' });
+    } finally {
+      window.Storage.prototype.setItem = setItem;
+      restartedFinished.dispose();
+    }
+  } finally {
+    if (previousFinishedOrder === null) window.localStorage.removeItem('manabi-finished-order');
+    else window.localStorage.setItem('manabi-finished-order', previousFinishedOrder);
+  }
   const layoutKeys = ['manabi-library-layout', 'manabi-series-layout', 'manabi-finished-layout'];
   const previousLayouts = layoutKeys.map((key) => window.localStorage.getItem(key));
   try {

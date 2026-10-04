@@ -16,7 +16,7 @@ import {
   wantToReadCollection,
   WANT_TO_READ_ID
 } from '../lib/library/want-to-read';
-import { finishedDay, isFinished, progressFraction } from '../lib/library/completion';
+import { finishedDay, isFinished, progressFraction, validDay } from '../lib/library/completion';
 import { readingLabel } from '../lib/library/reading-state';
 import { foldSearch } from '../lib/library/search-normalization';
 import { decodeBookBinary } from '../lib/data/database/books-db/book-binary';
@@ -166,7 +166,7 @@ export function nativeBook(
     progress: progressFraction(book.progress),
     readingLabel: readingLabel(book),
     finished: isFinished(book),
-    finishedOn: finishedDay(book),
+    finishedOn: validDay(finishedDay(book)) ? finishedDay(book) : undefined,
     wantToRead: collectionContains(wantToReadCollection(organization), book),
     coverBlur: !!book.coverBlur,
     canChangeCover: !!(

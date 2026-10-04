@@ -35,7 +35,7 @@ export default function ReaderRoute() {
           <Pressable accessibilityRole="button" onPress={retryReader}>
             <Text>Try again</Text>
           </Pressable>
-          <Pressable accessibilityRole="button" onPress={() => router.replace('/manage')}>
+          <Pressable accessibilityRole="button" onPress={() => router.dismissTo('/manage')}>
             <Text>Back to Library</Text>
           </Pressable>
         </>

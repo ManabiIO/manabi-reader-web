@@ -4,6 +4,18 @@
  * All rights reserved.
  */
 
+export const finishedOrderKey = 'manabi-finished-order';
+export function readFinishedOrder(value: unknown): 'asc' | 'desc' {
+  return value === 'asc' ? 'asc' : 'desc';
+}
+export function loadFinishedOrder(storage: Pick<Storage, 'getItem'>): 'asc' | 'desc' {
+  try {
+    return readFinishedOrder(storage.getItem(finishedOrderKey));
+  } catch {
+    return 'desc';
+  }
+}
+
 export const libraryLayoutKeys = {
   library: 'manabi-library-layout',
   series: 'manabi-series-layout',

@@ -382,7 +382,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         backPending.current = true;
         void closeReader()
           .then((result) => {
-            if (result.allowed) router.replace(result.destination);
+            if (result.allowed) router.dismissTo(result.destination);
           })
           .catch(() => {})
           .finally(() => {
@@ -439,8 +439,11 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
             onNavigate={async (destination) => {
               const accepted = nativeNavigationPath(destination, '');
               if (!accepted) return;
+              const readerExit = reading && (accepted === '/manage' || accepted === '/snippets');
               if (!/^\/b(?:[?#]|$)/.test(accepted)) navigationRef.current!.didExit();
-              router.push(accepted as never);
+              // Pop to the existing workspace so its shelf, search and page remain owned there.
+              if (readerExit) router.dismissTo(accepted);
+              else router.push(accepted as never);
             }}
             dom={dom}
           />

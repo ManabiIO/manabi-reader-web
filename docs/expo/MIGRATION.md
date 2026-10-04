@@ -180,3 +180,9 @@ POP_TO_TOP, GO_BACK, forward replay, unique route keys and once-decoded params.
 See [the SDK 57 Router API](https://docs.expo.dev/versions/v57.0.0/sdk/router/).
 The local reducer/mounted tests are not a substitute for exact-head browser
 history, selection, draft and stale-open acceptance.
+
+### Native Finished and retained reader return
+
+Android now uses the canonical Finished calendar-day groups and the same saved newest/oldest preference as web, ordered before pagination. Saved timeline/grid is independent of Library/series layouts. Contextual Finished controls omit unfinished-only filtering. Invalid restored dates are shown as undated and sorted last.
+
+Release-app QA exposed a reader Back reset of the selected Library shelf. Approved hardware and DOM toolbar exits now dismiss to the existing workspace, retaining its shelf/search/page. Close/save and account retirement guards remain authoritative. See [the navigation parity report](NAVIGATION-ANDROID-PARITY.md) for exact APK, test and emulator evidence. Continue and Finished shelf composition are implemented; series hero, native Shared/Ttu placeholders and physical-device acceptance remain open.
