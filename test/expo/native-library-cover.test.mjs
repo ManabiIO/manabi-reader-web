@@ -587,3 +587,78 @@ test('installed React Native cover viewability keeps the newest measured viewpor
   assert.equal(retained.states.at(-1).images.size, 2);
   retained.controller.dispose();
 });
+
+test('collapsed series admits only two scoped artwork identities and retires reads with its view', async () => {
+  let serial = 0;
+  const g = guard();
+  const books = Array.from({ length: 7 }, (_, index) => ({
+    ...book(),
+    key: `book:${index + 1}`,
+    bookId: index + 1,
+    title: `Volume ${index + 1}`,
+    progress: 1,
+    organizationKey: `volume:${index + 1}`,
+    organizationAliases: [`volume:${index + 1}`]
+  }));
+  const data = {
+    tree: [
+      {
+        kind: 'series',
+        id: 'private-path',
+        name: 'Set',
+        personal: true,
+        books: [books[0], books[0], ...books.slice(1)],
+        children: books.map((book) => ({ kind: 'book', id: book.key, book }))
+      }
+    ],
+    organization: organization(),
+    sources: [],
+    coverIdentities: Object.fromEntries(
+      books.map((book) => [book.bookId, `identity-${book.bookId}`])
+    )
+  };
+  const rendered = [];
+  const library = new NativeLibraryService(
+    {
+      load: async () => data,
+      write: async () => assert.fail('rendering must not write'),
+      cover: async (target) => {
+        rendered.push(target);
+        return jpeg;
+      }
+    },
+    () => `opaque-${++serial}`
+  );
+  const state = await library.state({}, g);
+  const series = state.items[0];
+  assert.equal(series.count, 8);
+  assert.deepEqual(
+    series.books.map((b) => b.bookId),
+    [1, 2]
+  );
+  assert.ok(series.books.every((b) => b.hasCover));
+  assert.doesNotMatch(JSON.stringify(state), /private-path|data:image|content:|identity-/);
+  const read = { token: state.coverToken, key: series.books[1].key, request: 'series-cover' };
+  assert.deepEqual((await library.readCover(read, g)).image, jpeg);
+  assert.equal(rendered[0].readerBookKey, 'identity-2');
+  assert.equal(rendered[0].book.bookId, 2);
+  await assert.rejects(library.readCover({ ...read, key: series.key }, g), /outside/);
+  const detail = await library.state({ series: series.key }, g);
+  await assert.rejects(library.readCover(read, g), /expired/);
+  const third = detail.items.find((b) => b.bookId === 3).key;
+  const root = await library.state({}, g);
+  await assert.rejects(
+    library.readCover({ ...read, token: root.coverToken, key: third }, g),
+    /outside/
+  );
+  data.organization.collections = [
+    { id: 'picked', name: 'Picked', members: ['volume:6', 'volume:7'] }
+  ];
+  const scoped = await library.state({ collection: 'picked' }, g);
+  assert.deepEqual(
+    scoped.items[0].books.map((b) => b.bookId),
+    [6, 7]
+  );
+  assert.equal(scoped.items[0].count, 2);
+  library.dispose();
+});

@@ -144,8 +144,9 @@ first shared complete composition; the eight remaining screen closures are:
    Back/Forward keeps that exact shelf URL visible. Matched Svelte/web series
    screenshots qualify phone and desktop geometry and intentional neutral accents. Release visual
    scope and exact APK provenance are recorded in
-   [navigation QA](NAVIGATION-ANDROID-PARITY.md). Collapsed-series card artwork,
-   series-level editing, common search/selection composition and full native
+   [navigation QA](NAVIGATION-ANDROID-PARITY.md). Native collapsed series now retain
+   two scoped cover identities with viewport-bound loading in grid and list.
+   Series-level editing, common search/selection composition and full native
    accessibility acceptance remain open.
    Native backup/export destinations and
    provider/folder access remain open. This is the largest next everyday-screen

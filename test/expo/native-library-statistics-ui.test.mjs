@@ -1131,3 +1131,66 @@ test('retired series response clears old hero, selection and local Back without 
   assert.equal(globalThis.libraryStatisticsUI.back, undefined);
   assert.equal(f.calls.filter((c) => c.method === 'library.state').at(-1).payload.series, '');
 });
+
+test('collapsed series art follows visible rows, current admission and selection-safe local navigation', async (t) => {
+  const art = [
+    { ...book, key: 'stack-front', title: 'Front', hasCover: true },
+    { ...book, key: 'stack-back', title: 'Back', hasCover: true },
+    { ...book, key: 'stack-missing', title: 'Missing', hasCover: false }
+  ];
+  const series = {
+    kind: 'series',
+    key: 'set',
+    title: 'Set',
+    count: 8,
+    personal: true,
+    books: art.slice(0, 2)
+  };
+  const other = { ...series, key: 'other', title: 'Other', books: [art[2]] };
+  const f = await mount(t, (method, payload) => {
+    if (method !== 'library.state') return;
+    return {
+      token: 'stack-token',
+      coverToken: 'stack-cover',
+      sort: { property: 'title', direction: 'asc' },
+      layout: 'grid',
+      items: payload.series ? [book] : [series, other],
+      recentBooks: [],
+      total: 2,
+      totalBooks: 8,
+      offset: 0,
+      limit: 60,
+      collections: [],
+      sources: [],
+      counts: { finished: 0, wantToRead: 0 },
+      trail: payload.series ? [{ id: 'set', name: 'Set' }] : []
+    };
+  });
+  assert.equal(f.container.querySelectorAll('[data-testid="library-series-cover"]').length, 2);
+  assert.deepEqual(globalThis.libraryStatisticsUI.coverViews.at(-1), {
+    token: 'stack-cover',
+    keys: ['stack-front', 'stack-back']
+  });
+  await act(() =>
+    globalThis.libraryStatisticsUI.viewports.books({ viewableItems: [{ item: series }] })
+  );
+  assert.deepEqual(globalThis.libraryStatisticsUI.coverViewports.at(-1), [
+    'stack-front',
+    'stack-back'
+  ]);
+  await act(() =>
+    globalThis.libraryStatisticsUI.viewports.books({ viewableItems: [{ item: other }] })
+  );
+  assert.deepEqual(
+    globalThis.libraryStatisticsUI.coverViewports.at(-1),
+    [],
+    'offscreen and missing art is retired'
+  );
+  await click(f, 'Open series Set, 8 books');
+  assert.equal(f.calls.filter((c) => c.method === 'library.state').at(-1).payload.series, 'set');
+  assert.equal(
+    f.calls.some((c) => c.method === 'open'),
+    false,
+    'cover taps open the series, never a hidden book'
+  );
+});

@@ -163,3 +163,35 @@ The exact clean Svelte reference `7d552c47de7f0da9a723cc7645ea148482cd238f` was 
 The comparison exposed a web navigation gap inherited from the old route behavior: the reader's Library action discarded the selected series. A web session now captures only its admitted same-origin Library shelf and returns through the existing guarded Back mechanism, preserving series/collection/source/search context and the original browser entry. Cold or unrelated arrivals use the local Books fallback. Android's existing exit callback remains authoritative. A deeper real-browser Back/Forward journey also reproduced a series URL with stale root Library UI. The focused Library now retains the broker-admitted native traversal URL until the next admitted app navigation; incoming mounts still start from their own route params. The original once-decoded identities and shallow-search ownership remain qualified.
 
 All 591 Expo tests, 40 focused navigation unit tests, strict production/scoped Library types, selected lint/format, web export and both complete browser parity suites (17 per engine) pass. The rebuilt Android APK SHA-256 is `d0c4b33f5d8df0076c015f7f4b03cf63e00811122d2843f198b492e12e6d4851`. Exact-head CI and individual capture provenance are recorded separately; earlier Android screenshots retain their original binary attribution. The [failure ledger](RETAINED-BROWSER-FAILURES.md) keeps the intermediate navigation failures. No whole-app parity claim is made: collapsed-series artwork, native series-level editing, provider/Shared/Ttu operations and physical accessibility acceptance remain open.
+
+## Native collapsed-series artwork
+
+Collapsed native series previously showed only title/count while the web shelf
+showed book artwork. Each paged series now carries at most two unique books from
+its already filtered membership. Opaque artwork handles join the existing
+exact-identity cover admission; paths, original image bytes and provider URLs
+remain inside the DOM owner. Grid and list rows retain the web's overlapping
+cover silhouette, native grayscale text and one series activation target. The
+existing twelve-visible/two-concurrent/twenty-four-cached controller requests the
+stack's artwork only while its row is visible; missing or failed images use the
+existing title/author cover and blur remains intact.
+
+All 594 Expo checks, strict production TypeScript, selected lint/format, web
+export and the complete Library parity suites (17 Chromium + 17 WebKit) pass.
+The installed release APK SHA-256 is
+`30ee52298c86ff032eab9f833dca8b3fe7ecb091d913558e9a683319791f0ae1`.
+Actual emulator frames verify grid/list artwork, dark mode with doubled text,
+process restart, series activation and reader → series → Library hardware Back.
+No fatal process-log entries occurred. The matched compact comparison uses the
+same three Japanese Reading EPUBs and Alpha reading evidence at 0%; Svelte and
+Expo web retain their existing shelf geometry, and Android now shares the front
+Alpha/back Beta artwork with native typography/insets. These are Codex in-app
+browser captures, independent of the two-engine E2E acceptance. Capture and
+setup logs live in `test-results/collapsed-series-0n1yr6u5/`; the initial Python,
+Java and expired-admission setup failures remain there. Exact-head CI is tracked
+separately. Native series editing/provider operations and physical device and
+accessibility acceptance remain open.
+
+The emulator fixture was restored to no series memberships, root grid layout,
+font scale 1 and light System appearance after capture. Alpha remains at 0%;
+Beta/Zulu remain unread.

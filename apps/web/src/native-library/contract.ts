@@ -49,6 +49,8 @@ export interface NativeLibrarySeries {
   title: string;
   count: number;
   personal: boolean;
+  /** At most two unique scoped books for the collapsed cover stack. */
+  books: NativeLibraryBook[];
 }
 export interface NativeSeriesOverview {
   title: string;

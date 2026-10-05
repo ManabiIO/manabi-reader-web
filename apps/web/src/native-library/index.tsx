@@ -61,6 +61,7 @@ import {
 import { NativeEditorsPicks } from './catalog';
 import { NativeContinueShelf } from './continue-shelf';
 import { NativeSeriesHero, seriesHeaderVisible } from './series-overview';
+import { NativeSeriesCover } from './series-cover';
 import {
   NativeLibraryFrame,
   NativeLibraryShelves,
@@ -231,8 +232,9 @@ function Library() {
   ).current;
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     visibleBooks.current = viewableItems
-      .filter(({ item }) => item.kind === 'book' && item.hasCover)
-      .map(({ item }) => item.key);
+      .flatMap(({ item }) => (item.kind === 'book' ? [item] : (item.books ?? [])))
+      .filter((book) => book.hasCover)
+      .map((book) => book.key);
     publishCoverViewport();
   }).current;
   const viewabilityConfig = useRef(libraryCoverViewability).current;
@@ -321,8 +323,12 @@ function Library() {
           }
           coverController.current?.setView(
             next.coverToken,
-            [...next.items, ...(next.recentBooks ?? []), ...(next.seriesOverview?.books ?? [])]
-              .filter((item) => item.kind === 'book' && item.hasCover)
+            [
+              ...next.items.flatMap((item) => (item.kind === 'book' ? [item] : (item.books ?? []))),
+              ...(next.recentBooks ?? []),
+              ...(next.seriesOverview?.books ?? [])
+            ]
+              .filter((item) => item.hasCover)
               .map((item) => item.key)
           );
           setSelected((previous) => reconcileNativeSelection(previous, next.items));
@@ -1154,10 +1160,21 @@ function Library() {
                     style={[styles.card, grid && [styles.grid, { width: cardWidth }]]}
                     onPress={() => view({ series: item.key })}
                   >
-                    <Text style={styles.title}>{item.title}</Text>
-                    <Text>
-                      {item.count} books · {item.personal ? 'Personal series' : 'Source folder'}
-                    </Text>
+                    <NativeSeriesCover
+                      books={item.books ?? []}
+                      grid={grid}
+                      gridWidth={cardWidth}
+                      images={
+                        covers.token === state?.coverToken && !loading ? covers.images : undefined
+                      }
+                    />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={styles.title}>{item.title}</Text>
+                      <Text style={{ color: uiTheme.colors.mutedForeground }}>
+                        {item.count} {item.count === 1 ? 'book' : 'books'} ·{' '}
+                        {item.personal ? 'Personal series' : 'Source folder'}
+                      </Text>
+                    </View>
                   </Pressable>
                 ) : (
                   <View

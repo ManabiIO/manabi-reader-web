@@ -324,7 +324,10 @@ export class NativeLibraryService {
             key: this.handle(node.id),
             title: node.name.slice(0, 240),
             count: node.books.length,
-            personal: !!node.personal
+            personal: !!node.personal,
+            books: Array.from(new Map(node.books.map((book) => [book.key, book])).values())
+              .slice(0, 2)
+              .map(bookRow)
           }
     );
     const recentBooks =

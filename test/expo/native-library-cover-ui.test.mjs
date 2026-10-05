@@ -25,11 +25,16 @@ const output = mkdtempSync(join(tmpdir(), 'native-library-cover-ui-'));
 const fixture = join(output, 'native.tsx');
 writeFileSync(
   fixture,
-  `import React from 'react'; export const View=({children,style})=><div data-style={JSON.stringify(style)}>{children}</div>; export const Text=({children})=><span>{children}</span>; export const Image=({source,blurRadius,onError,resizeMode})=><img src={source.uri} data-blur={blurRadius} data-fit={resizeMode} onError={onError}/>; export const StyleSheet={create:x=>x,flatten:x=>Object.assign({},...(Array.isArray(x)?x.flat(Infinity):[x]).filter(Boolean))}; export const Platform={OS:"android"}; export const useColorScheme=()=>"light";`
+  `import React from 'react'; export const View=({children,style,testID,accessibilityElementsHidden,importantForAccessibility})=><div data-testid={testID} data-hidden={accessibilityElementsHidden} data-accessibility={importantForAccessibility} data-style={JSON.stringify(style)}>{children}</div>; export const Text=({children})=><span>{children}</span>; export const Image=({source,blurRadius,onError,resizeMode})=><img src={source.uri} data-blur={blurRadius} data-fit={resizeMode} onError={onError}/>; export const StyleSheet={create:x=>x,flatten:x=>Object.assign({},...(Array.isArray(x)?x.flat(Infinity):[x]).filter(Boolean))}; export const Platform={OS:"android"}; export const useColorScheme=()=>"light";`
 );
 const outfile = join(output, 'cover.cjs');
 await build({
-  entryPoints: ['apps/web/src/native-library/cover.tsx'],
+  stdin: {
+    contents: `export { NativeBookCover } from './apps/web/src/native-library/cover';
+      export { NativeSeriesCover } from './apps/web/src/native-library/series-cover';`,
+    resolveDir: process.cwd(),
+    loader: 'tsx'
+  },
   bundle: true,
   platform: 'node',
   format: 'cjs',
@@ -50,7 +55,7 @@ await build({
     }
   ]
 });
-const { NativeBookCover } = require(outfile);
+const { NativeBookCover, NativeSeriesCover } = require(outfile);
 const rasterFile = join(output, 'raster.cjs');
 await build({
   entryPoints: [resolve('apps/web/src/native-library/cover-raster.ts')],
@@ -240,4 +245,48 @@ test('DOM raster failure, cancellation, dimensions and oversized encoding always
       f.restore();
     }
   }
+});
+
+test('collapsed stacks preserve blur and placeholders across list, narrow grid and cleared-image views', async () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const front = { key: 'front', title: 'First Volume', creators: 'Writer', coverBlur: true };
+  const back = { key: 'back', title: 'Second Volume', creators: 'Writer', coverBlur: false };
+  const render = async (props) =>
+    act(() => root.render(React.createElement(NativeSeriesCover, props)));
+  await render({
+    books: [front, front, back, { ...back, key: 'extra' }],
+    images: new Map([
+      [front.key, jpeg],
+      [back.key, jpeg]
+    ])
+  });
+  const stack = container.querySelector('[data-testid="library-series-cover"]');
+  assert.equal(stack.dataset.hidden, 'true');
+  assert.equal(stack.dataset.accessibility, 'no-hide-descendants');
+  assert.equal(JSON.parse(stack.dataset.style).width, 76);
+  assert.equal(
+    container.querySelectorAll('img').length,
+    2,
+    'two unique books even with duplicate or excess input'
+  );
+  assert.deepEqual(
+    [...container.querySelectorAll('img')].map((img) => img.dataset.blur),
+    ['8', '0']
+  );
+  await act(() => container.querySelectorAll('img')[1].dispatchEvent(new Event('error')));
+  assert.match(container.textContent, /Second Volume.*Writer/);
+  await render({ books: [front, back], grid: true, gridWidth: 110 });
+  assert.equal(
+    container.querySelectorAll('img').length,
+    0,
+    'retired view clears both raster images'
+  );
+  assert.equal(JSON.parse(stack.dataset.style).width, 110);
+  assert.match(container.textContent, /First Volume.*Second Volume/);
+  await render({ books: [front], grid: true, gridWidth: 700 });
+  assert.equal(JSON.parse(stack.dataset.style).width, 200, 'same maximum width as book cards');
+  await act(() => root.unmount());
+  container.remove();
 });

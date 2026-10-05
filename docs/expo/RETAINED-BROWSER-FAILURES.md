@@ -340,3 +340,16 @@ on the repair, followed by exact-head CI. These failed attempts remain evidence.
 Actual web UI review on the `90377925` export returned a series book to root Books, while Android retained its series workspace. The repair captures the admitted Library origin and uses the existing guarded return-to-entry mechanism. The first focused reader-return case passed both engines, then its stronger Back/Forward continuation failed in both: the address bar and a transient series heading restored, but the final header/shelf reverted to root and the contextual Back button never appeared. These failures remain in the local `series-comparison-7RMyK1/reader-return-history-{chromium,webkit}.log` files, including original layout diagnostics. The qualified teardown later reuses the test's standard screenshot filenames; the retained failure logs are the authoritative intermediate evidence.
 
 The focused Library now observes broker-admitted native traversals and retains that exact Library URL until the next admitted app navigation. Both original return assertions and the stronger Back/Forward/contextual-Back continuation remain. Both full browser parity suites pass with 17 cases per engine, alongside the original mounted route/shallow-search ownership checks. Interactive captures were taken only after positively verifying the new content-hashed entry script: the old offline worker intentionally kept its previous shell while a client remained open. Releasing those clients admitted the new shell without clearing books or altering browser storage. The initial command also selected a Python executable without Playwright; explicit use of the existing task venv corrected that harness-only failure. A unit fixture's raw Japanese URL expectation was corrected to standard URL serialization; percent-bearing series/collection identities remain unchanged.
+
+## Collapsed-series qualification setup
+
+The first local all-Expo run on the collapsed-series change passed 592 of 594 checks;
+its two manifest subprocesses could not find `python` (`spawnSync python ENOENT`).
+The unchanged tests passed all 594 after including the existing pinned Python
+runtime in PATH. This is an environment failure, not a browser-product failure.
+The first Android release rebuild failed CMake configuration under the system
+Java setup; the existing pinned JDK 21 completed the release build. An initial
+emulator fixture mutation used an expired Library token and was rejected without
+changing series membership; a refreshed admission completed the assignment.
+All original logs remain in `test-results/collapsed-series-0n1yr6u5/` alongside
+qualified results. The full Library parity suites passed 17 cases in each engine.
