@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { writable } from 'svelte/store';
+import { writable } from '$lib/state/store';
 import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { organizationIdentityReplacements, type BookIdentityRecord } from './book-identity.ts';
 import { equal, integrationDB, type BookLink } from '$lib/manabi/persistence';
@@ -145,15 +145,23 @@ export async function reloadOrganization() {
 export async function updateOrganization(
   change: (value: Organization) => void,
   receipt?: { key: string; value: string; modified: number },
-  authority?: AbortSignal | (() => void)
+  authority?: AbortSignal | (() => void),
+  cancellation?: AbortSignal
 ) {
   // Preference recovery carries an AbortSignal; snippet operations carry a
-  // live owner guard. Keep both forms of authority at every write checkpoint.
-  const signal = typeof authority === 'function' ? undefined : authority;
+  // live owner guard. Native callers can additionally cancel a pending commit.
+  // Retain both signals when preference authority and cancellation coexist.
+  const signals = [
+    ...new Set(
+      [typeof authority === 'function' ? undefined : authority, cancellation].filter(
+        (signal): signal is AbortSignal => !!signal
+      )
+    )
+  ];
   const guard = typeof authority === 'function' ? authority : () => undefined;
   const assertCurrent = () => {
     guard();
-    signal?.throwIfAborted();
+    for (const signal of signals) signal.throwIfAborted();
   };
   assertCurrent();
   // Capture migration authority before suspension, not a caller-owned object.
@@ -169,7 +177,7 @@ export async function updateOrganization(
       // An already committed/aborted transaction cannot be revoked retroactively.
     }
   };
-  signal?.addEventListener('abort', abort, { once: true });
+  for (const signal of signals) signal.addEventListener('abort', abort, { once: true });
   let changed: Organization | undefined;
   try {
     // Observe tx.done before even the first read can fail. Request success is
@@ -202,7 +210,8 @@ export async function updateOrganization(
       return value;
     });
   } catch (error) {
-    if (signal?.aborted) throw signal.reason;
+    const cancelled = signals.find((signal) => signal.aborted);
+    if (cancelled) throw cancelled.reason;
     // A native abort with an empty message must not look like success in a
     // dialog. Actual scope cancellation retains its reason instead.
     if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError')
@@ -213,7 +222,7 @@ export async function updateOrganization(
       );
     throw error;
   } finally {
-    signal?.removeEventListener('abort', abort);
+    for (const signal of signals) signal.removeEventListener('abort', abort);
   }
   // A commit is final. Only publication can be suppressed if its initiating
   // scope ended after commit; never describe that as a rolled-back write.
@@ -245,7 +254,8 @@ export function watchOrganization(onError: (error: unknown) => void = () => unde
 export async function createCollection(
   name: string,
   members: string[] = [],
-  currentOrGuard: () => boolean | void = () => undefined
+  currentOrGuard: () => boolean | void = () => undefined,
+  signal?: AbortSignal
 ) {
   const collection = {
     id: crypto.randomUUID(),
@@ -261,7 +271,8 @@ export async function createCollection(
     undefined,
     () => {
       if (currentOrGuard() === false) throw new Error('The library changed. Reopen this action.');
-    }
+    },
+    signal
   );
   return collection.id;
 }
@@ -303,7 +314,8 @@ export async function setMembershipMany(
   id: string,
   members: (CollectionBook | string)[],
   included: boolean,
-  currentOrGuard: () => boolean | void = () => undefined
+  currentOrGuard: () => boolean | void = () => undefined,
+  signal?: AbortSignal
 ) {
   const targets = structuredClone(
     members.map((member) =>
@@ -332,7 +344,8 @@ export async function setMembershipMany(
     undefined,
     () => {
       if (currentOrGuard() === false) throw new Error('The library changed. Reopen this action.');
-    }
+    },
+    signal
   );
 }
 function presentationTitle(value: string): string {
@@ -351,7 +364,8 @@ export async function presentBooks(
   change: PresentationChange,
   current: () => boolean = () => true,
   expected?: Record<string, BookPresentation | undefined>,
-  preserveSeriesIndex = false
+  preserveSeriesIndex = false,
+  signal?: AbortSignal
 ) {
   const patch = structuredClone(change);
   const targets = [...new Set(ids)];
@@ -387,7 +401,8 @@ export async function presentBooks(
     undefined,
     () => {
       if (!current()) throw new Error('The library changed. Reopen this action.');
-    }
+    },
+    signal
   );
 }
 /** Replace browser- and provider-specific locators with content identity once it is known. */

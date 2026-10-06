@@ -29,7 +29,7 @@ function load(url) {
   compileFunction(outputText, ['require', 'module', 'exports'])(
     (name) => {
       if (name === '$lib/data/store') return { database };
-      if (name === 'svelte/store') return { get: () => ({ status: 'ready' }) };
+      if (name === '$lib/state/store') return { get: () => ({ status: 'ready' }) };
       if (name === '$lib/manabi/client') return { account: {}, localProfileUser: () => profile };
       if (name === '$lib/manabi/operation-scope')
         return {

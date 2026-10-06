@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 const dir = await mkdtemp(join(tmpdir(), 'manabi-snippet-tests-'));
 const root = process.cwd();
 const fixture = `
-import {writable,get,derived} from 'svelte/store';
+import {writable,get,derived} from '$lib/state/store';
 import {canonical} from '${root}/apps/web/src/lib/snippets/document.ts';
 export const account=writable({status:'available',session:null});
 export const localUser=derived(account,s=>s.session?.user??null);
@@ -65,9 +65,6 @@ await build({
           () => ({ path: join(dir, 'fixture.mjs') })
         );
         b.onResolve({ filter: /^snippet-fixture$/ }, () => ({ path: join(dir, 'fixture.mjs') }));
-        b.onResolve({ filter: /^svelte\/store$/ }, () => ({
-          path: root + '/node_modules/svelte/src/store/index-client.js'
-        }));
       }
     }
   ]

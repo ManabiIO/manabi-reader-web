@@ -9,7 +9,7 @@ function harness() {
   const timers = new Map();
   let timerId = 0;
   const { api, context } = loadOfflineModule('apps/web/src/lib/manabi/client.ts', {
-    modules: { 'svelte/store': storeBoundary() },
+    modules: { '$lib/state/store': storeBoundary() },
     globals: {
       navigator: { onLine: true },
       window: { addEventListener: (name, listener) => listeners.set(name, listener) },

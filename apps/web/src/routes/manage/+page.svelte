@@ -7,6 +7,11 @@
   import BookCardList from '$lib/components/book-card/book-card-list.svelte';
   import LibraryWorkspace from '$lib/library/library-workspace.svelte';
   import type { BookCardProps } from '$lib/components/book-card/book-card-props';
+  import {
+    reconcileSelectionEligibility,
+    selectableSavedBookIds,
+    type LibrarySelectionEligibility
+  } from '$lib/library/selection';
   import BookManagerHeader from '$lib/components/book-card/book-manager-header.svelte';
   import BookExportDialog from '$lib/components/book-export/book-export-dialog.svelte';
   import { Button } from '$lib/components/ui/button';
@@ -157,8 +162,14 @@
   let collectionsOpen = false;
   let destinationTitle = 'Library';
   let selectionScopeKey = '';
-  let selectableBookIds: number[] = [];
-  let selectablePreviewKeys: string[] = [];
+  let selectableBookIds: readonly number[] = [];
+  let selectablePreviewKeys: readonly string[] = [];
+  let selectionEligibility: LibrarySelectionEligibility = {
+    key: '',
+    ids: [],
+    previews: []
+  };
+  let reconciledSelectionEligibility = selectionEligibility;
   let libraryMenu: LibraryMenuModel | undefined;
   let pageAlive = true;
   let openGeneration = 0;
@@ -199,6 +210,24 @@
     if (!selectMode) {
       selectedPreviewKeys = new Set();
       selectedBookIds = new Set();
+    }
+  }
+
+  $: if (selectionEligibility !== reconciledSelectionEligibility) {
+    const previousScope = reconciledSelectionEligibility.key;
+    reconciledSelectionEligibility = selectionEligibility;
+    selectionScopeKey = selectionEligibility.key;
+    selectableBookIds = selectionEligibility.ids;
+    selectablePreviewKeys = selectionEligibility.previews;
+    if (selectMode) {
+      const reconciled = reconcileSelectionEligibility(
+        previousScope,
+        selectionEligibility,
+        selectedBookIds,
+        selectedPreviewKeys
+      );
+      selectedBookIds = reconciled.ids;
+      selectedPreviewKeys = reconciled.previews;
     }
   }
 
@@ -615,8 +644,13 @@
       libraryWorkspace.selectAllVisible();
       return;
     }
+    const ids = selectableSavedBookIds(
+      $storageSource$ === StorageKey.BROWSER,
+      selectableBookIds,
+      $bookCards$ ?? []
+    );
     selectedBookIds = cloneMutateSet(selectedBookIds, (set) => {
-      selectableBookIds.forEach((id) => set.add(id));
+      ids.forEach((id) => set.add(id));
     });
   }
 
@@ -629,22 +663,6 @@
         else set.add(id);
       }
     });
-  }
-
-  function updateSelectionScope(key: string, ids: number[], previews: string[] = []) {
-    selectableBookIds = ids;
-    selectablePreviewKeys = previews;
-    if (key !== selectionScopeKey) {
-      selectionScopeKey = key;
-      selectedPreviewKeys = new Set();
-      selectedBookIds = new Set();
-    } else {
-      const eligible = new Set(ids);
-      selectedPreviewKeys = new Set(
-        [...selectedPreviewKeys].filter((key) => previews.includes(key))
-      );
-      selectedBookIds = new Set([...selectedBookIds].filter((id) => eligible.has(id)));
-    }
   }
 
   function toggleCollections() {
@@ -1232,6 +1250,7 @@
       <LibraryWorkspace
         bind:this={libraryWorkspace}
         {selectedPreviewKeys}
+        bind:selectionEligibility
         currentBookId={currentBookAvailable ? $currentBookId$ : undefined}
         {selectedBookIds}
         {selectMode}
@@ -1252,8 +1271,6 @@
           }
         }}
         on:selectionCancel={() => (selectMode = false)}
-        on:selectionScopeChange={(ev) =>
-          updateSelectionScope(ev.detail.key, ev.detail.ids, ev.detail.previews)}
         on:removeBookClick={(ev) => removeBooks([ev.detail.id])}
       >
         {@render emptyLibrary()}
@@ -1273,7 +1290,17 @@
 </div>
 
 <Dialog.Root bind:open={editorsPicksOpen}>
-  <Dialog.Content class="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
+  <Dialog.Content
+    class="max-h-[85dvh] overflow-hidden sm:max-w-2xl"
+    onCloseAutoFocus={(event) => {
+      const target = document.querySelector<HTMLButtonElement>(
+        'button[aria-label="Library actions"]'
+      );
+      if (!target?.isConnected) return;
+      event.preventDefault();
+      target.focus({ preventScroll: true });
+    }}
+  >
     <Dialog.Title class="sr-only">Editor's Picks</Dialog.Title>
     <Dialog.Description class="sr-only">Open a book selected by Manabi.</Dialog.Description>
     {#if editorsPicksOpen}

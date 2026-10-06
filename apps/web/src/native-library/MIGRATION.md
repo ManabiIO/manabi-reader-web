@@ -1,0 +1,199 @@
+# Native Library controls
+
+The Android Library uses React Native layout, `FlatList`, native modal sheets, and Expo UI controls. IndexedDB and source objects stay with the existing single DOM runtime. No library page is loaded in a WebView.
+
+## Integration
+
+Retain `createNativeLibraryService()` from `dom-service.ts` once in `reader-runtime.dom.tsx`. Admit `library.state`, `library.action`, `library.cover.read/cancel`, and the bounded `library.content.start/read/cancel` methods through the existing versioned bridge. Call the corresponding service method with request payload and a trusted authority containing a session/epoch key, runtime abort signal, and a live account/session assertion. Call `admitAccess({ token: payload.libraryToken, keys: payload.libraryKeys, operation: "open" | "delete" }, authority)` inside existing open/delete dispatch. It returns DOM-only expected identities; validate those again in the actual read/write transaction. The native UI captures `libraryToken` and `libraryKeys` before removal confirmation. Call `dispose()` on runtime teardown. The route exports `NativeLibraryScreen` from `index.tsx`.
+
+State is limited to 60 visible rows, one optional detail record, and a 640 KiB encoded response. Native receives opaque source/series/book handles, not filesystem handles, provider URLs, organization aliases, content bytes, or authentication material. Selected actions are capped at 60 targets. A maximum of eight single-use edit admissions is retained, with ten-minute expiry and only the selected presentation baselines. Tokens are revoked by bridge account generation changes. Existing shared domain code retains all its licenses.
+
+## Existing saved-book covers
+
+`library.state` includes a separate opaque `coverToken` and per-row `hasCover` flag. `readCover({ token, key, request }, authority)` returns one thumbnail with only these opaque echo fields, a JPEG data URI and its dimensions, or a null fallback. `cancelCover({ token, requests? }, authority)` cancels at most two named requests; omitting `requests` retires only the matching cover view. Cover reads neither consume nor renew single-use edit/open/delete admissions. Starting a refreshed view retires the previous cover admission immediately; teardown and account epochs also revoke it.
+
+The existing DOM database owner captures cover metadata and a content-hash or existing legacy-UUID identity in one readonly transaction. No UUID is minted by thumbnail loading. The raster path checks the actual stored copy, profile authority, current cover bytes and saved blur preference both before and after decoding. Existing imported covers and personal cover overrides are resolved through the same `ShelfBook.imagePath` and `createLocalCoverUrl` path as the web Library. Provider URLs, relative/file URLs, stale object URLs, source HTML, SVG source, credentials and canonical book keys never cross the bridge. The original local image is decoded only in an inert DOM image element, then re-encoded to JPEG; the saved blur preference is applied before its bytes leave DOM.
+
+Native `FlatList` viewability drives loading, with at most 12 visible candidates, two in-flight requests and 24 cached thumbnails per view (under 1.6 MiB of encoded image text). There is no cover polling or bulk 60-image state response. Responses are capped at 48 KiB of JPEG bytes and 240 × 360 pixels; input is capped at 8 MiB, decoded dimensions at 8192 per edge and 16 megapixels, and decoding at six seconds. Cancellation retains occupied slots until work actually settles. Refresh, route departure, account changes and disposal clear native images; stale responses cannot populate a newer view. Missing, invalid, unsupported or oversized covers retain title/author fallbacks, and native decode errors do the same.
+
+Provider-only rows, cached provider-preview-only covers and legacy hashless copies without an existing local identity retain the fallback. Series/folder tiles remain text-labelled; native cover stacks are not implemented. Cover rendering does not add provider downloads, file permissions, another database owner or native permissions for image content.
+
+## User-selected custom covers
+
+Book details exposes **Choose cover image** for available imported copies whose organization destination is a verified content hash. The native Expo DocumentPicker admits one PNG, JPEG, or WebP, copies it to the picker cache and reads at most 256 KiB at a time. The native file URI never crosses the bridge. A 32 MiB `import.begin` cover variant retains only the opaque edit token/key and raster MIME; ordinary `import.chunk`/`import.commit` receipts, sequence admission, permanent transfer tombstones and unknown-outcome reconciliation are reused. Book import and cover selection share one native transfer lock. Picker cancellation writes nothing; route departure, teardown and account generations retire selection work. Cancels target one exact transfer and account, including its pending cover decode/save; they cannot cancel a newer upload. A cancelled or unacknowledged commit is reconciled rather than replayed.
+
+The existing DOM `coverOverride` pipeline now checks raster MIME/signature agreement, 32 MiB input, a six-second bitmap decode, 8192 pixels per edge and 16 megapixels, and produces a portable raster data URI no larger than 512 KiB at up to 400 × 600 pixels. SVG and HTML inputs or raster-MIME spoofs are rejected before decode. Late cancelled bitmap results are closed. The original web picker uses this same pipeline and retains PNG/JPEG/WebP support. No original image URL/source is executable or gains native capabilities.
+
+The original selection is rechecked after picker transfer and rasterization. Ordinary single-use Library mutation admission re-reads the immutable selected book; the DOM repository rechecks its actual profile/content identity in a final reader transaction and writes through the existing `presentBooks` transaction, preserving presentation baselines and account/cancellation guards. Reader records and organization metadata occupy separate databases; only a verified content-hash key is permitted as the override destination, never a reusable numeric book ID. Provider-only, placeholder and legacy hashless copies explain that re-import is required rather than requesting file permissions or guessing identity.
+
+## Public Editor’s Picks
+
+The Library’s **Editor's Picks** action opens a native modal with bounded text cards, 20-item pagination, retry, Open and Cancel controls. No DOM catalog page, remote image URL, feed markup or acquisition link is rendered by native. `library.catalog.start/read/open/cancel` operate through the existing bridge and single DOM runtime. Catalog and item tokens are opaque, DOM-owned and expire after ten minutes; only one catalog view is retained. New views revoke old ones. Bridge mutation receipts remain permanently bounded by the existing 2,048-command ledger, and read-only identities cannot become import commands.
+
+`catalog-dom.ts` uses the existing public `https://manabi.io/static/reader/books/` catalog through `loadEditorsPicks` and `downloadEditorsPick`. Native cannot choose an origin, URL or download path. The original same/first-party-origin and path checks, omitted credentials, redirect refusal, HTTP-200 requirement, strict UTF-8, duplicate-feed-ID rejection, 2 MiB feed limit, 80 MiB download limit and EPUB admission remain unchanged. The public endpoint returned CORS `Access-Control-Allow-Origin: *` during a read-only header check on 2026-10-02; this is not Android WebView/device network qualification or a first-party authentication transport.
+
+Opening captures profile/account/runtime authority before asynchronous work and reuses the existing content digest, `findEditorsPickCopy`, `validateEditorsPickCopy`, `EditorsPickStorageHandler` and `importData` pipeline. Foreign, source-bound and ambiguous copies are refused. The wrapper also records the exact ID if a matching local copy arrives during importer preflight, preserving that copy and its progress. Catalog save admission is also checked after binary encoding inside the final data/readerBookScope transaction: newly arrived source-bound, foreign, incomplete or ambiguous matches reject before any put, and one eligible existing copy is reused unchanged regardless of timestamps or overwrite mode. Reuse also skips presentation relocation so it writes neither book resources nor organization metadata. Integration links are refreshed after encoding but remain a separate, non-atomic database snapshot; durable reader ownership is rechecked in the book transaction. Final admission includes its content hash/canonical reader key, title and modification identity, checked by the existing actual-record IndexedDB read and again by the Reader’s ordinary guarded load. Catalog source/complete-content eligibility is checked on the actual admitted record, not only the earlier preflight. There is no second database, native EPUB parser or ID-only reopen after import.
+
+The native navigation owner admits the catalog reader exactly once. Same-turn Open activation, simultaneous catalog imports and competing document/cover transfers are rejected. Cancel, native Back, route departure, backgrounding, account ABA and teardown revoke pending work; the import slot stays occupied until the old operation settles. Cancellation targets the exact catalog token, including the close path, so delayed cleanup cannot revoke a replacement catalog. A lost Open acknowledgment retains its hidden-reader close obligation and is reconciled rather than automatically replayed. Cancellation after an already committed save can leave the copy in the Library; the UI says so and offers refresh/retry rather than claiming rollback.
+
+This slice is source/local-test qualified only. The 39 focused catalog cases cover service DTOs/lifetimes, native navigation and React controls, original public-fetch validation/ownership checks, and real fake-indexeddb canonical reads. The DOM adapter test substitutes the heavy EPUB importer and BrowserStorageHandler base. The separate catalog-storage suite executes the production catalog handler, BrowserStorageHandler/BaseStorageHandler, DatabaseService and binary codec against fake-indexeddb, holding a real Blob read to reproduce the encoding-to-transaction race and asserting no book or presentation writes on reuse. These checks do not claim end-to-end EPUB parsing/device storage qualification. Existing source remains responsible for those paths. Catalog cover thumbnails are not implemented. No native device/runtime validation, backend changes, system permission changes or GitHub Actions runs were performed for this slice.
+
+## Saved-book passage search
+
+Retain `createNativeLibraryContentSearchService(library)` from `content-search-dom.ts` alongside the Library service in the existing DOM runtime. `start({ query, view }, authority)` returns a loading token immediately; `read({ token, offset?, limit? }, authority)` returns a bounded page; `cancel({ token }, authority)` retires only that search. Retire the service on account/runtime teardown. The search owns its own cancellation controller and profile subscription after the initiating bridge command returns.
+
+The source uses `lib/search/book-content-source.ts` and its existing `library-content-search-worker.ts`, canonical search projection, normalized matching, ownership/content-key checks and integrity-checked `readerSearchProjection` cache. It does not copy the search algorithm, create another worker entry point, add a database, read provider files or refresh provider credentials. Candidates are current-profile accessible imported, non-placeholder copies in the selected collection/series/source/unfinished view, independent of metadata-title matching.
+
+Native output is limited to 30 passages per page, 300 total, and 640 KiB encoded per page. The existing worker additionally caps results at 24 per book. Query text is kept exactly as entered and capped at 512 Unicode code points. A single ten-minute search retains opaque hit tokens and DOM-only canonical locators; both later queries and profile/runtime lifetime changes revoke the old admission. Native receives original excerpt text and its original UTF-16 highlight boundaries, not source HTML, provider URLs, raw account identifiers, canonical book keys or executable callbacks.
+
+Opening uses the ordinary native `open` command with `{ bookId, librarySearchToken, librarySearchHit }`. The host calls `admitOpen({ token, hit }, authority)` and receives `{ identity, locator, assertCurrent }` inside the DOM runtime only. It compares the requested book ID, calls the immediate admission assertion, retains its reader authority, validates the expected record identity at the final database read, and queues the exact locator using the existing `queueLibraryLocation`/`library-search` token handoff. The expected `readerBookKey` includes the legacy local UUID for hashless imports. Reusing a numeric book ID alone must never authorize a passage or coalesce a different passage open. Never reconstruct offsets or serialize the locator into a native URL.
+
+Native controls explicitly submit Search/IME search actions rather than searching intermediate composition text. Editing a draft, changing the Library view, leaving the route or unmounting cancels old work; serial guards discard delayed starts, pages and open callbacks. The UI has loading/partial result, cancel, zero results, partial-failure, truncation, error and bounded paging states. Ordinary title/author/series search remains a separate mode.
+
+## Saved sorting
+
+The web workspace and Android Library now share the eight sort fields, labels,
+and validation in `features/library/sort-options.ts`. Native state inherits the
+existing DOM-owned `booklistSortOptions` Browser preference when the caller has
+not supplied a transient query override. It returns the effective field and
+direction with the page, so the controls reflect the owner snapshot rather than
+an assumed Recent default. Explicit query overrides do not persist.
+
+`library.action` accepts one bounded `sort` action through its existing expiring,
+single-use admission and account/runtime guards. The DOM owner changes only the
+Browser entry; OneDrive, Google Drive and filesystem choices stay intact. A
+failed storage write publishes no new preference. Native reconciles both success
+and failed acknowledgments by reading state, without replaying the action. A
+choice returns the current view to page one and leaves the filter sheet open.
+Duplicate activation, departed routes and old account replies cannot restore an
+old view. These are local controller/mounted-store guarantees; actual native
+sort control accessibility and process-restart acceptance remain unqualified.
+
+Saved Library/series/finished layouts and the bounded canonical Continue shelf are
+implemented. The native Finished timeline and series hero remain convergence work;
+saved sorting and Continue do not close those gaps.
+
+## Implemented controls
+
+- Search by title, canonical title, author, or matching series; eight sort fields; ascending/descending order; unfinished filter; list/grid layout and bounded pagination
+- Native saved-book passage search, highlighted original-text excerpts, bounded paging and canonical passage opening
+- Existing saved-book covers in native list/grid rows, lazily rasterized with saved blur preferences and text fallback
+- User-selected PNG/JPEG/WebP custom covers for verified imported content-hash copies
+- Cached source and folder navigation, personal-series breadcrumbs and volume ordering
+- All Books, Finished, Want to Read and custom collection navigation/counts
+- Single-page selection, metadata/author sort/language/publisher/date/description/subject/direction editing, cover blur preferences
+- Collection create/rename/remove, selected membership, Want to Read, personal series and optional volume number
+- Atomic selected completion/reading changes and finished dates, preserving position and statistics
+- Public Editor’s Picks browsing, cancellable download/import and canonical guarded opening
+- Existing native document import and guarded runtime open/remove commands
+- Single-book Statistics navigation and explicitly confirmed whole-history deletion from Book details
+
+## Per-book Statistics
+
+Book details now opens **Book Statistics** or **Delete reading history** through
+the existing `statistics.read`/`statistics.action` bridge. The first read submits
+only the current Library token and opaque row key. The DOM owner consumes the
+ordinary single-book Library admission, retaining the canonical content hash or
+already-existing legacy UUID captured by the Library repository. It compares
+that key against the live Library copy before handing the original identity to
+the Statistics domain. Ordinary open/delete admissions retain this same stronger
+canonical-key check. No new UUID, database, storage owner or native file access is
+introduced by the handoff.
+
+The Statistics read verifies the original title, modification identity, canonical
+key and ownership inside its existing final snapshot transaction. Its optional
+migration guard also validates the captured canonical key against the live local
+identity inside the existing migration write transaction, before any UUID or
+legacy-history assignment is written. Missing/replaced UUIDs therefore cannot
+cause side effects before a stale selection is rejected. Existing hash casing
+normalization is retained. Its route
+contains only an opaque selection token, never a book ID or title. Every later
+date/filter/refresh read remains bound to that one admitted identity; explicit
+empty selection stays empty. Unknown, malformed, expired, reimported or
+old-account selections display a recoverable error instead of opening all books
+or substituting another copy. Returning to all Statistics is an explicit native
+action. Existing hashless copies are supported when the DOM repository already
+has their canonical local UUID; copies without that evidence require re-import.
+
+Library history deletion keeps the Statistics confirmation wording and uses
+only the newly returned single-use Statistics snapshot for the write. Cancel,
+native alert dismissal, closing/replacing the details sheet, departure, newer
+reads and account-generation changes retire pending callbacks. Unknown mutation
+outcomes are reported and refreshed without replay. The transaction still rejects
+changed records, unresolved legacy ownership and foreign shared-content claimants;
+it preserves the book itself and same-title sibling histories. This is single-book
+parity; multi-book Library Statistics shortcuts remain unimplemented.
+
+Local qualification uses mounted production React controls, production Library
+and Statistics services with real fake-indexeddb transactions, and the actual DOM
+runtime dispatch fixture. Platform controls, the Library storage adapter in the
+mounted UI, and the heavyweight runtime services at that fixture boundary are
+substituted. These checks do not claim Android device rendering, accessibility,
+end-to-end bridge execution or release qualification.
+
+## Explicit gaps
+
+This is source implementation, not a complete native parity or release claim. First-party native authentication/session transport and persistent Android folder handles are unavailable. Cached provider rows can be browsed; the UI explains why provider refresh/import/move/rename/group/reconnect actions cannot be performed. No invented endpoint or filesystem bridge is exposed. Unverified unsaved previews cannot be organized until imported.
+
+Editor’s Picks cover thumbnails, custom covers for provider-only/hashless copies, mixed snippet counts, physical local/cloud series operations and repair plans, backup/export/share, multi-book statistics shortcuts, and finished timeline presentation are not implemented by these native controls. Existing web implementations remain intact. Layout/sort/filter state is currently screen-local.
+
+Open/remove admission returns expected content identity from the single-use Library token. The integrated host validates the expectation at its final read/write boundary; preflight visibility alone cannot authorize a replaced numeric ID. The guarded database read checks the existing canonical key and ownership in the same readonly transaction as the record bytes, and never creates a replacement UUID during admission.
+
+## Validation
+
+- `node --test test/expo/native-library-statistics-ui.test.mjs test/expo/native-statistics-ui.test.mjs tests/unit/statistics-react-controller.test.mjs`: native single-book handoff, confirmed deletion/cancel, route/sheet/account retirement, proof expiry/eviction, missing/legacy UUIDs, ambiguous history and final-transaction replacement guards
+- `node --test test/expo/runtime-owner.test.mjs`: actual DOM dispatch and account ABA during pending Statistics admission, preserving existing reader/catalog lifetime checks
+
+- `node --test test/expo/native-library-catalog*.test.mjs`: bounded public catalog service, native controls/navigation, existing fetch/ownership guards and canonical IndexedDB reads; importer/base-storage adapters are explicit in the DOM test
+
+- `node --test test/expo/native-library.test.mjs`: 15 service/view-model tests plus real fake-indexeddb transactions for ownership, content replacement, atomic completion rollback, and cancellation
+- `node --test test/expo/native-library-cover*.test.mjs`: cover service/DTO/viewport/cache/native component tests, real fake-indexeddb guarded reads, DOM-element raster lifecycle and custom-cover picker/transfer/receipt/identity tests (image/canvas decoding is mocked in that suite)
+- `node test/expo/native-library-cover-browser.mjs`: real Chromium raster, blur, SVG-image isolation, shared web/native custom-cover decoding/rejection and cancellation smoke; requires installed Playwright Chromium or `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` (local launch was blocked by process sandbox `socket()` restrictions)
+- `node --test test/expo/native-library-content*.test.mjs`: service/DTO/lifecycle tests and real existing worker + fake-indexeddb tests for profile ownership, replaced hash/UUID identity, cancellation, projection integrity, normalization and exclusion parity
+- `node test/expo/native-library-typecheck.mjs`: strict scoped diagnostics using the production Expo configuration and resolved dependency types
+- `node --test tests/unit/library-organization-lifetime.test.mjs`: delayed commit/cancellation, owner ABA, existing web callers and organization publication
+- Focused esbuild UI and DOM-service dependency bundles
+
+The initial isolated service checks above did not run an Android host. Subsequent integrated head `727b360e` passes full strict app types, production web/Android Metro exports, patched-host compilation/tests, release APK/source-byte qualification, and the real Chromium cover raster smoke. The fresh emulator failed to boot because runner KVM access was unavailable, so native Library controls, native/DOM replies and device storage remain runtime-unqualified. See the [project qualification record](../../../../docs/expo/MIGRATION.md).
+
+## Shared shelf presentation checkpoint
+
+The ordinary web shelf and native list/grid now execute the same LibraryBookFace
+composition for cover, selection badge, complete title/author, unread badge and
+reading/completion detail. Browser leaves retain the existing DOM and CSS selectors;
+native leaves keep font scaling and use the saved semantic theme. The native DOM
+owner supplies the canonical reading label so unread evidence and floored fractional
+progress agree with Svelte instead of showing every unread book as “0% read”.
+
+Library snapshots also carry a detached appearance/custom-theme value. Native main
+controls, cards, sheets and action seeds consume it; this does not grant a settings
+write capability. Cover decoding, virtualized viewport admissions, selection keys,
+source handles, search and mutation owners remain unchanged. This is a shared shelf
+presentation, not yet a complete common Library workspace: the toolbar, series and
+hero sections, menus, specialized dialogs, timeline, backups and provider flows
+still need convergence and full browser/native acceptance.
+
+Metadata editing also uses one LibraryMetadataFields composition on web/Android:
+the eight fields retain original labels, grouping, author/tag line capacity and
+limits (including newline separators). Web label/textarea/form semantics stay in
+a small leaf, native inputs use Expo UI with full-width labeled hosts, and busy
+saves make the native draft read-only. Existing series, direction, cover controls
+and each owner's commit/cancel guards remain intact.
+
+## Continue shelf
+
+The Books root carries at most ten `recentBooks` using the existing DOM-only
+`continueBooks` canonical rule and account-filtered tree. The projection is
+independent of grid sorting/pagination, includes unfinished books with actual
+reading evidence, and is omitted from search and scoped collection/series/source
+views. Native hides it during selection. Recent books enter the existing opaque
+exact-identity, cover and open admissions even when outside the page; no raw
+storage/provider capability or new reading-history write crosses the bridge.
+
+A horizontal virtualized shelf in the grid's scrolling header renders saved
+covers, bounded title/author, canonical progress and the existing details editor.
+Its visible keys merge with ordinary grid visibility in the bounded cover owner.
+The shared open handler ignores retired route/account replies, fences duplicate
+activation, reports errors, and refreshes a consumed admission before explicit
+retry without replaying the open. See the [navigation QA record](../../../../docs/expo/NAVIGATION-ANDROID-PARITY.md)
+for actual release APK captures and remaining platform acceptance boundaries.

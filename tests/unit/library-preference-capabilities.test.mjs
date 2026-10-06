@@ -59,6 +59,11 @@ for (const path of ['preferences/', 'preferences/?book_presentation_version=1'])
       assert.equal(sent.redirect, 'error');
       assert.equal(sent.cache, 'no-store');
       assert.equal(sent.method, method);
+      assert.equal(
+        sent.keepalive,
+        method === 'GET',
+        'Preference reads may outlive navigation; writes retain document lifetime'
+      );
       assert.equal(sent.headers.get('X-CSRFToken'), method === 'PUT' ? 'x'.repeat(64) : null);
       assert.equal(sent.headers.get('If-Match'), method === 'PUT' ? '"7"' : null);
       assert.equal(sent.body, method === 'PUT' ? JSON.stringify(options.value) : undefined);
@@ -69,8 +74,10 @@ test('lookalike endpoints and query values do not inherit preference capabilitie
   const { api, calls } = client();
   for (const path of ['connections/?next=preferences/', 'preferences/child/', 'preferences-other/'])
     await api.request(path);
-  for (const { options } of calls)
+  for (const { options } of calls) {
     assert.equal(options.headers.get('X-Manabi-Library-Items'), null);
+    assert.equal(options.keepalive, false, 'Lookalike paths must not outlive navigation');
+  }
 });
 test('versioned preference paths retain sign-in, stale-account and invalid-path rejection', async () => {
   const { api, calls } = client();

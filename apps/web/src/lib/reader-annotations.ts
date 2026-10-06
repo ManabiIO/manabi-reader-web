@@ -5,7 +5,7 @@
  */
 
 import { database } from '$lib/data/store';
-import { get } from 'svelte/store';
+import { get } from '$lib/state/store';
 import { account, localProfileUser } from '$lib/manabi/client';
 import type {
   ReaderAnnotation,

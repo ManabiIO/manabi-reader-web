@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { finishedDay, isFinished, progressFraction } from './completion.ts';
+import { finishedDay, isFinished, progressFraction, validDay } from './completion.ts';
 import type { ShelfBook } from './view-model';
 
 export function hasReadingEvidence(book: ShelfBook): boolean {
@@ -69,7 +69,8 @@ export function finishedGroups(
   const dated = new Map<string, ShelfBook[]>();
   const unknown: ShelfBook[] = [];
   for (const book of books.filter(isFinished)) {
-    const day = finishedDay(book);
+    const savedDay = finishedDay(book);
+    const day = validDay(savedDay) ? savedDay : undefined;
     if (!day) unknown.push(book);
     else dated.set(day, [...(dated.get(day) || []), book]);
   }
