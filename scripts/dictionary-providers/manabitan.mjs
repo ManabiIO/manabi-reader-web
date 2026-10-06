@@ -28,7 +28,12 @@ export async function createManabitanDictionaryProvider(root) {
     id: 'manabitan',
     revision: version.revision,
     publicRuntimeDirectory: 'manabitan',
-    requiredDistributionFiles: ['LICENSE', 'corresponding-source.tar.gz', 'SOURCE.txt'],
+    requiredDistributionFiles: [
+      'LICENSE',
+      'corresponding-source.tar.gz',
+      'corresponding-source.tgz',
+      'SOURCE.txt'
+    ],
     obsoletePublicPaths: ['dictionary-runtime'],
 
     async build({ destination, cache }) {
@@ -93,9 +98,15 @@ export async function createManabitanDictionaryProvider(root) {
         ],
         source
       );
+      // Android asset packaging preserves .tgz while the web release retains the
+      // historical .tar.gz URL. They are intentionally byte-identical.
+      await fs.copyFile(
+        path.join(destination, 'corresponding-source.tar.gz'),
+        path.join(destination, 'corresponding-source.tgz')
+      );
       await fs.writeFile(
         path.join(destination, 'SOURCE.txt'),
-        `Manabitan ${version.revision}\nSource: https://github.com/ManabiIO/manabitan/tree/${version.revision}\nMerged to: ${version.sourceBranch} via PR #${version.mergedPullRequest}\nGPL-3.0-or-later; retain LICENSE and per-file notices.\nCorresponding source archive: corresponding-source.tar.gz\nThe source archive intentionally omits Git metadata. The runtime manifest embeds git rev-parse HEAD, so for an exact manifest rebuild use the pinned Git checkout above, then run: npm ci; npm run build:libs; node web/build.mjs\n`
+        `Manabitan ${version.revision}\nSource: https://github.com/ManabiIO/manabitan/tree/${version.revision}\nMerged to: ${version.sourceBranch} via PR #${version.mergedPullRequest}\nGPL-3.0-or-later; retain LICENSE and per-file notices.\nCorresponding source archive: corresponding-source.tgz\nWeb compatibility URL: corresponding-source.tar.gz (identical gzip bytes)\nThe source archive intentionally omits Git metadata. The runtime manifest embeds git rev-parse HEAD, so for an exact manifest rebuild use the pinned Git checkout above, then run: npm ci; npm run build:libs; node web/build.mjs\n`
       );
     }
   };
