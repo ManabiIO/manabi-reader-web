@@ -287,7 +287,6 @@ test('unwatched synchronous store reads dispose function and object subscription
   }
 });
 
-
 function searchHarness() {
   const user = store(null);
   const snippets = store([
@@ -429,7 +428,10 @@ test('active React unified search keeps corpus work behind the debounced generat
     }
   );
   model.books = books;
-  model.bookSearchSnapshot = { direct: [{ key: 'book:a', folded: ['cat guide'] }], contexts: [] };
+  model.bookSearchSnapshot = {
+    direct: [{ key: 'book:a', folded: ['cat guide'] }],
+    contexts: []
+  };
   model.query = 'c';
 
   void model.nextTitleSignature;
