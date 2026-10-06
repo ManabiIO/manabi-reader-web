@@ -445,6 +445,35 @@ class FoliateSlide(ReaderBrowser):
         }}""")
         self.assertEqual(result, {'navigated': False, 'invalid': [False, False], 'unchanged': True, 'recovered': True, 'errors': 1})
 
+    def test_missing_section_source_fails_without_moving_visible_reader(self):
+        self.open_numbered_book()
+        result = self.page.evaluate(f"""async () => {{
+          const p={P}, section=p.sections[1], load=section.load;
+          let errors=0;
+          p.addEventListener('navigationerror',()=>errors++);
+          const before={{index:p.getContents()[0].index,page:p.page,
+            text:p.getContents()[0].doc.body.textContent}};
+          section.load=async()=>null;
+          const navigated=await p.goTo({{index:1}});
+          const after={{index:p.getContents()[0].index,page:p.page,
+            text:p.getContents()[0].doc.body.textContent}};
+          section.load=load;
+          const retry=await p.goTo({{index:1}});
+          return {{
+            navigated,retry,errors,
+            unchanged:before.index===after.index && before.page===after.page && before.text===after.text,
+            index:p.getContents()[0].index,
+            text:p.getContents()[0].doc.body.textContent
+          }};
+        }}""")
+        self.assertFalse(result['navigated'])
+        self.assertTrue(result['unchanged'])
+        self.assertEqual(1, result['errors'])
+        self.assertTrue(result['retry'])
+        self.assertEqual(1, result['index'])
+        self.assertIn('Chapter 2', result['text'])
+        self.assertEqual([], self.errors)
+
     def test_cross_chapter_iframe_load_is_staged_and_supersedable(self):
         self.open_numbered_book()
         result = self.page.evaluate(f"""async () => {{

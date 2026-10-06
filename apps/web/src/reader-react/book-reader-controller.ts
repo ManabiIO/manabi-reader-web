@@ -58,6 +58,8 @@ export interface BookReaderProps {
   sheetPagination?: boolean;
   controlsVisible?: boolean;
   htmlContent: string;
+  language?: string;
+  pageDirection?: 'ltr' | 'rtl' | 'unknown';
   styleSheet?: string;
   epubResources: EpubResourceData[] | undefined;
   publicationManifest: PublicationManifest | undefined;
