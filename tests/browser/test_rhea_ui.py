@@ -1065,19 +1065,38 @@ class RheaReader(previous.RefinedAppearance):
         expect(self.page.get_by_role('button', name='Statistics options', exact=True)).to_be_visible()
         # The header can render before the application's database upgrade. A
         # bare open here would create an empty v1 database if it wins that race.
-        # Observe the real schema, never create or upgrade it from this fixture.
-        self.page.wait_for_function('''() => new Promise((resolve, reject) => {
-          const open = indexedDB.open('books');
-          let absent = false;
-          open.onupgradeneeded = () => { absent = true; open.transaction.abort(); };
-          open.onerror = () => absent ? resolve(false) : reject(open.error);
-          open.onsuccess = () => {
-            const db = open.result;
-            const ready = ['statistic', 'readerStatistic', 'readerStatisticMigration']
-              .every(name => db.objectStoreNames.contains(name));
-            db.close();
-            resolve(ready);
+        # Wait on the real schema with one bounded Promise loop; do not rely on
+        # wait_for_function polling an async predicate or upgrade from the fixture.
+        self.page.evaluate('''() => new Promise((resolve, reject) => {
+          const required = ['statistic', 'readerStatistic', 'readerStatisticMigration'];
+          const deadline = performance.now() + 15000;
+          const retry = () => {
+            if (performance.now() >= deadline) {
+              reject(new Error('Statistics schema did not become ready'));
+              return;
+            }
+            setTimeout(check, 50);
           };
+          const check = () => {
+            const open = indexedDB.open('books');
+            let absent = false;
+            open.onupgradeneeded = () => {
+              absent = true;
+              open.transaction.abort();
+            };
+            open.onerror = () => {
+              if (absent) retry();
+              else reject(open.error);
+            };
+            open.onsuccess = () => {
+              const db = open.result;
+              const ready = required.every(name => db.objectStoreNames.contains(name));
+              db.close();
+              if (ready) resolve();
+              else retry();
+            };
+          };
+          check();
         })''')
         self.page.evaluate('''() => new Promise((resolve, reject) => {
           const deadline = setTimeout(() => reject(new Error('Statistics seed transaction stalled')), 15000);
