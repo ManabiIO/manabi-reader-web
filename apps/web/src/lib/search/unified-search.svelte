@@ -35,6 +35,7 @@
     type SearchResultFilter
   } from './invalidation';
   import {
+    librarySearchQueryWithinLimit,
     librarySearchScopePlan,
     librarySearchScopes,
     type LibrarySearchScope
@@ -142,6 +143,7 @@
   $: snippetTitleRevision = snippetTitleRevisionFor(eligible);
   $: snippetContentRevision = snippetContentRevisionFor(eligible);
   $: contentBooksRevision = contentBooksRevisionFor(books);
+  $: queryWithinLimit = librarySearchQueryWithinLimit(query);
   $: scopePlan = librarySearchScopePlan(searchScope);
   $: resultPlan = searchResultPlan(filter);
   $: availableFilters = scopePlan.dictionary
@@ -377,7 +379,7 @@
     titleTask.stop();
     titles = { state: 'idle' };
     titleLimit = 30;
-    if (!resultPlan.titles || !query.trim() || [...query].length > 512) return;
+    if (!resultPlan.titles || !query.trim() || !queryWithinLimit) return;
     startTitles();
   }
   function refreshContent() {
@@ -385,7 +387,7 @@
     contentTask.stop();
     content = { state: 'idle' };
     contentLimit = 30;
-    if (!resultPlan.content || !query.trim() || [...query].length > 512) return;
+    if (!resultPlan.content || !query.trim() || !queryWithinLimit) return;
     startContent();
   }
   async function choose(value: SearchResultFilter) {
@@ -465,7 +467,7 @@
       expand={() => void choose('dictionary')}
       {onquery}
     />{/if}
-  {#if [...query].length > 512 && filter !== 'dictionary'}<p role="alert">
+  {#if !queryWithinLimit && filter !== 'dictionary'}<p role="alert">
       Use a search of 512 characters or fewer.
     </p>{/if}
   {#if filter === 'all' || filter === 'titles'}
