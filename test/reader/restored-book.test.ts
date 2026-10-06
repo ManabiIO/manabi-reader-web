@@ -187,3 +187,35 @@ test('JSON prototype keys are never spread into the restored model', async () =>
   assert.equal(Object.hasOwn(result, 'id'), false);
   assert.equal(({} as Record<string, unknown>).polluted, undefined);
 });
+
+test('restored fixed-layout EPUB metadata is rejected before any book is exposed', async () => {
+  const elementHtml = '<div id="ttu-epub-0"><p>fixed</p></div>';
+  const fixed = {
+    ...meta,
+    sourceFormat: 'epub',
+    elementHtml,
+    publicationManifest: {
+      version: 1,
+      resources: [{ href: 'fixed.xhtml', spineIndex: 0, sectionId: 'ttu-epub-0' }]
+    },
+    epubPublication: {
+      version: 1,
+      resources: [
+        {
+          href: 'fixed.xhtml',
+          spineIndex: 0,
+          sectionId: 'ttu-epub-0',
+          start: 0,
+          end: elementHtml.length,
+          style: 0
+        }
+      ],
+      styleSheets: [''],
+      rendition: { layout: 'pre-paginated' }
+    }
+  };
+  await assert.rejects(
+    readRestoredBook(await book(fixed), mime, options),
+    /Fixed-layout EPUBs are not supported/i
+  );
+});

@@ -20,6 +20,7 @@
   import type { EpubResourceData } from '$lib/foliate-epub/publication-data';
   import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
   import type { FuriganaStyle } from '$lib/data/furigana-style';
+  import type { PageDirection } from '$lib/library/direction';
   import type { TextMarginMode } from '$lib/data/text-margin-mode';
   import { ViewMode } from '$lib/data/view-mode';
   import { iffBrowser } from '$lib/functions/rxjs/iff-browser';
@@ -282,6 +283,10 @@
   export let publicationManifest: PublicationManifest | undefined;
 
   export let sourceFormat: 'epub' | 'htmlz' | 'txt' | 'unknown' = 'unknown';
+
+  /** Imported publication semantics used by the framed EPUB renderer. */
+  export let language = '';
+  export let pageDirection: PageDirection = 'unknown';
 
   export let previewNavigationActive = false;
 
@@ -597,6 +602,8 @@
       {styleSheet}
       {epubResources}
       {publicationManifest}
+      {language}
+      direction={pageDirection === 'unknown' ? undefined : pageDirection}
       {width}
       {height}
       maxInlineSize={secondDimensionMaxValue}
@@ -651,6 +658,7 @@
       width={$contentViewportWidth$ ?? 0}
       height={$contentViewportHeight$ ?? 0}
       {verticalMode}
+      {pageDirection}
       {fontFeatureSettings}
       {verticalTextOrientation}
       {prioritizeReaderStyles}
