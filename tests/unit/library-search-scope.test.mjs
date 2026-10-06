@@ -2,9 +2,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  librarySearchQueryWithinLimit,
   librarySearchScopePlan,
   librarySearchScopes,
   libraryShelfSearchQuery,
+  MAX_LIBRARY_SEARCH_CODEPOINTS,
   parseLibrarySearchScope
 } from '../../apps/web/src/lib/search/library-search-scope.ts';
 
@@ -42,7 +44,6 @@ test('unified search suppresses hidden shelf filtering until selection mode owns
   assert.equal(libraryShelfSearchQuery('', false), '');
   assert.equal(libraryShelfSearchQuery('', true), '');
 });
-
 
 test('unified search query limit counts Unicode code points without UTF-16 inflation', () => {
   assert.equal(MAX_LIBRARY_SEARCH_CODEPOINTS, 512);
