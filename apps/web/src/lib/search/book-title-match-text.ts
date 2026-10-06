@@ -21,7 +21,9 @@ export interface BookTitleMatchContext {
 interface IndexedBookTitleContextGroup {
   context: BookTitleMatchContext;
   folded: string;
+  /** Direct leaf Books only; descendants stay in child groups to avoid O(depth × books) copies. */
   bookKeys: readonly string[];
+  children: readonly IndexedBookTitleContextGroup[];
 }
 
 export interface BookTitleMatchIndex {
@@ -51,20 +53,26 @@ function add(
   } else result.set(key, [value]);
 }
 
-function indexSeriesText(nodes: readonly ShelfNode[], result: IndexedBookTitleContextGroup[]) {
-  for (const node of nodes) {
-    if (node.kind !== 'series') continue;
+function indexSeriesText(nodes: readonly ShelfNode[]): IndexedBookTitleContextGroup[] {
+  return nodes.flatMap((node): IndexedBookTitleContextGroup[] => {
+    if (node.kind !== 'series') return [];
     const context = {
       text: node.name,
       detail: `${node.personal ? 'Series' : 'Folder'} · ${node.name}`
     };
-    result.push({
-      context,
-      folded: foldSearch(node.name),
-      bookKeys: [...new Set(node.books.map((book) => book.key))]
-    });
-    indexSeriesText(node.children, result);
-  }
+    return [
+      {
+        context,
+        folded: foldSearch(node.name),
+        bookKeys: [
+          ...new Set(
+            node.children.flatMap((child) => (child.kind === 'book' ? [child.book.key] : []))
+          )
+        ],
+        children: indexSeriesText(node.children)
+      }
+    ];
+  });
 }
 
 /**
@@ -77,8 +85,7 @@ export function buildBookTitleSearchSnapshot(
   nodes: readonly ShelfNode[],
   collections: readonly Collection[]
 ): BookTitleSearchSnapshot {
-  const contexts: IndexedBookTitleContextGroup[] = [];
-  indexSeriesText(nodes, contexts);
+  const contexts = indexSeriesText(nodes);
 
   const booksByAlias = new Map<string, Set<string>>();
   for (const book of books)
@@ -99,7 +106,7 @@ export function buildBookTitleSearchSnapshot(
         }
     if (!bookKeys.length) continue;
     const context = { text: collection.name, detail: `Collection · ${collection.name}` };
-    contexts.push({ context, folded: foldSearch(collection.name), bookKeys });
+    contexts.push({ context, folded: foldSearch(collection.name), bookKeys, children: [] });
   }
 
   return {
@@ -134,13 +141,23 @@ export function queryBookTitleSearchSnapshot(
     if (entry.folded.some((value) => value.includes(normalizedQuery))) matchedKeys.add(entry.key);
 
   const result = new Map<string, BookTitleMatchContext[]>();
-  for (const group of snapshot.contexts) {
-    if (!group.folded.includes(normalizedQuery)) continue;
+  const addGroupBooks = (
+    group: IndexedBookTitleContextGroup,
+    context: BookTitleMatchContext
+  ) => {
     for (const key of group.bookKeys) {
-      add(result, key, group.context);
+      add(result, key, context);
       matchedKeys.add(key);
     }
-  }
+    for (const child of group.children) addGroupBooks(child, context);
+  };
+  const queryGroups = (groups: readonly IndexedBookTitleContextGroup[]) => {
+    for (const group of groups) {
+      if (group.folded.includes(normalizedQuery)) addGroupBooks(group, group.context);
+      queryGroups(group.children);
+    }
+  };
+  queryGroups(snapshot.contexts);
 
   return { textByBook: Object.fromEntries(result), matchedKeys };
 }
