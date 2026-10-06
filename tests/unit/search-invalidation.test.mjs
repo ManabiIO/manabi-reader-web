@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   advanceMediaSearchRevisions,
-  projectedArrayRevision,
+  arrayRevision,
   referenceRevision,
   searchResultPlan
 } from '../../apps/web/src/lib/search/invalidation.ts';
@@ -50,11 +50,11 @@ test('reference revisions advance only when immutable snapshots are replaced', (
   assert.equal(revisionFor(second), 2);
 });
 
-test('projected array revisions avoid deep query-time serialization and ignore equal replacements', () => {
-  let reads = 0;
-  const revisionFor = projectedArrayRevision((item) => {
-    reads++;
-    return [item.id, item.revision];
+test('array revisions avoid query-time work and compare replacement snapshots in place', () => {
+  let comparisons = 0;
+  const revisionFor = arrayRevision((left, right) => {
+    comparisons++;
+    return left.id === right.id && left.revision === right.revision;
   });
   const first = [
     { id: 'a', revision: 1 },
@@ -70,12 +70,12 @@ test('projected array revisions avoid deep query-time serialization and ignore e
   ];
 
   assert.equal(revisionFor(first), 1);
-  assert.equal(reads, 2);
+  assert.equal(comparisons, 0, 'first admission needs no corpus projection');
   assert.equal(revisionFor(first), 1);
-  assert.equal(reads, 2, 'same snapshot must not rerun the corpus projector');
+  assert.equal(comparisons, 0, 'same snapshot must remain O(1)');
 
   assert.equal(revisionFor(equivalent), 1);
-  assert.equal(reads, 4, 'replacement snapshot is compared exactly once');
+  assert.equal(comparisons, 2, 'equivalent replacement compares each item once');
   assert.equal(revisionFor(changed), 2);
-  assert.equal(reads, 6);
+  assert.equal(comparisons, 3, 'changed replacement short-circuits at the first differing item');
 });
