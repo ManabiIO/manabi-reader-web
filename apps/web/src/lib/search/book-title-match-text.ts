@@ -107,7 +107,12 @@ export function buildBookTitleSearchSnapshot(
       key: book.key,
       folded: [
         ...new Set(
-          [book.title, book.canonicalTitle, ...(book.creators ?? []).map((creator) => creator.name)]
+          [
+            book.title,
+            book.canonicalTitle,
+            ...(book.creators ?? []).map((creator) => creator.name),
+            book.series?.name
+          ]
             .filter((value): value is string => typeof value === 'string')
             .map(foldSearch)
         )
