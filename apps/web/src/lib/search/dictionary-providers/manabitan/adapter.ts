@@ -8,7 +8,7 @@
  * consumes the versioned public runtime surface.
  */
 
-import { base } from '$app/paths';
+import { assets as base } from '$app/paths';
 import version from './version.json';
 import type {
   DictionaryClient,
@@ -147,7 +147,7 @@ function normalizeImport(value: unknown) {
 }
 
 export async function openManabitanDictionaryProvider(): Promise<DictionaryRuntime> {
-  const root = `${base}/manabitan/${version.revision}/`;
+  const root = new URL(`${base}/manabitan/${version.revision}/`, location.href).href;
   const response = await fetch(`${root}manifest.json`, {
     credentials: 'omit',
     signal: AbortSignal.timeout(15000)
@@ -176,9 +176,9 @@ export async function openManabitanDictionaryProvider(): Promise<DictionaryRunti
   const styleAsset = relativeAsset(manifest.style);
 
   const [module, renderer, presets] = await Promise.all([
-    import(/* @vite-ignore */ `${root}${clientAsset}`),
-    import(/* @vite-ignore */ `${root}${rendererAsset}`),
-    import(/* @vite-ignore */ `${root}${presetsAsset}`)
+    import(/* @metro-ignore */ `${root}${clientAsset}`),
+    import(/* @metro-ignore */ `${root}${rendererAsset}`),
+    import(/* @metro-ignore */ `${root}${presetsAsset}`)
   ]);
   if (
     typeof module.ManabiTanWebClient !== 'function' ||
@@ -226,13 +226,13 @@ export async function openManabitanDictionaryProvider(): Promise<DictionaryRunti
       presets.downloadDefaultDictionary(
         new URL(
           `${base}/dictionary-archives/${manifest.defaultDictionary.fileName}`,
-          location.origin
+          location.href
         ),
         options
       ),
     recommendations: async ({ signal }) => {
       const response = await fetch(
-        new URL(`${root}data/recommended-dictionaries.json`, location.origin),
+        new URL(`${root}data/recommended-dictionaries.json`, location.href),
         {
           credentials: 'omit',
           signal,
