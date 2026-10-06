@@ -7,6 +7,11 @@ on:
       - 'apps/web/src/lib/library/search-normalization.ts'
       - 'apps/web/src/lib/media/search-text.ts'
       - 'apps/web/src/lib/snippets/search.ts'
+      - 'apps/web/src/library-react/search-controller.ts'
+      - 'apps/web/src/library-react/search.tsx'
+      - 'apps/web/src/library-react/workspace-controller.ts'
+      - 'apps/web/src/library-react/workspace.tsx'
+      - 'tests/unit/library-react-controller.test.mjs'
       - 'tests/unit/unified-search.test.mjs'
       - 'tests/unit/library-search-scope.test.mjs'
       - 'tests/unit/search-normalization.test.mjs'
@@ -46,3 +51,4 @@ jobs:
           tests/unit/search-result-rows.test.mjs
           tests/unit/search-worker-lifetime.test.mjs
           tests/unit/book-title-match-text.test.mjs
+          tests/unit/library-react-controller.test.mjs
