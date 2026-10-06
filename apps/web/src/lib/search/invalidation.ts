@@ -37,7 +37,6 @@ export function advanceMediaSearchRevisions(
   };
 }
 
-
 /** Advance only when an immutable snapshot reference is replaced. */
 export function referenceRevision<T>() {
   let current: T | undefined,
@@ -72,9 +71,7 @@ function sameProjection(
  * snapshot is replaced. Equivalent replacement snapshots retain the same
  * revision, while query reads stay O(1).
  */
-export function projectedArrayRevision<T>(
-  project: (value: T) => readonly unknown[]
-) {
+export function projectedArrayRevision<T>(project: (value: T) => readonly unknown[]) {
   let current: readonly T[] | undefined,
     projection: readonly (readonly unknown[])[] = [],
     initialized = false,
