@@ -36,3 +36,56 @@ export function advanceMediaSearchRevisions(
     content: current.content + Number(captionsChanged || metadataChanged)
   };
 }
+
+
+/** Advance only when an immutable snapshot reference is replaced. */
+export function referenceRevision<T>() {
+  let current: T | undefined,
+    initialized = false,
+    revision = 0;
+  return (next: T): number => {
+    if (!initialized || next !== current) {
+      initialized = true;
+      current = next;
+      revision++;
+    }
+    return revision;
+  };
+}
+
+function sameProjection(
+  left: readonly (readonly unknown[])[],
+  right: readonly (readonly unknown[])[]
+): boolean {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index++) {
+    const a = left[index],
+      b = right[index];
+    if (a.length !== b.length) return false;
+    for (let field = 0; field < a.length; field++) if (!Object.is(a[field], b[field])) return false;
+  }
+  return true;
+}
+
+/**
+ * Recompute a shallow scalar tuple projection only when an immutable array
+ * snapshot is replaced. Equivalent replacement snapshots retain the same
+ * revision, while query reads stay O(1).
+ */
+export function projectedArrayRevision<T>(
+  project: (value: T) => readonly unknown[]
+) {
+  let current: readonly T[] | undefined,
+    projection: readonly (readonly unknown[])[] = [],
+    initialized = false,
+    revision = 0;
+  return (next: readonly T[]): number => {
+    if (initialized && next === current) return revision;
+    const nextProjection = next.map(project);
+    if (!initialized || !sameProjection(nextProjection, projection)) revision++;
+    initialized = true;
+    current = next;
+    projection = nextProjection;
+    return revision;
+  };
+}
