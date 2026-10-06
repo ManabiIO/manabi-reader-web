@@ -76,7 +76,7 @@
   import { pagePath } from '$lib/data/env';
   import { storage } from '$lib/data/window/navigator/storage';
   import {
-    currentPersistentStorageRequest,
+    persistentStorageStatus,
     retryPersistentStorage
   } from '$lib/data/window/navigator/persistent-storage';
   import { formatPageTitle } from '$lib/functions/format-page-title';
@@ -85,8 +85,7 @@
   const persistentStorage$ = writableSubject(false);
 
   onMount(() => {
-    storage.persisted().then(setPersistentStorage);
-    currentPersistentStorageRequest()?.then(setPersistentStorage);
+    persistentStorageStatus().then(setPersistentStorage);
     setStorageQuota();
   });
 

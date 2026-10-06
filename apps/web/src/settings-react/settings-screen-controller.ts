@@ -75,7 +75,7 @@ import { mergeEntries } from '$lib/components/merged-header-icon/merged-entries'
 import { pagePath } from '$lib/data/env';
 import { storage } from '$lib/data/window/navigator/storage';
 import {
-  currentPersistentStorageRequest,
+  persistentStorageStatus,
   retryPersistentStorage
 } from '$lib/data/window/navigator/persistent-storage';
 
@@ -217,8 +217,7 @@ export function createSettingsScreen(
     __readerController.read(adjustStatisticsAfterIdleTime$);
   const persistentStorage$ = writableSubject(false);
   __readerController.onMount(() => {
-    storage.persisted().then(setPersistentStorage);
-    currentPersistentStorageRequest()?.then(setPersistentStorage);
+    persistentStorageStatus().then(setPersistentStorage);
     setStorageQuota();
   });
   const fallbackPage = `${pagePath}${mergeEntries.MANAGE.routeId}`;
