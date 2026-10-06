@@ -52,37 +52,25 @@ export function referenceRevision<T>() {
   };
 }
 
-function sameProjection(
-  left: readonly (readonly unknown[])[],
-  right: readonly (readonly unknown[])[]
-): boolean {
-  if (left.length !== right.length) return false;
-  for (let index = 0; index < left.length; index++) {
-    const a = left[index],
-      b = right[index];
-    if (a.length !== b.length) return false;
-    for (let field = 0; field < a.length; field++) if (!Object.is(a[field], b[field])) return false;
-  }
-  return true;
-}
-
 /**
- * Recompute a shallow scalar tuple projection only when an immutable array
- * snapshot is replaced. Equivalent replacement snapshots retain the same
- * revision, while query reads stay O(1).
+ * Advance when a replacement immutable array changes the searchable fields.
+ * Same-reference reads are O(1); replacement snapshots compare in place and
+ * allocate no corpus-sized projection/signature.
  */
-export function projectedArrayRevision<T>(project: (value: T) => readonly unknown[]) {
+export function arrayRevision<T>(equal: (left: T, right: T) => boolean) {
   let current: readonly T[] | undefined,
-    projection: readonly (readonly unknown[])[] = [],
     initialized = false,
     revision = 0;
   return (next: readonly T[]): number => {
     if (initialized && next === current) return revision;
-    const nextProjection = next.map(project);
-    if (!initialized || !sameProjection(nextProjection, projection)) revision++;
+    const changed =
+      !initialized ||
+      !current ||
+      next.length !== current.length ||
+      next.some((item, index) => !equal(item, current![index]));
+    if (changed) revision++;
     initialized = true;
     current = next;
-    projection = nextProjection;
     return revision;
   };
 }
