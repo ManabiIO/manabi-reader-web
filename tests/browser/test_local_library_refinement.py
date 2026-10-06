@@ -141,6 +141,11 @@ class LocalLibraryRefinement(LocalFeatureBrowser):
 
     def test_failed_projection_cache_write_does_not_reject_or_block_content_results(self):
         self.import_book('Cache write failure', body='<p>CACHE_ABORT_NEEDLE 日本語</p>')
+        # Admit only Books before injecting the failure. Changing from Everything
+        # after submitting can finish two legitimate projection attempts.
+        self.page.goto(self.origin + '/reader-web/manage?scope=books')
+        expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
+            'data-hydrated', 'true', timeout=30000)
         self.page.evaluate("""() => {
           const Native = window.Worker;
           window.nativeSearchWorker = Native;

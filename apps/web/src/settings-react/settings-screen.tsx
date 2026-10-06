@@ -1,0 +1,329 @@
+/**
+ * @license BSD-3-Clause
+ * Copyright (c) 2026, ッツ Reader Authors
+ * All rights reserved.
+ */
+
+import React from 'react';
+import { useReaderController } from '../reader-react/controller';
+import { Dom, Head, useLatest, useReaderBindings, type ReaderViewProps } from './primitives';
+import { SettingsContext, useSettingsContext } from './context';
+import { createSettingsScreen, type SettingsScreenProps } from './settings-screen-controller';
+
+import { pxScreen } from '$lib/css-classes';
+
+import { formatPageTitle } from '$lib/functions/format-page-title';
+
+import { SettingsHeader } from './settings-header';
+import { SettingsWorkspace } from './settings-workspace';
+import { SettingsContent } from './settings-content';
+export function SettingsScreen(
+  props: Partial<SettingsScreenProps> &
+    ReaderViewProps & {
+      children?: React.ReactNode;
+      onClose?: () => void;
+      slot?: string;
+    }
+) {
+  const latest = useLatest(props);
+  const context = useSettingsContext();
+  const c = useReaderController(
+    () =>
+      createSettingsScreen(
+        props as SettingsScreenProps,
+        (name, detail) => {
+          latest.current.events?.[name]?.({ detail });
+          if (name === 'close') latest.current.onClose?.();
+        },
+        context
+      ),
+    props
+  );
+  useReaderBindings(c, props);
+  if (!c) return null;
+  return (
+    <SettingsContext.Provider value={context}>
+      <div className="react-settings-settings-screen" style={{ display: 'contents' }}>
+        <Head>
+          <Dom as="title">{formatPageTitle('Settings')}</Dom>
+        </Head>
+        <Dom as="div" className={['elevation-4 sticky top-0 z-10'].filter(Boolean).join(' ')}>
+          <SettingsHeader leavePageLink={c.prevPage}></SettingsHeader>
+        </Dom>
+        <Dom
+          as="div"
+          data-settings-content={true}
+          className={[String(pxScreen ?? '') + ' settings-frame'].filter(Boolean).join(' ')}
+        >
+          <SettingsWorkspace>
+            <SettingsContent
+              activeSettings={c.activeSettings}
+              storageQuota={c.storageQuota}
+              selectedTheme={c.$theme$}
+              fontFamilyGroupOne={c.$fontFamilyGroupOne$}
+              fontFamilyGroupTwo={c.$fontFamilyGroupTwo$}
+              yuKyokashoAvailable={c.$yuKyokashoAvailable$}
+              fontWeight={c.$fontWeight$}
+              fontSize={c.$fontSize$}
+              lineHeight={c.$lineHeight$}
+              textIndentation={c.$textIndentation$}
+              textMarginValue={c.$textMarginValue$}
+              blurImage={c.$hideSpoilerImage$}
+              blurImageMode={c.$hideSpoilerImageMode$}
+              hideFurigana={c.$hideFurigana$}
+              furiganaStyle={c.$furiganaStyle$}
+              writingMode={c.$writingMode$}
+              enableFontKerning={c.$enableVerticalFontKerning$}
+              enableFontVPAL={c.$enableFontVPAL$}
+              verticalTextOrientation={c.$verticalTextOrientation$}
+              prioritizeReaderStyles={c.$prioritizeReaderStyles$}
+              enableTextJustification={c.$enableTextJustification$}
+              enableTextWrapPretty={c.$enableTextWrapPretty$}
+              textMarginMode={c.$textMarginMode$}
+              enableReaderWakeLock={c.$enableReaderWakeLock$}
+              showCharacterCounter={c.$showCharacterCounter$}
+              showPercentage={c.$showPercentage$}
+              showFooterChapterCharacterCounter={c.$showFooterChapterCharacterCounter$}
+              showFooterChapterPercentage={c.$showFooterChapterPercentage$}
+              viewMode={c.$viewMode$}
+              secondDimensionMaxValue={c.$secondDimensionMaxValue$}
+              firstDimensionMargin={c.$firstDimensionMargin$}
+              swipeThreshold={c.$swipeThreshold$}
+              disableWheelNavigation={c.$disableWheelNavigation$}
+              autoPositionOnResize={c.$autoPositionOnResize$}
+              avoidPageBreak={c.$avoidPageBreak$}
+              pauseTrackerOnCustomPointChange={c.$pauseTrackerOnCustomPointChange$}
+              customReadingPointEnabled={c.$customReadingPointEnabled$}
+              selectionToBookmarkEnabled={c.$selectionToBookmarkEnabled$}
+              enableTapEdgeToFlip={c.$enableTapEdgeToFlip$}
+              pageColumns={c.$pageColumns$}
+              persistentStorage={c.$persistentStorage$}
+              requestPersistentStorage={c.requestPersistentStorage}
+              hideExternalReadHint={c.$hideExternalReadHint$}
+              confirmClose={c.$confirmClose$}
+              manualBookmark={c.$manualBookmark$}
+              autoBookmark={c.$autoBookmark$}
+              autoBookmarkTime={c.$autoBookmarkTime$}
+              importHTMLFixMode={c.$importHTMLFixMode$}
+              restrictImportFixToAnchor={c.$restrictImportFixToAnchor$}
+              cacheStorageData={c.$cacheStorageData$}
+              replicationSaveBehavior={c.$replicationSaveBehavior$}
+              autoReplication={c.$autoReplication$}
+              showExternalPlaceholder={c.$showExternalPlaceholder$}
+              keepLocalStatisticsOnDeletion={c.$keepLocalStatisticsOnDeletion$}
+              overwriteBookCompletion={c.$overwriteBookCompletion$}
+              startDayHoursForTracker={c.$startDayHoursForTracker$}
+              statisticsMergeMode={c.$statisticsMergeMode$}
+              readingGoalsMergeMode={c.$readingGoalsMergeMode$}
+              statisticsEnabled={c.$statisticsEnabled$}
+              trackerAutoPause={c.$trackerAutoPause$}
+              openTrackerOnCompletion={c.$openTrackerOnCompletion$}
+              addCharactersOnCompletion={c.$addCharactersOnCompletion$}
+              trackerAutoStartTime={c.$trackerAutostartTime$}
+              trackerIdleTime={c.$trackerIdleTime$}
+              trackerForwardSkipThreshold={c.$trackerForwardSkipThreshold$}
+              trackerBackwardSkipThreshold={c.$trackerBackwardSkipThreshold$}
+              trackerSkipThresholdAction={c.$trackerSkipThresholdAction$}
+              trackerPopupDetection={c.$trackerPopupDetection$}
+              adjustStatisticsAfterIdleTime={c.$adjustStatisticsAfterIdleTime$}
+              bindings={{
+                selectedTheme: (value) => {
+                  c.controller.changed((c.$theme$ = value));
+                },
+                fontFamilyGroupOne: (value) => {
+                  c.controller.changed((c.$fontFamilyGroupOne$ = value));
+                },
+                fontFamilyGroupTwo: (value) => {
+                  c.controller.changed((c.$fontFamilyGroupTwo$ = value));
+                },
+                fontWeight: (value) => {
+                  c.controller.changed((c.$fontWeight$ = value));
+                },
+                fontSize: (value) => {
+                  c.controller.changed((c.$fontSize$ = value));
+                },
+                lineHeight: (value) => {
+                  c.controller.changed((c.$lineHeight$ = value));
+                },
+                textIndentation: (value) => {
+                  c.controller.changed((c.$textIndentation$ = value));
+                },
+                textMarginValue: (value) => {
+                  c.controller.changed((c.$textMarginValue$ = value));
+                },
+                blurImage: (value) => {
+                  c.controller.changed((c.$hideSpoilerImage$ = value));
+                },
+                blurImageMode: (value) => {
+                  c.controller.changed((c.$hideSpoilerImageMode$ = value));
+                },
+                hideFurigana: (value) => {
+                  c.controller.changed((c.$hideFurigana$ = value));
+                },
+                furiganaStyle: (value) => {
+                  c.controller.changed((c.$furiganaStyle$ = value));
+                },
+                writingMode: (value) => {
+                  c.controller.changed((c.$writingMode$ = value));
+                },
+                enableFontKerning: (value) => {
+                  c.controller.changed((c.$enableVerticalFontKerning$ = value));
+                },
+                enableFontVPAL: (value) => {
+                  c.controller.changed((c.$enableFontVPAL$ = value));
+                },
+                verticalTextOrientation: (value) => {
+                  c.controller.changed((c.$verticalTextOrientation$ = value));
+                },
+                prioritizeReaderStyles: (value) => {
+                  c.controller.changed((c.$prioritizeReaderStyles$ = value));
+                },
+                enableTextJustification: (value) => {
+                  c.controller.changed((c.$enableTextJustification$ = value));
+                },
+                enableTextWrapPretty: (value) => {
+                  c.controller.changed((c.$enableTextWrapPretty$ = value));
+                },
+                textMarginMode: (value) => {
+                  c.controller.changed((c.$textMarginMode$ = value));
+                },
+                enableReaderWakeLock: (value) => {
+                  c.controller.changed((c.$enableReaderWakeLock$ = value));
+                },
+                showCharacterCounter: (value) => {
+                  c.controller.changed((c.$showCharacterCounter$ = value));
+                },
+                showPercentage: (value) => {
+                  c.controller.changed((c.$showPercentage$ = value));
+                },
+                showFooterChapterCharacterCounter: (value) => {
+                  c.controller.changed((c.$showFooterChapterCharacterCounter$ = value));
+                },
+                showFooterChapterPercentage: (value) => {
+                  c.controller.changed((c.$showFooterChapterPercentage$ = value));
+                },
+                viewMode: (value) => {
+                  c.controller.changed((c.$viewMode$ = value));
+                },
+                secondDimensionMaxValue: (value) => {
+                  c.controller.changed((c.$secondDimensionMaxValue$ = value));
+                },
+                firstDimensionMargin: (value) => {
+                  c.controller.changed((c.$firstDimensionMargin$ = value));
+                },
+                swipeThreshold: (value) => {
+                  c.controller.changed((c.$swipeThreshold$ = value));
+                },
+                disableWheelNavigation: (value) => {
+                  c.controller.changed((c.$disableWheelNavigation$ = value));
+                },
+                autoPositionOnResize: (value) => {
+                  c.controller.changed((c.$autoPositionOnResize$ = value));
+                },
+                avoidPageBreak: (value) => {
+                  c.controller.changed((c.$avoidPageBreak$ = value));
+                },
+                pauseTrackerOnCustomPointChange: (value) => {
+                  c.controller.changed((c.$pauseTrackerOnCustomPointChange$ = value));
+                },
+                customReadingPointEnabled: (value) => {
+                  c.controller.changed((c.$customReadingPointEnabled$ = value));
+                },
+                selectionToBookmarkEnabled: (value) => {
+                  c.controller.changed((c.$selectionToBookmarkEnabled$ = value));
+                },
+                enableTapEdgeToFlip: (value) => {
+                  c.controller.changed((c.$enableTapEdgeToFlip$ = value));
+                },
+                pageColumns: (value) => {
+                  c.controller.changed((c.$pageColumns$ = value));
+                },
+                hideExternalReadHint: (value) => {
+                  c.controller.changed((c.$hideExternalReadHint$ = value));
+                },
+                confirmClose: (value) => {
+                  c.controller.changed((c.$confirmClose$ = value));
+                },
+                manualBookmark: (value) => {
+                  c.controller.changed((c.$manualBookmark$ = value));
+                },
+                autoBookmark: (value) => {
+                  c.controller.changed((c.$autoBookmark$ = value));
+                },
+                autoBookmarkTime: (value) => {
+                  c.controller.changed((c.$autoBookmarkTime$ = value));
+                },
+                importHTMLFixMode: (value) => {
+                  c.controller.changed((c.$importHTMLFixMode$ = value));
+                },
+                restrictImportFixToAnchor: (value) => {
+                  c.controller.changed((c.$restrictImportFixToAnchor$ = value));
+                },
+                cacheStorageData: (value) => {
+                  c.controller.changed((c.$cacheStorageData$ = value));
+                },
+                replicationSaveBehavior: (value) => {
+                  c.controller.changed((c.$replicationSaveBehavior$ = value));
+                },
+                autoReplication: (value) => {
+                  c.controller.changed((c.$autoReplication$ = value));
+                },
+                showExternalPlaceholder: (value) => {
+                  c.controller.changed((c.$showExternalPlaceholder$ = value));
+                },
+                keepLocalStatisticsOnDeletion: (value) => {
+                  c.controller.changed((c.$keepLocalStatisticsOnDeletion$ = value));
+                },
+                overwriteBookCompletion: (value) => {
+                  c.controller.changed((c.$overwriteBookCompletion$ = value));
+                },
+                startDayHoursForTracker: (value) => {
+                  c.controller.changed((c.$startDayHoursForTracker$ = value));
+                },
+                statisticsMergeMode: (value) => {
+                  c.controller.changed((c.$statisticsMergeMode$ = value));
+                },
+                readingGoalsMergeMode: (value) => {
+                  c.controller.changed((c.$readingGoalsMergeMode$ = value));
+                },
+                statisticsEnabled: (value) => {
+                  c.controller.changed((c.$statisticsEnabled$ = value));
+                },
+                trackerAutoPause: (value) => {
+                  c.controller.changed((c.$trackerAutoPause$ = value));
+                },
+                openTrackerOnCompletion: (value) => {
+                  c.controller.changed((c.$openTrackerOnCompletion$ = value));
+                },
+                addCharactersOnCompletion: (value) => {
+                  c.controller.changed((c.$addCharactersOnCompletion$ = value));
+                },
+                trackerAutoStartTime: (value) => {
+                  c.controller.changed((c.$trackerAutostartTime$ = value));
+                },
+                trackerIdleTime: (value) => {
+                  c.controller.changed((c.$trackerIdleTime$ = value));
+                },
+                trackerForwardSkipThreshold: (value) => {
+                  c.controller.changed((c.$trackerForwardSkipThreshold$ = value));
+                },
+                trackerBackwardSkipThreshold: (value) => {
+                  c.controller.changed((c.$trackerBackwardSkipThreshold$ = value));
+                },
+                trackerSkipThresholdAction: (value) => {
+                  c.controller.changed((c.$trackerSkipThresholdAction$ = value));
+                },
+                trackerPopupDetection: (value) => {
+                  c.controller.changed((c.$trackerPopupDetection$ = value));
+                },
+                adjustStatisticsAfterIdleTime: (value) => {
+                  c.controller.changed((c.$adjustStatisticsAfterIdleTime$ = value));
+                }
+              }}
+            ></SettingsContent>
+          </SettingsWorkspace>
+        </Dom>
+      </div>
+    </SettingsContext.Provider>
+  );
+}

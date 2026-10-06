@@ -1,0 +1,355 @@
+# Retained browser failures: finite repair ledger
+
+## Evidence and closure rule
+
+Full-scope [run 37090080266](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37090080266)
+ran against commit `ce5e91103bf2f349568ae583d25f498d3612c2b2`:
+the regression/default-web and Android jobs passed; the full-web job failed.
+The inventory below contains **15 distinct failing test names**, deduplicated
+across repeated suites, engines and overlapping traceback excerpts. It is not a
+count of failed executions or fifteen proven independent product defects.
+
+All 15 observed cases below were subsequently repaired and qualified in full
+[run 37099596037](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37099596037)
+on `5ac1225b737fbeb7e6e7b2535ae68ea1fc24d5a9`. All three jobs passed.
+The entries preserve the original failures, diagnoses and acceptance requirements;
+their pending language describes the earlier repair checkpoint. The failed runs
+remain failed evidence, and no original application assertion was weakened.
+
+Intermediate full [run 37096298886](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37096298886)
+on `53d4534c` passed Android, full data safety and production Snippets, but exposed
+a WebKit startup/navigation diagnostic and a Settings history-test synchronization
+failure. The history fixture now waits for the admitted focused Settings screen
+before its unchanged entry-ID assertion. The video fixture positively waits for
+both real worker activation and optional-catalog completion before replacing the
+document. Both-engine local replays and the later full checkpoint passed.
+
+Later design/reflow refinements need their own exact-head qualification; consult
+the PR's current full run and [fidelity matrix](FIDELITY-MATRIX.md). This historical
+failure ledger does not close the outstanding native/shared screen inventory.
+
+## October 3 refinement checkpoint
+
+Full [run 37107287438](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37107287438)
+on `d3b0c26c2856233760d869299d48df35439d64e3` passed regression/default web,
+Android, full data safety, production Snippets and source-unchanged checks. Its
+retained full-web inventory failed one Chromium case:
+`test_yatsu_manifest_mismatch_is_rejected_before_any_book_write`.
+The screen briefly rendered the manifest error and `Inspecting ZIPs…` as two
+live statuses while refreshing destination choices. The unchanged error locator
+could encounter that intermediate state. A MutationObserver on the frozen export
+reproduced two simultaneous statuses even when the original final-state check
+passed. The import screen now uses one global status, replacing the inspecting
+message with the error. The existing case additionally observes intermediate DOM
+updates and requires at most one status through completion; manifest rejection
+and the original no-book-write assertion remain. Exact-head CI qualification is
+required after this repair; this failed run remains failure evidence.
+
+The subsequent `226dd96f` full [run 37111223208](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37111223208)
+passed its regression/default-web job. It was canceled before the full-web and
+Android jobs completed after source review found numeric Heatmap button-label
+font overrides bypassing root text scaling. The added real-browser zoom assertion
+failed on its frozen export: 12px remained 12px instead of becoming 24px. Shared
+button labels now use the same scalable text primitive as headings and body
+copy. The existing zoom journey additionally verifies the metric size; no prior
+assertion was removed. This canceled run is partial evidence, not qualification
+of the later repair.
+
+## Later touch-dismissal race
+
+The full [256a5242 run](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37118260894)
+passed all three jobs. The same-head [PR-event attempt 2](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37118264604)
+then failed the Chromium default-route
+`test_touch_reading_appearance_fits_and_outside_dismissal_restores_controls`.
+Its focus assertion observed the Library screen after an outside tap at (20, 20).
+The earlier frame-delayed backdrop removal did not cancel the browser's delayed
+compatibility click, which could activate the Library button newly exposed there.
+
+Reader modals now synchronously bind a native, non-passive `touchend` listener
+on their backdrop ref. It cancels outside touch completion before a compatibility
+click can be generated; controls inside the dialog retain their native gestures.
+Ref teardown removes the listener. The existing browser journey retains every
+original geometry, text-size and focus-return assertion, and additionally records
+the final native event cancellation. That assertion fails `[True] != [False]`
+on the frozen 256a5242 export, even when its original focus checks happen to pass.
+Ten consecutive actual touch journeys per engine pass locally after the repair.
+The same PR-event Android job built the APK and passed its emitted-worker check,
+but SDK setup then failed to unpack the downloaded API 35 Google APIs x86_64
+system-image ZIP (`Error on ZipFile unknown archive`). Instrumentation never
+started in that attempt, so it supplies no native runtime qualification. The
+full run's earlier runtime pass remains specific to its own disposable host.
+The passing full run and failed PR-event attempt remain separate historical
+evidence; the subsequent repair requires its own exact-head qualification.
+
+## Guarded Back/Forward fixture readiness
+
+Full [run 37122361275](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37122361275)
+on `52fea4ebdbd4c2486c4081582f8506b7adc1ee52` passed regression/default web,
+Android packaged-host runtime, full data safety, production Snippets and source
+integrity. The retained browser step failed one Chromium execution of
+`test_failed_back_keeps_original_reader_and_retries_without_replacing_entries`:
+its final Forward assertion remained in Library. The same case passed in the
+later complete Chromium group and both WebKit groups; the failed execution
+remains failure evidence.
+
+The original fixture accepted the first provisional Library URL from Back,
+then waited for the Reader to disappear. Retirement removes the Reader before
+the guarded native replay settles, so that pair of observations does not prove
+a committed Library arrival. A passive history trace on the frozen application
+observed the outgoing Reader URL, no Reader and no Library immediately before
+Forward. Throttled Chromium reproduces eight failures in ten complete original
+journeys. The fixture now additionally waits for the actual visible Library
+toolbar before issuing Forward. Every existing failure, identity, history-length,
+bookmark, scroll and Back/Forward assertion remains. The same unchanged frozen
+application passes ten amended journeys per engine, including 6× CPU throttling
+in Chromium. This is an interactive readiness correction; application navigation
+and its history/save guards are unchanged. The amended fixture requires its own
+exact-head CI qualification.
+
+## The 15 observed cases and original repair requirements
+
+1. **Series count spacing** — `test_recursive_series_covers_filters_and_readonly_scanning`
+   ([case](../../tests/browser/test_books_library.py)). Expected `Series · 1 Book`;
+   rendered `Series · 1Book`. Local workspace text repairs restore the separator
+   for singular/plural series and shelf counts. Browser requalification pending.
+
+2. **Relocated open after Back** — `test_relocated_book_read_cannot_navigate_after_browser_back`
+   ([case](../../tests/browser/test_books_library.py)). Back expected the unfiltered
+   Library but reached Connections. Local navigation/history and accepted-traversal
+   open-retirement repairs are awaiting the real held-open/Back replay, including
+   its unchanged no-late-navigation and identity assertions.
+
+3. **Nested menu exit before export** — `test_library_sort_and_export_preserve_all_export_parts`
+   ([case](../../tests/browser/test_rhea_ui.py)). `Select Books` timed out after only
+   two Escapes from four nested menus. Escape now closes the entire tree and
+   returns focus to Library actions; ArrowLeft closes only the innermost submenu.
+   A real Svelte baseline replay confirms the tree is gone after the first Escape.
+   The fixture retains its original two-Escape sequence and all export-part
+   assertions; browser requalification pending.
+
+4. **Custom-theme dialog focus** — `test_dialog_traps_focus_and_escape_preserves_custom_theme`
+   ([case](../../tests/browser/test_rhea_ui.py)). Repeated Tab left no focused
+   descendant in the dialog. Local modal-focus/Tab repairs need the original
+   repeated-keyboard, Escape, focus-return and unsaved-theme assertions to pass.
+
+5. **Touch dismissal and focus return** — `test_touch_reading_appearance_fits_and_outside_dismissal_restores_controls`
+   ([case](../../tests/browser/test_rhea_ui.py)). The `Themes & Settings` button
+   could not be found/focused after dismissal. Local backdrop dismissal handles
+   pointer release and stays mounted through click dispatch; Reader touch handling
+   can suppress compatibility clicks. Touch and focus-return browser requalification pending.
+
+6. **Whispersync conflict without audio** — `test_whispersync_conflict_warning_is_visible_without_an_audio_file`
+   ([case](../../tests/browser/test_whispersync.py)). The `changed in another tab`
+   status was absent. Local controlled-number-input repairs preserve edits needed
+   to exercise stale-autosave detection. The original two-tab conflict warning
+   and persisted-state assertions must still pass on the export.
+
+7. **Whispersync reset versus stale autosave** — `test_whispersync_reset_in_second_tab_cannot_be_undone_by_stale_autosave`
+   ([case](../../tests/browser/test_whispersync.py)). The same conflict status was
+   absent with audio loaded. This remains a separate retained case: the local
+   input repair does not itself prove reset protection or audio-loaded behavior.
+
+8. **WebKit service-worker teardown error** — `test_video_release_gate_keeps_default_build_dormant`
+   ([inherited case](../../tests/browser/test_static_reader.py),
+   [Rhea suite](../../tests/browser/test_rhea_ui.py)). Teardown recorded a
+   `service-worker.js` access-control error. This traceback does not establish a
+   video-gate assertion failure. The newer lifecycle trace places the error at
+   immediate hard navigation from Library to Videos, while real worker
+   registration is pending. WebKit emits this engine error even though the
+   registration rejection is caught. The fixture now positively asserts a real
+   active offline worker and waits for the independently loaded optional catalog
+   before replacing the document. The worker-only replay exposed the same WebKit
+   cancellation diagnostic for the catalog, so both actual startup operations
+   are fenced. The fixture neither suppresses errors nor changes video-gate
+   assertions. Final full qualification is pending.
+
+9. **Admitted TTU source and labels** — `test_migration_entrypoint_and_google_drive_labels_use_official_names`
+   ([case](../../tests/browser/test_ttu_migration.py)). `Import from Yatsu Reader`
+   was missing. The local route now supplies admitted, once-decoded Expo params
+   to the import controller rather than relying on a not-yet-committed address
+   bar. Labels and source-specific behavior await browser requalification.
+
+10. **Enlarged completion-dialog targets** — `test_completion_dialog_reflows_and_reduced_motion_skips_confetti`
+    ([case](../../tests/browser/test_completed_reading.py)). Button-center hit
+    testing failed after scrolling at 320×320 and 200% text. The local dialog
+    title now shares the scrollport so it cannot push fixed actions out of view.
+    Original size, hit-target, cancel/confirm and reduced-motion checks remain pending.
+
+11. **Imported note edit/download/conflict/restore** — `test_yatsu_edit_download_conflict_and_restore`
+    ([case](../../tests/browser/test_local_library_features.py)). Filling `Note`
+    inside `Imported Yatsu notes` timed out. Local note labels now explicitly
+    target a stable textarea ID. Editing, export and conflict/restore assertions
+    remain required; browser requalification pending.
+
+12. **Concurrent imported-note edits/deletes** — `test_yatsu_concurrent_note_edits_and_deletes_require_reload`
+    ([case](../../tests/browser/test_local_library_review.py)). The same `Note`
+    field lookup timed out. The labeling repair enables the scenario; it does
+    not establish concurrent-edit/delete safety. Retain the complete reload and
+    persistence assertions in the rerun.
+
+13. **Unlinked WebDAV passage and note sync** — `test_webdav_unlinked_passage_remains_visible_and_sync_converges`
+    ([case](../../tests/browser/test_local_library_lifecycle.py)). The same `Note`
+    lookup timed out. Local labeling repair awaits the complete unlinked-passage
+    visibility and sync-convergence journey, without weakening either assertion.
+
+14. **Read-only WebDAV import and offline search** — `test_direct_webdav_import_is_read_only_and_offline_searchable`
+    ([case](../../tests/browser/test_local_library_features.py)). Excerpts show
+    both absent service-worker control and a later `Search library` timeout.
+    The local fixture uses the existing bounded offline-shell admission helper
+    and waits for real Library hydration after reloading the offline document.
+    Controller acquisition, real offline reload/search and unchanged no-provider-write
+    assertions all remain unqualified until the exported-browser rerun.
+
+15. **Queued open after Back** — `test_queued_open_cannot_change_resume_or_navigate_after_back`
+    ([case](../../tests/browser/test_library_open_commit.py)). The test waited for
+    the retired `#svelte-announcer`. Its local readiness check now exercises the
+    mounted Settings navigation menu. Local history/open-retirement repairs must
+    still pass the held-transaction test's original resume-state and no-late-open
+    assertions; a replacement readiness check alone is not closure.
+
+## Shared Library review and broader remaining work
+
+The combined local Library slice shares book-face hierarchy, unread/progress/
+completion labels and the eight-field metadata editor. Browser leaves retain
+existing DOM classes, labels, limits, validation and draft ownership. Native
+controls, passage search, catalog and cover placeholders consume the saved theme;
+the owner sends only the selected custom palette. Focused source/component
+checks do not establish browser geometry, device accessibility or whole-screen
+parity. The [eight retained shelf/editor cases](../../tests/browser/library_shelf_acceptance_cases.py)
+supplement affected qualification; they do not replace the full inventory.
+
+This ledger tracks only the observed full-web failures. The
+[fidelity matrix](FIDELITY-MATRIX.md) remains authoritative for seven-dimensional
+acceptance and its [finite remaining screen/flow inventory](FIDELITY-MATRIX.md#finite-remaining-screen-and-flow-inventory):
+Settings, the complete Library workspace, Snippets, Account, Connections, TTU
+import, Shared libraries and Optional video, plus Statistics native flow gates
+and reader/device qualification. Preserve the reader/dictionary DOM boundary and
+neutral interfaces. Follow [CI coverage](CI-COVERAGE.md) for affected versus full
+scope, exact-head evidence and the existing three-job/no-artifact policy.
+
+## Enlarged Library list readability
+
+The saved-sort comparison on `a473f19c` exposed an existing list-layout failure
+in both Expo and the Svelte baseline: the page had no horizontal overflow, but
+artwork and trailing actions consumed the space needed for enlarged titles.
+A new production browser case reproduces the frozen Expo failure at 320px and
+390px with 200% text. At 320px, its English title had only 1.6px of width and
+was nearly 1,600px tall. An overflow assertion alone could not detect this.
+
+The compact list now keeps artwork bounded, gives copy the row width, and puts
+actions on a separate line. Selected labels stay within the cover column and
+icon-only actions retain a 44px target. The regression checks readable title
+width and height, action separation/targets, keyboard selection, selected-badge
+bounds and document overflow at 320/390/640px and 100/200% text. All eight
+previously selected shelf/editor cases remain; this ninth case runs in both
+engines and both production export modes. This is a web layout refinement, not
+native whole-screen parity or physical-device qualification.
+
+## Saved-sort checkpoint: broad WebKit interactions
+
+Full [run 37134330548](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37134330548)
+on `a473f19c20d6cab8b559490f96dcdb872390a0b4` passed regression/default web
+and Android, including packaged-host instrumentation. The retained actual-app
+assertion step passed, but two later WebKit journeys failed:
+
+- `OfflineAccountProfile.test_owned_book_opens_offline_and_disappears_after_confirmed_signout`
+  timed out on the initial Connections-to-Library document navigation, before
+  offline/signout assertions. The diagnostic URL remained Connections.
+- The assembled Snippets suite timed out waiting for `Move to Trash` after the
+  final modifier selection. The body showed the unselected shelf and overflow
+  menu; the preceding 22 journeys passed and there were no page errors.
+
+The original complete offline-account class passed against the same frozen
+export in both engines. Ten further WebKit repetitions of the original owned-
+book method, preserving its method name and existing teardown/error policy,
+also passed with passive request/frame/dialog witnesses. A complete original
+WebKit Snippets replay instead failed earlier while activating `Default save
+location…`; its menu remained open. Subsequent unchanged and passively observed
+complete replays passed all 23 journeys. These local results do not establish
+the causes of the two CI failures, and neither assertion was removed, weakened
+or retried inside the suite. Original CI logs and local witnesses are retained
+in the comparison gallery's qualification evidence.
+
+A separate deterministic control-readiness regression was established during
+this investigation. `Dom` attached its native click/custom-event listeners in
+a passive effect, so a control was committed before it owned those listeners.
+A parent commit probe delivered neither the first button click nor the custom
+event on the preceding source. Listener installation now uses a layout effect,
+before painting; the same probe also checks replacement callbacks, changed
+event names, retirement of old listeners and unmount cleanup. All existing
+Snippets integration and production-browser assertions remain. This repair
+closes the demonstrated commit-boundary gap; it does not claim an established
+causal explanation for either intermittent CI failure. The new head requires
+its own full three-job qualification.
+
+## Library-readability checkpoint: preference reload readiness
+
+Full [run 37138910595](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37138910595)
+on `960607638a5bdc172dd61fc68d305bd2099e39a1` passed regression/default web,
+Android, all shared/local data-safety groups, all 23 assembled Snippets journeys
+per engine, and source-integrity checks. Its retained broad-web step failed
+`PreferenceSyncRecovery.test_accepted_server_organization_recovers_offline_preserving_later_edit`
+in WebKit: an account change-feed access-control diagnostic reached the final
+empty-error assertion after the bounded offline diagnostic filter had run.
+The same-head PR-event affected workflow passed all three jobs; it does not
+execute the complete preference-recovery group.
+
+A passive local witness observed that returning online wakes personal-data
+sync independently of preference sync. The fixture reloaded after preference
+status became `synced`, even with a personal change-feed GET still in flight.
+A deliberately slow, unchanged change-feed HTTP response made the original
+journey cancel that GET during reload in three of three runs. Those macOS
+WebKit runs did not emit Linux WebKit's page-error diagnostic, so the witness
+establishes the request cancellation, not exact local reproduction of the CI
+error. The test now waits for the loaded document's HTTP work to finish before
+its existing reload. All 60 original assertion expressions and the bounded
+offline error filter remain unchanged. The offline edits/application checks
+still execute with the entire context offline. Three amended held-response
+journeys passed with zero reload-canceled feed requests; full exact-head CI
+remains necessary to close this failed checkpoint.
+
+## Series checkpoint: preference read during WebKit navigation
+
+[Books run 37237028585](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37237028585)
+on `cdb33cd50556bcbeda9958f9d81f63d0ba99b5fb` failed the WebKit
+`test_offline_preference_save_failure_retries_without_another_edit` teardown.
+The edit, durable retry and reload assertions passed, but an in-flight versioned
+preferences GET produced an access-control page error. Other application
+workflows, including Appearance, passed on that commit.
+
+The focused original case and complete collection group passed against its
+frozen export on macOS WebKit; this does not reproduce the Linux diagnostic.
+Preference GETs lacked the existing navigation keepalive protection used for
+source/change-feed reads. They now retain that lifetime with the same account
+and response fences; writes and lookalike paths do not. A real-browser test
+holds the HTTP reply, verifies the actual fetch lifetime, navigates, and checks
+local preferences plus the unchanged empty-error assertion. Its lifetime
+assertion failed on the previous export and passes on the repair in both engines.
+
+The old WebKit outage glob also missed the version query. A corrected route
+plus a positive interception assertion exposed unreliable keepalive interception
+in the local WebKit harness. The fixture now returns a real preferences-only
+HTTP 503, including query variants, and waits for an observed failure before
+the edit. Chromium still uses context offline mode. The original durability,
+retry, appearance and empty-error assertions remain; none are filtered or
+weakened. Both complete collection and preference-recovery groups are required
+on the repair, followed by exact-head CI. These failed attempts remain evidence.
+
+## Matched series comparison: web reader return and Forward
+
+Actual web UI review on the `90377925` export returned a series book to root Books, while Android retained its series workspace. The repair captures the admitted Library origin and uses the existing guarded return-to-entry mechanism. The first focused reader-return case passed both engines, then its stronger Back/Forward continuation failed in both: the address bar and a transient series heading restored, but the final header/shelf reverted to root and the contextual Back button never appeared. These failures remain in the local `series-comparison-7RMyK1/reader-return-history-{chromium,webkit}.log` files, including original layout diagnostics. The qualified teardown later reuses the test's standard screenshot filenames; the retained failure logs are the authoritative intermediate evidence.
+
+The focused Library now observes broker-admitted native traversals and retains that exact Library URL until the next admitted app navigation. Both original return assertions and the stronger Back/Forward/contextual-Back continuation remain. Both full browser parity suites pass with 17 cases per engine, alongside the original mounted route/shallow-search ownership checks. Interactive captures were taken only after positively verifying the new content-hashed entry script: the old offline worker intentionally kept its previous shell while a client remained open. Releasing those clients admitted the new shell without clearing books or altering browser storage. The initial command also selected a Python executable without Playwright; explicit use of the existing task venv corrected that harness-only failure. A unit fixture's raw Japanese URL expectation was corrected to standard URL serialization; percent-bearing series/collection identities remain unchanged.
+
+## Collapsed-series qualification setup
+
+The first local all-Expo run on the collapsed-series change passed 592 of 594 checks;
+its two manifest subprocesses could not find `python` (`spawnSync python ENOENT`).
+The unchanged tests passed all 594 after including the existing pinned Python
+runtime in PATH. This is an environment failure, not a browser-product failure.
+The first Android release rebuild failed CMake configuration under the system
+Java setup; the existing pinned JDK 21 completed the release build. An initial
+emulator fixture mutation used an expired Library token and was rejected without
+changing series membership; a refreshed admission completed the assignment.
+All original logs remain in `test-results/collapsed-series-0n1yr6u5/` alongside
+qualified results. The full Library parity suites passed 17 cases in each engine.

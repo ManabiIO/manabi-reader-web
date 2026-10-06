@@ -75,13 +75,16 @@ test('confirmed sign-out clears persisted identity and it stays hidden after ano
 
 test('explicit sign-out revokes local visibility even when its follow-up session probe is offline', async () => {
   const { api, context, data } = client();
+  context.navigator.onLine = true;
   context.fetch = async () => session(alice);
   await api.refreshAccount(true);
   context.fetch = async (url) => {
-    if (url.endsWith('logout/'))
+    if (url.endsWith('logout/')) {
+      context.navigator.onLine = false;
       return new Response('{}', {
         headers: { 'Content-Type': 'application/json', 'X-Manabi-User': 'alice' }
       });
+    }
     throw new Error('offline');
   };
   await api.signOut();
@@ -100,6 +103,7 @@ test('switching accounts replaces the local profile without retaining credential
 
 test('sign-out from another tab invalidates a pending request and does not rewrite shared storage', async () => {
   const { api, context, data, listeners } = client();
+  context.navigator.onLine = true;
   context.fetch = async () => session(alice);
   await api.refreshAccount(true);
   let resolve;
@@ -121,6 +125,24 @@ test('sign-out from another tab invalidates a pending request and does not rewri
   await assert.rejects(pending, { code: 'account_changed' });
   assert.equal(api.localProfileUser(), null);
   assert.equal(data.has(key), false);
+});
+
+test('explicit account requests may probe connectivity when the browser offline hint is stale', async () => {
+  const { api, context } = client();
+  context.navigator.onLine = true;
+  context.fetch = async () => session(alice);
+  await api.refreshAccount(true);
+  let requests = 0;
+  context.fetch = async () => {
+    requests++;
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { 'Content-Type': 'application/json', 'X-Manabi-User': 'alice' }
+    });
+  };
+  context.navigator.onLine = false;
+  assert.equal((await api.request('preferences/')).ok, true);
+  assert.equal(requests, 1);
+  assert.equal(api.currentUser()?.id, 'alice');
 });
 
 test('invalid persisted identities and online service failures cannot expose a remembered profile', async () => {

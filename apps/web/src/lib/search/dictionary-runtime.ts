@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { base } from '$app/paths';
+import { assets as base } from '$app/paths';
 import version from './manabitan-version.json';
 export interface DictionaryPreview {
   id: string;
@@ -70,7 +70,9 @@ let retirement = Promise.resolve();
 let leases = 0;
 async function open(): Promise<DictionaryRuntime> {
   await retirement;
-  const root = `${base}/manabitan/${version.revision}/`;
+  // A DOM export's base is './'; native dynamic import resolves against the
+  // JavaScript chunk unless we anchor the URL to its trusted HTML document.
+  const root = new URL(`${base}/manabitan/${version.revision}/`, location.href).href;
   const response = await fetch(`${root}manifest.json`, {
     credentials: 'omit',
     signal: AbortSignal.timeout(15000)
@@ -88,9 +90,9 @@ async function open(): Promise<DictionaryRuntime> {
     throw new Error('This Reader release needs its matching Manabitan search runtime.');
   // Module paths are pinned by Reader, never supplied by a dictionary or URL query.
   const [module, renderer, presets] = await Promise.all([
-    import(/* @vite-ignore */ `${root}web/client.js`),
-    import(/* @vite-ignore */ `${root}web/render.js`),
-    import(/* @vite-ignore */ `${root}web/presets.js`)
+    import(/* @metro-ignore */ `${root}web/client.js`),
+    import(/* @metro-ignore */ `${root}web/render.js`),
+    import(/* @metro-ignore */ `${root}web/presets.js`)
   ]);
   if (!document.querySelector('link[data-manabi-dictionary-style]')) {
     const style = document.createElement('link');
@@ -113,13 +115,13 @@ async function open(): Promise<DictionaryRuntime> {
       presets.downloadDefaultDictionary(
         new URL(
           `${base}/dictionary-archives/${presets.DEFAULT_DICTIONARY.fileName}`,
-          location.origin
+          location.href
         ),
         options
       ),
     recommendations: async ({ signal }) => {
       const response = await fetch(
-        new URL(`${root}data/recommended-dictionaries.json`, location.origin),
+        new URL(`${root}data/recommended-dictionaries.json`, location.href),
         {
           credentials: 'omit',
           signal,

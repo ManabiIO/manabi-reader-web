@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 import unittest
 import time
+from unittest.mock import patch
+from urllib.parse import urlsplit
 
 from playwright.sync_api import expect
 from test_books_library import LibraryBase
@@ -235,15 +237,36 @@ class CollectionCommitBrowser(LibraryBase):
 
     def enter_preference_outage(self):
         if self.engine == 'webkit':
-            # WebKit's test browser cannot reliably navigate an uncached static
-            # route offline. Keep the app reachable while its API is unavailable.
-            self.context.route('**/api/reader-web/preferences/', lambda route: route.abort())
+            # WebKit cannot navigate uncached static routes fully offline, and
+            # Playwright routing does not intercept its keepalive reads reliably.
+            # Fail the real preferences HTTP endpoint, including versioned URLs,
+            # while leaving the app shell and account identity reachable.
+            self.preference_outage_requests = []
+            original = StaticHandler.do_GET
+
+            def unavailable(handler):
+                if urlsplit(handler.path).path != '/api/reader-web/preferences/':
+                    return original(handler)
+                self.preference_outage_requests.append(handler.path)
+                body = b'{"error":"unavailable"}'
+                handler.send_response(503)
+                handler.send_header('Content-Type', 'application/json')
+                handler.send_header('Content-Length', str(len(body)))
+                handler.send_header('Cache-Control', 'no-store')
+                handler.send_header('X-Manabi-User', '42')
+                handler.end_headers()
+                handler.wfile.write(body)
+
+            self.preference_outage_patch = patch.object(StaticHandler, 'do_GET', unavailable)
+            self.preference_outage_patch.start()
         else:
             self.context.set_offline(True)
 
     def leave_preference_outage(self):
         if self.engine == 'webkit':
-            self.context.unroute('**/api/reader-web/preferences/')
+            outage = getattr(self, 'preference_outage_patch', None)
+            if outage is not None:
+                outage.stop()
         else:
             self.context.set_offline(False)
 
@@ -289,6 +312,12 @@ class CollectionCommitBrowser(LibraryBase):
             self.enter_preference_outage()
             self.page.goto(self.origin + '/reader-web/settings')
             expect(self.page.locator('html')).to_have_attribute('data-appearance', 'light')
+            if self.engine == 'webkit':
+                deadline = time.monotonic() + 15
+                while not self.preference_outage_requests:
+                    self.assertLess(time.monotonic(), deadline,
+                                    'Preference restoration did not reach the API outage')
+                    self.page.wait_for_timeout(25)
             self.page.evaluate('''() => {
               window.__failPreferenceSave = true;
               window.__preferenceSaveAborts = 0;
@@ -322,6 +351,10 @@ class CollectionCommitBrowser(LibraryBase):
             self.trace_before_reload = self.page.evaluate('window.__preferenceRecoveryEvents')
             self.page.reload()
             expect(self.page.locator('html')).to_have_attribute('data-appearance', 'dark')
+            if self.engine == 'webkit':
+                self.assertTrue(any('?book_presentation_version=1' in url
+                                    for url in self.preference_outage_requests),
+                                'The outage must intercept the real versioned preference read')
         finally:
             StaticHandler.account_fixture = old_fixture
             StaticHandler.preference_revision = old_revision

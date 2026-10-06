@@ -21,7 +21,7 @@ import type { BookCardProps } from '$lib/components/book-card/book-card-props';
 import { MergeMode } from '$lib/data/merge-mode';
 import { ReplicationSaveBehavior } from '$lib/functions/replication/replication-options';
 import { StorageKey } from '$lib/data/storage/storage-types';
-import StorageUnlock from '$lib/components/storage-unlock.svelte';
+import { StorageUnlock } from '$runtime/../ui/dialogs';
 import {
   isRemoteContext,
   type StorageUnlockAction

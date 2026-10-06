@@ -113,7 +113,7 @@ worker.onmessage = async ({ data }) => {
       const url = new URL(data.url, worker.location.href);
       if (url.origin !== worker.location.origin || !url.pathname.endsWith('/moss.mjs'))
         throw new Error('Invalid runtime path');
-      const factory = (await import(/* @vite-ignore */ url.href)).default;
+      const factory = (await import(/* @metro-ignore */ url.href)).default;
       download.signal.throwIfAborted();
       runtime = await factory({ locateFile: (name: string) => new URL(name, url).href });
       assertRuntimeIdentity(runtime!, data.threaded);
