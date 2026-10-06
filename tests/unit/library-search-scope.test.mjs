@@ -42,3 +42,10 @@ test('unified search suppresses hidden shelf filtering until selection mode owns
   assert.equal(libraryShelfSearchQuery('', false), '');
   assert.equal(libraryShelfSearchQuery('', true), '');
 });
+
+
+test('unified search query limit counts Unicode code points without UTF-16 inflation', () => {
+  assert.equal(MAX_LIBRARY_SEARCH_CODEPOINTS, 512);
+  assert.equal(librarySearchQueryWithinLimit('𠮷'.repeat(512)), true);
+  assert.equal(librarySearchQueryWithinLimit('𠮷'.repeat(513)), false);
+});
