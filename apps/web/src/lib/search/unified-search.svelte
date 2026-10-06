@@ -84,7 +84,7 @@
   const titleMatchTextRevisionFor =
     referenceRevision<Record<string, readonly BookTitleMatchContext[]>>();
   const snippetTitleRevisionFor = arrayRevision<SnippetSummary>(
-    (left, right) => left.key === right.key && left.title === right.title
+    (left, right) => left.id === right.id && left.key === right.key && left.title === right.title
   );
   const snippetContentRevisionFor = arrayRevision<SnippetSummary>(
     (left, right) =>
@@ -94,6 +94,7 @@
     (left, right) =>
       left.key === right.key &&
       left.bookId === right.bookId &&
+      left.isPlaceholder === right.isPlaceholder &&
       left.title === right.title &&
       left.contentHash === right.contentHash &&
       left.lastBookModified === right.lastBookModified
