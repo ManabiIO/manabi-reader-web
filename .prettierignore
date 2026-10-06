@@ -12,3 +12,6 @@ apps/web/static/moss/single/moss.mjs
 apps/web/static/moss/threaded/moss.mjs
 
 apps/web/src/lib/appearance/palettes.scss
+apps/web/static/dictionary-runtime/
+apps/web/static/dictionary-archives/
+apps/web/static/manabitan/
