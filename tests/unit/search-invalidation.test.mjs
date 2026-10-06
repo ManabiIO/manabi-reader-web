@@ -40,7 +40,6 @@ test('irrelevant media notifications leave search revisions unchanged', () => {
   });
 });
 
-
 test('reference revisions advance only when immutable snapshots are replaced', () => {
   const revisionFor = referenceRevision();
   const first = [];
@@ -57,9 +56,18 @@ test('projected array revisions avoid deep query-time serialization and ignore e
     reads++;
     return [item.id, item.revision];
   });
-  const first = [{ id: 'a', revision: 1 }, { id: 'b', revision: 1 }];
-  const equivalent = [{ id: 'a', revision: 1 }, { id: 'b', revision: 1 }];
-  const changed = [{ id: 'a', revision: 2 }, { id: 'b', revision: 1 }];
+  const first = [
+    { id: 'a', revision: 1 },
+    { id: 'b', revision: 1 }
+  ];
+  const equivalent = [
+    { id: 'a', revision: 1 },
+    { id: 'b', revision: 1 }
+  ];
+  const changed = [
+    { id: 'a', revision: 2 },
+    { id: 'b', revision: 1 }
+  ];
 
   assert.equal(revisionFor(first), 1);
   assert.equal(reads, 2);
