@@ -29,6 +29,8 @@
   import { queryTask, type SearchState } from './query-task.mjs';
   import {
     advanceMediaSearchRevisions,
+    projectedArrayRevision,
+    referenceRevision,
     searchResultPlan,
     type SearchResultFilter
   } from './invalidation';
@@ -78,6 +80,25 @@
   let stopMedia: () => void = () => {};
   let mediaTitleRevision = 0;
   let mediaContentRevision = 0;
+  const titleMatchesRevisionFor = referenceRevision<ShelfBook[]>();
+  const titleMatchTextRevisionFor =
+    referenceRevision<Record<string, readonly BookTitleMatchContext[]>>();
+  const snippetTitleRevisionFor = projectedArrayRevision<SnippetSummary>((item) => [
+    item.key,
+    item.title
+  ]);
+  const snippetContentRevisionFor = projectedArrayRevision<SnippetSummary>((item) => [
+    item.key,
+    item.title,
+    item.revision
+  ]);
+  const contentBooksRevisionFor = projectedArrayRevision<ShelfBook>((book) => [
+    book.key,
+    book.bookId,
+    book.title,
+    book.contentHash,
+    book.lastBookModified
+  ]);
   async function mediaRuntime(): Promise<LazyMediaRuntime> {
     if (!videoLearningEnabled) throw new Error('Video learning is disabled.');
     if (!mediaRuntimePromise) {
@@ -116,6 +137,11 @@
   $: eligible = $snippetItems.filter(
     (item) => !item.trashedAt && (!snippetMembers || snippetMembers.includes(snippetKey(item.id)))
   );
+  $: titleMatchesRevision = titleMatchesRevisionFor(matches);
+  $: titleMatchTextRevision = titleMatchTextRevisionFor(bookMatchText);
+  $: snippetTitleRevision = snippetTitleRevisionFor(eligible);
+  $: snippetContentRevision = snippetContentRevisionFor(eligible);
+  $: contentBooksRevision = contentBooksRevisionFor(books);
   $: scopePlan = librarySearchScopePlan(searchScope);
   $: resultPlan = searchResultPlan(filter);
   $: availableFilters = scopePlan.dictionary
@@ -129,17 +155,9 @@
         query,
         owner,
         searchScope,
-        scopePlan.books
-          ? matches.map((book) => [
-              book.key,
-              book.title,
-              book.canonicalTitle,
-              (book.creators ?? []).map((creator) => creator.name),
-              book.series?.name ?? null,
-              bookMatchText[book.key] ?? []
-            ])
-          : [],
-        scopePlan.snippets ? eligible.map((item) => [item.key, item.title]) : [],
+        scopePlan.books ? titleMatchesRevision : 0,
+        scopePlan.books ? titleMatchTextRevision : 0,
+        scopePlan.snippets ? snippetTitleRevision : 0,
         videoLearningEnabled && searchScope === 'everything' ? mediaTitleRevision : 0
       ])
     : 'inactive';
@@ -148,18 +166,8 @@
         query,
         owner,
         searchScope,
-        scopePlan.books
-          ? books.map((book) => [
-              book.key,
-              book.bookId,
-              book.title,
-              book.contentHash,
-              book.lastBookModified
-            ])
-          : [],
-        scopePlan.snippets
-          ? eligible.map((item) => [item.key, item.title, item.revision])
-          : [],
+        scopePlan.books ? contentBooksRevision : 0,
+        scopePlan.snippets ? snippetContentRevision : 0,
         videoLearningEnabled && searchScope === 'everything' ? mediaContentRevision : 0
       ])
     : 'inactive';
