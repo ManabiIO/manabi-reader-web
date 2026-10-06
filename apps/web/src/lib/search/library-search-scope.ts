@@ -30,6 +30,16 @@ export const librarySearchScopePlan = (scope: LibrarySearchScope): LibrarySearch
 export const parseLibrarySearchScope = (value: string | null): LibrarySearchScope =>
   value === 'books' || value === 'snippets' ? value : 'everything';
 
+export const MAX_LIBRARY_SEARCH_CODEPOINTS = 512;
+
+/** Count Unicode code points with an early exit; never allocate a spread array for long input. */
+export function librarySearchQueryWithinLimit(value: string): boolean {
+  let count = 0;
+  for (const _ of value) if (++count > MAX_LIBRARY_SEARCH_CODEPOINTS) return false;
+  return true;
+}
+
+
 /**
  * Unified search owns the visible surface outside selection mode. Keep the
  * hidden shelf unfiltered so typing does not also refilter/sort the entire shelf.
