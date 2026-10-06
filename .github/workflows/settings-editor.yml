@@ -26,6 +26,14 @@ concurrency:
   cancel-in-progress: true
 jobs:
   settings-editor:
+    # This exact migration is qualified once in expo-migration.yml.
+    if: >-
+      !(github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       (github.event_name == 'push' &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration')))
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
@@ -47,7 +55,7 @@ jobs:
           git rev-parse HEAD > artifacts/settings-editor/commit.txt
           git rev-parse HEAD^{tree} > artifacts/settings-editor/tree.txt
           pnpm install --frozen-lockfile
-          pnpm --dir apps/web exec svelte-kit sync
+          node scripts/prepare-expo.mjs
       - run: node tools/appearance/lint.mjs
       - run: pnpm --dir apps/web check
       - name: Build the real subpath application

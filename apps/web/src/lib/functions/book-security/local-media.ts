@@ -48,7 +48,10 @@ function cssString(value: string): string {
 }
 
 /** Local font metadata is untrusted even though the CSS element is app-owned. */
-export function buildLocalFontStyleSheet(fonts: unknown): string {
+export function buildLocalFontStyleSheet(
+  fonts: unknown,
+  embeddedUrls?: ReadonlyMap<string, string>
+): string {
   if (!Array.isArray(fonts)) return '';
   const formats: Record<string, string> = {
     woff: 'woff',
@@ -81,8 +84,12 @@ export function buildLocalFontStyleSheet(fonts: unknown): string {
       continue;
     }
     if (!format || path !== expectedPath) continue;
+    const source = embeddedUrls ? embeddedUrls.get(expectedPath) : expectedPath;
+    // Only the embedded owner may replace validated cache paths with local blobs.
+    // Never turn restored metadata or a missing cache entry into a network URL.
+    if (typeof source !== 'string' || (embeddedUrls && !source.startsWith('blob:'))) continue;
     rules.push(
-      `@font-face{font-family:${cssString(name)};font-style:normal;font-weight:400;font-display:swap;src:url(${cssString(expectedPath)}) format(${cssString(format)})}`
+      `@font-face{font-family:${cssString(name)};font-style:normal;font-weight:400;font-display:swap;src:url(${cssString(source)}) format(${cssString(format)})}`
     );
   }
   return rules.join('\n');

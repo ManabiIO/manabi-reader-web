@@ -1,8 +1,14 @@
 pnpm-lock.yaml
 build/
 .svelte-kit/
+apps/web/.expo/
+apps/web/android/
+apps/web/dist/
+apps/web/dist-android/
+apps/web/public/
+apps/web/src/app.generated.css
+apps/web/src/runtime/font-assets.ts
 apps/web/static/moss/single/moss.mjs
 apps/web/static/moss/threaded/moss.mjs
-apps/web/static/dictionary-runtime/
-apps/web/static/dictionary-archives/
-apps/web/static/manabitan/
+
+apps/web/src/lib/appearance/palettes.scss

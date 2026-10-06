@@ -12,7 +12,7 @@ import {
 import { fsStorageSource$, gDriveStorageSource$, oneDriveStorageSource$ } from '$lib/data/store';
 
 import type { BooksDbStorageSource } from '$lib/data/database/books-db/versions/books-db';
-import StorageUnlock from '$lib/components/storage-unlock.svelte';
+import { StorageUnlock } from '$runtime/../ui/dialogs';
 import { dialogManager } from '$lib/data/dialog-manager';
 import { logger } from '$lib/data/logger';
 import { storageSource$ } from '$lib/data/storage/storage-view';

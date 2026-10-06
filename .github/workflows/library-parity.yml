@@ -22,6 +22,14 @@ concurrency:
   cancel-in-progress: true
 jobs:
   parity:
+    # This exact migration is qualified once in expo-migration.yml.
+    if: >-
+      !(github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       (github.event_name == 'push' &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration')))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -45,7 +53,7 @@ jobs:
           git rev-parse HEAD > artifacts/parity/commit.txt
           git rev-parse HEAD^{tree} > artifacts/parity/tree.txt
           set -o pipefail
-          pnpm --dir apps/web exec svelte-kit sync
+          node scripts/prepare-expo.mjs
           node --test --test-concurrency=4 tests/unit/*.test.mjs 2>&1 | tee artifacts/parity/units.log
           pnpm --dir apps/web check 2>&1 | tee artifacts/parity/types.log
           node tools/appearance/lint.mjs 2>&1 | tee artifacts/parity/components.log

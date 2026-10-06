@@ -6,7 +6,7 @@
 
 import { WebDavSource } from '$lib/webdav/source';
 import { davSyncStatus, syncDavBook, syncEnabledDavBooks } from '$lib/webdav/sync';
-import { get, writable } from 'svelte/store';
+import { get, writable } from '$lib/state/store';
 import { database } from '$lib/data/store';
 import { stabilizeOrganization } from '$lib/library/organization';
 import { visibleLibraryEntries } from '$lib/library/account-visibility';

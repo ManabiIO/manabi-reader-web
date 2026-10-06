@@ -4,12 +4,20 @@ node_modules
 __pycache__/
 .cache/
 
-# Generated, pinned provider runtime and explicit-install dictionary archive
+# Generated, pinned Manabitan runtime and explicit-install dictionary archive
 /.cache/dictionary-build/
 /apps/web/static/manabitan/
 /apps/web/static/dictionary-archives/
-# Obsolete path used while developing the provider-neutral boundary.
-/apps/web/static/dictionary-runtime/
 # Build staging and recovery files are not production assets.
 /apps/web/static/.moss-runtime-*/
 /apps/web/static/.moss-publication-lock/
+
+# Expo Android/web builds (native Apple targets are intentionally not supported)
+/apps/web/.expo/
+/apps/web/android/
+/apps/web/dist/
+/apps/web/build/
+/apps/web/expo-env.d.ts
+/apps/web/public/
+/apps/web/src/app.generated.css
+/apps/web/src/runtime/font-assets.ts

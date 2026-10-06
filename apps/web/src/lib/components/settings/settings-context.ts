@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import type { Readable } from 'svelte/store';
+import type { Readable } from '$lib/state/store';
 export const SETTINGS_FILTER = Symbol('settings-filter');
 export const SETTINGS_FIELD = Symbol('settings-field');
 export type SettingsFilter = { category: string; query: string };

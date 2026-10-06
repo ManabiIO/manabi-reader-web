@@ -4,6 +4,6 @@
  * All rights reserved.
  */
 
-import type { Component } from 'svelte';
-import type { LucideProps } from '@lucide/svelte';
-export type IconDefinition = Component<LucideProps>;
+import type { ComponentType } from 'react';
+import type { LucideProps } from 'lucide-react';
+export type IconDefinition = ComponentType<LucideProps>;

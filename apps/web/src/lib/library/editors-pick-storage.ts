@@ -106,7 +106,13 @@ export class EditorsPickStorageHandler extends BrowserStorageHandler {
     // A copy may have arrived while the parser ran. Reuse it without replacing progress.
     const existing = await findEditorsPickCopy(this.digest, this.owner, this.signal);
     throwIfAborted(this.signal);
-    const id = existing ?? (await super.saveBook(...args));
+    const id =
+      existing ??
+      (await super.saveBook(book, args[1], args[2], {
+        contentHash: this.digest,
+        profileId: this.owner,
+        loadLinks: async () => (await integrationDB()).getAll('books')
+      }));
     this.savedId = id;
     return id;
   }

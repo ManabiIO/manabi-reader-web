@@ -1290,7 +1290,17 @@
 </div>
 
 <Dialog.Root bind:open={editorsPicksOpen}>
-  <Dialog.Content class="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
+  <Dialog.Content
+    class="max-h-[85dvh] overflow-hidden sm:max-w-2xl"
+    onCloseAutoFocus={(event) => {
+      const target = document.querySelector<HTMLButtonElement>(
+        'button[aria-label="Library actions"]'
+      );
+      if (!target?.isConnected) return;
+      event.preventDefault();
+      target.focus({ preventScroll: true });
+    }}
+  >
     <Dialog.Title class="sr-only">Editor's Picks</Dialog.Title>
     <Dialog.Description class="sr-only">Open a book selected by Manabi.</Dialog.Description>
     {#if editorsPicksOpen}

@@ -47,6 +47,8 @@
   export let styleSheet = '';
   export let epubResources: EpubResourceData[] | undefined;
   export let publicationManifest: PublicationManifest;
+  export let language = '';
+  export let direction: 'ltr' | 'rtl' | undefined = undefined;
   export let width: number;
   export let height: number;
   export let maxInlineSize = 0;
@@ -469,7 +471,12 @@
       styleSheet,
       publicationManifest,
       document,
-      { writingMode: verticalMode ? 'vertical-rl' : 'horizontal-tb', resources: epubResources }
+      {
+        language,
+        direction,
+        writingMode: verticalMode ? 'vertical-rl' : 'horizontal-tb',
+        resources: epubResources
+      }
     );
     book = publication.book;
     sourceSections = publication.sourceSections;

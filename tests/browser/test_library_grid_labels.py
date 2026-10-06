@@ -297,5 +297,60 @@ class LibraryGridLabels(LibraryBase):
 
 
 
+
+
+    def test_enlarged_list_keeps_titles_readable_and_actions_separate(self):
+        title = 'A Long Journey Through Japanese Literature'
+        author = 'Akari Tanaka'
+        self.import_book(title, creators=(author,))
+        self.choose_view('List')
+        for width in (320, 390, 640):
+            for scale in ('100%', '200%'):
+                with self.subTest(width=width, scale=scale):
+                    self.page.set_viewport_size({'width': width, 'height': 568})
+                    self.page.evaluate('scale => document.documentElement.style.fontSize = scale', scale)
+                    button = self.page.get_by_role('button', name='Read ' + title, exact=True)
+                    expect(button.get_by_role('heading', name=title, exact=True)).to_be_visible()
+                    expect(button.get_by_text(author, exact=True)).to_be_visible()
+                    metrics = button.evaluate('''button => {
+                      const title = button.querySelector('.book-copy h3');
+                      const box = title.getBoundingClientRect();
+                      const css = getComputedStyle(title);
+                      const card = button.closest('.shelf-item').getBoundingClientRect();
+                      const action = button.closest('.shelf-item').querySelector('.book-status button').getBoundingClientRect();
+                      return {title: {width:box.width,height:box.height,left:box.left,right:box.right},
+                        font:parseFloat(css.fontSize),line:parseFloat(css.lineHeight),
+                        card: {left:card.left,right:card.right},
+                        action: {left:action.left,right:action.right,top:action.top,bottom:action.bottom,width:action.width,height:action.height},
+                        titleTop:box.top,titleBottom:box.bottom,
+                        overflow:document.documentElement.scrollWidth-innerWidth};
+                    }''')
+                    self.assertGreaterEqual(metrics['title']['width'], 6 * metrics['font'], metrics)
+                    self.assertLessEqual(metrics['title']['height'], 6 * metrics['line'] + 1, metrics)
+                    self.assertGreaterEqual(metrics['action']['width'], 43.99, metrics)
+                    self.assertGreaterEqual(metrics['action']['height'], 43.99, metrics)
+                    self.assertTrue(metrics['action']['left'] >= metrics['title']['right'] - 1 or
+                                    metrics['action']['top'] >= metrics['titleBottom'] - 1, metrics)
+                    self.assertGreaterEqual(metrics['card']['left'], -1, metrics)
+                    self.assertLessEqual(metrics['card']['right'], width + 1, metrics)
+                    self.assertLessEqual(metrics['overflow'], 1, metrics)
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+        button = self.page.get_by_role('button', name='Select ' + title, exact=True)
+        button.focus()
+        expect(button).to_be_focused()
+        button.press('Space')
+        expect(button).to_have_attribute('aria-pressed', 'true')
+        expect(self.page.get_by_text('1 selected', exact=True)).to_be_visible()
+        badge = button.locator('.selection-label').bounding_box()
+        copy = button.locator('.book-copy').bounding_box()
+        self.assertGreaterEqual(badge['x'], 0, badge)
+        self.assertLessEqual(badge['x'] + badge['width'], copy['x'], (badge, copy))
+        expect(button.get_by_role('heading', name=title, exact=True)).to_be_visible()
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth-innerWidth'), 1)
+        self.page.screenshot(path=str(self.output / 'list-enlarged-selected-320.png'), full_page=True)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

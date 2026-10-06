@@ -232,6 +232,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
                     expect(field).to_have_css('color', palette['foreground'])
             self.page.screenshot(path='test-results/palette-' + theme + '.png', full_page=True)
         self.page.goto(self.origin + '/reader-web/statistics')
+        expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         self.assertEqual('dark', self.scheme())
         self.page.screenshot(path='test-results/appearance-statistics-dark.png', full_page=True)
 

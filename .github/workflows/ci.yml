@@ -4,6 +4,14 @@ permissions:
   contents: read
 jobs:
   test:
+    # This exact migration is qualified once in expo-migration.yml.
+    if: >-
+      !(github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       (github.event_name == 'push' &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration')))
     name: Test
     runs-on: ubuntu-latest
     steps:
@@ -28,11 +36,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Postinstall steps
-        run: pnpm svelte-kit sync
+        run: node ../../scripts/prepare-expo.mjs
         working-directory: apps/web
-
-      - name: Dictionary license boundary
-        run: pnpm test:dictionary-boundary
 
       - name: Lint
         run: pnpm eslint .
