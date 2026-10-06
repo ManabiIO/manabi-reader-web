@@ -39,6 +39,9 @@ jobs:
         run: node ../../scripts/prepare-expo.mjs
         working-directory: apps/web
 
+      - name: Dictionary license boundary
+        run: pnpm test:dictionary-boundary
+
       - name: Lint
         run: pnpm eslint .
 
