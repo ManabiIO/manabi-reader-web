@@ -97,9 +97,9 @@ export function buildBookTitleSearchSnapshot(
   for (const book of books)
     directByBook.set(
       book.key,
-      [book.title, book.canonicalTitle, ...(book.creators ?? []).map((creator) => creator.name)].map(
-        foldSearch
-      )
+      [book.title, book.canonicalTitle, ...(book.creators ?? []).map((creator) => creator.name)]
+        .filter((value): value is string => typeof value === 'string')
+        .map(foldSearch)
     );
 
   return {
