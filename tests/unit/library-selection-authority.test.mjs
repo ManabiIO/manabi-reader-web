@@ -596,7 +596,7 @@ function linkFixture(records, links) {
   const api = load('manabi/books.ts', {
     '$lib/webdav/source': {},
     '$lib/webdav/sync': {},
-    'svelte/store': { writable: store },
+    '$lib/state/store': { writable: store },
     '$lib/data/store': { database: { db: Promise.resolve({}) } },
     '$lib/library/organization': {
       stabilizeOrganization: async (all) => {
@@ -609,6 +609,9 @@ function linkFixture(records, links) {
     '$lib/data/storage/storage-handler-factory': {},
     '$lib/data/database/books-db/book-binary': {},
     '$lib/data/database/books-db/commit-transaction.mjs': { commitTransaction },
+    '$lib/data/window/navigator/persistent-storage': {
+      requestPersistentStorageOnce: () => Promise.resolve(false)
+    },
     '$lib/data/database/books-db/library-import': {
       readIndexedBookIdentities: async () => records
     },

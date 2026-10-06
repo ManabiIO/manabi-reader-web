@@ -13,7 +13,10 @@
     "format": "prettier --write .",
     "test:reader": "node test/reader/run.mjs",
     "test:whispersync": "node test/whispersync/run.mjs --coverage",
-    "prepare:dictionary": "node scripts/prepare-dictionary.mjs"
+    "prepare:dictionary": "node scripts/prepare-dictionary.mjs",
+    "test:expo": "node test/expo/run.mjs",
+    "android": "pnpm --dir apps/web android",
+    "export:android": "pnpm --dir apps/web export:android"
   },
   "devDependencies": {
     "@commitlint/cli": "21.2.2",
@@ -39,7 +42,14 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.25.0",
     "esbuild": "0.28.2",
-    "@playwright/test": "1.63.0"
+    "@playwright/test": "1.63.0",
+    "jsdom": "26.1.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "rxjs": "7.8.2",
+    "fake-indexeddb": "6.2.5",
+    "idb": "8.0.3",
+    "p-limit": "7.3.2"
   },
   "lint-staged": {
     "*.{js,cjs,mjs,ts,svelte}": [
@@ -51,5 +61,9 @@
   "engines": {
     "node": ">=24.21.0 <25",
     "pnpm": "12.3.4"
-  }
+  },
+  "packageManager": "pnpm@12.3.4",
+  "workspaces": [
+    "apps/*"
+  ]
 }

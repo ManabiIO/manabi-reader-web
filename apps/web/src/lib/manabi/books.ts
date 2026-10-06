@@ -6,7 +6,7 @@
 
 import { WebDavSource } from '$lib/webdav/source';
 import { davSyncStatus, syncDavBook, syncEnabledDavBooks } from '$lib/webdav/sync';
-import { get, writable } from 'svelte/store';
+import { get, writable } from '$lib/state/store';
 import { database } from '$lib/data/store';
 import { stabilizeOrganization } from '$lib/library/organization';
 import { visibleLibraryEntries } from '$lib/library/account-visibility';
@@ -16,6 +16,7 @@ import { getStorageHandler } from '$lib/data/storage/storage-handler-factory';
 import type { StoredBookData } from '$lib/data/database/books-db/versions/books-db';
 import { encodeBook } from '$lib/data/database/books-db/book-binary';
 import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
+import { requestPersistentStorageOnce } from '$lib/data/window/navigator/persistent-storage';
 import {
   commitLibraryBook,
   readIndexedBookIdentities
@@ -157,6 +158,7 @@ export async function importLibraryBook(
         // needs a new opaque ID. Compute non-IDB work before the transaction.
         const fallbackId = await sha256(`${id}:${crypto.randomUUID()}`);
         const currentLinks = await integration.getAll('books');
+        if (prepared) void requestPersistentStorageOnce();
         const stored = await commitLibraryBook(
           db,
           currentLinks,

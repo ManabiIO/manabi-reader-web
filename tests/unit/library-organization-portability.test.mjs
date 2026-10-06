@@ -160,3 +160,26 @@ test('promotion to a verified content key makes formerly local details portable'
   const promoted = organization({ [first]: presentation }, [first]);
   assert.deepEqual(portableOrganization(promoted), promoted);
 });
+
+test('accepted portable presentation omissions are authoritative while local-only identities survive', () => {
+  const localOnly = { ...details('Device-only'), metadata: { publisher: 'Keep locally' } };
+  const local = organization(
+    {
+      'book:1': localOnly,
+      [first]: {
+        ...details('Previously shared', 10),
+        metadata: { publisher: 'Removed remotely' },
+        series: { name: 'Removed series', index: 1 },
+        coverBlur: true
+      }
+    },
+    ['book:1', first]
+  );
+  const remote = organization({ [first]: details('Still shared', 11) }, [first]);
+  const result = applyPortableOrganization(local, remote);
+  assert.deepEqual(result.books['book:1'], localOnly);
+  assert.deepEqual(result.books[first], details('Still shared', 11));
+  assert.equal(Object.hasOwn(result.books[first], 'metadata'), false);
+  assert.equal(Object.hasOwn(result.books[first], 'series'), false);
+  assert.equal(Object.hasOwn(result.books[first], 'coverBlur'), false);
+});

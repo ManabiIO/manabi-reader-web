@@ -10,6 +10,7 @@ on:
       - 'tests/unit/unified-search.test.mjs'
       - 'tests/unit/library-search-scope.test.mjs'
       - 'tests/unit/search-normalization.test.mjs'
+      - 'tests/unit/search-invalidation.test.mjs'
       - 'tests/unit/search-source-session.test.mjs'
       - 'tests/unit/search-result-rows.test.mjs'
       - 'tests/unit/search-worker-lifetime.test.mjs'
@@ -19,6 +20,14 @@ permissions:
   contents: read
 jobs:
   lifetime:
+    # This exact migration is qualified once in expo-migration.yml.
+    if: >-
+      !(github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       (github.event_name == 'push' &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration')))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +41,7 @@ jobs:
           tests/unit/unified-search.test.mjs
           tests/unit/library-search-scope.test.mjs
           tests/unit/search-normalization.test.mjs
+          tests/unit/search-invalidation.test.mjs
           tests/unit/search-source-session.test.mjs
           tests/unit/search-result-rows.test.mjs
           tests/unit/search-worker-lifetime.test.mjs

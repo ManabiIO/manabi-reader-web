@@ -4,7 +4,6 @@
  * All rights reserved.
  */
 
-import { retainMissingBookExtensions } from './presentation-compatibility.ts';
 import { validBookMetadata, validBookSeries } from './book-presentation.ts';
 import type { BookPresentation, Organization } from './organization';
 import { WANT_TO_READ_ID, wantToReadCollection } from './want-to-read.ts';
@@ -112,13 +111,16 @@ export function applyPortableOrganization(local: Organization, remote: Organizat
         ])
       ]
     })),
-    books: retainMissingBookExtensions(local.books, {
+    // The preference protocol has already preserved omissions when talking
+    // to a legacy server. At this storage boundary, accepted portable book
+    // presentations are authoritative; only device-local identities survive.
+    books: {
       ...Object.fromEntries(
         Object.entries(local.books)
           .filter(([key]) => !isPortableBookKey(key))
           .map(([key, presentation]) => [key, structuredClone(presentation)])
       ),
       ...shared.books
-    })
+    }
   };
 }

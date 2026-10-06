@@ -29,3 +29,11 @@ export const librarySearchScopePlan = (scope: LibrarySearchScope): LibrarySearch
 
 export const parseLibrarySearchScope = (value: string | null): LibrarySearchScope =>
   value === 'books' || value === 'snippets' ? value : 'everything';
+
+/**
+ * Unified search owns the visible surface outside selection mode. Keep the
+ * hidden shelf unfiltered so typing does not also refilter/sort the entire shelf.
+ * Entering selection mode restores the real query-filtered shelf immediately.
+ */
+export const libraryShelfSearchQuery = (normalizedQuery: string, selectMode: boolean): string =>
+  selectMode ? normalizedQuery : '';

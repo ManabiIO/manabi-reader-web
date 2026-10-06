@@ -92,7 +92,7 @@ class LocalLibraryLifecycle(LocalFeatureBrowser):
             while not self.page.evaluate("async () => (await navigator.locks.query()).pending.length > 0"):
                 self.assertLess(time.monotonic(), deadline)
                 self.page.wait_for_timeout(25)
-            self.page.get_by_role('link', name='Back to Library', exact=True).click()
+            self.page.get_by_role('link', name='Back', exact=True).click()
             expect(self.page.get_by_role('region', name='Library shelves', exact=True)).to_have_attribute('data-hydrated', 'true')
         finally:
             self.release_source_lock()

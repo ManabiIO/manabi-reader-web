@@ -6,6 +6,7 @@ HTTP fixture returns controlled 503s; no Playwright route or storage substitute.
 import copy
 import json
 import socket
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -55,6 +56,49 @@ class PreferenceSyncRecovery(LibraryBase):
             });
           } finally { db.close(); }
         }''', key)
+
+    def test_pending_preference_read_survives_document_navigation(self):
+        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.get_by_label('When first enabling sync').select_option('local')
+        self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
+        expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
+        before = self.snapshot()
+        self.page.evaluate('''() => {
+          const original = window.fetch.bind(window);
+          window.__preferenceNavigationReads = [];
+          window.fetch = (input, options) => {
+            if (new URL(String(input), location.href).pathname === '/api/reader-web/preferences/')
+              window.__preferenceNavigationReads.push({method: options?.method,
+                keepalive: options?.keepalive});
+            return original(input, options);
+          };
+        }''')
+        started = threading.Event()
+        release = threading.Event()
+        original = StaticHandler.do_GET
+
+        def hold_once(handler):
+            if (urlsplit(handler.path).path == '/api/reader-web/preferences/' and
+                    not started.is_set()):
+                started.set()
+                if not release.wait(timeout=15):
+                    raise AssertionError('Preference navigation response was not released')
+            return original(handler)
+
+        # Hold a real server response, then retire the requesting document.
+        # No fetch substitute, route abort, or page-error exclusion is used.
+        with patch.object(StaticHandler, 'do_GET', hold_once):
+            try:
+                self.page.get_by_role('button', name='Sync settings now', exact=True).click()
+                self.assertTrue(started.wait(timeout=5), 'Preference GET did not reach the server')
+                self.assertEqual([{'method': 'GET', 'keepalive': True}],
+                                 self.page.evaluate('window.__preferenceNavigationReads'))
+                self.page.goto(self.origin + '/reader-web/settings')
+            finally:
+                release.set()
+        expect(self.page.get_by_role('heading', name='Settings', exact=True)).to_be_visible()
+        self.assertEqual(before['local'], self.snapshot()['local'])
+        self.assertEqual([], self.errors)
 
     def exercise(self, method, *, reload=False):
         self.page.goto(self.origin + '/reader-web/connections')
@@ -120,6 +164,55 @@ class PreferenceSyncRecovery(LibraryBase):
             self.assertEqual([], self.errors)
 
 
+    def test_font_size_draft_survives_account_refresh_and_rejects_invalid_sizes(self):
+        self.page.goto(self.origin + '/reader-web/connections')
+        expect(self.page.get_by_text('preference-recovery', exact=True)).to_be_visible()
+        font = self.page.get_by_label('Font size', exact=True)
+        font.fill('30')
+        font.press('Tab')
+        expect(font).to_have_value('30')
+        self.page.wait_for_function("localStorage.getItem('fontSize') === '30'")
+        font.fill('')
+        expect(font).to_have_value('')
+        self.assertEqual('30', self.page.evaluate("localStorage.getItem('fontSize')"))
+        # A genuine account refresh rerenders this screen while the edit is empty.
+        # Keep focus in the numeric field: moving away intentionally cancels it.
+        def session_requests():
+            return sum(request['path'].endswith('/session/')
+                       for request in StaticHandler.account_requests)
+
+        count = session_requests()
+        refresh = self.page.get_by_role('button', name='Refresh connections', exact=True)
+        # Activate the actual Refresh action while retaining input focus.
+        refresh.evaluate('(button) => button.click()')
+        deadline = time.monotonic() + 10
+        while session_requests() == count:
+            self.assertLess(time.monotonic(), deadline, 'Account refresh did not reach the fixture')
+            self.page.wait_for_timeout(25)
+        expect(refresh).to_be_enabled()
+        expect(font).to_have_value('')
+        font.press_sequentially('31')
+        font.press('Tab')
+        expect(font).to_have_value('31')
+        self.page.wait_for_function("localStorage.getItem('fontSize') === '31'")
+        for invalid in ['7', '97', '31.5', '']:
+            font.fill(invalid)
+            expect(font).to_have_value(invalid)
+            self.assertEqual('31', self.page.evaluate("localStorage.getItem('fontSize')"))
+            font.press('Tab')
+            expect(font).to_have_value('31')
+        self.page.reload()
+        expect(self.page.get_by_label('Font size', exact=True)).to_have_value('31')
+        # A synced external value owns the field even during an unfinished edit.
+        font.fill('')
+        toggle = self.page.get_by_label(
+            'Sync reader settings with this Manabi account', exact=True)
+        toggle.evaluate('(toggle) => toggle.click()')
+        expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text(
+            'synced', timeout=15000)
+        expect(font).to_have_value('12')
+        self.page.wait_for_function("localStorage.getItem('fontSize') === '12'")
+
     def preference_request_count(self):
         return sum(1 for request in StaticHandler.account_requests
                    if request['path'].endswith('/preferences/'))
@@ -130,6 +223,10 @@ class PreferenceSyncRecovery(LibraryBase):
         font = self.page.get_by_label('Font size', exact=True)
         font.fill('30')
         font.press('Tab')
+        expect(font).to_have_value('30')
+        # Observe the real setting write before admitting the first-sync intent.
+        # No repeated edit or timer sleep: a lost input still fails this assertion.
+        self.page.wait_for_function("localStorage.getItem('fontSize') === '30'")
         self.page.get_by_label('When first enabling sync').select_option('local')
         toggle = self.page.get_by_label(
             'Sync reader settings with this Manabi account', exact=True)
@@ -307,8 +404,12 @@ class PreferenceSyncRecovery(LibraryBase):
                              for item in prior.get('collections', [])))
 
         attempted = []
+        personal_attempted = []
         self.page.on('request', lambda request: attempted.append(request.url)
                      if urlsplit(request.url).path == '/api/reader-web/preferences/' else None)
+        self.page.on('request', lambda request: personal_attempted.append(request.url)
+                     if urlsplit(request.url).path.startswith('/api/reader-web/personal/') else None)
+        error_start = len(self.errors)
         self.context.set_offline(True)
         try:
             self.assertFalse(self.page.evaluate('navigator.onLine'))
@@ -330,6 +431,7 @@ class PreferenceSyncRecovery(LibraryBase):
                 self.page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
                 self.page.wait_for_timeout(50)
             self.assertEqual([], attempted, 'Local recovery attempted another preference request')
+            self.assertEqual([], personal_attempted, 'Offline recovery started a personal-data request')
             self.assertTrue(any(item['id'] == 'server-accepted' for item in
                                 self.snapshot()['local']['library_organization']['collections']))
             if edit:
@@ -337,8 +439,32 @@ class PreferenceSyncRecovery(LibraryBase):
                 self.assertEqual(31, self.snapshot()['local']['font_size'])
         finally:
             self.context.set_offline(False)
+        if self.engine == 'webkit':
+            # WebKit reports the account change-feed request as a page error
+            # while this test deliberately takes the entire context offline.
+            # The request is unrelated to preference recovery, is expected only
+            # during this bounded offline interval, and is already handled by
+            # the account sync lifetime. Keep every other page error visible.
+            expected = [
+                error for error in self.errors[error_start:]
+                if '/api/reader-web/personal/changes/' in error
+                and 'due to access control checks.' in error
+            ]
+            unexpected = [
+                error for error in self.errors[error_start:]
+                if error not in expected
+            ]
+            self.assertEqual([], unexpected)
+            if expected:
+                del self.errors[error_start:]
         self.page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
         expect(status).to_contain_text('synced', timeout=15000)
+        # Returning online also wakes personal-data sync. Preference status is
+        # independent of that request; finish the loaded document's HTTP work
+        # before testing a fresh document, rather than aborting a concurrent
+        # change-feed GET at reload. Offline recovery and every data assertion
+        # above still run while the entire context is offline.
+        self.page.wait_for_load_state('networkidle')
         self.page.reload()
         expect(self.page.get_by_text('preference-recovery', exact=True)).to_be_visible()
         self.assertTrue(any(item['id'] == 'server-accepted' for item in

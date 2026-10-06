@@ -4,7 +4,13 @@
  * All rights reserved.
  */
 
+import {
+  assertBookAccessIdentity,
+  snapshotBookAccessIdentity,
+  type BookAccessIdentity
+} from './book-identity';
 import { encodeBook, decodeBook } from './book-binary';
+import { readAdmittedBook, type AdmittedBookReadAuthority } from './admitted-book-read';
 import {
   contentStatisticKey,
   migrateLegacyStatistics,
@@ -27,6 +33,7 @@ import {
   snapshotBookmarkData
 } from './book-records';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
+import { visibleLibraryEntries } from '$lib/library/account-visibility';
 import type {
   BooksDbAudioBook,
   BooksDbBookData,
@@ -37,7 +44,7 @@ import type {
   BooksDbSubtitleData,
   StoredBookData
 } from '$lib/data/database/books-db/versions/books-db';
-import { Observable, Subject, from } from 'rxjs';
+import { BehaviorSubject, Observable, Subject, from } from 'rxjs';
 import { StorageDataType, StorageKey } from '$lib/data/storage/storage-types';
 import { getDateKey, mergeStatistics, updateStatisticToStore } from '$lib/functions/statistic-util';
 import { catchError, map, shareReplay, startWith, switchMap, tap } from 'rxjs/operators';
@@ -52,9 +59,9 @@ import type { BaseStorageHandler } from '$lib/data/storage/handler/base-handler'
 import type { BookStatistic } from '$lib/components/statistics/statistics-types';
 import type BooksDb from '$lib/data/database/books-db/versions/books-db';
 import type { IDBPDatabase } from 'idb';
-import LogReportDialog from '$lib/components/log-report-dialog.svelte';
+import { LogReportDialog } from '$runtime/../ui/dialogs';
 import { MergeMode } from '$lib/data/merge-mode';
-import MessageDialog from '$lib/components/message-dialog.svelte';
+import { MessageDialog } from '$runtime/../ui/dialogs';
 import { ReplicationSaveBehavior } from '$lib/functions/replication/replication-options';
 import { dialogManager } from '$lib/data/dialog-manager';
 import { getDefaultStatistic } from '$lib/components/book-reader/book-reading-tracker/book-reading-tracker';
@@ -79,6 +86,53 @@ interface DirectImportDataStore {
 }
 interface DirectImportScopeStore {
   get(id: number): Promise<{ bookId: number; accountId: string; hydrated?: boolean } | undefined>;
+}
+
+/** DOM-only catalog policy. No callback or ownership data is accepted from native payloads. */
+export interface CatalogImportAdmission {
+  contentHash: string;
+  profileId: string | null;
+  /** Integration links occupy a separate database; capture them after binary preparation. */
+  loadLinks(): Promise<{ bookId: number; owner: string | null; contentHash?: string }[]>;
+  /** Storage adapter bookkeeping only, after a successful no-write transaction. */
+  onReuse?(): void;
+}
+
+async function selectCatalogImportRecord(
+  store: DirectImportDataStore,
+  ownerStore: DirectImportScopeStore,
+  hash: string,
+  profileId: string | null,
+  links: Awaited<ReturnType<CatalogImportAdmission['loadLinks']>>,
+  assertCurrent: () => void,
+  signal?: AbortSignal
+): Promise<StoredBookData | undefined> {
+  const ids = await contentHashPrimaryKeys(store.index('contentHash'), hash, assertCurrent, signal);
+  let selected: StoredBookData | undefined;
+  for (const id of ids) {
+    assertCurrent();
+    throwIfAborted(signal);
+    const book = await store.get(id);
+    const owner = await ownerStore.get(id);
+    assertCurrent();
+    throwIfAborted(signal);
+    if (!book || normalizedDirectImportHash(book.contentHash) !== hash)
+      throw new Error('The matching catalog copy changed. No book was changed.');
+    if (
+      (owner && owner.accountId !== profileId) ||
+      !visibleLibraryEntries([{ id, libraryOwner: book.libraryOwner }], links, profileId).cards
+        .length
+    )
+      throw new Error('A matching catalog copy belongs to another account. No book was changed.');
+    if (book.storageSource)
+      throw new Error('A matching copy belongs to a connected library. No book was changed.');
+    if (!book.elementHtml)
+      throw new Error('A matching catalog copy is incomplete. Open it from the Library.');
+    if (selected)
+      throw new Error('Several local copies match this catalog book. No book was changed.');
+    selected = book;
+  }
+  return selected;
 }
 
 async function selectDirectImportRecord(
@@ -147,7 +201,9 @@ export class DatabaseService {
 
   isReady$: Observable<boolean>;
 
-  listLoading$ = new Subject<boolean>();
+  // Library routes can subscribe after dataList$ has already replayed a ready
+  // list to another mounted screen. Readiness is state, not a one-off event.
+  listLoading$ = new BehaviorSubject<boolean>(true);
 
   dataListChanged$ = new Subject<BaseStorageHandler | undefined>();
 
@@ -243,6 +299,27 @@ export class DatabaseService {
       return book ? decodeBook(book) : undefined;
     }
     return undefined;
+  }
+
+  async getAdmittedData(
+    dataId: number,
+    expectedBook: BookAccessIdentity,
+    authority: AdmittedBookReadAuthority
+  ): Promise<BooksDbBookData> {
+    // Freeze before the database opens so caller mutation cannot retarget a read.
+    const expected = snapshotBookAccessIdentity(expectedBook);
+    if (dataId !== expected.bookId)
+      throw new Error('The book selection changed. Refresh the Library and select it again.');
+    const { signal, profileId, assertCurrent } = authority;
+    signal.throwIfAborted();
+    assertCurrent();
+    const db = await this.db;
+    signal.throwIfAborted();
+    assertCurrent();
+    const book = await readAdmittedBook(db, expected, { signal, profileId, assertCurrent });
+    signal.throwIfAborted();
+    assertCurrent();
+    return decodeBook(book);
   }
 
   async getDataByTitle(title: string) {
@@ -381,12 +458,23 @@ export class DatabaseService {
     saveBehavior: ReplicationSaveBehavior,
     skipTimestampFallback = true,
     removeStorageContext = true,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    catalogAdmission?: CatalogImportAdmission
   ) {
     const scope = captureLibraryOperation();
     try {
       scope.assertCurrent();
       throwIfAborted(signal);
+      const catalog = catalogAdmission
+        ? {
+            contentHash: normalizedDirectImportHash(catalogAdmission.contentHash),
+            profileId: catalogAdmission.profileId,
+            loadLinks: catalogAdmission.loadLinks,
+            onReuse: catalogAdmission.onReuse
+          }
+        : undefined;
+      if (catalog && (!catalog.contentHash || catalog.profileId !== scope.profileId))
+        throw new Error('The catalog import belongs to a different book or profile.');
       // encodeBook takes its owned snapshot synchronously, before either the
       // database promise or image reads can let the caller mutate the payload.
       const encoding = encodeBook(data);
@@ -395,7 +483,18 @@ export class DatabaseService {
       const [stored, db] = await Promise.all([encoding, this.db]);
       scope.assertCurrent();
       throwIfAborted(signal);
+      if (
+        catalog &&
+        (normalizedDirectImportHash(stored.contentHash) !== catalog.contentHash ||
+          stored.storageSource ||
+          !stored.elementHtml)
+      )
+        throw new Error('The imported book does not match the selected catalog download.');
+      const links = catalog ? structuredClone(await catalog.loadLinks()) : undefined;
+      scope.assertCurrent();
+      throwIfAborted(signal);
       const tx = db.transaction(['data', 'readerBookScope'], 'readwrite');
+      let catalogReused = false;
       const abort = () => {
         try {
           tx.abort();
@@ -416,16 +515,32 @@ export class DatabaseService {
         // re-import. The shared selector uses compact index keys and loads only
         // matching candidate records; the final choice remains inside this write
         // transaction so another tab cannot race selection and publication.
-        const oldData = await selectDirectImportRecord(
-          store,
-          ownerStore,
-          stored,
-          scope.profileId,
-          scope.assertCurrent,
-          signal
-        );
+        const oldData = catalog
+          ? await selectCatalogImportRecord(
+              store,
+              ownerStore,
+              catalog.contentHash!,
+              scope.profileId,
+              links!,
+              scope.assertCurrent,
+              signal
+            )
+          : await selectDirectImportRecord(
+              store,
+              ownerStore,
+              stored,
+              scope.profileId,
+              scope.assertCurrent,
+              signal
+            );
 
         if (oldData) {
+          // A catalog copy may arrive during binary encoding. Reuse its actual
+          // transaction record unchanged, never adopt/replace it via ordinary upsert.
+          if (catalog) {
+            catalogReused = true;
+            return decodeBook(oldData);
+          }
           if (
             saveBehavior === ReplicationSaveBehavior.NewOnly &&
             oldData.lastBookModified &&
@@ -482,6 +597,7 @@ export class DatabaseService {
       // acknowledge a result to the next profile or a cancelled caller.
       scope.assertCurrent();
       throwIfAborted(signal);
+      if (catalogReused) catalog?.onReuse?.();
       return result;
     } finally {
       scope.stop();
@@ -494,10 +610,27 @@ export class DatabaseService {
     cancelSignal: AbortSignal,
     keepLocalStatistics: boolean,
     profileId?: string | null,
-    assertCurrent?: () => void
+    assertCurrent?: () => void,
+    expectedBooks?: ReadonlyMap<number, BookAccessIdentity>
   ) {
     // Snapshot the selected IDs, not their mutable title/resume metadata.
     const selectedIds = [...new Set(dataIds)];
+    // Supplying admission identities opts the entire selection into validation.
+    // A missing map entry must never fall back to an unguarded numeric-ID delete.
+    // Copy before opening the database so callers cannot mutate a pending admission.
+    const expectedSelection =
+      expectedBooks === undefined
+        ? undefined
+        : new Map(
+            selectedIds.map((id) => {
+              const expected = expectedBooks.get(id);
+              if (!expected || expected.bookId !== id)
+                throw new Error(
+                  'The deletion selection changed. Refresh the Library and select it again.'
+                );
+              return [id, snapshotBookAccessIdentity(expected)] as const;
+            })
+          );
     const db = await this.db;
     const deleted: number[] = [];
     const limiter = pLimit(1);
@@ -521,7 +654,8 @@ export class DatabaseService {
                 !keepLocalStatistics,
                 profileId,
                 assertCurrent,
-                cancelSignal
+                cancelSignal,
+                expectedSelection?.get(id)
               )
             );
           } catch (error) {
@@ -636,7 +770,8 @@ export class DatabaseService {
     shouldDeleteStatistics: boolean,
     profileId?: string | null,
     assertCurrent?: () => void,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    expectedBook?: BookAccessIdentity
   ) {
     const storeNames: (
       | 'data'
@@ -663,6 +798,8 @@ export class DatabaseService {
     ];
     if (shouldDeleteStatistics)
       storeNames.push('statistic', 'lastModified', 'readerStatistic', 'readerLocalIdentity');
+    else if (expectedBook?.readerBookKey?.startsWith('local:'))
+      storeNames.push('readerLocalIdentity');
 
     const tx = db.transaction(storeNames, 'readwrite');
     let removedLastItem = false;
@@ -681,7 +818,15 @@ export class DatabaseService {
         // A batch may span reader writes, renames and other tabs. Decisions must
         // use the current record in the same transaction as its deletion.
         const book = await tx.objectStore('data').get(dataId);
+        if (expectedBook) {
+          const identity = expectedBook.readerBookKey?.startsWith('local:')
+            ? await tx.objectStore('readerLocalIdentity').get(dataId)
+            : undefined;
+          assertBookAccessIdentity(book, expectedBook, identity);
+        }
         const owner = await tx.objectStore('readerBookScope').get(dataId);
+        assertCurrent?.();
+        throwIfAborted(signal);
         if (
           profileId !== undefined &&
           ((book?.libraryOwner && book.libraryOwner !== profileId) ||

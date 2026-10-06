@@ -1,0 +1,1118 @@
+/** @license BSD-3-Clause */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { buildSync } from 'esbuild';
+import 'fake-indexeddb/auto';
+import { openDB } from 'idb';
+const output = mkdtempSync(join(tmpdir(), 'native-library-'));
+const require = createRequire(import.meta.url);
+function bundle(name) {
+  const outfile = join(output, `${name}.cjs`);
+  buildSync({
+    entryPoints: [resolve(`apps/web/src/native-library/${name}.ts`)],
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    outfile,
+    tsconfig: 'apps/web/tsconfig.json',
+    logLevel: 'silent'
+  });
+  return require(outfile);
+}
+const { NativeLibraryService } = bundle('service');
+const {
+  parseLibraryQuery,
+  libraryNodes,
+  reconcileNativeSelection,
+  nativeOwnedCards,
+  nativeBook,
+  selectedLibraryTheme
+} = bundle('view-model');
+const { readLibrarySort, librarySortChoices } = (() => {
+  const outfile = join(output, 'sort-options.cjs');
+  buildSync({
+    entryPoints: [resolve('apps/web/src/features/library/sort-options.ts')],
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    outfile,
+    logLevel: 'silent'
+  });
+  return require(outfile);
+})();
+const { commitNativeCompletion } = bundle('completion');
+const org = () => ({ version: 1, collections: [], books: {} });
+function book(id = 1, extra = {}) {
+  return {
+    key: `book:${id}`,
+    bookId: id,
+    organizationKey: `content:${String(id).repeat(64).slice(0, 64)}`,
+    organizationAliases: [`book:${id}`, `content:${String(id).repeat(64).slice(0, 64)}`],
+    title: `Book ${id}`,
+    canonicalTitle: `Book ${id}`,
+    imagePath: '',
+    characters: 1000,
+    lastBookModified: 10,
+    lastBookOpen: id,
+    progress: 0.3,
+    lastBookmarkModified: 1,
+    isPlaceholder: false,
+    direction: 'unknown',
+    contentHash: String(id).repeat(64).slice(0, 64),
+    ...extra
+  };
+}
+const tree = (books) => books.map((book) => ({ kind: 'book', id: book.key, book }));
+function setup(books = [book()]) {
+  let data = { tree: tree(books), organization: org(), sources: [] };
+  let scope = 'session:0';
+  const abort = new AbortController();
+  let serial = 0;
+  let now = 100;
+  const writes = [];
+  let loadHook;
+  const authority = {
+    key: scope,
+    signal: abort.signal,
+    assertCurrent() {
+      if (authority.key !== scope) throw new Error('account changed');
+    }
+  };
+  const service = new NativeLibraryService(
+    {
+      async load() {
+        await loadHook?.();
+        return structuredClone(data);
+      },
+      async write(...args) {
+        args[3].assertCurrent();
+        args[3].signal.throwIfAborted();
+        if (args[0].type === 'finished.order') data.finishedOrder = args[0].value;
+        if (args[0].type === 'sort') data.sort = readLibrarySort(args[0]);
+        if (args[0].type === 'layout') {
+          const { scope, value } = args[0];
+          data.layouts = {
+            ...data.layouts,
+            [scope]: scope === 'finished' && value === 'list' ? 'timeline' : value
+          };
+        }
+        writes.push(args);
+      }
+    },
+    () => `opaque_${++serial}`,
+    () => now
+  );
+  return {
+    service,
+    authority,
+    writes,
+    get data() {
+      return data;
+    },
+    set data(value) {
+      data = value;
+    },
+    changeScope(value) {
+      scope = value;
+    },
+    tick(value) {
+      now += value;
+    },
+    cancel() {
+      abort.abort();
+    },
+    hook(fn) {
+      loadHook = fn;
+    }
+  };
+}
+test('queries and actions are bounded and reject arbitrary network/file capabilities', async () => {
+  for (const query of [
+    { limit: 61 },
+    { offset: -1 },
+    { query: 'x'.repeat(501) },
+    { detail: 'x'.repeat(129) },
+    { url: 'https://example.org' },
+    { sort: 'contentHash' },
+    { unfinished: 'yes' }
+  ])
+    assert.throws(() => parseLibraryQuery(query));
+  const f = setup();
+  const state = await f.service.state({}, f.authority);
+  await assert.rejects(
+    f.service.action(
+      { token: state.token, type: 'fetch', url: 'https://example.org' },
+      f.authority
+    ),
+    /Unsupported/
+  );
+  await assert.rejects(
+    f.service.action(
+      {
+        token: state.token,
+        type: 'presentation',
+        keys: [state.items[0].key],
+        change: { cover: 'file:///secret' }
+      },
+      f.authority
+    ),
+    /Invalid metadata/
+  );
+  assert.equal(f.writes.length, 0);
+});
+test('state pages, opaque source handles, series navigation and detail are portable', async () => {
+  const f = setup(Array.from({ length: 63 }, (_, i) => book(i + 1)));
+  const source = {
+    id: 'source',
+    root: 'https://user:secret@private/path',
+    owner: null,
+    provider: 'webdav',
+    name: 'My shelf'
+  };
+  f.data.sources = [source];
+  f.data.tree[0].book.source = source;
+  const page = await f.service.state({ sort: 'id', direction: 'asc' }, f.authority);
+  assert.equal(page.items.length, 60);
+  assert.equal(page.total, 63);
+  assert.equal(page.items[0].progress, 0.3);
+  assert.ok(!JSON.stringify(page).includes('secret'));
+  assert.ok(!JSON.stringify(page).includes('private/path'));
+  const detail = await f.service.state({ detail: page.items[0].key }, f.authority);
+  assert.equal(detail.detail.title, 'Book 1');
+  const next = await f.service.state({ offset: 60, sort: 'id', direction: 'asc' }, f.authority);
+  assert.equal(next.items.length, 3);
+  const nested = book(5, { series: { name: 'Set', index: 1 } });
+  f.data.tree = [
+    {
+      kind: 'series',
+      id: 'physical:private/path',
+      directoryId: 'private/path',
+      name: 'Set',
+      books: [nested],
+      children: tree([nested])
+    }
+  ];
+  const folders = await f.service.state({}, f.authority);
+  assert.ok(!JSON.stringify(folders).includes('private/path'));
+  const inside = await f.service.state({ series: folders.items[0].key }, f.authority);
+  assert.equal(inside.items[0].title, 'Book 5');
+  assert.equal(inside.trail[0].name, 'Set');
+});
+test('filters preserve aliases, Unicode search, finished semantics and volume order', () => {
+  const one = book(1, {
+    title: 'Ｃａｆé',
+    creators: [{ name: 'Alice' }],
+    series: { name: 'Set', index: 3 }
+  });
+  const two = book(2, { series: { name: 'Set', index: 1 }, progress: 1 });
+  const organization = org();
+  organization.collections.push({ id: 'want-to-read', name: 'Want to Read', members: ['book:1'] });
+  assert.equal(
+    libraryNodes(tree([one, two]), organization, parseLibraryQuery({ query: 'café' })).nodes.length,
+    1
+  );
+  assert.equal(
+    libraryNodes(tree([one, two]), organization, parseLibraryQuery({ query: 'alice' })).nodes
+      .length,
+    1
+  );
+  assert.equal(
+    libraryNodes(tree([one, two]), organization, parseLibraryQuery({ collection: 'want-to-read' }))
+      .nodes[0].book.bookId,
+    1
+  );
+  assert.equal(
+    libraryNodes(tree([one, two]), organization, parseLibraryQuery({ collection: 'finished' }))
+      .nodes[0].book.bookId,
+    2
+  );
+  const grouped = [
+    {
+      kind: 'series',
+      id: 'series',
+      directoryId: '',
+      name: 'Set',
+      personal: true,
+      books: [one, two],
+      children: tree([one, two])
+    }
+  ];
+  assert.equal(
+    libraryNodes(grouped, organization, parseLibraryQuery({ sort: 'title' }), 'series').nodes[0]
+      .book.bookId,
+    2
+  );
+  assert.deepEqual(
+    reconcileNativeSelection(
+      ['a', 'b', 'a'],
+      [
+        { kind: 'book', key: 'a' },
+        { kind: 'series', key: 'b' }
+      ]
+    ),
+    ['a']
+  );
+});
+test('forged selection, expired admission and built-in collection mutations fail closed', async () => {
+  const f = setup();
+  let state = await f.service.state({}, f.authority);
+  await assert.rejects(
+    f.service.action(
+      {
+        token: state.token,
+        type: 'membership',
+        keys: ['forged'],
+        collection: 'want-to-read',
+        included: true
+      },
+      f.authority
+    ),
+    /outside/
+  );
+  await assert.rejects(
+    f.service.action(
+      { token: state.token, type: 'collection.remove', collection: 'want-to-read' },
+      f.authority
+    ),
+    /built-in/
+  );
+  f.tick(600001);
+  await assert.rejects(
+    f.service.action(
+      { token: state.token, type: 'completion', keys: [state.items[0].key], state: 'finished' },
+      f.authority
+    ),
+    /expired/
+  );
+  assert.equal(f.writes.length, 0);
+});
+test('profile ABA and cancellation during reads cannot publish state or mutate', async () => {
+  const f = setup();
+  const state = await f.service.state({}, f.authority);
+  f.changeScope('session:2');
+  await assert.rejects(
+    f.service.action(
+      { token: state.token, type: 'completion', keys: [state.items[0].key], state: 'reading' },
+      f.authority
+    ),
+    /account changed/
+  );
+  const g = setup();
+  g.hook(() => g.cancel());
+  await assert.rejects(g.service.state({}, g.authority), /abort/i);
+  assert.equal(g.writes.length, 0);
+});
+test('a replaced numeric book identity rejects an old selection and consumes admission', async () => {
+  const f = setup();
+  const state = await f.service.state({}, f.authority);
+  f.data.tree[0].book.contentHash = 'f'.repeat(64);
+  const payload = {
+    token: state.token,
+    type: 'completion',
+    keys: [state.items[0].key],
+    state: 'reading'
+  };
+  await assert.rejects(f.service.action(payload, f.authority), /book changed/);
+  await assert.rejects(f.service.action(payload, f.authority), /expired/);
+  assert.equal(f.writes.length, 0);
+});
+test('action owns caller payload before suspension and allows only one admitted write', async () => {
+  const f = setup();
+  const state = await f.service.state({}, f.authority);
+  let release;
+  f.hook(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      })
+  );
+  const payload = {
+    token: state.token,
+    type: 'presentation',
+    keys: [state.items[0].key],
+    change: { title: 'New title' }
+  };
+  const pending = f.service.action(payload, f.authority);
+  payload.change.title = 'Changed after admission';
+  release();
+  await pending;
+  assert.equal(f.writes[0][0].change.title, 'New title');
+  await assert.rejects(f.service.action(payload, f.authority), /expired/);
+});
+test('unverified source previews cannot write locator-only organization', async () => {
+  const f = setup([
+    book(1, { bookId: undefined, organizationKey: 'source:private-path', contentHash: undefined })
+  ]);
+  const state = await f.service.state({}, f.authority);
+  await assert.rejects(
+    f.service.action(
+      {
+        token: state.token,
+        type: 'membership',
+        keys: [state.items[0].key],
+        collection: 'want-to-read',
+        included: true
+      },
+      f.authority
+    ),
+    /identity is not verified/
+  );
+  assert.equal(f.writes.length, 0);
+});
+async function database() {
+  return openDB(`native-library-${crypto.randomUUID()}`, 1, {
+    upgrade(db) {
+      db.createObjectStore('data', { keyPath: 'id' });
+      db.createObjectStore('bookmark', { keyPath: 'dataId' });
+      db.createObjectStore('readerBookScope', { keyPath: 'bookId' });
+    }
+  });
+}
+const guard = (signal = new AbortController().signal, assertCurrent = () => {}) => ({
+  key: 'session:0',
+  signal,
+  assertCurrent
+});
+async function seed(db, target, owner) {
+  await db.put('data', {
+    id: target.bookId,
+    title: target.canonicalTitle,
+    lastBookModified: target.lastBookModified,
+    contentHash: target.contentHash,
+    ...(owner ? { libraryOwner: owner } : {})
+  });
+  await db.put('bookmark', {
+    dataId: target.bookId,
+    progress: 'anchor-27',
+    exploredCharCount: 300,
+    lastBookmarkModified: 11
+  });
+}
+test('completion transaction preserves position and statistics-independent state', async () => {
+  const db = await database();
+  const target = book();
+  await seed(db, target);
+  await commitNativeCompletion(db, [target], 'finished', '2026-01-02', null, guard());
+  const mark = await db.get('bookmark', 1);
+  assert.equal(mark.progress, 'anchor-27');
+  assert.equal(mark.exploredCharCount, 300);
+  assert.equal(mark.completion.finishedOn, '2026-01-02');
+  await commitNativeCompletion(db, [target], 'reading', undefined, null, guard());
+  assert.equal((await db.get('bookmark', 1)).completion.state, 'reading');
+  db.close();
+});
+test('completion ownership and content checks roll back the entire selected batch', async () => {
+  const db = await database();
+  const one = book(1),
+    two = book(2);
+  await seed(db, one);
+  await seed(db, two, 'other-profile');
+  await assert.rejects(
+    commitNativeCompletion(db, [one, two], 'finished', '2026-01-02', null, guard()),
+    /another account/
+  );
+  assert.equal((await db.get('bookmark', 1)).completion, undefined);
+  await assert.rejects(
+    commitNativeCompletion(
+      db,
+      [book(1, { contentHash: 'f'.repeat(64) })],
+      'reading',
+      undefined,
+      null,
+      guard()
+    ),
+    /book changed/
+  );
+  db.close();
+});
+test('cancellation after first completion put aborts every write', async () => {
+  const db = await database();
+  const one = book(1),
+    two = book(2);
+  await seed(db, one);
+  await seed(db, two);
+  const controller = new AbortController();
+  let checks = 0;
+  await assert.rejects(
+    commitNativeCompletion(
+      db,
+      [one, two],
+      'finished',
+      '2026-01-02',
+      null,
+      guard(controller.signal, () => {
+        if (++checks === 4) controller.abort();
+      })
+    ),
+    /abort/i
+  );
+  assert.equal((await db.get('bookmark', 1)).completion, undefined);
+  assert.equal((await db.get('bookmark', 2)).completion, undefined);
+  db.close();
+});
+
+test('DOM projection protects account visibility and foreign personal progress independently', () => {
+  const summaries = [
+    book(1),
+    book(2, { libraryOwner: 'other', lastBookOpen: 99 }),
+    book(3, { lastBookOpen: 88 })
+  ].map((value) => ({ ...value, id: value.bookId }));
+  const projected = nativeOwnedCards(
+    summaries,
+    [],
+    [
+      { dataId: 1, progress: '75%', lastBookmarkModified: 15 },
+      {
+        dataId: 3,
+        progress: 1,
+        lastBookmarkModified: 100,
+        completion: { state: 'finished', finishedOn: '2026-01-01', modifiedAt: 100 }
+      }
+    ],
+    [{ bookId: 3, accountId: 'other' }],
+    null
+  );
+  assert.deepEqual(
+    projected.cards.map((card) => card.id),
+    [1, 3]
+  );
+  assert.equal(projected.cards[0].progress, 0.75);
+  assert.equal(projected.cards[1].progress, 0);
+  assert.equal(projected.cards[1].lastBookOpen, 0);
+  assert.equal(projected.cards[1].completion, undefined);
+  assert.equal(projected.cards[1].lastBookmarkModified, 0);
+});
+
+test('native access admission owns exact identities, rejects replacements and consumes its token', async () => {
+  const f = setup();
+  const state = await f.service.state({}, f.authority);
+  const request = { token: state.token, keys: [state.items[0].key], operation: 'open' };
+  const identities = await f.service.admitAccess(request, f.authority);
+  assert.deepEqual(identities, [
+    { bookId: 1, contentHash: '1'.repeat(64), title: 'Book 1', lastBookModified: 10 }
+  ]);
+  await assert.rejects(f.service.admitAccess(request, f.authority), /expired/);
+  const second = await f.service.state({}, f.authority);
+  f.data.tree[0].book.contentHash = 'e'.repeat(64);
+  await assert.rejects(
+    f.service.admitAccess(
+      { token: second.token, keys: [second.items[0].key], operation: 'delete' },
+      f.authority
+    ),
+    /book changed/
+  );
+});
+test('native access never opens source-only or placeholder books and cannot target unseen rows', async () => {
+  const f = setup([book(1, { isPlaceholder: true })]);
+  const state = await f.service.state({}, f.authority);
+  await assert.rejects(
+    f.service.admitAccess(
+      { token: state.token, keys: [state.items[0].key], operation: 'open' },
+      f.authority
+    ),
+    /available imported copy/
+  );
+  await assert.rejects(
+    f.service.admitAccess(
+      { token: state.token, keys: ['forged'], operation: 'delete' },
+      f.authority
+    ),
+    /available imported copy/
+  );
+});
+test('two physical copies of one saved book have distinct opaque row handles', async () => {
+  const source = {
+    id: 'source',
+    root: 'private-path',
+    owner: null,
+    provider: 'local',
+    name: 'Folder'
+  };
+  const first = book(1, {
+    source,
+    file: { id: 'one', name: 'one.epub', kind: 'file', parent: '' }
+  });
+  const second = book(1, {
+    source,
+    file: { id: 'two', name: 'two.epub', kind: 'file', parent: '' }
+  });
+  const f = setup([first, second]);
+  const state = await f.service.state({}, f.authority);
+  assert.notEqual(state.items[0].key, state.items[1].key);
+  const detail = await f.service.state({ detail: state.items[1].key }, f.authority);
+  assert.equal(detail.detail.title, 'Book 1');
+  await f.service.action(
+    {
+      token: detail.token,
+      type: 'presentation',
+      keys: [detail.detail.key],
+      change: { coverBlur: true }
+    },
+    f.authority
+  );
+  assert.equal(f.writes[0][1][0].file.id, 'two');
+});
+
+test('Library access retains the original canonical key for ordinary open and delete', async () => {
+  for (const operation of ['open', 'delete']) {
+    const f = setup([book(1, { contentHash: undefined })]);
+    f.data.coverIdentities = { 1: 'local:11111111-1111-4111-8111-111111111111' };
+    const state = await f.service.state({}, f.authority);
+    const result = await f.service.admitAccess(
+      { token: state.token, keys: [state.items[0].key], operation },
+      f.authority
+    );
+    assert.equal(result[0].readerBookKey, f.data.coverIdentities[1]);
+    assert.equal(f.writes.length, 0);
+  }
+});
+
+test('Library canonical admissions reject identical hashless reimports, missing proof and ABA', async () => {
+  for (const change of ['uuid', 'missing', 'aba']) {
+    const f = setup([book(1, { contentHash: undefined })]);
+    f.data.coverIdentities = { 1: 'local:11111111-1111-4111-8111-111111111111' };
+    const state = await f.service.state({}, f.authority);
+    if (change === 'uuid') f.data.coverIdentities[1] = 'local:22222222-2222-4222-8222-222222222222';
+    if (change === 'missing') f.data.coverIdentities = {};
+    if (change === 'aba') {
+      f.authority.key = 'session:2';
+      f.changeScope('session:2');
+    }
+    await assert.rejects(
+      f.service.admitAccess(
+        { token: state.token, keys: [state.items[0].key], operation: 'open' },
+        f.authority
+      ),
+      /changed|expired/
+    );
+    assert.equal(f.writes.length, 0);
+  }
+});
+
+test('native book presentation preserves canonical unread evidence and truncates percentages like the Svelte shelf', () => {
+  assert.equal(
+    nativeBook(book(1, { lastBookOpen: 0, lastBookmarkModified: 0, progress: 0.999 }), 'key', org())
+      .readingLabel,
+    'Unread'
+  );
+  assert.equal(
+    nativeBook(book(1, { lastBookOpen: 1, progress: 0.039 }), 'key', org()).readingLabel,
+    '3%'
+  );
+  assert.equal(
+    nativeBook(book(1, { lastBookOpen: 1, progress: 0 }), 'key', org()).readingLabel,
+    '0%'
+  );
+  assert.equal(
+    nativeBook(
+      book(1, { completion: { state: 'finished', finishedOn: '2026-10-02' } }),
+      'key',
+      org()
+    ).readingLabel,
+    'Finished'
+  );
+});
+
+test('library appearance is a detached owner snapshot, retaining saved dark/custom preferences without mutation authority', async () => {
+  const f = setup();
+  f.data.uiTheme = {
+    themeId: 'custom-test',
+    appearance: 'dark',
+    customThemes: { 'custom-test': { background: '#123456' } }
+  };
+  const state = await f.service.state({}, f.authority);
+  assert.deepEqual(state.uiTheme, f.data.uiTheme);
+  state.uiTheme.customThemes['custom-test'].background = '#ffffff';
+  assert.equal(f.data.uiTheme.customThemes['custom-test'].background, '#123456');
+  assert.equal(f.writes.length, 0);
+});
+
+test('native hides a retained completion date when the canonical state is still reading', () => {
+  const value = nativeBook(
+    book(1, { completion: { state: 'reading', finishedOn: '2026-10-02' } }),
+    'key',
+    org()
+  );
+  assert.equal(value.readingLabel, '30%');
+  assert.equal(value.finishedOn, undefined);
+});
+
+test('native Library appearance carries only the selected custom palette, not unrelated saved themes', () => {
+  const custom = Object.fromEntries(
+    Array.from({ length: 1000 }, (_, index) => [`theme-${index}`, { backgroundColor: '#123456' }])
+  );
+  const result = selectedLibraryTheme('theme-42', 'dark', custom);
+  assert.deepEqual(Object.keys(result.customThemes), ['theme-42']);
+  assert.equal(result.themeId, 'theme-42');
+  assert.equal(result.appearance, 'dark');
+  result.customThemes['theme-42'].backgroundColor = '#ffffff';
+  assert.equal(custom['theme-42'].backgroundColor, '#123456');
+  assert.deepEqual(selectedLibraryTheme('manabi-theme', 'system', custom).customThemes, {});
+});
+
+test('all eight saved Library sort choices restore and explicit query overrides remain transient', async () => {
+  assert.equal(librarySortChoices.length, 8);
+  for (const { property } of librarySortChoices)
+    for (const direction of ['asc', 'desc']) {
+      const f = setup([book(1, { title: 'Zulu' }), book(2, { title: 'Alpha' })]);
+      const before = await f.service.state({}, f.authority);
+      await f.service.action(
+        { token: before.token, type: 'sort', property, direction },
+        f.authority
+      );
+      const restored = await f.service.state({}, f.authority);
+      assert.deepEqual(restored.sort, { property, direction });
+      const override = await f.service.state({ sort: 'id', direction: 'asc' }, f.authority);
+      assert.deepEqual(override.sort, { property: 'id', direction: 'asc' });
+      assert.equal(override.items[0].bookId, 1);
+      assert.deepEqual((await f.service.state({}, f.authority)).sort, { property, direction });
+      if (property === 'title') assert.equal(restored.items[0].bookId, direction === 'asc' ? 2 : 1);
+      assert.equal(f.writes.length, 1);
+      assert.deepEqual(f.writes[0][1], [], 'sort changes never target a book');
+    }
+});
+test('saved sorting rejects arbitrary fields, stale or reused admissions, and cancellation before write', async () => {
+  const f = setup();
+  const state = await f.service.state({}, f.authority);
+  for (const change of [
+    { property: 'contentHash', direction: 'asc' },
+    { property: 'title', direction: 'sideways' },
+    { property: 'title', direction: 'asc', key: 'book:1' },
+    { property: 'title', direction: 'asc', url: 'https://example.org' },
+    { direction: 'asc' }
+  ])
+    await assert.rejects(
+      f.service.action({ token: state.token, type: 'sort', ...change }, f.authority)
+    );
+  assert.equal(f.writes.length, 0);
+  const action = { token: state.token, type: 'sort', property: 'title', direction: 'asc' };
+  await f.service.action(action, f.authority);
+  await assert.rejects(f.service.action(action, f.authority), /expired/);
+  assert.equal(f.writes.length, 1);
+  const next = await f.service.state({}, f.authority);
+  f.hook(() => f.cancel());
+  await assert.rejects(f.service.action({ ...action, token: next.token }, f.authority));
+  assert.equal(f.writes.length, 1);
+  const g = setup();
+  const old = await g.service.state({}, g.authority);
+  g.hook(() => g.changeScope('other-account'));
+  await assert.rejects(
+    g.service.action({ ...action, token: old.token }, g.authority),
+    /account changed/
+  );
+  assert.equal(g.writes.length, 0);
+});
+test('damaged or obsolete Library preferences fall back to supported fields and directions', () => {
+  for (const value of [undefined, null, [], 'title', { property: 'url', direction: 'sideways' }])
+    assert.deepEqual(readLibrarySort(value), { property: 'lastBookOpen', direction: 'desc' });
+  assert.deepEqual(readLibrarySort({ property: 'author', direction: 'sideways' }), {
+    property: 'author',
+    direction: 'desc'
+  });
+});
+
+test('Library owns sort inheritance before a delayed repository read', async () => {
+  const f = setup();
+  f.data.sort = { property: 'author', direction: 'asc' };
+  const explicit = { sort: 'title', direction: 'desc' };
+  f.hook(() => {
+    delete explicit.sort;
+    delete explicit.direction;
+  });
+  assert.deepEqual((await f.service.state(explicit, f.authority)).sort, {
+    property: 'title',
+    direction: 'desc'
+  });
+  const inherited = {};
+  f.hook(() => Object.assign(inherited, { sort: 'id', direction: 'desc' }));
+  assert.deepEqual((await f.service.state(inherited, f.authority)).sort, {
+    property: 'author',
+    direction: 'asc'
+  });
+});
+
+test('layout saves use the admitted view and preserve the other shelf choices', async () => {
+  const f = setup([book(1, { progress: 1 })]);
+  const books = f.data.tree;
+  f.data.tree = [
+    {
+      kind: 'series',
+      id: 'series-1',
+      directoryId: '',
+      name: 'Set',
+      personal: true,
+      books: books.map((node) => node.book),
+      children: books
+    }
+  ];
+  assert.equal((await f.service.state({}, f.authority)).layout, 'grid');
+  const all = await f.service.state({}, f.authority);
+  const series = all.items.find((item) => item.kind === 'series').key;
+  for (const [query, scope, initial, value, stored] of [
+    [{}, 'library', 'grid', 'list', 'list'],
+    [{ series }, 'series', 'list', 'grid', 'grid'],
+    [{ collection: 'finished' }, 'finished', 'list', 'grid', 'grid'],
+    [{ collection: 'finished' }, 'finished', 'grid', 'list', 'timeline'],
+    [{ collection: 'finished', series }, 'series', 'grid', 'list', 'list']
+  ]) {
+    const state = await f.service.state(query, f.authority);
+    assert.equal(state.layout, initial);
+    const baseline = structuredClone(f.data.layouts ?? {});
+    // A later navigation must not retarget a retained admission.
+    await f.service.state({ collection: 'want-to-read' }, f.authority);
+    const action = { token: state.token, type: 'layout', value };
+    await f.service.action(action, f.authority);
+    assert.deepEqual(f.data.layouts, { ...baseline, [scope]: stored });
+    assert.equal((await f.service.state(query, f.authority)).layout, value);
+    assert.equal(f.writes.at(-1)[0].scope, scope);
+    assert.deepEqual(f.writes.at(-1)[1], []);
+    await assert.rejects(f.service.action(action, f.authority), /expired/);
+  }
+});
+
+test('layout rejects forged storage scopes, stale accounts, expired admissions and cancellation', async () => {
+  const f = setup();
+  const before = await f.service.state({}, f.authority);
+  for (const change of [
+    { value: 'timeline' },
+    { value: true },
+    {},
+    { value: 'list', scope: 'series' },
+    { value: 'list', keys: [] },
+    { value: 'list', storageKey: 'session' }
+  ])
+    await assert.rejects(
+      f.service.action({ token: before.token, type: 'layout', ...change }, f.authority)
+    );
+  assert.equal(f.writes.length, 0);
+  f.tick(10 * 60 * 1000 + 1);
+  await assert.rejects(
+    f.service.action({ token: before.token, type: 'layout', value: 'list' }, f.authority),
+    /expired/
+  );
+  for (const retire of [(current) => current.cancel(), (current) => current.changeScope('other')]) {
+    const g = setup();
+    const state = await g.service.state({}, g.authority);
+    g.hook(() => retire(g));
+    await assert.rejects(
+      g.service.action({ token: state.token, type: 'layout', value: 'list' }, g.authority)
+    );
+    assert.equal(g.writes.length, 0);
+  }
+});
+
+test('Continue shares canonical reading order outside the sorted page and retains exact access admission', async () => {
+  const f = setup(Array.from({ length: 65 }, (_, i) => book(i + 1)));
+  const state = await f.service.state({ sort: 'title', direction: 'asc', limit: 1 }, f.authority);
+  assert.equal(state.items.length, 1);
+  assert.equal(state.items[0].bookId, 1);
+  assert.deepEqual(
+    state.recentBooks.map((book) => book.bookId),
+    [65, 64, 63, 62, 61, 60, 59, 58, 57, 56]
+  );
+  assert.equal(state.total, 65, 'Continue does not change grid pagination');
+  const request = { token: state.token, keys: [state.recentBooks[0].key], operation: 'open' };
+  const identity = await f.service.admitAccess(request, f.authority);
+  assert.equal(identity[0].bookId, 65);
+  await assert.rejects(f.service.admitAccess(request, f.authority), /expired/);
+  const next = await f.service.state({ limit: 1 }, f.authority);
+  f.data.tree[64].book.contentHash = 'f'.repeat(64);
+  await assert.rejects(
+    f.service.admitAccess(
+      { token: next.token, keys: [next.recentBooks[0].key], operation: 'open' },
+      f.authority
+    ),
+    /book changed/
+  );
+});
+
+test('Continue omits unread and finished books and respects filtered Library views', async () => {
+  const f = setup([
+    book(1, { lastBookOpen: 0, lastBookmarkModified: 0, progress: 0 }),
+    book(2, { completion: { state: 'finished', finishedOn: '2026-10-01' } }),
+    book(3, { lastBookOpen: 0, lastBookmarkModified: 100, progress: 0.2 }),
+    book(4, { lastBookOpen: 50, lastBookmarkModified: 0, progress: 0 })
+  ]);
+  const state = await f.service.state({}, f.authority);
+  assert.deepEqual(
+    state.recentBooks.map((book) => book.bookId),
+    [3, 4]
+  );
+  assert.deepEqual(
+    state.recentBooks.map((book) => book.readingLabel),
+    ['20%', '0%']
+  );
+  for (const query of [
+    { collection: 'finished' },
+    { collection: 'want-to-read' },
+    { query: 'Book' },
+    { unfinished: true }
+  ]) {
+    assert.deepEqual((await f.service.state(query, f.authority)).recentBooks, []);
+  }
+  const grouped = setup();
+  const one = book(1);
+  grouped.data.tree = [
+    {
+      kind: 'series',
+      id: 'series',
+      directoryId: '',
+      name: 'Set',
+      personal: true,
+      books: [one],
+      children: tree([one])
+    }
+  ];
+  const root = await grouped.service.state({}, grouped.authority);
+  assert.equal(root.recentBooks.length, 1);
+  assert.equal(root.items[0].kind, 'series');
+  assert.deepEqual(
+    (await grouped.service.state({ series: root.items[0].key }, grouped.authority)).recentBooks,
+    []
+  );
+});
+
+test('Finished dates order the complete filtered shelf before paging, with unknown dates last in either direction', async () => {
+  const completed = (id, title, day) =>
+    book(id, {
+      title,
+      progress: 0.2,
+      completion: { state: 'finished', finishedOn: day, modifiedAt: 1 }
+    });
+  const f = setup([
+    completed(1, 'Zulu', '2026-10-01'),
+    completed(2, 'Beta', '2026-10-03'),
+    completed(3, 'Alpha', '2026-10-03'),
+    book(4, { title: 'Undated', progress: 1 }),
+    completed(5, 'Damaged date', '2026-02-31'),
+    book(6)
+  ]);
+  f.data.sort = { property: 'lastBookOpen', direction: 'asc' };
+  const query = { collection: 'finished', limit: 2 };
+  const newest = await f.service.state(query, f.authority);
+  assert.equal(newest.finishedOrder, 'desc');
+  assert.deepEqual(
+    newest.items.map((b) => b.title),
+    ['Alpha', 'Beta']
+  );
+  assert.equal(newest.total, 5);
+  assert.equal(newest.layout, 'list');
+  assert.deepEqual(
+    (await f.service.state({ ...query, offset: 2 }, f.authority)).items.map((b) => b.title),
+    ['Zulu', 'Damaged date']
+  );
+  const unknown = await f.service.state({ ...query, offset: 4 }, f.authority);
+  assert.equal(unknown.items[0].finishedOn, undefined);
+  const state = await f.service.state({ collection: 'finished' }, f.authority);
+  await f.service.action({ token: state.token, type: 'finished.order', value: 'asc' }, f.authority);
+  const oldest = await f.service.state({ collection: 'finished' }, f.authority);
+  assert.deepEqual(
+    oldest.items.map((b) => b.title),
+    ['Zulu', 'Alpha', 'Beta', 'Damaged date', 'Undated']
+  );
+  assert.equal(
+    oldest.items[3].finishedOn,
+    undefined,
+    'damaged restored dates become undated rather than crashing formatting'
+  );
+  assert.deepEqual(
+    f.data.sort,
+    { property: 'lastBookOpen', direction: 'asc' },
+    'Finished order never rewrites Library sort'
+  );
+  assert.deepEqual(f.writes[0][1], [], 'ordering does not mutate book records');
+});
+
+test('Finished order writes require a root Finished admission and retain single-use, cancellation and account guards', async () => {
+  const f = setup([book(1, { progress: 1 })]);
+  const root = await f.service.state({}, f.authority);
+  await assert.rejects(
+    f.service.action({ token: root.token, type: 'finished.order', value: 'asc' }, f.authority),
+    /Finished shelf/
+  );
+  const finished = await f.service.state({ collection: 'finished' }, f.authority);
+  for (const extra of [
+    { value: 'sideways' },
+    { value: true },
+    { value: 'asc', storageKey: 'account' },
+    {}
+  ])
+    await assert.rejects(
+      f.service.action({ token: finished.token, type: 'finished.order', ...extra }, f.authority)
+    );
+  const request = { token: finished.token, type: 'finished.order', value: 'asc' };
+  await f.service.action(request, f.authority);
+  await assert.rejects(f.service.action(request, f.authority), /expired/);
+  assert.equal(f.writes.length, 1);
+  const fresh = await f.service.state({ collection: 'finished' }, f.authority);
+  f.hook(() => f.changeScope('replacement'));
+  await assert.rejects(
+    f.service.action({ ...request, token: fresh.token }, f.authority),
+    /account changed/
+  );
+  assert.equal(f.writes.length, 1);
+  const g = setup([book(1, { progress: 1 })]);
+  const current = await g.service.state({ collection: 'finished' }, g.authority);
+  g.hook(() => g.cancel());
+  await assert.rejects(g.service.action({ ...request, token: current.token }, g.authority));
+  assert.equal(g.writes.length, 0);
+});
+
+test('series overview uses canonical full-series resume and bounded unique art outside the current page', async () => {
+  const books = Array.from({ length: 72 }, (_, index) =>
+    book(index + 1, {
+      title: `Volume ${index + 1}`,
+      creators: [{ name: 'Writer' }],
+      imagePath: 'cover',
+      lastBookOpen: 0,
+      lastBookmarkModified: 0,
+      progress: 0,
+      series: { name: 'Long series', index: index + 1 }
+    })
+  );
+  books[71].lastBookOpen = 999;
+  books[71].progress = 0.2;
+  const f = setup(books);
+  f.data.coverIdentities = Object.fromEntries(books.map((b) => [b.bookId, b.contentHash]));
+  f.data.tree = [
+    {
+      kind: 'series',
+      id: 'secret-directory',
+      directoryId: 'secret-directory',
+      name: 'Long series',
+      personal: true,
+      books,
+      children: tree(books)
+    }
+  ];
+  const root = await f.service.state({}, f.authority);
+  const state = await f.service.state(
+    { series: root.items[0].key, sort: 'title', direction: 'desc', limit: 1, offset: 12 },
+    f.authority
+  );
+  assert.equal(state.items.length, 1);
+  assert.equal(state.seriesOverview.count, 72);
+  assert.equal(state.seriesOverview.books.length, 5);
+  assert.equal(new Set(state.seriesOverview.books.map((b) => b.key)).size, 5);
+  assert.ok(state.seriesOverview.books.every((b) => b.hasCover));
+  assert.equal(state.seriesOverview.creators, 'Writer');
+  assert.equal(state.seriesOverview.resume.bookId, 72);
+  assert.equal(state.seriesOverview.resumeLabel, 'Continue Reading');
+  assert.equal(state.seriesOverview.collection, '');
+  assert.ok(!JSON.stringify(state).includes('secret-directory'));
+  const open = await f.service.admitAccess(
+    { token: state.token, keys: [state.seriesOverview.resume.key], operation: 'open' },
+    f.authority
+  );
+  assert.equal(open[0].bookId, 72);
+  const renewed = await f.service.state({ series: root.items[0].key }, f.authority);
+  f.data.tree[0].books[71].contentHash = 'e'.repeat(64);
+  await assert.rejects(
+    f.service.admitAccess(
+      { token: renewed.token, keys: [renewed.seriesOverview.resume.key], operation: 'open' },
+      f.authority
+    ),
+    /changed|no longer|replaced/i
+  );
+  assert.equal(f.writes.length, 0, 'overview does not write reading or preferences');
+});
+
+test('series overview follows scoped membership, volume order, shared creators and all-finished states', async () => {
+  const books = [book(2), book(1), book(3)].map((b) => ({
+    ...b,
+    lastBookOpen: 0,
+    lastBookmarkModified: 0,
+    progress: 0,
+    creators: [{ name: 'Writer' }]
+  }));
+  const f = setup(books);
+  f.data.tree = [
+    {
+      kind: 'series',
+      id: 'parent',
+      directoryId: 'parent',
+      name: 'Set',
+      books,
+      children: tree(books)
+    }
+  ];
+  f.data.organization.collections = [
+    {
+      id: 'picked',
+      name: 'Selected Books',
+      members: [books[1].organizationKey],
+      createdAt: 1,
+      modifiedAt: 1
+    }
+  ];
+  const root = await f.service.state({}, f.authority);
+  const series = root.items[0].key;
+  const start = await f.service.state({ series, sort: 'title' }, f.authority);
+  assert.equal(start.seriesOverview.resume.bookId, 2, 'original volume order wins over grid sort');
+  assert.equal(start.seriesOverview.resumeLabel, 'Start Reading');
+  const picked = await f.service.state({ series, collection: 'picked' }, f.authority);
+  assert.equal(picked.seriesOverview.count, 1);
+  assert.equal(picked.seriesOverview.collection, 'Selected Books');
+  assert.equal(picked.seriesOverview.resume.bookId, 1);
+  const search = await f.service.state({ series, query: 'Book' }, f.authority);
+  assert.equal(search.seriesOverview, undefined, 'search shows matching rows without a hero');
+  books[0].creators = [{ name: 'Other' }];
+  f.data.tree[0].books = books;
+  f.data.tree[0].children = tree(books);
+  assert.equal((await f.service.state({ series }, f.authority)).seriesOverview.creators, undefined);
+  for (const b of books) b.completion = { state: 'finished', finishedOn: '2026-10-04' };
+  const finished = await f.service.state({ series, collection: 'finished' }, f.authority);
+  assert.equal(finished.seriesOverview.count, 3);
+  assert.equal(finished.seriesOverview.resume, undefined);
+  const empty = await f.service.state({ series, unfinished: true }, f.authority);
+  assert.equal(empty.seriesOverview.count, 0);
+  assert.deepEqual(empty.seriesOverview.books, []);
+  assert.equal(empty.seriesOverview.resume, undefined);
+});
+
+test('a known series removed by organization changes reconciles to its scoped root with fresh layout admission', async () => {
+  const books = [book(1), book(2)];
+  const f = setup(books);
+  f.data.layouts = { library: 'grid', series: 'list' };
+  f.data.tree = [
+    {
+      kind: 'series',
+      id: 'removed-series',
+      directoryId: 'removed-series',
+      name: 'Set',
+      books,
+      children: tree(books)
+    }
+  ];
+  const root = await f.service.state({}, f.authority);
+  const series = root.items[0].key;
+  f.data.tree = tree(books);
+  const recovered = await f.service.state({ series, source: '', offset: 60 }, f.authority);
+  assert.equal(recovered.seriesRetired, true);
+  assert.equal(recovered.seriesOverview, undefined);
+  assert.deepEqual(recovered.trail, []);
+  assert.equal(recovered.offset, 0);
+  assert.equal(recovered.items.length, 2);
+  assert.equal(recovered.layout, 'grid');
+  await f.service.action({ token: recovered.token, type: 'layout', value: 'list' }, f.authority);
+  assert.equal(
+    f.writes.at(-1)[0].scope,
+    'library',
+    'reconciled admission cannot overwrite series layout'
+  );
+  const finished = await f.service.state({ series, collection: 'finished' }, f.authority);
+  assert.equal(finished.seriesRetired, true);
+  assert.equal(finished.items.length, 0, 'root recovery retains Finished scope');
+  await assert.rejects(f.service.state({ series: 'forged-handle' }, f.authority), /expired/);
+  f.changeScope('new-session');
+  f.authority.key = 'new-session';
+  await assert.rejects(
+    f.service.state({ series }, f.authority),
+    /expired/,
+    'cross-account series handle cannot recover'
+  );
+});

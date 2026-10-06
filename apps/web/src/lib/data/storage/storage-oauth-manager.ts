@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import StorageUnlock from '$lib/components/storage-unlock.svelte';
+import { StorageUnlock } from '$runtime/../ui/dialogs';
 import type { BooksDbStorageSource } from '$lib/data/database/books-db/versions/books-db';
 import { dialogManager } from '$lib/data/dialog-manager';
 import {

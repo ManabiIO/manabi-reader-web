@@ -214,6 +214,67 @@ class UnifiedSearch(ProductJourneyBase):
                 expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
                     'data-hydrated', 'true')
 
+    def test_library_ime_draft_survives_unrelated_header_rerender(self):
+        self.page.set_viewport_size({'width': 500, 'height': 800})
+        self.go_library()
+        self.page.get_by_role('button', name='Search library', exact=True).click()
+        field = self.page.get_by_role('searchbox', name='Search library', exact=True)
+        expect(field).to_be_focused()
+        field.fill('cat')
+        expect(self.page).to_have_url(re.compile(r'[?&]q=cat(?:&|$)'))
+
+        field.dispatch_event('compositionstart', {'data': ''})
+        field.evaluate("""element => {
+          element.value = '猫';
+          element.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            data: '猫',
+            inputType: 'insertCompositionText',
+            isComposing: true
+          }));
+        }""")
+        expect(field).to_have_value('猫')
+        # Intermediate IME text stays local and must not rewrite navigation state.
+        expect(self.page).to_have_url(re.compile(r'[?&]q=cat(?:&|$)'))
+
+        # Crossing only the compact-menu breakpoint rerenders the same header/search
+        # surface without replacing the compact-library input.
+        self.page.set_viewport_size({'width': 700, 'height': 800})
+        expect(field).to_be_visible()
+        expect(field).to_have_value('猫')
+        expect(field).to_be_focused()
+        expect(self.page).to_have_url(re.compile(r'[?&]q=cat(?:&|$)'))
+
+        field.dispatch_event('compositionend', {'data': '猫'})
+        expect(field).to_have_value('猫')
+        expect(self.page).to_have_url(re.compile(r'[?&]q=%E7%8C%AB(?:&|$)'))
+
+        # If a browser/layout interruption blurs composition without a final
+        # compositionend, discard only that uncommitted draft and keep the
+        # committed navigation/query state usable for the next edit.
+        field.dispatch_event('compositionstart', {'data': ''})
+        field.evaluate("""element => {
+          element.value = '犬';
+          element.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            data: '犬',
+            inputType: 'insertCompositionText',
+            isComposing: true
+          }));
+          element.blur();
+          // Some engines can deliver a trailing compositionend after blur.
+          element.dispatchEvent(new CompositionEvent('compositionend', {
+            bubbles: true,
+            data: '犬'
+          }));
+        }""")
+        expect(field).to_have_value('猫')
+        expect(self.page).to_have_url(re.compile(r'[?&]q=%E7%8C%AB(?:&|$)'))
+        field.focus()
+        field.fill('犬')
+        expect(self.page).to_have_url(re.compile(r'[?&]q=%E7%8A%AC(?:&|$)'))
+        self.checkpoint('library-ime-draft-rerender')
+
     def test_title_results_prioritize_relevance_across_source_types(self):
         self.seed_video_search(title='cat')
         self.import_book('Dog guide', body='<p>Unrelated body text.</p>', creators=('cat',))
@@ -259,6 +320,90 @@ class UnifiedSearch(ProductJourneyBase):
         self.assertTrue(kinds.nth(0).inner_text().startswith('Video'))
         self.assertIn('Cat Author', kinds.nth(1).inner_text())
         self.checkpoint('unified-title-creator-match-retained')
+
+    def test_local_dictionary_management_disable_enable_and_delete(self):
+        field = self.library_search('neko')
+        self.filter('Dictionary')
+        expect(self.page.get_by_text('No enabled local dictionary yet.', exact=False)).to_be_visible(
+            timeout=30000
+        )
+        self.page.get_by_label('Import dictionary ZIP', exact=True).set_input_files({
+            'name': 'managed-fixture.zip',
+            'mimeType': 'application/zip',
+            'buffer': dictionary_archive(),
+        })
+        expect(
+            self.page.get_by_text('Installed Unified search fixture.', exact=True)
+        ).to_be_visible(timeout=60000)
+        expect(self.page.locator('.full-dictionary .headword')).to_contain_text('猫')
+
+        setup = self.page.get_by_text('Local dictionaries', exact=True)
+        setup.click()
+        installed = self.page.get_by_role('list', name='Installed local dictionaries', exact=True)
+        expect(installed).to_be_visible()
+        row = installed.get_by_role('listitem').filter(has_text='Unified search fixture')
+        expect(row).to_contain_text('Enabled')
+        row.get_by_role('button', name='Disable Unified search fixture', exact=True).click()
+        expect(self.page.get_by_text('Disabled Unified search fixture.', exact=True)).to_be_visible()
+        expect(row).to_contain_text('Disabled')
+        expect(self.page.get_by_text('No enabled local dictionary yet.', exact=False)).to_be_visible(
+            timeout=30000
+        )
+
+        row.get_by_role('button', name='Enable Unified search fixture', exact=True).click()
+        expect(self.page.get_by_text('Enabled Unified search fixture.', exact=True)).to_be_visible()
+        expect(row).to_contain_text('Enabled')
+        expect(self.page.locator('.full-dictionary .headword')).to_contain_text('猫', timeout=30000)
+        expect(field).to_have_value('neko')
+
+        self.page.get_by_text('Recommended dictionaries', exact=True).click()
+        recommended = self.page.get_by_role(
+            'list', name='Recommended Japanese dictionaries', exact=True
+        )
+        expect(recommended).to_be_visible(timeout=30000)
+        self.assertEqual(6, recommended.get_by_role('listitem').count())
+        jmnedict = recommended.get_by_role('listitem').filter(has_text='JMnedict')
+        expect(jmnedict).to_contain_text('terms')
+        for name in ('About', 'Download ZIP'):
+            link = jmnedict.get_by_role('link', name=name, exact=True)
+            self.assertTrue(link.get_attribute('href').startswith('https://'))
+            expect(link).to_have_attribute('target', '_blank')
+        expect(installed.get_by_role('listitem')).to_have_count(1)
+
+        self.page.set_viewport_size({'width': 320, 'height': 480})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.assertLessEqual(row.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        for name in ('Disable Unified search fixture', 'Delete Unified search fixture'):
+            control = row.get_by_role('button', name=name, exact=True)
+            self.assertGreaterEqual(control.bounding_box()['height'], 43.99)
+        for name in ('About', 'Download ZIP'):
+            link = jmnedict.get_by_role('link', name=name, exact=True)
+            box = link.bounding_box()
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertGreaterEqual(box['x'], -1)
+            self.assertLessEqual(box['x'] + box['width'], 321)
+        self.assert_no_document_horizontal_overflow()
+        self.page.evaluate('document.documentElement.style.fontSize = "100%"')
+        self.page.set_viewport_size({'width': 1280, 'height': 800})
+
+        row.get_by_role('button', name='Delete Unified search fixture', exact=True).click()
+        expect(row.get_by_text('Delete this dictionary?', exact=True)).to_be_visible()
+        row.get_by_role(
+            'button', name='Cancel deleting Unified search fixture', exact=True
+        ).click()
+        expect(row.get_by_text('Delete this dictionary?', exact=True)).to_have_count(0)
+        row.get_by_role('button', name='Delete Unified search fixture', exact=True).click()
+        row.get_by_role(
+            'button', name='Confirm delete Unified search fixture', exact=True
+        ).click()
+        expect(self.page.get_by_text('Deleted Unified search fixture.', exact=True)).to_be_visible(
+            timeout=30000
+        )
+        expect(self.page.get_by_text('No local dictionaries are installed.', exact=True)).to_be_visible()
+        expect(self.page.get_by_text('No enabled local dictionary yet.', exact=False)).to_be_visible(
+            timeout=30000
+        )
+        self.checkpoint('dictionary-local-management')
 
     def test_real_local_dictionary_uses_raw_input_and_bounded_previews(self):
         self.import_book('Neko field guide', body='<p>neko ねこ 猫</p>')
@@ -324,6 +469,8 @@ class UnifiedSearch(ProductJourneyBase):
         expect(full).to_have_count(0)
         expect(field).to_have_value('neko')
         expect(self.page.get_by_role('button', name='Read Neko field guide', exact=True)).to_be_visible()
+        content_section = self.page.locator('section[aria-labelledby="content-search-heading"]')
+        expect(content_section).to_have_attribute('aria-busy', 'false', timeout=30000)
         expect(self.page.locator('button.passage')).to_have_count(1)
         self.checkpoint('unified-all-real-dictionary')
         self.page.set_viewport_size({'width': 360, 'height': 740})
@@ -391,6 +538,9 @@ class UnifiedSearch(ProductJourneyBase):
 
         self.scope('Books')
         expect(field).to_have_value('SCOPE_TOKEN')
+        params = self.page.evaluate("""() => Object.fromEntries(new URL(location.href).searchParams)""")
+        self.assertEqual('SCOPE_TOKEN', params['q'])
+        self.assertEqual('books', params['scope'])
         expect(result_types.get_by_role('button', name='Dictionary', exact=True)).to_have_count(0)
         expect(rows).to_have_count(1, timeout=30000)
         expect(rows).to_contain_text('Book · Scope book')
@@ -463,6 +613,8 @@ class UnifiedSearch(ProductJourneyBase):
         field.fill('犬')
         expect(self.page.locator('button.passage mark')).to_have_text('犬')
         expect(field).to_be_focused()
+        expect(field).to_have_value('犬')
+        expect(self.page).to_have_url(re.compile(r'[?&]q=%E7%8A%AC(?:&|$)'))
         expect(self.page.locator('button.passage')).to_have_count(1)
         self.checkpoint('unified-latest-query')
 
@@ -530,6 +682,68 @@ class UnifiedSearch(ProductJourneyBase):
         self.assertEqual(0, local_count_after)
         self.checkpoint('unified-video-transcript-deep-link')
 
+    def test_video_search_invalidates_titles_and_content_independently(self):
+        self.seed_video_search(title='Stable video', cues=[
+            {'id': 'cue', 'start': 1, 'end': 2, 'text': 'unrelated transcript'}
+        ])
+        self.library_search('Stable')
+        title = self.page.get_by_role('button', name='Open video Stable video', exact=True)
+        expect(title).to_be_visible(timeout=30000)
+        title_section = self.page.locator('section[aria-labelledby="title-search-heading"]')
+        content_section = self.page.locator('section[aria-labelledby="content-search-heading"]')
+        expect(title_section).to_have_attribute('aria-busy', 'false')
+        expect(content_section).to_have_attribute('aria-busy', 'false', timeout=30000)
+
+        self.page.evaluate("""() => {
+          const title = document.querySelector('section[aria-labelledby="title-search-heading"]');
+          const content = document.querySelector('section[aria-labelledby="content-search-heading"]');
+          window.__searchInvalidation = {titleBusy: 0, contentBusy: 0};
+          const count = (key, node) => {
+            if (node.getAttribute('aria-busy') === 'true') window.__searchInvalidation[key]++;
+          };
+          window.__searchInvalidationObservers = [
+            new MutationObserver(() => count('titleBusy', title)),
+            new MutationObserver(() => count('contentBusy', content))
+          ];
+          window.__searchInvalidationObservers[0].observe(title, {
+            attributes: true, attributeFilter: ['aria-busy']
+          });
+          window.__searchInvalidationObservers[1].observe(content, {
+            attributes: true, attributeFilter: ['aria-busy']
+          });
+        }""")
+
+        self.page.evaluate("""() => {
+          const channel = new BroadcastChannel('manabi-media-v1');
+          channel.postMessage({type: 'media-change', captions: true, metadata: false});
+          channel.close();
+        }""")
+        self.page.wait_for_function("() => window.__searchInvalidation.contentBusy > 0")
+        expect(content_section).to_have_attribute('aria-busy', 'false', timeout=30000)
+        counters = self.page.evaluate("() => ({...window.__searchInvalidation})")
+        self.assertEqual(0, counters['titleBusy'])
+        self.assertGreaterEqual(counters['contentBusy'], 1)
+
+        self.page.evaluate("""() => {
+          window.__searchInvalidation.titleBusy = 0;
+          window.__searchInvalidation.contentBusy = 0;
+          const channel = new BroadcastChannel('manabi-media-v1');
+          channel.postMessage({type: 'media-change', captions: false, metadata: true});
+          channel.close();
+        }""")
+        self.page.wait_for_function(
+            "() => window.__searchInvalidation.titleBusy > 0 && "
+            "window.__searchInvalidation.contentBusy > 0"
+        )
+        expect(title_section).to_have_attribute('aria-busy', 'false', timeout=30000)
+        expect(content_section).to_have_attribute('aria-busy', 'false', timeout=30000)
+        self.page.evaluate("""() => {
+          for (const observer of window.__searchInvalidationObservers) observer.disconnect();
+          delete window.__searchInvalidationObservers;
+          delete window.__searchInvalidation;
+        }""")
+        self.checkpoint('unified-independent-media-invalidation')
+
     def test_video_transcript_search_refreshes_after_published_track_change_and_latest_query_wins(self):
         identity = self.seed_video_search()
         field = self.library_search('字幕検索')
@@ -568,7 +782,7 @@ class UnifiedSearch(ProductJourneyBase):
         expect(self.page.get_by_text(
             'Use a dictionary query of 256 characters or fewer.', exact=False
         )).to_be_visible()
-        expect(self.page.get_by_role('button', name='Retry dictionary', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Retry dictionary', exact=True)).to_have_count(0)
 
         field.fill('猫')
         expect(self.page.get_by_text(

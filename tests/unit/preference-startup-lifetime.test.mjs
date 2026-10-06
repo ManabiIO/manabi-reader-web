@@ -67,7 +67,7 @@ function harness({
   }
   const { api } = loadOfflineModule('apps/web/src/lib/manabi/preferences.ts', {
     modules: {
-      'svelte/store': stores,
+      '$lib/state/store': stores,
       '$lib/data/store': reader,
       '$lib/appearance/state': { appearance$: subject('appearance', 'system') },
       '$lib/data/theme-option': { availableThemes: new Map(), portableThemeName: () => undefined },

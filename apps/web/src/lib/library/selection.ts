@@ -78,6 +78,62 @@ export class LibrarySelection<Id = number> {
   }
 }
 
+export interface LibrarySelectionEligibility {
+  key: string;
+  ids: readonly number[];
+  previews: readonly string[];
+}
+
+export interface LibrarySelectionScope {
+  viewerId: string | null;
+  collectionId: string;
+  seriesId?: string;
+  unfinished: boolean;
+  searchScope: string;
+  search: string;
+}
+
+/** Ephemeral selection identity. JSON avoids delimiter collisions in user/provider text. */
+export function librarySelectionScopeKey(scope: LibrarySelectionScope): string {
+  return JSON.stringify([
+    scope.viewerId ?? 'local',
+    scope.collectionId,
+    scope.seriesId ?? '',
+    scope.unfinished ? 'unfinished' : 'all',
+    scope.searchScope,
+    scope.search
+  ]);
+}
+
+export function selectableSavedBookIds(
+  browserLibrary: boolean,
+  browserEligibleIds: readonly number[],
+  currentCards: readonly { id: number }[]
+): readonly number[] {
+  return browserLibrary ? browserEligibleIds : currentCards.map((card) => card.id);
+}
+
+export function reconcileSelectionEligibility(
+  previousScope: string,
+  next: LibrarySelectionEligibility,
+  selectedIds: ReadonlySet<number>,
+  selectedPreviews: ReadonlySet<string>
+) {
+  if (next.key !== previousScope)
+    return {
+      scope: next.key,
+      ids: new Set<number>(),
+      previews: new Set<string>()
+    };
+  const eligibleIds = new Set(next.ids);
+  const eligiblePreviews = new Set(next.previews);
+  return {
+    scope: next.key,
+    ids: new Set([...selectedIds].filter((id) => eligibleIds.has(id))),
+    previews: new Set([...selectedPreviews].filter((key) => eligiblePreviews.has(key)))
+  };
+}
+
 export interface SelectionRect {
   key: string;
   left: number;

@@ -1,0 +1,548 @@
+name: Expo Android and web migration
+# Public-repository, stock-runner qualification only. No remote artifacts or caches.
+# Pull requests already run on synchronize; do not add a duplicate push trigger.
+on:
+  pull_request:
+    paths:
+      - 'apps/web/**'
+      - 'scripts/**'
+      - 'test/**'
+      - 'tests/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'patches/**'
+      - 'docs/expo/**'
+      - '.github/workflows/**'
+  workflow_dispatch:
+    inputs:
+      qualification_scope:
+        description: Affected shared UI slice or the complete final web parity gate
+        required: true
+        type: choice
+        default: affected
+        options:
+          - affected
+          - full
+permissions:
+  contents: read
+concurrency:
+  group: expo-migration-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+env:
+  QUALIFICATION_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.qualification_scope || 'affected' }}
+defaults:
+  run:
+    shell: bash
+jobs:
+  regression:
+    name: Retained regression, CI policy and default web
+    env:
+      # Independently retain the original default-off release gate in every scope.
+      EXPO_PUBLIC_ENABLE_VIDEO_LEARNING: 'false'
+    # Missing/private visibility fails closed; no runner is allocated.
+    if: >-
+      github.event.repository.visibility == 'public' &&
+      toJSON(github.event.repository.private) == 'false' &&
+      github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+          cache: false
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - name: Record exact source and qualification limits
+        run: |
+          case "$QUALIFICATION_SCOPE" in
+            affected|full) ;;
+            *) echo 'Unknown qualification scope' >&2; exit 1 ;;
+          esac
+          printf 'Qualification scope: %s. Affected checks are not the final full-parity gate.\n\n' "$QUALIFICATION_SCOPE" >> "$GITHUB_STEP_SUMMARY"
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+          {
+            printf 'Source commit: %s\n\n' "$(git rev-parse HEAD)"
+            printf 'Source tree: %s\n\n' "$(git rev-parse HEAD^{tree})"
+            cat docs/expo/CI-COVERAGE.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Install reviewed dependency graph without a remote cache
+        id: dependencies
+        run: pnpm install --frozen-lockfile
+      - run: node scripts/prepare-expo.mjs
+      - name: Lint committed application and component boundaries
+        run: |
+          pnpm eslint .
+          node tools/appearance/lint.mjs
+          node --experimental-strip-types tools/appearance/generate-css.mjs --check
+      - name: Strict application types
+        if: success() || failure()
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: pnpm --dir apps/web check
+      - name: Existing unit and migration contract tests
+        if: success() || failure()
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: node --test --test-concurrency=2 tests/unit/*.test.mjs
+      - name: Migration contract tests including CI policy
+        if: success() || failure()
+        run: pnpm test:expo
+      - name: Android instrumentation harness contracts
+        if: success() || failure()
+        run: node --test tests/android/harness.test.mjs
+      - name: Existing reader regressions
+        if: success() || failure()
+        run: pnpm test:reader
+      - name: Existing snippets domain regressions
+        if: success() || failure()
+        env:
+          NODE_OPTIONS: --max-old-space-size=2048
+        run: node test/snippets/run.mjs
+      - name: Active snippets React integration
+        if: success() || failure()
+        env:
+          NODE_OPTIONS: --max-old-space-size=2048
+        run: node test/snippets/react-run.mjs
+      - name: Existing Whispersync core coverage and React compilation
+        if: success() || failure()
+        run: node test/whispersync/run.mjs --coverage --react
+      - name: Existing pitch estimator and lifetime regressions
+        if: success() || failure()
+        run: node test/pitch/run.mjs
+      - name: Existing library dispatcher and diagnostic contracts
+        if: success() || failure()
+        run: |
+          python tests/unit/test_library_release_gate.py
+          python tests/unit/test_library_release_diagnostics.py
+      - uses: actions/setup-python@v5
+        id: browser-python
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        with:
+          python-version: '3.13'
+      - name: Prepare reviewed assets
+        id: assets
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: |
+          pnpm prepare:dictionary
+          node scripts/prepare-expo.mjs
+      - name: Install ordinary browser test dependencies on this runner
+        id: browsers
+        if: ${{ !cancelled() && steps.assets.outcome == 'success' && steps.browser-python.outcome == 'success' }}
+        run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          pnpm exec playwright install chromium webkit
+      - name: Export the default production route
+        id: default-export
+        if: ${{ !cancelled() && steps.assets.outcome == 'success' && steps.browsers.outcome == 'success' }}
+        env:
+          BASE_PATH: /reader-web
+          NODE_OPTIONS: --max-old-space-size=6144
+          EXPO_NO_TELEMETRY: '1'
+        run: |
+          rm -rf apps/web/build
+          pnpm --dir apps/web exec expo export --platform web --clear --output-dir build --max-workers 2
+          node scripts/expo-postbuild.mjs
+          node scripts/verify-expo-export.mjs --platform web --output apps/web/build --report apps/web/build/asset-qualification.json
+          cat apps/web/build/asset-qualification.json
+      - name: Core default-route acceptance without early failure suppression
+        if: ${{ !cancelled() && steps.default-export.outcome == 'success' && steps.browsers.outcome == 'success' }}
+        run: |
+          status=0
+          run_suite() {
+            local name="$1" result=0
+            shift
+            echo "::group::$name"
+            if timeout --kill-after=15s 600s "$@"; then
+              printf -- '- PASS: %s\n' "$name" >> "$GITHUB_STEP_SUMMARY"
+            else
+              result=$?
+              status=1
+              printf -- '- FAIL (exit %s): %s\n' "$result" "$name" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo '::endgroup::'
+          }
+          export PYTHONPATH="$PWD/tests/browser${PYTHONPATH:+:$PYTHONPATH}"
+          run_suite default-static-reader-chromium python tests/browser/test_static_reader.py
+          for engine in chromium webkit; do
+            export LIBRARY_BROWSER="$engine" PICKS_BROWSER="$engine" APPEARANCE_BROWSER="$engine"
+            run_suite "default-shared-statistics-$engine" python tests/browser/statistics_acceptance_cases.py --export-mode default
+            run_suite "default-settings-controls-$engine" python tests/browser/test_settings_controls.py
+            run_suite "default-settings-editor-$engine" python tests/browser/test_settings_editor_usability.py
+            run_suite "default-shared-library-shelf-$engine" python tests/browser/library_shelf_acceptance_cases.py
+            if [ "$QUALIFICATION_SCOPE" = affected ]; then
+              run_suite "default-retained-failure-regressions-$engine" python tests/browser/retained_failure_acceptance_cases.py
+            fi
+            run_suite "default-reader-lifetime-$engine" python tests/browser/test_web_reader_lifetime.py
+            run_suite "default-offline-handoff-$engine" python -m unittest \
+              test_library_sync.LibraryOrganizationSync.test_offline_bookmark_survives_reload_and_syncs_on_reconnect \
+              test_offline_account_profile.OfflineAccountProfile.test_owned_book_opens_offline_and_disappears_after_confirmed_signout -v
+          done
+          # Every original group below is retained for the explicit final gate.
+          # Intermediate shared-screen checks must never be reported as full parity.
+          if [ "$QUALIFICATION_SCOPE" = affected ]; then exit "$status"; fi
+          # The original default-route full inventory remains below.
+          for engine in chromium webkit; do
+            export LIBRARY_BROWSER="$engine" PICKS_BROWSER="$engine" APPEARANCE_BROWSER="$engine"
+            for suite in test_settings_controls test_product_journeys test_library_parity test_statistics_shared_route; do
+              run_suite "default-$suite-$engine" python "tests/browser/$suite.py"
+            done
+          done
+          exit "$status"
+      - name: Verify default qualification left committed source unchanged
+        if: always()
+        run: |
+          git diff --check
+          git diff --exit-code
+  web:
+    name: Full web export with colocated qualification
+    env:
+      EXPO_PUBLIC_ENABLE_VIDEO_LEARNING: ${{ github.event_name == 'workflow_dispatch' && inputs.qualification_scope == 'full' && 'true' || 'false' }}
+    # Missing/private visibility fails closed; no runner is allocated.
+    if: >-
+      github.event.repository.visibility == 'public' &&
+      toJSON(github.event.repository.private) == 'false' &&
+      github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+          cache: false
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - name: Record exact source and qualification limits
+        run: |
+          case "$QUALIFICATION_SCOPE" in
+            affected|full) ;;
+            *) echo 'Unknown qualification scope' >&2; exit 1 ;;
+          esac
+          printf 'Qualification scope: %s. Affected checks are not the final full-parity gate.\n\n' "$QUALIFICATION_SCOPE" >> "$GITHUB_STEP_SUMMARY"
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+          {
+            printf 'Source commit: %s\n\n' "$(git rev-parse HEAD)"
+            printf 'Source tree: %s\n\n' "$(git rev-parse HEAD^{tree})"
+            cat docs/expo/CI-COVERAGE.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Install reviewed dependency graph without a remote cache
+        run: pnpm install --frozen-lockfile
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Prepare reviewed assets
+        id: assets
+        run: |
+          pnpm prepare:dictionary
+          node scripts/prepare-expo.mjs
+      - name: Install ordinary browser test dependencies on this runner
+        id: browsers
+        run: |
+          python -m pip install 'playwright==1.63.0'
+          python -m playwright install --with-deps chromium webkit
+          pnpm exec playwright install chromium webkit
+      - name: Export the promoted production reader path
+        id: export
+        # This job is independent: a regression/default-route failure must not hide gated evidence.
+        if: ${{ !cancelled() && steps.assets.outcome == 'success' && steps.browsers.outcome == 'success' }}
+        env:
+          BASE_PATH: /reader-web
+          NODE_OPTIONS: --max-old-space-size=6144
+          EXPO_NO_TELEMETRY: '1'
+        run: |
+          rm -rf apps/web/build
+          pnpm --dir apps/web exec expo export --platform web --clear --output-dir build --max-workers 2
+          node scripts/expo-postbuild.mjs
+          node scripts/verify-expo-export.mjs --platform web --output apps/web/build --report apps/web/build/asset-qualification.json
+          cat apps/web/build/asset-qualification.json
+          if [ "$EXPO_PUBLIC_ENABLE_VIDEO_LEARNING" != 'true' ]; then
+            test ! -e apps/web/build/moss
+            if find apps/web/build -type f -path '*/moss/*' -print -quit | grep -q .; then
+              echo 'Default-off video build unexpectedly packaged MOSS runtime assets' >&2
+              exit 1
+            fi
+          fi
+      - name: Execute the actual emitted web pitch worker without Expo globals
+        if: ${{ !cancelled() && steps.export.outcome == 'success' && steps.browsers.outcome == 'success' }}
+        run: |
+          node test/expo/exported-pitch-browser.mjs --platform web --output apps/web/build --qualification apps/web/build/asset-qualification.json --report apps/web/build/pitch-runtime-qualification.json
+          cat apps/web/build/pitch-runtime-qualification.json
+      - name: Genuine SwiftF0 browser worker inference
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
+        run: node test/expo/onnx-runtime-browser.mjs
+      - name: Real browser cover decoding and canvas
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
+        run: node test/expo/native-library-cover-browser.mjs
+      - name: Retained actual-app assertions on the same export
+        if: ${{ !cancelled() && steps.export.outcome == 'success' && steps.browsers.outcome == 'success' }}
+        run: |
+          # Like qualify_library_data_safety.py, record every attempted group,
+          # keep later independent suites running, and fail on any nonzero exit.
+          status=0
+          run_suite() {
+            local name="$1" result=0
+            shift
+            echo "::group::$name"
+            if timeout --kill-after=15s 600s "$@"; then
+              printf -- '- PASS: %s\n' "$name" >> "$GITHUB_STEP_SUMMARY"
+            else
+              result=$?
+              status=1
+              printf -- '- FAIL (exit %s): %s\n' "$result" "$name" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo '::endgroup::'
+          }
+          export PYTHONPATH="$PWD/tests/browser${PYTHONPATH:+:$PYTHONPATH}"
+          run_suite gated-static-reader-chromium python tests/browser/test_static_reader.py
+          for engine in chromium webkit; do
+            export LIBRARY_BROWSER="$engine" PICKS_BROWSER="$engine" APPEARANCE_BROWSER="$engine"
+            run_suite "gated-shared-statistics-$engine" python tests/browser/statistics_acceptance_cases.py --export-mode gated
+            run_suite "gated-settings-controls-$engine" python tests/browser/test_settings_controls.py
+            run_suite "gated-settings-editor-$engine" python tests/browser/test_settings_editor_usability.py
+            run_suite "gated-shared-library-shelf-$engine" python tests/browser/library_shelf_acceptance_cases.py
+            if [ "$QUALIFICATION_SCOPE" = affected ]; then
+              run_suite "gated-retained-failure-regressions-$engine" python tests/browser/retained_failure_acceptance_cases.py
+            fi
+            run_suite "gated-reader-lifetime-$engine" python tests/browser/test_web_reader_lifetime.py
+            run_suite "gated-offline-handoff-$engine" python -m unittest \
+              test_library_sync.LibraryOrganizationSync.test_offline_bookmark_survives_reload_and_syncs_on_reconnect \
+              test_offline_account_profile.OfflineAccountProfile.test_owned_book_opens_offline_and_disappears_after_confirmed_signout -v
+          done
+          # Every original group below is retained for the explicit final gate.
+          # Intermediate shared-screen checks must never be reported as full parity.
+          if [ "$QUALIFICATION_SCOPE" = affected ]; then exit "$status"; fi
+          for engine in chromium webkit; do
+            export LIBRARY_BROWSER="$engine" PICKS_BROWSER="$engine" APPEARANCE_BROWSER="$engine" SLIDE_BROWSER="$engine"
+            cases=(BooksLibraryBrowser)
+            if [ "$engine" = chromium ]; then cases+=(BooksLibraryFilesystem); fi
+            run_suite "books-library-$engine" python tests/browser/test_books_library.py "${cases[@]}"
+            for suite in \
+              test_web_reader_lifetime test_library_parity test_editors_picks \
+              test_want_to_read test_library_sync test_cloud_series_replay \
+              test_library_cloud_relocation test_library_identity test_collection_commit \
+              test_preference_sync_recovery test_import_hydration \
+              test_settings_controls test_settings_editor_usability \
+              test_annotations_quality test_scrubber_quality test_library_grid_labels \
+              test_rhea_ui test_connect_ui test_panel_usability test_gallery_usability \
+              test_modal_tab_fallback test_unified_search test_product_journeys \
+              test_search_quality test_search_focus test_statistics_shared_route; do
+              run_suite "$suite-$engine" python "tests/browser/$suite.py"
+            done
+            run_suite "onboarding-enlarged-text-$engine" python tests/browser/test_modal_controls.py ModalControlsBrowser.test_onboarding_dialog_fits_short_viewports_and_larger_text -v
+            run_suite "modal-keyboard-$engine" python tests/browser/test_modal_controls.py ModalControlsBrowser.test_long_library_dialogs_clear_the_close_target_in_light_and_dark -v
+            run_suite "gallery-lifetime-$engine" env PYTHONPATH=tests/browser python -m unittest test_gallery_reveal_lifetime test_gallery_continuity -v
+            run_suite "offline-reader-$engine" python tests/browser/test_offline_reader.py --browser "$engine"
+            run_suite "whispersync-app-$engine" python tests/browser/test_whispersync.py --browser "$engine"
+          done
+          export LIBRARY_BROWSER=chromium PICKS_BROWSER=chromium
+          for suite in test_static_reader test_local_library test_local_move_recovery \
+            test_library_preview_cache test_reading_recovery test_ttu_migration \
+            test_ttu_migration_edges test_completed_reading; do
+            run_suite "$suite-chromium" python "tests/browser/$suite.py"
+          done
+          exit "$status"
+      - name: Required shared and local data safety on the same export
+        if: ${{ env.QUALIFICATION_SCOPE == 'full' && !cancelled() && steps.export.outcome == 'success' && steps.browsers.outcome == 'success' }}
+        run: python tests/browser/qualify_library_data_safety.py
+      - name: Assembled snippets and native IndexedDB in both browser engines
+        if: ${{ env.QUALIFICATION_SCOPE == 'full' && !cancelled() && steps.export.outcome == 'success' && steps.browsers.outcome == 'success' }}
+        run: |
+          mkdir -p test-results/snippets
+          PORT=4178 BASE_PATH=/reader-web node scripts/serve-expo.mjs > test-results/snippets/server.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 60); do
+            if ! kill -0 "$server" 2>/dev/null; then
+              cat test-results/snippets/server.log
+              exit 1
+            fi
+            if curl --fail --silent http://127.0.0.1:4178/reader-web/snippets >/dev/null; then ready=true; break; fi
+            sleep 1
+          done
+          if [ "$ready" != true ]; then
+            cat test-results/snippets/server.log
+            echo 'Expo static preview did not become ready' >&2
+            exit 1
+          fi
+          status=0
+          for engine in chromium webkit; do
+            if SNIPPETS_BROWSER="$engine" SNIPPETS_SCREENSHOT="test-results/snippets/$engine.png" node test/snippets/browser.mjs; then
+              printf -- '- PASS: snippets-%s\n' "$engine" >> "$GITHUB_STEP_SUMMARY"
+            else
+              result=$?
+              status=1
+              printf -- '- FAIL (exit %s): snippets-%s\n' "$result" "$engine" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          exit "$status"
+      - name: Verify qualification left committed source unchanged
+        if: always()
+        run: |
+          git diff --check
+          git diff --exit-code
+      - name: Print existing dispatcher evidence without uploading files
+        if: always()
+        run: |
+          if [ -f test-results/library-data-safety-all.json ]; then
+            cat test-results/library-data-safety-all.json
+          fi
+          printf '\nSee step outcomes and logged per-suite exit codes; skipped or unfinished suites are unqualified.\n' >> "$GITHUB_STEP_SUMMARY"
+  android:
+    name: Android export, APK assets and synthetic packaged-host runtime
+    # Missing/private visibility fails closed; no runner is allocated.
+    if: >-
+      github.event.repository.visibility == 'public' &&
+      toJSON(github.event.repository.private) == 'false' &&
+      github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+        with:
+          version: '12.3.4'
+          cache: false
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - name: Record exact source and qualification limits
+        run: |
+          case "$QUALIFICATION_SCOPE" in
+            affected|full) ;;
+            *) echo 'Unknown qualification scope' >&2; exit 1 ;;
+          esac
+          printf 'Qualification scope: %s. Affected checks are not the final full-parity gate.\n\n' "$QUALIFICATION_SCOPE" >> "$GITHUB_STEP_SUMMARY"
+          git rev-parse HEAD
+          git rev-parse HEAD^{tree}
+          {
+            printf 'Source commit: %s\n\n' "$(git rev-parse HEAD)"
+            printf 'Source tree: %s\n\n' "$(git rev-parse HEAD^{tree})"
+            cat docs/expo/CI-COVERAGE.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Install reviewed dependency graph without a remote cache
+        run: pnpm install --frozen-lockfile
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Prepare pinned dictionary and public assets
+        run: |
+          pnpm prepare:dictionary
+          node scripts/prepare-expo.mjs
+      - name: Export actual Android application and DOM workers
+        env:
+          BASE_PATH: /reader-web
+          NODE_OPTIONS: --max-old-space-size=6144
+          EXPO_NO_TELEMETRY: '1'
+        run: |
+          pnpm --dir apps/web exec expo export --platform android --output-dir dist-android --max-workers 2
+          node scripts/verify-expo-export.mjs --platform android --output apps/web/dist-android --report apps/web/dist-android/asset-qualification.json
+          cat apps/web/dist-android/asset-qualification.json
+      - name: Verify Android-only generated project
+        run: |
+          pnpm --dir apps/web exec expo prebuild --platform android --no-install
+          test -d apps/web/android
+          test ! -d apps/web/ios
+          test ! -d apps/web/macos
+      - name: Compile Android host and run origin policy tests
+        id: apk
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          node scripts/verify-reader-dom-autolinking.mjs
+          node scripts/prepare-android-qualification.mjs
+          node --test patches/reader-dom/contract.test.mjs
+          cd apps/web/android
+          ./gradlew :expo-dom-webview:testDebugUnitTest :app:assembleRelease :app:assembleReleaseAndroidTest --no-daemon --max-workers=2
+          cd ../../..
+          node scripts/verify-expo-export.mjs --platform apk --output apps/web/android/app/build/outputs/apk/release/app-release.apk --report apps/web/dist-android/apk-qualification.json
+          cat apps/web/dist-android/apk-qualification.json
+      - name: Execute the actual APK-emitted pitch worker in Chromium without Expo globals
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          node test/expo/exported-pitch-browser.mjs --platform apk --output apps/web/android/app/build/outputs/apk/release/app-release.apk --qualification apps/web/dist-android/apk-qualification.json --report apps/web/dist-android/pitch-runtime-qualification.json
+          cat apps/web/dist-android/pitch-runtime-qualification.json
+      - name: Enable documented KVM group permissions on this disposable runner
+        id: kvm
+        if: ${{ !cancelled() && steps.apk.outcome == 'success' }}
+        # Explicitly approved for this temporary GitHub runner only.
+        # https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Qualify the actual packaged host on a fresh disposable emulator
+        id: runtime
+        if: ${{ !cancelled() && steps.apk.outcome == 'success' && steps.kvm.outcome == 'success' }}
+        env:
+          ANDROID_SERIAL: emulator-5554
+        run: |
+          set -euo pipefail
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+          if adb -s "$ANDROID_SERIAL" get-state >/dev/null 2>&1; then
+            echo 'Refusing an existing emulator' >&2
+            exit 1
+          fi
+          mkdir -p test-results/android
+          { id; ls -l /dev/kvm; } 2>&1 | tee test-results/android/acceleration.log
+          test -r /dev/kvm && test -w /dev/kvm
+          sdkmanager --install 'system-images;android-35;google_apis;x86_64' emulator platform-tools
+          { command -v emulator; emulator -accel-check; } 2>&1 | tee -a test-results/android/acceleration.log
+          export ANDROID_AVD_HOME="$(mktemp -d "$RUNNER_TEMP/manabi-reader-avd.XXXXXX")"
+          printf 'no\n' | avdmanager create avd --name manabi-reader-qualification --package 'system-images;android-35;google_apis;x86_64'
+          emulator -avd manabi-reader-qualification -port 5554 -accel on -memory 2048 -no-window -no-audio -no-snapshot -no-metrics -gpu swiftshader -no-boot-anim > test-results/android/emulator.log 2>&1 &
+          emulator_pid=$!
+          trap 'adb -s "$ANDROID_SERIAL" emu kill >/dev/null 2>&1 || kill "$emulator_pid" 2>/dev/null || true' EXIT
+          timeout 600 bash -c 'until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = 1 ]; do sleep 2; done'
+          adb shell input keyevent 82
+          bash tests/android/run-qualification.sh
+      - name: Report actual runtime outcome and local diagnostics
+        if: always()
+        env:
+          RUNTIME_OUTCOME: ${{ steps.runtime.outcome }}
+        run: |
+          for file in test-results/android/*.txt test-results/android/acceleration.log; do
+            if [ -f "$file" ]; then printf '\n--- %s ---\n' "$file"; cat "$file"; fi
+          done
+          if [ "$RUNTIME_OUTCOME" = success ]; then
+            printf '\nSynthetic packaged-host instrumentation passed both phases on this exact APK. Full native product parity remains unqualified.\n' >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '\nAndroid runtime is UNQUALIFIED (step outcome: %s). APK worker execution is Chromium asset qualification only.\n' "$RUNTIME_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+            if [ -f test-results/android/emulator.log ]; then tail -n 200 test-results/android/emulator.log; fi
+          fi
