@@ -191,7 +191,9 @@ export class SearchController extends ObservableController {
     const bookRevision = this.scopePlan.books
       ? this.bookSearchSnapshotRevisionFor(this.bookSearchSnapshot)
       : 0;
-    const snippetRevision = this.scopePlan.snippets ? this.snippetTitleRevisionFor(this.eligible) : 0;
+    const snippetRevision = this.scopePlan.snippets
+      ? this.snippetTitleRevisionFor(this.eligible)
+      : 0;
     return JSON.stringify([
       this.query,
       this.owner,
