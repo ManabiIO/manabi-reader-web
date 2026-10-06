@@ -29,6 +29,8 @@ module.exports = (async () => {
         'apps/web/src/runtime/font-assets.ts',
         'apps/web/static/manabitan/**',
         'apps/web/static/dictionary-archives/**',
+        // Obsolete generated path from boundary-development builds.
+        'apps/web/static/dictionary-runtime/**',
         'apps/web/static/moss/**',
         '**/build/*',
         '**/test-results/**',
