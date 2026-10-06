@@ -8,6 +8,8 @@ __pycache__/
 /.cache/dictionary-build/
 /apps/web/static/manabitan/
 /apps/web/static/dictionary-archives/
+# Obsolete path used while developing the provider-neutral boundary.
+/apps/web/static/dictionary-runtime/
 # Build staging and recovery files are not production assets.
 /apps/web/static/.moss-runtime-*/
 /apps/web/static/.moss-publication-lock/
