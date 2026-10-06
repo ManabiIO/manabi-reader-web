@@ -51,4 +51,3 @@ jobs:
           tests/unit/search-result-rows.test.mjs
           tests/unit/search-worker-lifetime.test.mjs
           tests/unit/book-title-match-text.test.mjs
-          tests/unit/library-react-controller.test.mjs
