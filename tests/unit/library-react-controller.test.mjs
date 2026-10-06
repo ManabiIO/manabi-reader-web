@@ -286,3 +286,174 @@ test('unwatched synchronous store reads dispose function and object subscription
     assert.equal(stops, 1);
   }
 });
+
+
+function searchHarness() {
+  const user = store(null);
+  const snippets = store([
+    {
+      id: '10000000-0000-4000-8000-000000000001',
+      key: 'snippet:10000000-0000-4000-8000-000000000001',
+      title: 'Cat note',
+      revision: 1
+    }
+  ]);
+  let snippetKeyReads = 0,
+    bookQueries = 0;
+  const tasks = [];
+  const queryTask = () => {
+    const task = {
+      work: undefined,
+      delay: undefined,
+      start(work, delay = 100) {
+        task.work = work;
+        task.delay = delay;
+      },
+      stop() {}
+    };
+    tasks.push(task);
+    return task;
+  };
+  const referenceRevision = () => {
+    let current,
+      initialized = false,
+      revision = 0;
+    return (next) => {
+      if (!initialized || next !== current) {
+        initialized = true;
+        current = next;
+        revision++;
+      }
+      return revision;
+    };
+  };
+  const arrayRevision = (equal) => {
+    let current,
+      initialized = false,
+      revision = 0;
+    return (next) => {
+      if (initialized && next === current) return revision;
+      const changed =
+        !initialized ||
+        !current ||
+        next.length !== current.length ||
+        next.some((item, index) => !equal(item, current[index]));
+      if (changed) revision++;
+      initialized = true;
+      current = next;
+      return revision;
+    };
+  };
+  const { SearchController } = load('search-controller.ts', {
+    './observable-controller': boundary,
+    '$app/navigation': { goto() {} },
+    '$app/paths': { resolve: (value) => value },
+    '$lib/manabi/client': { localUser: user, localProfileUser: () => null },
+    '$lib/media/feature': { videoLearningEnabled: false },
+    '$lib/snippets/service': {
+      snippetItems: snippets,
+      scope: () => ({ guard() {} })
+    },
+    '$lib/snippets/document': {
+      snippetKey: (id) => {
+        snippetKeyReads++;
+        return 'snippet:' + id;
+      }
+    },
+    '$lib/snippets/search': { searchBodies: () => () => {} },
+    '$lib/search/book-content-source': { searchBookContents: async () => () => {} },
+    '$lib/search/book-title-match-text': {
+      queryBookTitleSearchSnapshot: () => {
+        bookQueries++;
+        return { matchedKeys: new Set(), textByBook: {} };
+      }
+    },
+    '$lib/library/search-normalization': { foldSearch: (value) => value.toLowerCase() },
+    '$lib/search/result-rows': {
+      bookTitleRows: () => [],
+      scopedSnippetTitleRows: () => ({ rows: [], failed: false }),
+      videoTitleRows: () => [],
+      sortTitleRows: (rows) => rows,
+      bookContentRows: () => [],
+      snippetContentRows: () => [],
+      videoContentRows: () => []
+    },
+    '$lib/search/source-session': { startSearchSources: () => () => {} },
+    '$lib/search/query-task.mjs': { queryTask },
+    '$lib/search/invalidation': {
+      advanceMediaSearchRevisions: (current) => current,
+      arrayRevision,
+      referenceRevision,
+      searchResultPlan: (filter) => ({
+        titles: filter === 'all' || filter === 'titles',
+        content: filter === 'all' || filter === 'content'
+      })
+    },
+    '$lib/search/library-search-scope': {
+      librarySearchQueryWithinLimit: (value) => [...value].length <= 512,
+      librarySearchScopePlan: (scope) =>
+        scope === 'books'
+          ? { books: true, snippets: false, dictionary: false }
+          : scope === 'snippets'
+            ? { books: false, snippets: true, dictionary: false }
+            : { books: true, snippets: true, dictionary: true }
+    }
+  });
+  return {
+    SearchController,
+    tasks,
+    reads: () => ({ snippetKeyReads, bookQueries })
+  };
+}
+
+test('active React unified search keeps corpus work behind the debounced generation', async () => {
+  const harness = searchHarness();
+  const model = new harness.SearchController();
+  let bookReads = 0;
+  const books = new Proxy(
+    [
+      {
+        key: 'book:a',
+        bookId: 1,
+        isPlaceholder: false,
+        title: 'Cat guide',
+        contentHash: 'a'.repeat(64),
+        lastBookModified: 1
+      }
+    ],
+    {
+      get(target, key, receiver) {
+        if (key === Symbol.iterator || key === '0' || key === 'length') bookReads++;
+        return Reflect.get(target, key, receiver);
+      }
+    }
+  );
+  model.books = books;
+  model.bookSearchSnapshot = { direct: [{ key: 'book:a', folded: ['cat guide'] }], contexts: [] };
+  model.query = 'c';
+
+  void model.nextTitleSignature;
+  void model.nextContentSignature;
+  const admitted = harness.reads();
+  assert.equal(bookReads, 0, 'scalar signatures must not iterate the Book corpus');
+  assert.equal(admitted.snippetKeyReads, 1);
+
+  model.query = 'ca';
+  void model.nextTitleSignature;
+  void model.nextContentSignature;
+  assert.equal(bookReads, 0, 'query-only invalidation must keep the same Book snapshot O(1)');
+  assert.equal(
+    harness.reads().snippetKeyReads,
+    admitted.snippetKeyReads,
+    'query-only invalidation must reuse the admitted Snippet projection'
+  );
+
+  model.startTitles();
+  assert.equal(harness.tasks[0].delay, 100);
+  assert.equal(harness.reads().bookQueries, 0, 'Book metadata admission must wait for debounce');
+  assert.equal(bookReads, 0, 'starting a title query must not clone the Book corpus');
+
+  await harness.tasks[0].work(new AbortController().signal, () => {});
+  assert.equal(harness.reads().bookQueries, 1);
+  assert.ok(bookReads > 0, 'Book corpus iteration is admitted only inside debounced work');
+});
