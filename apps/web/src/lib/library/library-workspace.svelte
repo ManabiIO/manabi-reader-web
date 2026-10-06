@@ -104,6 +104,7 @@
   import type { ReaderLocator } from '../reader-location';
   import UnifiedSearch from '../search/unified-search.svelte';
   import {
+    librarySearchQueryWithinLimit,
     libraryShelfSearchQuery,
     parseLibrarySearchScope,
     type LibrarySearchScope
@@ -365,7 +366,10 @@
     tree,
     $organization.collections
   );
-  $: metadataMatchIndex = queryBookTitleSearchSnapshot(metadataSearchSnapshot, normalizedQuery);
+  $: metadataMatchIndex = queryBookTitleSearchSnapshot(
+    metadataSearchSnapshot,
+    librarySearchQueryWithinLimit(query) ? normalizedQuery : ''
+  );
   $: metadataMatchText = metadataMatchIndex.textByBook;
   $: metadataMatches = searchableBooks.filter((book) =>
     metadataMatchIndex.matchedKeys.has(book.key)
