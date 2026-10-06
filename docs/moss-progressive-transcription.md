@@ -2,9 +2,8 @@
 
 ## Scope
 
-This change is stacked on video PR #46 at
-`b1040f917f1af16ba7fd5b7cfbdcbf02a103197a`. It keeps the immutable Mudler Q5_0
-weights and CPU-first local architecture. It does not add another ASR model,
+Reader's current local transcription stack keeps the immutable Mudler Q5_0
+weights and CPU-first browser architecture. It does not add another ASR model,
 forced alignment, a server, global speaker identities, or microphone streaming.
 
 There are two independent improvements: accepted window results become readable
@@ -110,16 +109,15 @@ media. The transaction layer, native model computation and provider boundaries a
 explicit doubles where noted in the test reports. The native output patch test
 compiles a scripted C++ decoder; it is not a full MOSS or Emscripten build.
 
-The opt-in real-ASR harness now records `partialUpdates`, `firstOutputSeconds`, and
-`firstPreviewCueSeconds`, relative to inference start. It rejects missing callbacks
-or invalid timing evidence. `prepareSeconds` remains separate. This harness change
-has not been run against the v7 WASM/model here.
+The real-ASR harness records `partialUpdates`, `firstOutputSeconds`, and
+`firstPreviewCueSeconds`, relative to inference start, with `prepareSeconds`
+reported separately. The repository's packaged-MOSS qualification exercises the
+checked-in v7 runtime and pinned real speech; those CI-host results establish
+runtime/fixture behavior, not representative-device performance.
 
-Before merge, rebuild and qualify both v7 runtimes, run the repository-pinned
-formatter/ESLint/Svelte/build and exact-head CI, and exercise real-model output,
-cancellation and resume. Benchmark current legacy windows against the new profile;
-compare unique covered media seconds, encoder and decoder time, time to first
-preview and settled output, peak/steady memory and repair rate. Natural Japanese,
+Remaining release qualification should compare unique covered media seconds,
+encoder and decoder time, time to first preview and settled output, peak/steady
+memory and repair rate on representative devices. Natural Japanese,
 quiet speech, repeated replies, numbers, music, speaker overlaps and deliberately
 seam-crossing utterances are required. Desktop/mobile and physical Safari/iOS,
 native multi-tab/IndexedDB and live cloud/account composition remain separate gates.
@@ -129,17 +127,16 @@ PR #46's exact-head v4 CPU qualification run `36280725560` reports roughly
 single-threaded (about 5.7x realtime) for roughly 11 seconds of generated audio.
 That large base-v4 improvement motivates the short first input, but it is not v7 or
 representative-device qualification and inference is still slower than realtime on
-that CI host. The base closeout
-also identifies production packaging/serving of both WASM variants as unresolved.
-This patch does not repair that deployment pipeline. It makes no new real-time
-factor, accuracy, or device-memory claim.
+that CI host. The historical v4 number remains useful only as context for why bounded inputs were
+pursued. Current v7 packaged qualification is the relevant runtime gate; neither CI
+host establishes representative-device real-time factor or memory behavior.
 
 True microphone streaming and a neural VAD remain outside this change.
 
 ## Playback-first sparse jobs
 
-An explicit Generate action in the player now creates a version-3
-`overlap-sparse-v1` job. Its 26-second cores and two-second halos bound normal
+An explicit Generate action in the player creates a version-3
+`overlap-sparse-v2` job. Its 26-second cores and two-second halos bound normal
 MOSS inputs to 30 seconds. The current playhead selects the next missing core;
 seeks change that priority after the current inference finishes. Each completed
 core is checkpointed once and reused in the same job as the queue fills the
@@ -148,7 +145,14 @@ a second full transcription pass. Bulk jobs and saved v1/v2 jobs retain their
 original sequential policy and can resume without reinterpretation.
 
 Draft captions use whole cues away from unresolved seams. Once neighboring
-windows agree, their boundary cues can appear too. A completed track is
+windows agree, their boundary cues can appear too. A normal sparse window whose exact
+model PCM is entirely zero now persists that fact as optional device-only evidence. It
+may refute only a neighboring one-sided cue wholly covered by the same zero-valued
+input; a cue crossing outside that input remains whole and unresolved. An ordinary
+empty hypothesis has no such authority and still requires agreement or repair. The
+new reconciliation evidence applies only to `overlap-sparse-v2`; legacy v1 jobs retain
+their historical acceptance semantics. Older saved windows do not gain silence evidence retroactively.
+ A completed track is
 published only after every core is covered and the whole-cue hypotheses join.
 An ambiguous seam is repaired with a bounded union input; overlapping repairs
 that exceed the model budget fail with the original hypotheses preserved.
@@ -163,10 +167,10 @@ the identities and timing of matched accepted cues.
 Completed version-3 jobs are compacted after atomic track publication, so
 routine queue reads do not reload the complete window hypotheses.
 
-The player measures decode plus warm inference time for each finished core,
-excluding first-time model download/preparation, and estimates how
+The player measures decode plus warm inference time for each finished **non-silent** core,
+excluding first-time model download/preparation and exact-zero cores that bypass MOSS, and estimates how
 long it will take to build a 26-second caption lead. The estimate is updated
-as more windows finish; before the first window it says that it is estimating.
+as more speech windows finish; before the first non-silent timing sample it says that it is estimating.
 If inference takes longer than one core of playback, the UI says captions may
 need to buffer again. Viewers can wait or choose **Play without captions**.
 This is a rolling estimate, not a promise of sustained real-time transcription.
@@ -193,9 +197,10 @@ job unpublished. Older provisional jobs without audio proofs cannot use this
 recovery path.
 
 Version-3 scheduling, early seam repair, accepted-cue preservation, and the
-browser controls have deterministic and Chromium tests. Natural Japanese
-boundary quality, real-WASM throughput, device memory, and suspended-tab
-recovery have not yet been qualified for this new policy.
+browser controls have deterministic and Chromium tests. One pinned real-WASM
+Japanese seam case is qualified below; broader natural-Japanese boundary quality,
+representative-device throughput/memory, and suspended-tab recovery remain
+separate release evidence.
 
 One targeted real-WASM Japanese check now covers the sparse seam. The pinned
 single-thread v7 runtime and Q5_0 model processed a 35.68-second sequence made
@@ -216,6 +221,11 @@ case, not a broad quality or performance result; the Mac was under load.
   https://github.com/localai-org/moss-transcribe.cpp/blob/190a569c13b4b247450f2fb3b2a431244e84833e/src/audio_encoder.cpp
 - Upstream windowed realtime proposal (not copied as a proven stitcher):
   https://github.com/OpenMOSS/MOSS-Transcribe-Diarize/pull/58
+- Upstream marker-collapse report: short trailing/inserted quiet can preserve ASR text
+  while removing internal speaker/timestamp markers. Reader keeps the resulting
+  outer-timestamp cue whole and does not invent internal timing; sparse readiness
+  therefore stops at a boundary-crossing collapsed cue until later agreement/repair:
+  https://github.com/OpenMOSS/MOSS-Transcribe-Diarize/issues/61
 - MOSS speaker-tag omission report:
   https://github.com/OpenMOSS/MOSS-Transcribe-Diarize/issues/40
 - Whisper-Streaming's agreement approach:
