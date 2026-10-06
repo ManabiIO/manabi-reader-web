@@ -563,7 +563,7 @@ class PresentationServer(StaticHandler):
         if self.headers.get('If-Match') != '"%d"' % self.preference_revision:
             return self.send_error(412)
         settings = type(self).account_requests[-1]['body']['settings']
-        # Deliberately reject the additive fields like the current deployed contract.
+        # Deliberately model the legacy/unversioned contract: additive fields are unsupported.
         if not self.wants_extensions():
             allowed = {'title','cover','direction','modifiedAt'}
             if any(not set(value) <= allowed for value in settings.get('library_organization',{}).get('books',{}).values()):
@@ -590,7 +590,7 @@ class LibraryPreferenceParityBrowser(LibraryBase):
         PresentationServer.supported = False
         super().setUp()
 
-    def test_legacy_server_preserves_local_metadata_then_upgrade_sends_it_and_old_omission_cannot_erase_it(self):
+    def test_legacy_fallback_survives_upgrade_but_versioned_remote_removal_is_authoritative(self):
         self.import_book('Preferences parity')
         self.menu('Preferences parity', 'Edit Metadata…')
         panel = self.dialog()
@@ -620,17 +620,24 @@ class LibraryPreferenceParityBrowser(LibraryBase):
         for value in PresentationServer.preference_settings['library_organization']['books'].values():
             for key in ('metadata','series','coverBlur'):
                 value.pop(key,None)
+            value['modifiedAt'] += 1
         PresentationServer.preference_revision += 1
+        puts_before = len([request for request in PresentationServer.account_requests
+                           if request['method'] == 'PUT'])
         self.page.get_by_role('button',name='Sync settings now',exact=True).click()
         expect(status).to_have_text('Settings sync: synced',timeout=15000)
-        deadline=time.monotonic()+10
-        while not any('metadata' in value for value in PresentationServer.preference_settings['library_organization']['books'].values()):
-            self.assertLess(time.monotonic(),deadline)
-            self.page.wait_for_timeout(50)
+        puts_after = len([request for request in PresentationServer.account_requests
+                          if request['method'] == 'PUT'])
+        self.assertEqual(puts_before, puts_after, 'versioned removal was uploaded back to the server')
+        self.assertTrue(all('metadata' not in value and 'coverBlur' not in value and 'series' not in value
+                            for value in PresentationServer.preference_settings['library_organization']['books'].values()))
         self.go_library()
-        self.page.get_by_role('button',name='Open series Personal series',exact=True).click()
+        expect(self.page.get_by_role('button',name='Open series Personal series',exact=True)).to_have_count(0)
+        expect(self.tile('Preferences parity').locator('[data-cover-blurred]')).to_have_attribute(
+            'data-cover-blurred','false')
         self.menu('Preferences parity','Edit Metadata…')
-        expect(self.dialog().get_by_label('Publisher',exact=True)).to_have_value('Retain this publisher')
+        expect(self.dialog().get_by_label('Publisher',exact=True)).to_have_value('')
+        expect(self.dialog().get_by_label('Series',exact=True)).to_have_value('')
 
 
 if __name__ == '__main__':
