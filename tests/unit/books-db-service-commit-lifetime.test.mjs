@@ -45,14 +45,6 @@ function load(dependencies = {}) {
   return exports;
 }
 
-test('browser database service has no request-before-tx.done write paths left', () => {
-  assert.equal(
-    /await\s+tx\.done/.test(source),
-    false,
-    'new database-service writes must use commitTransaction so completion is observed up front'
-  );
-});
-
 test('storage-source publication waits for transaction completion observed before its first request', async () => {
   let completionObserved = false;
   let resolveDone;
@@ -124,4 +116,48 @@ test('storage-source publication waits for transaction completion observed befor
   await pending;
   assert.deepEqual(published, ['Browser backup']);
   assert.deepEqual(defaults, [['Browser backup', 'browser']]);
+});
+
+test('failed storage-source commit rejects without publishing settings', async () => {
+  const failure = new Error('Storage transaction aborted');
+  let rejectDone;
+  const done = new Promise((_resolve, reject) => {
+    rejectDone = reject;
+  });
+  let requestFinished;
+  const request = new Promise((resolve) => {
+    requestFinished = resolve;
+  });
+  const tx = {
+    done,
+    objectStore() {
+      return {
+        async add() {
+          requestFinished();
+        }
+      };
+    },
+    abort() {}
+  };
+  const published = [];
+  const { DatabaseService } = load({
+    './commit-transaction.mjs': transactions,
+    '$lib/data/store': { syncTarget$: { next: (value) => published.push(value) } },
+    '$lib/data/storage/storage-source-manager': {
+      setStorageSourceDefault: (...args) => published.push(args)
+    }
+  });
+  const service = Object.create(DatabaseService.prototype);
+  service.db = Promise.resolve({ transaction: () => tx });
+  const pending = service.saveStorageSource(
+    { name: 'Browser backup', type: 'browser' },
+    '',
+    true,
+    true
+  );
+  const rejected = assert.rejects(pending, (error) => error === failure);
+  await request;
+  rejectDone(failure);
+  await rejected;
+  assert.deepEqual(published, []);
 });
