@@ -16,6 +16,7 @@
   import { searchBookContents } from './book-content-source';
   import {
     queryBookTitleSearchSnapshot,
+    type BookTitleMatchContext,
     type BookTitleSearchSnapshot
   } from './book-title-match-text';
   import { foldSearch } from '../library/search-normalization';
@@ -245,8 +246,7 @@
       // this task owns the debounced generation; never scan the corpus in the
       // synchronous input/reactive path.
       let selectedBooks: ShelfBook[] = [],
-        selectedBookMatchText: Record<string, readonly import('./book-title-match-text').BookTitleMatchContext[]> =
-          {};
+        selectedBookMatchText: Record<string, readonly BookTitleMatchContext[]> = {};
       if (plan.books) {
         const index = queryBookTitleSearchSnapshot(
           selectedBookSnapshot,
