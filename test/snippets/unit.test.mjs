@@ -71,7 +71,7 @@ import {
   syncReading
 } from '../../apps/web/src/lib/snippets/reading-state.ts';
 import { memory, changeUser } from 'snippet-fixture';
-import { get, writable } from 'svelte/store';
+import { get, writable } from '$lib/state/store';
 import { isSnippetLibraryPath } from '../../apps/web/src/lib/snippets/discovery.ts';
 import { boundLibrarySource } from '../../apps/web/src/lib/library/source-binding.ts';
 import { createRouteLoads } from '../../apps/web/src/lib/snippets/route-load.ts';

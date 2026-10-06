@@ -8,7 +8,7 @@ from urllib.error import URLError
 import os
 from tempfile import TemporaryDirectory
 from pathlib import Path
-from lifecycle_evidence import LifecycleEvidence
+from lifecycle_evidence import LifecycleEvidence, case_failed
 import unittest
 from playwright.sync_api import expect
 import test_appearance as previous
@@ -81,6 +81,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
     def tearDown(self):
         Path('test-results').mkdir(exist_ok=True)
         Path('test-results', self._testMethodName + '-network.json').write_text(json.dumps(self.network, indent=2))
+        failed = case_failed(self)
         try:
             if (os.environ.get('APPEARANCE_BROWSER') == 'webkit' and
                     self._testMethodName == 'test_offline_reload_preserves_book_and_never_caches_account_requests'):
@@ -92,8 +93,12 @@ class RefinedAppearance(previous.AppearanceBrowser):
                     '/static/reader/books/opds/index.xml due to access control checks.' in
                     error.splitlines()[0])]
             super().tearDown()
+        except BaseException:
+            failed = True
+            raise
         finally:
-            self.lifecycle.write(type(self).__name__ + '-' + self._testMethodName)
+            self.lifecycle.write(type(self).__name__ + '-' + self._testMethodName,
+                                 failed=failed)
 
     def go_offline(self):
         if os.environ.get('APPEARANCE_BROWSER', 'chromium') == 'chromium':

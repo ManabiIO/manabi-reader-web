@@ -5,6 +5,7 @@
  */
 
 import { decodeBookBinary } from '$lib/data/database/books-db/book-binary';
+import type { CatalogImportAdmission } from '$lib/data/database/books-db/database.service';
 import {
   prepareBookForLocalReading,
   readBookSummaries,
@@ -369,25 +370,37 @@ export class BrowserStorageHandler extends BaseStorageHandler {
   async saveBook(
     data: Omit<BooksDbBookData, 'id'> | File,
     skipTimestampFallback = true,
-    removeStorageContext = true
+    removeStorageContext = true,
+    catalogAdmission?: CatalogImportAdmission
   ) {
     let idToReturn = 0;
     const signal = this.cancelSignal;
 
     if (!(data instanceof File)) {
+      let catalogReused = false;
       const storedBookData = await database.upsertData(
         data,
         this.saveBehavior,
         skipTimestampFallback,
         removeStorageContext,
-        signal
+        signal,
+        catalogAdmission && {
+          ...catalogAdmission,
+          onReuse: () => {
+            catalogReused = true;
+          }
+        }
       );
       throwIfAborted(signal);
 
       idToReturn = storedBookData.id;
       // Promote the identity actually saved (NewOnly may retain an older book).
       // This also covers backup restoration, not just direct file imports.
-      if (storedBookData.contentHash && /^[a-f0-9]{64}$/.test(storedBookData.contentHash)) {
+      if (
+        !catalogReused &&
+        storedBookData.contentHash &&
+        /^[a-f0-9]{64}$/.test(storedBookData.contentHash)
+      ) {
         await relocatePresentation(
           bookKey(storedBookData.id),
           contentBookKey(storedBookData.contentHash)

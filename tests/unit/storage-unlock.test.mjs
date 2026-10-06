@@ -1,110 +1,60 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
-
-const require = createRequire(import.meta.url);
-const ts = require('typescript');
-const path = fileURLToPath(
-  new URL('../../apps/web/src/lib/components/storage-unlock.svelte', import.meta.url)
-);
-const component = readFileSync(path, 'utf8').split('<script lang="ts">')[1].split('</script>')[0];
-const source = ts.createSourceFile(path + '.ts', component, ts.ScriptTarget.Latest, true);
-const printer = ts.createPrinter();
+import { dialogComponent } from './react-component-harness.mjs';
 
 function harness(overrides = {}) {
-  const received = [];
-  const initial = {
-    description: 'Protected source',
-    action: 'Enter the password to continue',
-    requiresSecret: true,
-    showCancel: false,
-    forwardSecret: false,
-    encryptedData: new ArrayBuffer(8),
-    resolver: (value) => received.push(value),
-    ...overrides.props
-  };
-  const mounts = [];
-  const destroys = [];
-  const events = [];
-  const skip = [];
+  const received = [],
+    events = [],
+    skip = [];
   let decryptCalls = 0;
   const decrypt =
     overrides.decrypt ??
     (async () =>
       new TextEncoder().encode(JSON.stringify({ clientId: 'client', clientSecret: '' })));
-  const deps = {
-    decrypt: async (...args) => {
-      decryptCalls += 1;
-      return decrypt(...args);
+  const component = dialogComponent(
+    'StorageUnlock',
+    {
+      description: 'Protected source',
+      action: 'Enter the password to continue',
+      requiresSecret: true,
+      showCancel: false,
+      forwardSecret: false,
+      encryptedData: new ArrayBuffer(8),
+      resolver: (value) => received.push(value),
+      onClose: () => events.push(['close']),
+      ...overrides.props
     },
-    skipKeyDownListener$: { next: (value) => skip.push(value) },
-    onMount: (callback) => mounts.push(callback),
-    onDestroy: (callback) => destroys.push(callback),
-    createEventDispatcher:
-      () =>
-      (...args) =>
-        events.push(args),
-    window: {}
-  };
-
-  const statements = source.statements
-    .filter((statement) => !ts.isImportDeclaration(statement))
-    .map((statement) => {
-      if (!ts.isVariableStatement(statement)) return statement;
-      const declarations = statement.declarationList.declarations.map((declaration) => {
-        if (!ts.isIdentifier(declaration.name) || !Object.hasOwn(initial, declaration.name.text))
-          return declaration;
-        return ts.factory.updateVariableDeclaration(
-          declaration,
-          declaration.name,
-          declaration.exclamationToken,
-          declaration.type,
-          ts.factory.createElementAccessExpression(
-            ts.factory.createIdentifier('__initial'),
-            ts.factory.createStringLiteral(declaration.name.text)
-          )
-        );
-      });
-      return ts.factory.updateVariableStatement(
-        statement,
-        statement.modifiers?.filter((modifier) => modifier.kind !== ts.SyntaxKind.ExportKeyword),
-        ts.factory.updateVariableDeclarationList(statement.declarationList, declarations)
-      );
-    });
-  const code = [
-    ...statements.map((statement) => printer.printNode(ts.EmitHint.Unspecified, statement, source)),
-    `return {
-      unlock,
-      closeDialog,
-      setSecret: value => { secret = value; },
-      getError: () => error,
-      getPending: () => pending
-    };`
-  ].join('\n');
-  const compiled = ts.transpileModule(code, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None }
-  }).outputText;
-  const api = new Function('__initial', ...Object.keys(deps), compiled)(
-    initial,
-    ...Object.values(deps)
+    {
+      '$lib/data/store': {
+        hideExternalReadHint$: {},
+        skipKeyDownListener$: { next: (value) => skip.push(value) }
+      },
+      '$lib/data/storage/storage-source-manager': {
+        decrypt: async (...args) => {
+          decryptCalls++;
+          return decrypt(...args);
+        }
+      }
+    }
   );
+  const pending = () => !!component.find((node) => node.type === 'form').props['aria-busy'];
   return {
-    ...api,
-    events,
     received,
+    events,
     skip,
     decryptCalls: () => decryptCalls,
-    async mount() {
-      for (const mount of mounts) {
-        const cleanup = await mount();
-        if (typeof cleanup === 'function') destroys.push(cleanup);
-      }
+    setSecret: (value) => component.change(value),
+    getError: () => component.text(component.find((node) => node.props.role === 'alert')),
+    getPending: pending,
+    unlock: () => {
+      component.submit();
+      return component.waitUntil(() => !pending());
     },
-    dispose() {
-      for (const destroy of destroys.splice(0)) destroy();
-    }
+    closeDialog: () => component.button('Cancel').props.onClick(),
+    mount: async () => {},
+    dispose: () => component.dispose(),
+    strictReplay: () => component.strictReplay(),
+    flush: () => component.flush()
   };
 }
 
@@ -121,7 +71,7 @@ test('successful encrypted unlock resolves and closes exactly once', async () =>
   h.setSecret('fixture password');
   await h.unlock();
   h.closeDialog();
-  h.dispose();
+  await h.dispose();
   assert.deepEqual(h.received, [
     { clientId: 'client', clientSecret: '', secret: 'fixture password' }
   ]);
@@ -134,7 +84,7 @@ test('unlock without a secret requirement publishes the continuation sentinel on
     props: { requiresSecret: false, encryptedData: undefined }
   });
   await h.unlock();
-  h.dispose();
+  await h.dispose();
   assert.deepEqual(h.received, [{ clientId: '', clientSecret: '' }]);
   assert.deepEqual(h.events, [['close']]);
   assert.equal(h.decryptCalls(), 0);
@@ -178,10 +128,10 @@ test('repeated submit cannot start a second decrypt while the first is pending',
   assert.equal(h.decryptCalls(), 1);
 });
 
-test('destroying an unresolved unlock cancels once without dispatching a late close', () => {
+test('destroying an unresolved unlock cancels once without dispatching a late close', async () => {
   const h = harness();
-  h.dispose();
-  h.dispose();
+  await h.dispose();
+  await h.dispose();
   assert.deepEqual(h.received, [undefined]);
   assert.deepEqual(h.events, []);
 });
@@ -190,6 +140,34 @@ test('mount and disposal preserve reader shortcut suppression lifetime', async (
   const h = harness();
   await h.mount();
   assert.deepEqual(h.skip, [true]);
-  h.dispose();
+  await h.dispose();
   assert.deepEqual(h.skip, [true, false]);
+});
+
+test('Strict Mode cleanup replay preserves an unresolved unlock', async () => {
+  const h = harness();
+  h.strictReplay();
+  await h.flush();
+  assert.deepEqual(h.received, []);
+  h.setSecret('fixture');
+  await h.unlock();
+  await h.dispose();
+  assert.equal(h.received.length, 1);
+  assert.equal(h.received[0].clientId, 'client');
+});
+
+test('unmounting during decrypt cancels once and fences late completion', async () => {
+  const gate = deferred();
+  const h = harness({
+    decrypt: async () => {
+      await gate.promise;
+      return new TextEncoder().encode(JSON.stringify({ clientId: 'late', clientSecret: '' }));
+    }
+  });
+  void h.unlock();
+  await h.dispose();
+  gate.resolve();
+  await h.flush();
+  assert.deepEqual(h.received, [undefined]);
+  assert.deepEqual(h.events, []);
 });

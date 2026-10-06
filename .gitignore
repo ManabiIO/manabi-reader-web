@@ -11,3 +11,13 @@ __pycache__/
 # Build staging and recovery files are not production assets.
 /apps/web/static/.moss-runtime-*/
 /apps/web/static/.moss-publication-lock/
+
+# Expo Android/web builds (native Apple targets are intentionally not supported)
+/apps/web/.expo/
+/apps/web/android/
+/apps/web/dist/
+/apps/web/build/
+/apps/web/expo-env.d.ts
+/apps/web/public/
+/apps/web/src/app.generated.css
+/apps/web/src/runtime/font-assets.ts

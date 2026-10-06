@@ -1,0 +1,602 @@
+diff --git a/android/build.gradle b/android/build.gradle
+index 8784c32..2c7cffe 100644
+--- a/android/build.gradle
++++ b/android/build.gradle
+@@ -13,3 +13,9 @@ android {
+     versionName "57.0.1"
+   }
+ }
++
++// Manabi Reader: origin-scoped messaging and APK HTTPS asset loading.
++dependencies {
++  implementation "androidx.webkit:webkit:1.14.0"
++  testImplementation "junit:junit:4.13.2"
++}
+diff --git a/android/src/main/java/expo/modules/webview/DomWebView.kt b/android/src/main/java/expo/modules/webview/DomWebView.kt
+index 125ad1d..2298802 100644
+--- a/android/src/main/java/expo/modules/webview/DomWebView.kt
++++ b/android/src/main/java/expo/modules/webview/DomWebView.kt
+@@ -13,6 +13,8 @@ import android.view.View
+ import android.view.View.OnTouchListener
+ import android.view.ViewGroup
+ import android.webkit.RenderProcessGoneDetail
++import android.webkit.WebResourceRequest
++import android.webkit.WebResourceResponse
+ import android.webkit.WebView
+ import android.webkit.WebViewClient
+ import expo.modules.core.logging.LogHandlers
+@@ -32,6 +34,37 @@ internal class DomWebView(context: Context, appContext: AppContext) : ExpoView(c
+   val webViewId = DomWebViewRegistry.add(this)
+ 
+   private var source: DomWebViewSource? = null
++  var manabiReaderHost: Boolean = false
++    set(value) {
++      check(!field || value) { "A secure reader host cannot be downgraded." }
++      check(!value || field || webView.url == null || webView.url == "about:blank") {
++        "Secure reader mode must be selected before loading content."
++      }
++      field = value
++    }
++  var manabiReaderDevOrigin: String? = null
++  private var secureReaderHost: ReaderDomHost? = null
++  private val onReaderExternalLink by EventDispatcher<ReaderExternalLinkEvent>()
++  private val onReaderHostError by EventDispatcher<ReaderHostErrorEvent>()
++
++  private fun readerSource(): String? {
++    val uri = source?.uri ?: return null
++    if (!manabiReaderHost) return uri
++    return try {
++      check(!useExpoModulesBridge) { "Native module evaluation is forbidden in the reader host." }
++      val host = secureReaderHost ?: ReaderDomHost(context, webView,
++        { message -> dispatchMessageEvent(message) },
++        { url -> onReaderExternalLink(ReaderExternalLinkEvent(url)) }
++      ).also { secureReaderHost = it }
++      host.prepare(uri, manabiReaderDevOrigin, rncWebViewBridge.injectedObjectJson)
++    } catch (error: IllegalArgumentException) {
++      onReaderHostError(ReaderHostErrorEvent(error.message ?: "Reader source rejected."))
++      null
++    } catch (error: IllegalStateException) {
++      onReaderHostError(ReaderHostErrorEvent(error.message ?: "Secure reader unavailable."))
++      null
++    }
++  }
+   private var injectedJS: String? = null
+   private var injectedJSBeforeContentLoaded: String? = null
+   private val rncWebViewBridge = RNCWebViewBridge(this@DomWebView)
+@@ -71,7 +104,8 @@ internal class DomWebView(context: Context, appContext: AppContext) : ExpoView(c
+   // region Public methods
+ 
+   fun reload() {
+-    val sourceUri = source?.uri
++    val sourceUri = readerSource()
++    if (manabiReaderHost && sourceUri == null) return
+     if (sourceUri != null && sourceUri != webView.url) {
+       needsResetupScripts = false
+       webView.loadUrl(sourceUri)
+@@ -87,15 +121,13 @@ internal class DomWebView(context: Context, appContext: AppContext) : ExpoView(c
+ 
+   fun forceReload() {
+     webView.post {
+-      if (webView.url != null) {
+-        webView.reload()
+-      } else {
+-        source?.uri?.let { webView.loadUrl(it) }
+-      }
++      val sourceUri = readerSource() ?: return@post
++      if (webView.url == sourceUri) webView.reload() else webView.loadUrl(sourceUri)
+     }
+   }
+ 
+   internal fun onViewDestroys() {
++    secureReaderHost?.destroy()
+     webView.removeJavascriptInterface("ReactNativeWebView")
+     webView.removeJavascriptInterface("ExpoDomWebViewBridge")
+     removeAllViews()
+@@ -131,12 +163,14 @@ internal class DomWebView(context: Context, appContext: AppContext) : ExpoView(c
+ 
+   fun injectJavaScript(script: String) {
+     webView.post {
++      if (manabiReaderHost && secureReaderHost?.isTrustedPage(webView.url) != true) return@post
+       webView.evaluateJavascript(script, null)
+     }
+   }
+ 
+   fun dispatchMessageEvent(message: String) {
+     webView.post {
++      if (manabiReaderHost && secureReaderHost?.isTrustedPage(webView.url) != true) return@post
+       val messageEvent = OnMessageEvent(
+         title = webView.title ?: "",
+         url = webView.url ?: "",
+@@ -147,7 +181,7 @@ internal class DomWebView(context: Context, appContext: AppContext) : ExpoView(c
+   }
+ 
+   fun evalSync(data: String): String {
+-    if (!useExpoModulesBridge) {
++    if (manabiReaderHost || !useExpoModulesBridge) {
+       return "{\"isPromise\":false,\"value\":null}"
+     }
+     val json = JSONObject(data)
+@@ -206,9 +240,19 @@ internal class DomWebView(context: Context, appContext: AppContext) : ExpoView(c
+   }
+ 
+   private fun createWebViewClient() = object : WebViewClient() {
++    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest): Boolean =
++      if (manabiReaderHost) secureReaderHost?.shouldOverride(request) ?: true else false
++
++    override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest): WebResourceResponse? =
++      if (manabiReaderHost) secureReaderHost?.intercept(request) ?: ReaderDomHost.blockedResponse() else null
++
+     override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+       super.onPageStarted(view, url, favicon)
+-      if (this@DomWebView.useExpoModulesBridge) {
++      if (manabiReaderHost && secureReaderHost?.isTrustedPage(url) != true) {
++        view?.stopLoading()
++        return
++      }
++      if (!manabiReaderHost && this@DomWebView.useExpoModulesBridge) {
+         view?.evaluateJavascript(INSTALL_GLOBALS_SCRIPT.replace("\"%%WEBVIEW_ID%%\"", webViewId.toString()), null)
+       }
+       this@DomWebView.injectedJSBeforeContentLoaded?.let { script ->
+@@ -218,6 +262,7 @@ internal class DomWebView(context: Context, appContext: AppContext) : ExpoView(c
+ 
+     override fun onPageFinished(view: WebView?, url: String?) {
+       super.onPageFinished(view, url)
++      if (manabiReaderHost && secureReaderHost?.isTrustedPage(url) != true) return
+       this@DomWebView.injectedJS?.let {
+         injectJavaScript(it)
+       }
+diff --git a/android/src/main/java/expo/modules/webview/DomWebViewEvents.kt b/android/src/main/java/expo/modules/webview/DomWebViewEvents.kt
+index bfe9795..c9461a8 100644
+--- a/android/src/main/java/expo/modules/webview/DomWebViewEvents.kt
++++ b/android/src/main/java/expo/modules/webview/DomWebViewEvents.kt
+@@ -19,3 +19,9 @@ internal data class OnRenderProcessGoneEvent(
+   @Field val title: String,
+   @Field val didCrash: Boolean
+ ) : Record
++
++@OptimizedRecord
++internal data class ReaderExternalLinkEvent(@Field val url: String) : Record
++
++@OptimizedRecord
++internal data class ReaderHostErrorEvent(@Field val message: String) : Record
+diff --git a/android/src/main/java/expo/modules/webview/DomWebViewModule.kt b/android/src/main/java/expo/modules/webview/DomWebViewModule.kt
+index 790b2e0..38a21e4 100644
+--- a/android/src/main/java/expo/modules/webview/DomWebViewModule.kt
++++ b/android/src/main/java/expo/modules/webview/DomWebViewModule.kt
+@@ -19,7 +19,14 @@ class DomWebViewModule : Module() {
+     }
+ 
+     View(DomWebView::class) {
+-      Events("onMessage", "onRenderProcessGone")
++      Events("onMessage", "onRenderProcessGone", "onReaderExternalLink", "onReaderHostError")
++
++      Prop("manabiReaderHost") { view: DomWebView, enabled: Boolean ->
++        view.manabiReaderHost = enabled
++      }
++      Prop("manabiReaderDevOrigin") { view: DomWebView, origin: String? ->
++        view.manabiReaderDevOrigin = origin
++      }
+ 
+       Prop("source") { view: DomWebView, source: DomWebViewSource ->
+         view.setSource(source)
+diff --git a/android/src/main/java/expo/modules/webview/ReaderDomHost.kt b/android/src/main/java/expo/modules/webview/ReaderDomHost.kt
+new file mode 100644
+index 0000000..bb357db
+--- /dev/null
++++ b/android/src/main/java/expo/modules/webview/ReaderDomHost.kt
+@@ -0,0 +1,158 @@
++// Manabi Reader secure Android DOM adapter. SPDX-License-Identifier: BSD-3-Clause
++package expo.modules.webview
++
++import android.content.Context
++import android.content.pm.ApplicationInfo
++import android.webkit.WebResourceRequest
++import android.webkit.WebResourceResponse
++import android.webkit.WebSettings
++import android.webkit.WebView
++import androidx.webkit.ScriptHandler
++import androidx.webkit.WebMessageCompat
++import androidx.webkit.WebViewAssetLoader
++import androidx.webkit.WebViewCompat
++import androidx.webkit.WebViewFeature
++import java.io.ByteArrayInputStream
++import java.io.IOException
++import java.net.URLConnection
++import org.json.JSONObject
++
++/** Opt-in only. Keeps Expo's DOM protocol but gives it an origin- and frame-checked transport. */
++internal class ReaderDomHost(
++  private val context: Context,
++  private val webView: WebView,
++  private val onMessage: (String) -> Unit,
++  private val onExternalLink: (String) -> Unit
++) {
++  private var policy: ReaderDomPolicy? = null
++  private var script: ScriptHandler? = null
++  private var started = false
++  private var devOrigin: String? = null
++  private val debuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
++  private val assetLoader = WebViewAssetLoader.Builder()
++    .setDomain("appassets.androidplatform.net")
++    .setHttpAllowed(false)
++    .addPathHandler(ReaderDomPolicy.ASSET_PREFIX, WebViewAssetLoader.PathHandler { path ->
++      // AssetLoader passes a decoded suffix. The request-level policy separately rejects encoded traversal.
++      try {
++        val stream = context.assets.open("www.bundle/$path")
++        val mime = when (path.substringAfterLast('.', "").lowercase()) {
++          "js", "mjs" -> "text/javascript"
++          "wasm" -> "application/wasm"
++          "json", "map" -> "application/json"
++          "css" -> "text/css"
++          "html", "htm" -> "text/html"
++          "svg" -> "image/svg+xml"
++          "woff" -> "font/woff"
++          "woff2" -> "font/woff2"
++          else -> URLConnection.guessContentTypeFromName(path) ?: "application/octet-stream"
++        }
++        WebResourceResponse(mime, null, 200, "OK", mapOf(
++          "X-Content-Type-Options" to "nosniff",
++          "Cache-Control" to "no-cache"
++        ), stream)
++      } catch (_: IOException) { errorResponse(404, "Not Found") }
++    }).build()
++
++  @Suppress("DEPRECATION")
++  fun prepare(source: String, configuredDevOrigin: String?, injectedObject: String): String {
++    if (policy == null) {
++      policy = ReaderDomPolicy(debuggable, configuredDevOrigin)
++      devOrigin = configuredDevOrigin
++    }
++    require(configuredDevOrigin == devOrigin) { "A reader host cannot change its development origin." }
++    val currentPolicy = checkNotNull(policy)
++    val resolved = currentPolicy.setEntry(source)
++    if (started) return resolved
++    // No unscoped Java interface is left accessible to an EPUB iframe, blob, or third-party document.
++    webView.removeJavascriptInterface("ReactNativeWebView")
++    webView.removeJavascriptInterface("ExpoDomWebViewBridge")
++    webView.settings.apply {
++      allowFileAccess = false
++      allowContentAccess = false
++      allowFileAccessFromFileURLs = false
++      allowUniversalAccessFromFileURLs = false
++      mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
++      domStorageEnabled = true
++      javaScriptCanOpenWindowsAutomatically = false
++      setSupportMultipleWindows(false)
++    }
++    if (!debuggable) WebView.setWebContentsDebuggingEnabled(false)
++    check(WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) &&
++      WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
++      "Update Android System WebView before opening the offline reader."
++    }
++    val allowedOrigins = setOf(checkNotNull(ReaderDomPolicy.origin(checkNotNull(currentPolicy.entry))))
++    WebViewCompat.addWebMessageListener(webView, "ManabiReaderPort", allowedOrigins) {
++        view, message, sourceOrigin, isMainFrame, _ ->
++      if (message.type == WebMessageCompat.TYPE_STRING &&
++        currentPolicy.acceptsMessage(sourceOrigin.toString(), isMainFrame, view.url)) {
++        val data = message.data
++        if (data != null && data.length <= 1_048_576) onMessage(data)
++      }
++    }
++    val entry = checkNotNull(currentPolicy.entry)
++    val bootstrap = """
++      (() => {
++        if (window.top !== window || location.pathname !== ${JSONObject.quote(entry.rawPath)} ||
++            location.search !== ${JSONObject.quote(entry.rawQuery?.let { "?$it" } ?: "")}) return;
++        const port = window.ManabiReaderPort;
++        const initial = ${JSONObject.quote(injectedObject)};
++        Object.defineProperty(window, 'ReactNativeWebView', { configurable: false, writable: false,
++          value: Object.freeze({
++            postMessage: message => { if (typeof message === 'string' && message.length <= 1048576) port.postMessage(message); },
++            injectedObjectJson: () => initial
++          })
++        });
++      })();
++    """.trimIndent()
++    script = WebViewCompat.addDocumentStartJavaScript(webView, bootstrap, allowedOrigins)
++    started = true
++    return resolved
++  }
++
++  fun isTrustedPage(value: String?): Boolean = started && policy?.isEntry(value) == true
++
++  fun shouldOverride(request: WebResourceRequest): Boolean {
++    val current = policy ?: return true
++    val url = request.url.toString()
++    if (request.isForMainFrame && current.isEntry(url)) return false
++    // Do not navigate even for valid external links. The native parent validates and opens a browser.
++    if (request.isForMainFrame && request.hasGesture() && request.method == "GET" && current.isExternal(url)) {
++      onExternalLink(url)
++    }
++    // Frame loads are limited to local packaged content. EPUB's scriptless blob/srcdoc frames
++    // are renderer-owned and are not delegated to a network or file URL.
++    if (request.isForMainFrame) return true
++    return current.assetPath(url) == null && request.url.scheme !in setOf("blob", "data", "about")
++  }
++
++  fun intercept(request: WebResourceRequest): WebResourceResponse? {
++    val current = policy ?: return errorResponse(403, "Forbidden")
++    val url = request.url.toString()
++    if (request.isForMainFrame && !current.isEntry(url)) return errorResponse(403, "Forbidden")
++    if (current.isAssetHost(url) || request.url.host?.trimEnd('.')?.equals("appassets.androidplatform.net", ignoreCase = true) == true) {
++      if (!current.isAssetOrigin(url) || request.method != "GET" || current.assetPath(url) == null) return errorResponse(404, "Not Found")
++      // Missing APK files must never fall through to DNS/network, including module workers and WASM.
++      return assetLoader.shouldInterceptRequest(request.url) ?: errorResponse(404, "Not Found")
++    }
++    if (request.url.scheme !in setOf("https", "http", "blob", "data")) return errorResponse(403, "Forbidden")
++    // Existing browser fetch/CORS rules govern app API traffic; there is no native network proxy.
++    return null
++  }
++
++  fun destroy() {
++    script?.remove()
++    if (started) WebViewCompat.removeWebMessageListener(webView, "ManabiReaderPort")
++    started = false
++  }
++
++  companion object {
++    fun blockedResponse(): WebResourceResponse = errorResponse(403, "Forbidden")
++
++    private fun errorResponse(status: Int, reason: String) = WebResourceResponse(
++      "text/plain", "UTF-8", status, reason, mapOf("Cache-Control" to "no-store"),
++      ByteArrayInputStream(reason.toByteArray(Charsets.UTF_8))
++    )
++  }
++}
+diff --git a/android/src/main/java/expo/modules/webview/ReaderDomPolicy.java b/android/src/main/java/expo/modules/webview/ReaderDomPolicy.java
+new file mode 100644
+index 0000000..60486bd
+--- /dev/null
++++ b/android/src/main/java/expo/modules/webview/ReaderDomPolicy.java
+@@ -0,0 +1,122 @@
++// Manabi Reader secure-host policy. SPDX-License-Identifier: BSD-3-Clause
++package expo.modules.webview;
++
++import java.net.URI;
++import java.net.URISyntaxException;
++import java.util.Locale;
++import java.util.Objects;
++import java.util.regex.Pattern;
++
++/** Pure JVM policy: no network, files, or native actions are available through this class. */
++final class ReaderDomPolicy {
++  public static final String ORIGIN = "https://appassets.androidplatform.net";
++  public static final String ASSET_PREFIX = "/www.bundle/";
++  private static final Pattern ENTRY_PATH = Pattern.compile("/android_asset/www\\.bundle/[a-f0-9]{32}\\.html");
++  private static final Pattern ENCODED_ESCAPE = Pattern.compile("%(?:2e|2f|5c|00|25)", Pattern.CASE_INSENSITIVE);
++  private final String devOrigin;
++  private URI entry;
++
++  public ReaderDomPolicy(boolean debuggable, String configuredDevOrigin) {
++    if (configuredDevOrigin == null || configuredDevOrigin.isEmpty()) {
++      devOrigin = null;
++      return;
++    }
++    require(debuggable, "Reader development origin is forbidden in release builds.");
++    URI uri = parse(configuredDevOrigin);
++    String normalized = uri == null ? null : origin(uri);
++    require(normalized != null && !ORIGIN.equals(normalized) && uri.getRawQuery() == null &&
++      uri.getRawFragment() == null && ("".equals(uri.getRawPath()) || "/".equals(uri.getRawPath())),
++      "Reader development origin must be one exact HTTP(S) origin.");
++    devOrigin = normalized;
++  }
++
++  public static URI parse(String value) {
++    try { return value == null ? null : new URI(value); }
++    catch (URISyntaxException error) { return null; }
++  }
++
++  public static String origin(URI uri) {
++    if (uri == null || uri.getScheme() == null || uri.getHost() == null || uri.getRawUserInfo() != null) return null;
++    String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
++    String host = uri.getHost().toLowerCase(Locale.ROOT);
++    if (!(scheme.equals("https") || scheme.equals("http")) || host.isEmpty()) return null;
++    int port = uri.getPort();
++    if (port != -1 && (port < 1 || port > 65535)) return null;
++    int defaultPort = scheme.equals("https") ? 443 : 80;
++    return scheme + "://" + host + (port == -1 || port == defaultPort ? "" : ":" + port);
++  }
++
++  public static boolean safePath(URI uri) {
++    if (uri == null || uri.getRawPath() == null || uri.getPath() == null) return false;
++    String path = uri.getPath();
++    if (ENCODED_ESCAPE.matcher(uri.getRawPath()).find() || path.indexOf('\\') >= 0 || hasControl(path)) return false;
++    for (String segment : path.split("/", -1)) if (segment.equals(".") || segment.equals("..")) return false;
++    return true;
++  }
++
++  public URI getEntry() { return entry; }
++
++  public String setEntry(String source) {
++    URI uri = parse(source);
++    require(uri != null, "Invalid reader source.");
++    URI resolved;
++    if ("file".equals(uri.getScheme()) && (uri.getRawAuthority() == null || uri.getRawAuthority().isEmpty()) &&
++      uri.getRawQuery() == null && uri.getRawFragment() == null &&
++      uri.getRawPath() != null && ENTRY_PATH.matcher(uri.getRawPath()).matches()) {
++      resolved = URI.create(ORIGIN + ASSET_PREFIX + uri.getRawPath().substring(uri.getRawPath().lastIndexOf('/') + 1));
++    } else {
++      require(devOrigin != null && devOrigin.equals(origin(uri)) && safePath(uri) &&
++        (uri.getPath().equals("/_expo/@dom") || uri.getPath().startsWith("/_expo/@dom/")),
++        "Reader source must be the packaged DOM entry or the configured development entry.");
++      resolved = uri;
++    }
++    require(entry == null || entry.equals(resolved), "A reader host cannot change its trusted root.");
++    entry = resolved;
++    return resolved.toString();
++  }
++
++  public boolean isEntry(String value) {
++    URI uri = parse(value);
++    return uri != null && entry != null && Objects.equals(origin(uri), origin(entry)) &&
++      Objects.equals(uri.getRawPath(), entry.getRawPath()) && Objects.equals(uri.getRawQuery(), entry.getRawQuery()) && safePath(uri);
++  }
++
++  public boolean acceptsMessage(String sourceOrigin, boolean mainFrame, String currentUrl) {
++    return mainFrame && isEntry(currentUrl) && Objects.equals(origin(parse(sourceOrigin)), origin(entry));
++  }
++
++  public boolean isAssetOrigin(String value) { return ORIGIN.equals(origin(parse(value))); }
++
++  /** Invalid variants of our reserved host are local errors, never DNS fallbacks. */
++  public boolean isAssetHost(String value) {
++    URI uri = parse(value);
++    if (uri == null || uri.getHost() == null) return false;
++    String host = uri.getHost();
++    while (host.endsWith(".")) host = host.substring(0, host.length() - 1);
++    return host.equalsIgnoreCase("appassets.androidplatform.net");
++  }
++
++  /** Maps only APK www.bundle assets; never internal storage, res/, or arbitrary APK assets. */
++  public String assetPath(String value) {
++    URI uri = parse(value);
++    if (!ORIGIN.equals(origin(uri)) || !safePath(uri) || !uri.getPath().startsWith(ASSET_PREFIX)) return null;
++    String relative = uri.getPath().substring(ASSET_PREFIX.length());
++    return relative.isEmpty() || relative.startsWith("/") || relative.endsWith("/") || relative.contains("//") ? null : relative;
++  }
++
++  public boolean isExternal(String value) {
++    URI uri = parse(value);
++    String candidate = origin(uri);
++    return candidate != null && !isAssetHost(value) &&
++      !candidate.equals(devOrigin) && !hasControl(value);
++  }
++
++  private static boolean hasControl(String value) {
++    for (int i = 0; i < value.length(); i++) if (value.charAt(i) < 32 || value.charAt(i) == 127) return true;
++    return false;
++  }
++
++  private static void require(boolean valid, String message) {
++    if (!valid) throw new IllegalArgumentException(message);
++  }
++}
+diff --git a/android/src/test/java/expo/modules/webview/ReaderDomPolicyTest.kt b/android/src/test/java/expo/modules/webview/ReaderDomPolicyTest.kt
+new file mode 100644
+index 0000000..168670f
+--- /dev/null
++++ b/android/src/test/java/expo/modules/webview/ReaderDomPolicyTest.kt
+@@ -0,0 +1,90 @@
++// SPDX-License-Identifier: BSD-3-Clause
++package expo.modules.webview
++
++import org.junit.Assert.*
++import org.junit.Test
++
++class ReaderDomPolicyTest {
++  private val hash = "0123456789abcdef0123456789abcdef"
++  private val packaged = "file:///android_asset/www.bundle/$hash.html"
++  private val canonical = "${ReaderDomPolicy.ORIGIN}/www.bundle/$hash.html"
++  private fun configured() = ReaderDomPolicy(false, null).apply { setEntry(packaged) }
++  private fun rejects(block: () -> Unit) {
++    try { block(); fail("Expected fail-closed rejection") } catch (_: IllegalArgumentException) { }
++  }
++
++  @Test fun canonicalOriginSurvivesNewHostAndBundleHash() {
++    assertEquals(canonical, configured().entry.toString())
++    val other = ReaderDomPolicy(false, null).setEntry(packaged.replace(hash, "f".repeat(32)))
++    assertEquals(ReaderDomPolicy.ORIGIN, ReaderDomPolicy.origin(ReaderDomPolicy.parse(other)!!))
++    assertTrue(configured().isEntry("$canonical#cfi"))
++    assertFalse(configured().isEntry("$canonical?unexpected=1"))
++  }
++
++  @Test fun productionRejectsDevelopmentOverridesEvenForPackagedSource() {
++    rejects { ReaderDomPolicy(false, "http://localhost:8081") }
++    for (source in listOf("https://manabi.io/reader.html", "http://localhost:8081/_expo/@dom?file=x",
++      canonical, "file:///data/data/io.manabi.reader/a.html", "file:///android_asset/secrets.html")) {
++      rejects { ReaderDomPolicy(false, null).setEntry(source) }
++    }
++  }
++
++  @Test fun onlyExplicitDebugMetroOriginCanSupplyDevelopmentRoot() {
++    val policy = ReaderDomPolicy(true, "http://localhost:8081")
++    val source = "http://localhost:8081/_expo/@dom/reader?file=file%3A%2F%2F%2Fapp%2Freader.tsx"
++    assertEquals(source, policy.setEntry(source))
++    for (origin in listOf("*", "https://user:secret@localhost:8081", "https://localhost:8081/path",
++      "https://appassets.androidplatform.net", "https://localhost:8081?x=1")) rejects { ReaderDomPolicy(true, origin) }
++    for (source in listOf("http://localhost:8082/_expo/@dom", "http://evil.test/_expo/@dom", "http://localhost:8081/other")) {
++      rejects { ReaderDomPolicy(true, "http://localhost:8081").setEntry(source) }
++    }
++    rejects { ReaderDomPolicy(true, null).setEntry(source) }
++  }
++
++  @Test fun apkMappingPreservesPublicWorkerWasmAndCorrespondingSourcePaths() {
++    val policy = configured()
++    for (asset in listOf("_expo/static/js/web/worker-0123.js", "manabitan/revision/worker.mjs",
++      "manabitan/revision/sqlite.wasm", "manabitan/revision/corresponding-source.tar.gz", "icons/icon.svg")) {
++      assertEquals(asset, policy.assetPath("${ReaderDomPolicy.ORIGIN}/www.bundle/$asset"))
++    }
++  }
++
++  @Test fun traversalAndEncodedEscapesAreRejected() {
++    val policy = configured()
++    for (path in listOf("../secret", "%2e%2e/secret", "%2E%2E%2Fsecret", "%252e%252e/secret",
++      "foo%2f..%2fsecret", "foo%5csecret", "foo%00secret", "/secret", "foo/./bar", "foo//bar")) {
++      assertNull(path, policy.assetPath("${ReaderDomPolicy.ORIGIN}/www.bundle/$path"))
++    }
++    for (url in listOf("${ReaderDomPolicy.ORIGIN}/other/a.js", "https://evil.test/www.bundle/a.js",
++      "https://user:secret@appassets.androidplatform.net/www.bundle/a.js",
++      "file:///android_asset/www.bundle/a.js")) assertNull(policy.assetPath(url))
++  }
++
++  @Test fun invalidReservedHostVariantsNeverFallThroughToNetwork() {
++    val policy = configured()
++    for (url in listOf(canonical, "http://appassets.androidplatform.net/a", "https://appassets.androidplatform.net:444/a",
++      "https://user:secret@appassets.androidplatform.net/a", "https://appassets.androidplatform.net./a")) assertTrue(policy.isAssetHost(url))
++    assertFalse(policy.isAssetHost("https://appassets.androidplatform.net.evil.test/a"))
++  }
++
++  @Test fun messagesRequireExactOriginMainFrameAndTrustedRoot() {
++    val policy = configured()
++    assertTrue(policy.acceptsMessage(ReaderDomPolicy.ORIGIN, true, canonical))
++    assertFalse(policy.acceptsMessage(ReaderDomPolicy.ORIGIN, false, canonical))
++    assertFalse(policy.acceptsMessage("https://evil.test", true, canonical))
++    assertFalse(policy.acceptsMessage("null", true, canonical))
++    assertFalse(policy.acceptsMessage(ReaderDomPolicy.ORIGIN, true, "${ReaderDomPolicy.ORIGIN}/www.bundle/other.html"))
++    assertFalse(policy.acceptsMessage(ReaderDomPolicy.ORIGIN, true, "https://evil.test"))
++  }
++
++  @Test fun navigationAndRootReplacementFailClosed() {
++    val policy = configured()
++    for (url in listOf("https://evil.test", "javascript:alert(1)", "data:text/html,x", "file:///etc/passwd",
++      "${ReaderDomPolicy.ORIGIN}/www.bundle/other.html")) assertFalse(policy.isEntry(url))
++    rejects { policy.setEntry(packaged.replace(hash, "f".repeat(32))) }
++    assertTrue(policy.isExternal("https://example.com/a"))
++    assertTrue(policy.isExternal("http://example.com/a"))
++    for (url in listOf("https://user:secret@example.com", "https://@example.com", "javascript:alert(1)",
++      "file:///etc/passwd", "intent://example.com", canonical)) assertFalse(policy.isExternal(url))
++  }
++}
+diff --git a/build/DomWebView.types.d.ts b/build/DomWebView.types.d.ts
+index 6ea41ff..b3fba81 100644
+--- a/build/DomWebView.types.d.ts
++++ b/build/DomWebView.types.d.ts
+@@ -1,5 +1,11 @@
+ import type { StyleProp, ViewProps, ViewStyle } from 'react-native';
+ export interface DomWebViewProps extends ViewProps, AndroidProps, IosScrollViewProps, UnsupportedWebViewProps {
++  /** Manabi-only Android adapter; requires the exact reviewed dependency patch. */
++  manabiReaderHost?: boolean;
++  /** One configured Metro HTTP(S) origin; rejected by release Android builds. */
++  manabiReaderDevOrigin?: string;
++  onReaderExternalLink?: (event: { nativeEvent: { url: string } }) => void;
++  onReaderHostError?: (event: { nativeEvent: { message: string } }) => void;
+     /**
+      * Loads static html or a uri (with optional headers) in the WebView.
+      */
+diff --git a/src/DomWebView.types.ts b/src/DomWebView.types.ts
+index 8e89c59..f4767e1 100644
+--- a/src/DomWebView.types.ts
++++ b/src/DomWebView.types.ts
+@@ -2,6 +2,12 @@ import type { StyleProp, ViewProps, ViewStyle } from 'react-native';
+ 
+ export interface DomWebViewProps
+   extends ViewProps, AndroidProps, IosScrollViewProps, UnsupportedWebViewProps {
++  /** Manabi-only Android adapter; requires the exact reviewed dependency patch. */
++  manabiReaderHost?: boolean;
++  /** One configured Metro HTTP(S) origin; rejected by release Android builds. */
++  manabiReaderDevOrigin?: string;
++  onReaderExternalLink?: (event: { nativeEvent: { url: string } }) => void;
++  onReaderHostError?: (event: { nativeEvent: { message: string } }) => void;
+   /**
+    * Loads static html or a uri (with optional headers) in the WebView.
+    */

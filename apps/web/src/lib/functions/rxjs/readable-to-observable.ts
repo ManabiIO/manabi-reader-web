@@ -5,7 +5,7 @@
  */
 
 import { Observable } from 'rxjs';
-import type { Readable } from 'svelte/store';
+import type { Readable } from '$lib/state/store';
 
 export function readableToObservable<T>(readable: Readable<T>): Observable<T> {
   return new Observable<T>((subscriber) =>

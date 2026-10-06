@@ -5,3 +5,5 @@ allowBuilds:
   protobufjs: false
   svelte-preprocess: true
   unrs-resolver: true
+patchedDependencies:
+  '@expo/dom-webview@57.0.1': patches/reader-dom/expo-dom-webview-57.0.1.patch

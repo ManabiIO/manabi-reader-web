@@ -14,3 +14,11 @@ bash scripts/build-docs
 The site builds into `apps/web/build/docs/` after the web app build. The backend release pipeline packages both in one static artifact; production publication is controlled separately by the backend deployment configuration.
 
 Manabi Reader for Web began as a fork of [ッツ Ebook Reader](https://github.com/ttu-ttu/ebook-reader). Its [original README](docs/ttu-upstream-readme.md) is retained for attribution and historical reference. See the guide's [Credits](site-docs/credits.md), [BSD 3-Clause](LICENSE), and [third-party UI licenses](THIRD_PARTY_UI_LICENSES.md).
+
+## Expo Android and web draft
+
+The migration branch uses Expo SDK 57 and React Native 0.86 for Android and web. The native Apple apps remain separate; this project has no iOS or macOS target. See [architecture, verification and open parity gates](docs/expo/MIGRATION.md) before treating this draft as a release candidate.
+
+Use Node 24.21.x and pnpm 12.3.4. `pnpm dev` starts web; `pnpm build` exports the existing `/reader-web` static deployment; `pnpm android` prepares/runs Android. `pnpm export:android` verifies the native/DOM bundle without deploying. `pnpm test:reader`, `pnpm test:whispersync`, and `pnpm test:expo` retain the core regression workflows.
+
+The draft CI performs builds and tests only. It does not merge, deploy, enable EAS Update, or modify another repository.

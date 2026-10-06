@@ -19,6 +19,7 @@ import unittest
 import zipfile
 import zlib
 from xml.sax.saxutils import escape
+from layout_diagnostics import report_layout_failure
 from playwright.sync_api import sync_playwright, expect
 from test_static_reader import StaticHandler, ThreadingHTTPServer
 
@@ -134,6 +135,7 @@ class LibraryBase(unittest.TestCase):
         self.go_library()
 
     def tearDown(self):
+        report_layout_failure(self)
         output = Path('test-results')
         output.mkdir(exist_ok=True)
         try:
@@ -554,6 +556,17 @@ class BooksLibraryBrowser(LibraryBase):
         expect(content.locator('[data-manabi-spine-index="1"]')).to_be_attached()
         self.assertEqual(baseline, self.stores('books', ['bookmark', 'readerStatistic']))
 
+        # Browser text scaling does not dispatch a viewport resize. Re-measure
+        # real rem insets while preserving the pending source-coordinate Return.
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        self.page.wait_for_function('''() => {
+          const frame = document.querySelector('.reader-page-frame').getBoundingClientRect();
+          return frame.left >= -1 && frame.right <= innerWidth + 1 &&
+            document.documentElement.scrollWidth <= innerWidth + 1;
+        }''')
+        expect(content).to_have_attribute('aria-busy', 'false')
+        self.assertEqual(baseline, self.stores('books', ['bookmark', 'readerStatistic']))
+
         return_button.click()
         expect(return_button).to_have_count(0)
         expect(content.locator('[data-manabi-spine-index="0"]')).to_be_attached(timeout=30000)
@@ -615,7 +628,11 @@ class BooksLibraryBrowser(LibraryBase):
             self.assertEqual('dark', self.page.locator('html').evaluate(
                 'element => getComputedStyle(element).colorScheme'))
             trigger = self.page.get_by_role('button', name='Library actions', exact=True)
+            scroll_before_menu = self.page.evaluate('[scrollX, scrollY]')
             trigger.tap()
+            expect(self.page.get_by_role('menu')).to_be_visible()
+            self.assertEqual(scroll_before_menu, self.page.evaluate('[scrollX, scrollY]'),
+                             'opening a portal menu must not scroll the underlying Library')
             self.page.get_by_role('menuitem', name='View Options', exact=True).tap()
             submenu = self.page.locator('[data-slot="dropdown-menu-sub-content"]')
             expect(submenu).to_be_visible()
@@ -978,6 +995,17 @@ class BooksLibraryBrowser(LibraryBase):
                 cover = card.locator('.cover-surface').bounding_box()
                 self.assertGreaterEqual(cover['y'] - box['y'], 12)
                 self.assertGreaterEqual(box['y'] + box['height'] - cover['y'] - cover['height'], 12)
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        for card in self.page.locator('.continue-card').all():
+            title_box = card.locator('.continue-title').bounding_box()
+            self.assertGreaterEqual(title_box['width'], 96,
+                                    'Enlarged Continue titles must retain readable width')
+            progress = card.locator('.continue-progress')
+            self.assertLessEqual(progress.bounding_box()['height'],
+                                progress.evaluate('e => parseFloat(getComputedStyle(e).lineHeight)') + 1)
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 321)
+        self.page.evaluate('document.documentElement.style.fontSize = "100%"')
         self.choose_view('List')
         for width in (320, 390, 1440):
             self.page.set_viewport_size({'width': width, 'height': 844})
@@ -1323,6 +1351,7 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.get_by_role(
             'menuitem', name='Statistics for Selected Books', exact=True).click()
         expect(self.page).to_have_url(re.compile(r'/reader-web/statistics(?:[/?#]|$)'), timeout=30000)
+        expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         toolbar = self.page.get_by_role('banner', name='Statistics toolbar')
         toolbar.get_by_role('button', name='Summary', exact=True).click()
         rows = self.page.get_by_role(
@@ -1730,6 +1759,8 @@ class BooksLibraryFilesystem(LibraryBase):
         self.dialog().get_by_role('button', name='Done').click()
         self.assertEqual(reading_before, self.stores('books', ['bookmark', 'statistic']))
         if leave_during_open:
+            collection_url = self.page.url
+            collection_entry = self.page.evaluate('history.state.id')
             # Delay, but do not replace, the real OPFS file bytes. Browser Back
             # must invalidate this open even though the Library page survives.
             self.page.evaluate("""() => {
@@ -1758,7 +1789,12 @@ class BooksLibraryFilesystem(LibraryBase):
                 self.page.wait_for_timeout(25)
             expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false')
             expect(self.page).to_have_url(re.compile(r'/manage(?!.*collection=)'))
-            self.choose_collection('Relocation collection')
+            # Restore the actual prior Expo entry, not a fresh collection push.
+            # Forward must preserve the original history ID and remain usable.
+            self.page.go_forward()
+            expect(self.page).to_have_url(collection_url)
+            self.assertEqual(collection_entry, self.page.evaluate('history.state.id'))
+            expect(self.page.get_by_role('button', name='Read My relocated volume', exact=True)).to_be_visible()
         self.page.get_by_role('button', name='Read My relocated volume', exact=True).click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=30000)
         links_after = self.stores('manabi-reader-integrations', ['books'])['books']

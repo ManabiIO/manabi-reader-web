@@ -10,6 +10,14 @@ concurrency:
   cancel-in-progress: true
 jobs:
   static-build:
+    # This exact migration is qualified once in expo-migration.yml.
+    if: >-
+      !(github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       (github.event_name == 'push' &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration')))
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -27,12 +35,12 @@ jobs:
         with:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --dir apps/web exec svelte-kit sync
+      - run: node scripts/prepare-expo.mjs
       - run: node --experimental-strip-types --test tests/unit/*.test.mjs
       - name: Reader archive, typography and service-worker regressions
         run: pnpm test:reader
-      - name: Whispersync core and Svelte compilation
-        run: node test/whispersync/run.mjs --coverage --svelte --browser-bundle=test-results/whispersync-bundle.js
+      - name: Whispersync core and React compilation
+        run: node test/whispersync/run.mjs --coverage --react --browser-bundle=test-results/whispersync-bundle.js
       - name: Type-check committed application source
         run: pnpm --dir apps/web check
       - name: Compile production static artifact
@@ -81,6 +89,14 @@ jobs:
           retention-days: 3
 
   whispersync-engines:
+    # This exact migration is qualified once in expo-migration.yml.
+    if: >-
+      !(github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       (github.event_name == 'push' &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration')))
     name: Whispersync ${{ matrix.browser }} qualification
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -138,7 +154,7 @@ jobs:
         env:
           BASE_PATH: /reader-web
         run: |
-          pnpm --dir apps/web exec svelte-kit sync
+          node scripts/prepare-expo.mjs
           pnpm build
       - name: Accepted preference application recovers locally in WebKit
         if: matrix.browser == 'webkit'

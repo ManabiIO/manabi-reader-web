@@ -88,6 +88,11 @@ export interface StatisticsMigrationGuard {
     book: BooksDb['data']['value'],
     owner: BooksDb['readerBookScope']['value'] | undefined
   ): void;
+  /** Optional original canonical admission, checked before any migration write. */
+  validateIdentity?(
+    book: BooksDb['data']['value'],
+    local: BooksDb['readerLocalIdentity']['value'] | undefined
+  ): void;
 }
 
 /**
@@ -131,6 +136,11 @@ export async function migrateLegacyStatistics(
         guard.assertCurrent();
         guard.validate(current, owner);
         if (!current) throw new Error('The statistics book no longer exists.');
+        if (guard.validateIdentity) {
+          const local = await tx.objectStore('readerLocalIdentity').get(book.id);
+          guard.assertCurrent();
+          guard.validateIdentity(current, local);
+        }
         // Use the current title too, not a pre-network/pre-lock snapshot.
         book = current;
         if (guard.validateCopy) {

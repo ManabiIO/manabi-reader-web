@@ -5,7 +5,7 @@
  */
 
 import { openDB, type DBSchema } from 'idb';
-import { writable } from 'svelte/store';
+import { writable } from '$lib/state/store';
 import extractEpub from '$lib/functions/file-loaders/epub/extract-epub';
 import coverFilename from '$lib/functions/file-loaders/epub/get-epub-cover-image-filename';
 import { epubDirection } from '$lib/functions/file-loaders/epub/epub-direction';
