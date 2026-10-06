@@ -155,6 +155,8 @@ export function BookReader(props: Partial<BookReaderProps> & ReaderViewProps) {
               <>
                 <BookReaderFoliatePaginated
                   htmlContent={c.htmlContent}
+                  language={props.language}
+                  direction={props.pageDirection === 'unknown' ? undefined : props.pageDirection}
                   styleSheet={c.styleSheet}
                   epubResources={c.epubResources}
                   publicationManifest={c.publicationManifest}

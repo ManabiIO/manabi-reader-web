@@ -163,6 +163,61 @@ class RheaReader(previous.RefinedAppearance):
         expect(toolbar).to_have_count(0)
         expect(self.page.locator('.book-content')).to_be_visible()
 
+    def test_short_enlarged_reading_tools_keyboard_scrolls_every_action_fully_into_view(self):
+        self.open_book()
+        self.wait_for_fonts()
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        reveal_reader_controls(self.page)
+
+        tools = self.page.get_by_role('button', name='Reading tools', exact=True)
+        tools.focus()
+        tools.press('Enter')
+        menu = self.page.get_by_role('menu')
+        expect(menu).to_be_visible()
+        self.assertLessEqual(menu.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        self.assertGreater(menu.evaluate('e => e.scrollHeight-e.clientHeight'), 1)
+
+        labels = menu.get_by_role('menuitem').all_text_contents()
+        self.assertIn('Save Reading Position', labels)
+        self.assertIn('Jump to Position', labels)
+        self.assertIn('Browse Book', labels)
+        self.assertIn('Search Book', labels)
+        self.assertIn('Settings', labels)
+        self.assertIn('Dictionary Setup', labels)
+        self.assertIn('Statistics', labels)
+        self.assertIn('User guide', labels)
+
+        # Content owns initial focus. Native menu ArrowDown traversal must reveal
+        # each item; a merely mounted/clipped row does not count as reachable.
+        menu.focus()
+        for expected_label in labels:
+            self.page.keyboard.press('ArrowDown')
+            focused = menu.locator('[role="menuitem"]:focus')
+            expect(focused).to_have_count(1)
+            self.assertEqual(expected_label, focused.inner_text().strip())
+            box = focused.bounding_box()
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertGreaterEqual(box['x'], -1)
+            self.assertGreaterEqual(box['y'], -1, (expected_label, box))
+            self.assertLessEqual(box['x'] + box['width'], 321, (expected_label, box))
+            self.assertLessEqual(box['y'] + box['height'], 321, (expected_label, box))
+            self.assertTrue(focused.evaluate('''e => {
+              const r=e.getBoundingClientRect();
+              const x=r.left+r.width/2, y=r.top+r.height/2;
+              const hit=document.elementFromPoint(x,y);
+              return !!hit && (hit===e || e.contains(hit));
+            }'''), (expected_label, box))
+
+        # Traversing beyond the final item wraps or remains within the owned
+        # menu; focus must never fall behind the portal or onto body.
+        self.page.keyboard.press('ArrowDown')
+        self.assertTrue(menu.evaluate('e => e.contains(document.activeElement)'))
+        self.page.screenshot(path='test-results/reader-tools-enlarged-keyboard-scroll.png')
+        self.page.keyboard.press('Escape')
+        expect(menu).to_have_count(0)
+        expect(tools).to_be_focused()
+
     def test_reduced_motion_eliminates_reader_toolbar_entrance_motion(self):
         self.open_book(font='Klee One')
         self.wait_for_fonts()
