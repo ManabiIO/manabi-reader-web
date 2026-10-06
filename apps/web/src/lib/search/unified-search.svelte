@@ -206,9 +206,9 @@
   }
   function startTitles() {
     const plan = librarySearchScopePlan(searchScope);
-    const selectedBookCorpus = plan.books ? [...books] : [],
+    const selectedBookCorpus = plan.books ? books : [],
       selectedBookSnapshot = bookSearchSnapshot,
-      selectedSnippets = plan.snippets ? [...eligible] : [],
+      selectedSnippets = plan.snippets ? eligible : [],
       selectedOwner = owner,
       selectedQuery = query,
       runVideos = videoLearningEnabled && searchScope === 'everything';
@@ -302,15 +302,15 @@
   }
   function startContent() {
     const plan = librarySearchScopePlan(searchScope);
-    const selectedBooks = plan.books ? [...books] : [],
-      selectedSnippets = plan.snippets ? [...eligible] : [],
+    const selectedBooks = plan.books ? books : [],
+      selectedSnippets = plan.snippets ? eligible : [],
       needle = query,
       selectedOwner = owner,
-      runVideos = videoLearningEnabled && searchScope === 'everything',
-      selectedBooksById = new Map(
+      runVideos = videoLearningEnabled && searchScope === 'everything';
+    contentTask.start((signal, publish) => {
+      const selectedBooksById = new Map(
         selectedBooks.flatMap((book) => (book.bookId ? [[book.bookId, book] as const] : []))
       );
-    contentTask.start((signal, publish) => {
       const guard = () => {
         signal.throwIfAborted();
         if (selectedOwner !== (localProfileUser()?.id ?? null))
