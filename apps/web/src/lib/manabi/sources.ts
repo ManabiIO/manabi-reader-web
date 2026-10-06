@@ -170,6 +170,27 @@ const localLibraryLock = <T>(id: string, work: () => Promise<T>) =>
 async function sameLocalHandle(left: FileSystemDirectoryHandle, right: FileSystemDirectoryHandle) {
   return left === right || (await left.isSameEntry(right));
 }
+/** Hold one connected-folder generation for the full physical operation.
+ * Disconnect/reconnect waits behind this lock; a retained handle can never
+ * silently follow a replaced source ID. */
+export async function withLocalLibraryConnection<T>(
+  library: LocalLibrary,
+  write: boolean,
+  work: (library: LocalLibrary) => Promise<T>
+): Promise<T> {
+  const admitted = { ...library };
+  return localLibraryLock(admitted.id, async () => {
+    const current = await (await integrationDB()).get('localLibraries', admitted.id);
+    if (!current || !(await sameLocalHandle(current.handle, admitted.handle)))
+      throw new IntegrationError('not_found');
+    if (
+      (write && !current.writable) ||
+      (await current.handle.queryPermission({ mode: write ? 'readwrite' : 'read' })) !== 'granted'
+    )
+      throw new IntegrationError('permission_required');
+    return work(current);
+  });
+}
 export async function reconnectLocalLibrary(library: LocalLibrary, write = false) {
   const selected = { ...library };
   const mode = write ? 'readwrite' : 'read';
@@ -241,17 +262,7 @@ export class LocalLibrarySource implements LibrarySource {
     write: boolean,
     work: (library: LocalLibrary) => Promise<T>
   ): Promise<T> {
-    return localLibraryLock(this.id, async () => {
-      const current = await (await integrationDB()).get('localLibraries', this.id);
-      if (!current || !(await sameLocalHandle(current.handle, this.library.handle)))
-        throw new IntegrationError('not_found');
-      if (
-        (write && !current.writable) ||
-        (await current.handle.queryPermission({ mode: write ? 'readwrite' : 'read' })) !== 'granted'
-      )
-        throw new IntegrationError('permission_required');
-      return work(current);
-    });
+    return withLocalLibraryConnection(this.library, write, work);
   }
   private async directory(root: FileSystemDirectoryHandle, path: string) {
     let result = root;

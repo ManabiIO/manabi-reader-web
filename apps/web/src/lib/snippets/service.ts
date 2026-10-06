@@ -11,6 +11,7 @@ import {
   librarySource,
   scanCatalog,
   sourceDescriptors,
+  sourceSnapshot,
   type Catalog,
   type SourceDescriptor
 } from '../library/catalog';
@@ -189,8 +190,27 @@ export async function refreshSnippets(
         budget = 16 * 1024 * 1024,
         processed = 0;
       try {
-        const sources = await sourceDescriptors();
+        const snapshot = await sourceSnapshot();
         selected.guard();
+        const sources = snapshot.sources;
+        const activeSources = new Set(sources.map(sourceKey));
+        const known = await summaries(selected.owner);
+        selected.guard();
+        const authoritativeAbsentSources = new Set<string>();
+        for (const record of known) {
+          const candidates = [
+            ...record.locations.map((location) => location.source),
+            ...(record.destination ? [record.destination.source] : [])
+          ];
+          for (const candidate of candidates) {
+            const key = sourceKey(candidate);
+            if (
+              !activeSources.has(key) &&
+              (candidate.owner === null || snapshot.cloudAuthoritative)
+            )
+              authoritativeAbsentSources.add(key);
+          }
+        }
         const db = await integrationDB();
         for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) {
           const source = sources[sourceIndex];
@@ -277,7 +297,9 @@ export async function refreshSnippets(
                   selected.owner,
                   remote.document,
                   remote.location,
-                  selected.guard
+                  selected.guard,
+                  activeSources,
+                  authoritativeAbsentSources
                 );
               } catch (error) {
                 selected.guard();
