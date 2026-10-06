@@ -18,9 +18,23 @@ export interface BookTitleMatchContext {
   detail: string;
 }
 
+interface IndexedBookTitleMatchContext extends BookTitleMatchContext {
+  folded: string;
+}
+
 export interface BookTitleMatchIndex {
   textByBook: Record<string, readonly BookTitleMatchContext[]>;
   matchedKeys: Set<string>;
+}
+
+/**
+ * Query-independent metadata index. All expensive Unicode folding and
+ * series/collection expansion happens when the library snapshot changes, not
+ * while the user is typing.
+ */
+export interface BookTitleSearchSnapshot {
+  directByBook: ReadonlyMap<string, readonly string[]>;
+  contextsByBook: ReadonlyMap<string, readonly IndexedBookTitleMatchContext[]>;
 }
 
 function add(
@@ -35,27 +49,95 @@ function add(
   } else result.set(key, [value]);
 }
 
-function matchingSeriesText(
+function indexSeriesText(
   nodes: readonly ShelfNode[],
-  search: string,
   result: Map<string, BookTitleMatchContext[]>
 ) {
   for (const node of nodes) {
     if (node.kind !== 'series') continue;
-    if (foldSearch(node.name).includes(search))
-      for (const book of node.books)
-        add(result, book.key, {
-          text: node.name,
-          detail: `${node.personal ? 'Series' : 'Folder'} · ${node.name}`
-        });
-    matchingSeriesText(node.children, search, result);
+    const context = {
+      text: node.name,
+      detail: `${node.personal ? 'Series' : 'Folder'} · ${node.name}`
+    };
+    for (const book of node.books) add(result, book.key, context);
+    indexSeriesText(node.children, result);
   }
 }
 
 /**
- * Preserve the metadata text which caused a Book to enter global search.
- * This is presentation-only search context; organization identities remain the
- * durable source of truth and none of these strings become locators.
+ * Build the immutable search snapshot for Book title/metadata matching.
+ * Collection membership is expanded through every organization alias so
+ * portable/current identities keep the same semantics as the legacy query path.
+ */
+export function buildBookTitleSearchSnapshot(
+  books: readonly ShelfBook[],
+  nodes: readonly ShelfNode[],
+  collections: readonly Collection[]
+): BookTitleSearchSnapshot {
+  const contexts = new Map<string, BookTitleMatchContext[]>();
+  indexSeriesText(nodes, contexts);
+
+  const collectionsByMember = new Map<string, BookTitleMatchContext[]>();
+  const contextOrder = new Map<BookTitleMatchContext, number>();
+  for (const collection of collections) {
+    const context = { text: collection.name, detail: `Collection · ${collection.name}` };
+    contextOrder.set(context, contextOrder.size);
+    for (const member of collection.members) add(collectionsByMember, member, context);
+  }
+
+  for (const book of books) {
+    const collectionContexts = book.organizationAliases.flatMap(
+      (alias) => collectionsByMember.get(alias) ?? []
+    );
+    collectionContexts.sort((a, b) => contextOrder.get(a)! - contextOrder.get(b)!);
+    for (const context of collectionContexts) add(contexts, book.key, context);
+  }
+
+  const directByBook = new Map<string, readonly string[]>();
+  for (const book of books)
+    directByBook.set(
+      book.key,
+      [book.title, book.canonicalTitle, ...(book.creators ?? []).map((creator) => creator.name)].map(
+        foldSearch
+      )
+    );
+
+  return {
+    directByBook,
+    contextsByBook: new Map(
+      [...contexts].map(([key, values]) => [
+        key,
+        values.map((value) => ({ ...value, folded: foldSearch(value.text) }))
+      ])
+    )
+  };
+}
+
+/** Query a pre-folded Book metadata snapshot without walking the shelf tree. */
+export function queryBookTitleSearchSnapshot(
+  snapshot: BookTitleSearchSnapshot,
+  normalizedQuery: string
+): BookTitleMatchIndex {
+  if (!normalizedQuery) return { textByBook: {}, matchedKeys: new Set() };
+
+  const matchedKeys = new Set<string>();
+  for (const [key, values] of snapshot.directByBook)
+    if (values.some((value) => value.includes(normalizedQuery))) matchedKeys.add(key);
+
+  const textByBook: Record<string, readonly BookTitleMatchContext[]> = {};
+  for (const [key, contexts] of snapshot.contextsByBook) {
+    const matching = contexts.filter((context) => context.folded.includes(normalizedQuery));
+    if (!matching.length) continue;
+    textByBook[key] = matching.map(({ text, detail }) => ({ text, detail }));
+    matchedKeys.add(key);
+  }
+
+  return { textByBook, matchedKeys };
+}
+
+/**
+ * Compatibility helper for focused tests/consumers which do not retain a
+ * snapshot. Interactive library search should build once and query repeatedly.
  */
 export function bookTitleMatchIndex(
   books: readonly ShelfBook[],
@@ -63,31 +145,10 @@ export function bookTitleMatchIndex(
   collections: readonly Collection[],
   normalizedQuery: string
 ): BookTitleMatchIndex {
-  if (!normalizedQuery) return { textByBook: {}, matchedKeys: new Set() };
-  const result = new Map<string, BookTitleMatchContext[]>();
-  matchingSeriesText(nodes, normalizedQuery, result);
-
-  const collectionsByMember = new Map<string, BookTitleMatchContext[]>();
-  const contextOrder = new Map<BookTitleMatchContext, number>();
-  for (const collection of collections) {
-    if (!foldSearch(collection.name).includes(normalizedQuery)) continue;
-    const context = { text: collection.name, detail: `Collection · ${collection.name}` };
-    contextOrder.set(context, contextOrder.size);
-    for (const member of collection.members) add(collectionsByMember, member, context);
-  }
-
-  for (const book of books) {
-    const contexts = book.organizationAliases.flatMap(
-      (alias) => collectionsByMember.get(alias) ?? []
-    );
-    contexts.sort((a, b) => contextOrder.get(a)! - contextOrder.get(b)!);
-    for (const context of contexts) add(result, book.key, context);
-  }
-
-  return {
-    textByBook: Object.fromEntries(result),
-    matchedKeys: new Set(result.keys())
-  };
+  return queryBookTitleSearchSnapshot(
+    buildBookTitleSearchSnapshot(books, nodes, collections),
+    normalizedQuery
+  );
 }
 
 /** Keep ranking and the displayed reason for a match on the same metadata fields. */
