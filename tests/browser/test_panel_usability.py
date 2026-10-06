@@ -1,4 +1,5 @@
 """Custom-panel focus, occlusion, and calendar geometry in the built application."""
+import re
 import unittest
 from pathlib import Path
 from playwright.sync_api import expect
@@ -202,6 +203,114 @@ class PanelUsabilityBrowser(LibraryBase):
         panel.get_by_role('button', name='Close reading tracker', exact=True).click()
         expect(panel).to_have_count(0)
         expect(trigger).to_be_focused()
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
+    def test_summary_privacy_targets_and_paging_hold_at_200_percent_text(self):
+        self.seed_statistics()
+        self.page.evaluate('''() => {
+          localStorage.setItem('lastStatisticsTab', 'Summary');
+          localStorage.setItem('lastStatisticsRangeTemplate', 'This Year');
+          localStorage.setItem('lastPrimaryReadingDataAggregationMode', 'None');
+          localStorage.setItem('lastBlurredTrackerItems', '["readingTime"]');
+        }''')
+        self.page.set_viewport_size({'width': 320, 'height': 568})
+        self.statistics()
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        summary = self.page.get_by_role('group', name='Statistics view').get_by_role(
+            'button', name='Summary', exact=True)
+        expect(summary).to_have_attribute('aria-pressed', 'true')
+
+        page_trigger = self.page.get_by_role('button', name=re.compile(r'^PAGE 1 / 61$'))
+        expect(page_trigger).to_be_visible()
+        self.assertGreaterEqual(page_trigger.bounding_box()['height'], 43.99)
+        self.assertLessEqual(
+            self.page.evaluate('document.documentElement.scrollWidth - innerWidth'), 1)
+        summary_scroll = self.page.locator('[data-statistics-summary-scroll]')
+        self.assertLessEqual(
+            summary_scroll.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+        self.assertLessEqual(
+            self.page.locator('[data-statistics-summary-grid]').evaluate(
+                'e => e.scrollWidth - e.clientWidth'), 1)
+
+        for control in (
+            self.page.get_by_role('button', name='Delete row Panel title 000', exact=True),
+            self.page.get_by_role('button', name='Edit row Panel title 000', exact=True),
+            self.page.get_by_role('button', name='View details for Panel title 000', exact=True),
+            self.page.get_by_role('button', name='Sort by Total Time', exact=True),
+        ):
+            control.scroll_into_view_if_needed()
+            self.assertGreaterEqual(control.bounding_box()['height'], 43.99)
+            self.assert_unoccluded(control)
+
+        metric = self.page.locator('[data-summary-metric="readingTime"]').first
+        metric.scroll_into_view_if_needed()
+        self.assertGreaterEqual(metric.bounding_box()['height'], 43.99)
+        self.assert_unoccluded(metric)
+        expect(metric).to_have_attribute('aria-pressed', 'true')
+        hidden_value = metric.locator('[aria-hidden="true"]').first
+        expect(hidden_value).to_be_attached()
+        self.assertEqual('none', metric.evaluate('e => getComputedStyle(e).filter'))
+        self.assertNotEqual('none', hidden_value.evaluate('e => getComputedStyle(e).filter'))
+        hidden_label = metric.get_attribute('aria-label')
+        self.assertIn('value hidden', hidden_label)
+        self.assertNotIn('1 min', hidden_label)
+
+        metric.focus()
+        metric.press('Enter')
+        expect(metric).to_have_attribute('aria-pressed', 'false')
+        expect(metric).to_have_attribute(
+            'aria-label', re.compile(r'Reading time: 1 min\. Activate for details\.'))
+        expect(self.page.get_by_role('dialog', name='Statistic details')).to_have_count(0)
+
+        metric.press('Enter')
+        details = self.page.get_by_role('dialog', name='Statistic details')
+        expect(details).to_be_visible()
+        expect(details).to_contain_text('Time: 1 min')
+        close = details.get_by_role('button', name='Close statistic details', exact=True)
+        expect(close).to_be_focused()
+        self.assertGreaterEqual(close.bounding_box()['height'], 43.99)
+        self.assert_unoccluded(close)
+        close.press('Enter')
+        expect(details).to_have_count(0)
+        expect(metric).to_be_focused()
+
+        previous = self.page.get_by_role('button', name='Previous statistics page', exact=True)
+        next_page = self.page.get_by_role('button', name='Next statistics page', exact=True)
+        expect(previous).to_be_disabled()
+        expect(next_page).to_be_enabled()
+        self.assertGreaterEqual(previous.bounding_box()['height'], 43.99)
+        self.assertGreaterEqual(next_page.bounding_box()['height'], 43.99)
+
+        next_page.focus()
+        next_page.press('Enter')
+        expect(self.page.get_by_role('button', name='PAGE 2 / 61', exact=True)).to_be_visible()
+        expect(next_page).to_be_focused()
+
+        self.page.get_by_role('button', name='PAGE 2 / 61', exact=True).click()
+        page_60 = self.page.get_by_role('button', name='60', exact=True)
+        page_60.scroll_into_view_if_needed()
+        self.assertGreaterEqual(page_60.bounding_box()['height'], 43.99)
+        page_60.click()
+        expect(self.page.get_by_role('button', name='PAGE 60 / 61', exact=True)).to_be_visible()
+
+        next_page.focus()
+        next_page.press('Enter')
+        expect(self.page.get_by_role('button', name='PAGE 61 / 61', exact=True)).to_be_visible()
+        expect(next_page).to_be_disabled()
+        expect(previous).to_be_focused()
+
+        self.page.get_by_role('button', name='PAGE 61 / 61', exact=True).click()
+        page_2 = self.page.get_by_role('button', name='2', exact=True)
+        page_2.scroll_into_view_if_needed()
+        page_2.click()
+        expect(self.page.get_by_role('button', name='PAGE 2 / 61', exact=True)).to_be_visible()
+        previous.focus()
+        previous.press('Enter')
+        expect(self.page.get_by_role('button', name='PAGE 1 / 61', exact=True)).to_be_visible()
+        expect(previous).to_be_disabled()
+        expect(next_page).to_be_focused()
+
+        self.capture('summary-privacy-paging-200')
         self.page.evaluate('document.documentElement.style.fontSize = ""')
 
     def test_heatmap_popup_close_has_its_own_space_and_restores_day_focus(self):
