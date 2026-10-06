@@ -18,8 +18,10 @@ export interface BookTitleMatchContext {
   detail: string;
 }
 
-interface IndexedBookTitleMatchContext extends BookTitleMatchContext {
+interface IndexedBookTitleContextGroup {
+  context: BookTitleMatchContext;
   folded: string;
+  bookKeys: readonly string[];
 }
 
 export interface BookTitleMatchIndex {
@@ -33,8 +35,8 @@ export interface BookTitleMatchIndex {
  * while the user is typing.
  */
 export interface BookTitleSearchSnapshot {
-  directByBook: ReadonlyMap<string, readonly string[]>;
-  contextsByBook: ReadonlyMap<string, readonly IndexedBookTitleMatchContext[]>;
+  direct: readonly { key: string; folded: readonly string[] }[];
+  contexts: readonly IndexedBookTitleContextGroup[];
 }
 
 function add(
@@ -51,7 +53,7 @@ function add(
 
 function indexSeriesText(
   nodes: readonly ShelfNode[],
-  result: Map<string, BookTitleMatchContext[]>
+  result: IndexedBookTitleContextGroup[]
 ) {
   for (const node of nodes) {
     if (node.kind !== 'series') continue;
@@ -59,57 +61,63 @@ function indexSeriesText(
       text: node.name,
       detail: `${node.personal ? 'Series' : 'Folder'} · ${node.name}`
     };
-    for (const book of node.books) add(result, book.key, context);
+    result.push({
+      context,
+      folded: foldSearch(node.name),
+      bookKeys: [...new Set(node.books.map((book) => book.key))]
+    });
     indexSeriesText(node.children, result);
   }
 }
 
 /**
  * Build the immutable search snapshot for Book title/metadata matching.
- * Collection membership is expanded through every organization alias so
- * portable/current identities keep the same semantics as the legacy query path.
+ * Context labels are stored once with the Book identities they admit rather
+ * than copied onto every Book, bounding memory for deep folder trees.
  */
 export function buildBookTitleSearchSnapshot(
   books: readonly ShelfBook[],
   nodes: readonly ShelfNode[],
   collections: readonly Collection[]
 ): BookTitleSearchSnapshot {
-  const contexts = new Map<string, BookTitleMatchContext[]>();
+  const contexts: IndexedBookTitleContextGroup[] = [];
   indexSeriesText(nodes, contexts);
 
-  const collectionsByMember = new Map<string, BookTitleMatchContext[]>();
-  const contextOrder = new Map<BookTitleMatchContext, number>();
-  for (const collection of collections) {
-    const context = { text: collection.name, detail: `Collection · ${collection.name}` };
-    contextOrder.set(context, contextOrder.size);
-    for (const member of collection.members) add(collectionsByMember, member, context);
-  }
-
-  for (const book of books) {
-    const collectionContexts = book.organizationAliases.flatMap(
-      (alias) => collectionsByMember.get(alias) ?? []
-    );
-    collectionContexts.sort((a, b) => contextOrder.get(a)! - contextOrder.get(b)!);
-    for (const context of collectionContexts) add(contexts, book.key, context);
-  }
-
-  const directByBook = new Map<string, readonly string[]>();
+  const booksByAlias = new Map<string, string[]>();
   for (const book of books)
-    directByBook.set(
-      book.key,
-      [book.title, book.canonicalTitle, ...(book.creators ?? []).map((creator) => creator.name)]
-        .filter((value): value is string => typeof value === 'string')
-        .map(foldSearch)
-    );
+    for (const alias of book.organizationAliases) {
+      const keys = booksByAlias.get(alias);
+      if (keys) {
+        if (!keys.includes(book.key)) keys.push(book.key);
+      } else booksByAlias.set(alias, [book.key]);
+    }
+
+  for (const collection of collections) {
+    const bookKeys: string[] = [];
+    const seen = new Set<string>();
+    for (const member of collection.members)
+      for (const key of booksByAlias.get(member) ?? [])
+        if (!seen.has(key)) {
+          seen.add(key);
+          bookKeys.push(key);
+        }
+    if (!bookKeys.length) continue;
+    const context = { text: collection.name, detail: `Collection · ${collection.name}` };
+    contexts.push({ context, folded: foldSearch(collection.name), bookKeys });
+  }
 
   return {
-    directByBook,
-    contextsByBook: new Map(
-      [...contexts].map(([key, values]) => [
-        key,
-        values.map((value) => ({ ...value, folded: foldSearch(value.text) }))
-      ])
-    )
+    direct: books.map((book) => ({
+      key: book.key,
+      folded: [
+        book.title,
+        book.canonicalTitle,
+        ...(book.creators ?? []).map((creator) => creator.name)
+      ]
+        .filter((value): value is string => typeof value === 'string')
+        .map(foldSearch)
+    })),
+    contexts
   };
 }
 
@@ -121,18 +129,19 @@ export function queryBookTitleSearchSnapshot(
   if (!normalizedQuery) return { textByBook: {}, matchedKeys: new Set() };
 
   const matchedKeys = new Set<string>();
-  for (const [key, values] of snapshot.directByBook)
-    if (values.some((value) => value.includes(normalizedQuery))) matchedKeys.add(key);
+  for (const entry of snapshot.direct)
+    if (entry.folded.some((value) => value.includes(normalizedQuery))) matchedKeys.add(entry.key);
 
-  const textByBook: Record<string, readonly BookTitleMatchContext[]> = {};
-  for (const [key, contexts] of snapshot.contextsByBook) {
-    const matching = contexts.filter((context) => context.folded.includes(normalizedQuery));
-    if (!matching.length) continue;
-    textByBook[key] = matching.map(({ text, detail }) => ({ text, detail }));
-    matchedKeys.add(key);
+  const result = new Map<string, BookTitleMatchContext[]>();
+  for (const group of snapshot.contexts) {
+    if (!group.folded.includes(normalizedQuery)) continue;
+    for (const key of group.bookKeys) {
+      add(result, key, group.context);
+      matchedKeys.add(key);
+    }
   }
 
-  return { textByBook, matchedKeys };
+  return { textByBook: Object.fromEntries(result), matchedKeys };
 }
 
 /**
