@@ -80,13 +80,12 @@ export function buildBookTitleSearchSnapshot(
   const contexts: IndexedBookTitleContextGroup[] = [];
   indexSeriesText(nodes, contexts);
 
-  const booksByAlias = new Map<string, string[]>();
+  const booksByAlias = new Map<string, Set<string>>();
   for (const book of books)
     for (const alias of book.organizationAliases) {
       const keys = booksByAlias.get(alias);
-      if (keys) {
-        if (!keys.includes(book.key)) keys.push(book.key);
-      } else booksByAlias.set(alias, [book.key]);
+      if (keys) keys.add(book.key);
+      else booksByAlias.set(alias, new Set([book.key]));
     }
 
   for (const collection of collections) {
@@ -107,12 +106,12 @@ export function buildBookTitleSearchSnapshot(
     direct: books.map((book) => ({
       key: book.key,
       folded: [
-        book.title,
-        book.canonicalTitle,
-        ...(book.creators ?? []).map((creator) => creator.name)
+        ...new Set(
+          [book.title, book.canonicalTitle, ...(book.creators ?? []).map((creator) => creator.name)]
+            .filter((value): value is string => typeof value === 'string')
+            .map(foldSearch)
+        )
       ]
-        .filter((value): value is string => typeof value === 'string')
-        .map(foldSearch)
     })),
     contexts
   };
