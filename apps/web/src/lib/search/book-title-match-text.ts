@@ -18,9 +18,27 @@ export interface BookTitleMatchContext {
   detail: string;
 }
 
+interface IndexedBookTitleContextGroup {
+  context: BookTitleMatchContext;
+  folded: string;
+  /** Direct leaf Books only; descendants stay in child groups to avoid O(depth × books) copies. */
+  bookKeys: readonly string[];
+  children: readonly IndexedBookTitleContextGroup[];
+}
+
 export interface BookTitleMatchIndex {
   textByBook: Record<string, readonly BookTitleMatchContext[]>;
   matchedKeys: Set<string>;
+}
+
+/**
+ * Query-independent metadata index. All expensive Unicode folding and
+ * series/collection expansion happens when the library snapshot changes, not
+ * while the user is typing.
+ */
+export interface BookTitleSearchSnapshot {
+  direct: readonly { key: string; folded: readonly string[] }[];
+  contexts: readonly IndexedBookTitleContextGroup[];
 }
 
 function add(
@@ -35,27 +53,118 @@ function add(
   } else result.set(key, [value]);
 }
 
-function matchingSeriesText(
-  nodes: readonly ShelfNode[],
-  search: string,
-  result: Map<string, BookTitleMatchContext[]>
-) {
-  for (const node of nodes) {
-    if (node.kind !== 'series') continue;
-    if (foldSearch(node.name).includes(search))
-      for (const book of node.books)
-        add(result, book.key, {
-          text: node.name,
-          detail: `${node.personal ? 'Series' : 'Folder'} · ${node.name}`
-        });
-    matchingSeriesText(node.children, search, result);
-  }
+function indexSeriesText(nodes: readonly ShelfNode[]): IndexedBookTitleContextGroup[] {
+  return nodes.flatMap((node): IndexedBookTitleContextGroup[] => {
+    if (node.kind !== 'series') return [];
+    const context = {
+      text: node.name,
+      detail: `${node.personal ? 'Series' : 'Folder'} · ${node.name}`
+    };
+    return [
+      {
+        context,
+        folded: foldSearch(node.name),
+        bookKeys: [
+          ...new Set(
+            node.children.flatMap((child) => (child.kind === 'book' ? [child.book.key] : []))
+          )
+        ],
+        children: indexSeriesText(node.children)
+      }
+    ];
+  });
 }
 
 /**
- * Preserve the metadata text which caused a Book to enter global search.
- * This is presentation-only search context; organization identities remain the
- * durable source of truth and none of these strings become locators.
+ * Build the immutable search snapshot for Book title/metadata matching.
+ * Context labels are stored once with the Book identities they admit rather
+ * than copied onto every Book, bounding memory for deep folder trees.
+ */
+export function buildBookTitleSearchSnapshot(
+  books: readonly ShelfBook[],
+  nodes: readonly ShelfNode[],
+  collections: readonly Collection[]
+): BookTitleSearchSnapshot {
+  const contexts = indexSeriesText(nodes);
+
+  const booksByAlias = new Map<string, Set<string>>();
+  for (const book of books)
+    for (const alias of book.organizationAliases) {
+      const keys = booksByAlias.get(alias);
+      if (keys) keys.add(book.key);
+      else booksByAlias.set(alias, new Set([book.key]));
+    }
+
+  for (const collection of collections) {
+    const bookKeys: string[] = [];
+    const seen = new Set<string>();
+    for (const member of collection.members)
+      for (const key of booksByAlias.get(member) ?? [])
+        if (!seen.has(key)) {
+          seen.add(key);
+          bookKeys.push(key);
+        }
+    if (!bookKeys.length) continue;
+    const context = { text: collection.name, detail: `Collection · ${collection.name}` };
+    contexts.push({ context, folded: foldSearch(collection.name), bookKeys, children: [] });
+  }
+
+  return {
+    direct: books.map((book) => ({
+      key: book.key,
+      folded: [
+        ...new Set(
+          [
+            book.title,
+            book.canonicalTitle,
+            ...(book.creators ?? []).map((creator) => creator.name),
+            book.series?.name
+          ]
+            .filter((value): value is string => typeof value === 'string')
+            .map(foldSearch)
+        )
+      ]
+    })),
+    contexts
+  };
+}
+
+/** Query a pre-folded Book metadata snapshot without walking the shelf tree. */
+export function queryBookTitleSearchSnapshot(
+  snapshot: BookTitleSearchSnapshot,
+  normalizedQuery: string
+): BookTitleMatchIndex {
+  if (!normalizedQuery) return { textByBook: {}, matchedKeys: new Set() };
+
+  const matchedKeys = new Set<string>();
+  for (const entry of snapshot.direct)
+    if (entry.folded.some((value) => value.includes(normalizedQuery))) matchedKeys.add(entry.key);
+
+  const result = new Map<string, BookTitleMatchContext[]>();
+  const addGroupBooks = (
+    group: IndexedBookTitleContextGroup,
+    context: BookTitleMatchContext
+  ) => {
+    for (const key of group.bookKeys) {
+      add(result, key, context);
+      matchedKeys.add(key);
+    }
+    for (const child of group.children) addGroupBooks(child, context);
+  };
+  const queryGroups = (groups: readonly IndexedBookTitleContextGroup[]) => {
+    for (const group of groups) {
+      if (group.folded.includes(normalizedQuery)) addGroupBooks(group, group.context);
+      queryGroups(group.children);
+    }
+  };
+  queryGroups(snapshot.contexts);
+
+  return { textByBook: Object.fromEntries(result), matchedKeys };
+}
+
+/**
+ * Compatibility helper for focused tests/consumers which do not retain a
+ * snapshot. Interactive library search should build once and query repeatedly.
  */
 export function bookTitleMatchIndex(
   books: readonly ShelfBook[],
@@ -63,31 +172,10 @@ export function bookTitleMatchIndex(
   collections: readonly Collection[],
   normalizedQuery: string
 ): BookTitleMatchIndex {
-  if (!normalizedQuery) return { textByBook: {}, matchedKeys: new Set() };
-  const result = new Map<string, BookTitleMatchContext[]>();
-  matchingSeriesText(nodes, normalizedQuery, result);
-
-  const collectionsByMember = new Map<string, BookTitleMatchContext[]>();
-  const contextOrder = new Map<BookTitleMatchContext, number>();
-  for (const collection of collections) {
-    if (!foldSearch(collection.name).includes(normalizedQuery)) continue;
-    const context = { text: collection.name, detail: `Collection · ${collection.name}` };
-    contextOrder.set(context, contextOrder.size);
-    for (const member of collection.members) add(collectionsByMember, member, context);
-  }
-
-  for (const book of books) {
-    const contexts = book.organizationAliases.flatMap(
-      (alias) => collectionsByMember.get(alias) ?? []
-    );
-    contexts.sort((a, b) => contextOrder.get(a)! - contextOrder.get(b)!);
-    for (const context of contexts) add(result, book.key, context);
-  }
-
-  return {
-    textByBook: Object.fromEntries(result),
-    matchedKeys: new Set(result.keys())
-  };
+  return queryBookTitleSearchSnapshot(
+    buildBookTitleSearchSnapshot(books, nodes, collections),
+    normalizedQuery
+  );
 }
 
 /** Keep ranking and the displayed reason for a match on the same metadata fields. */
