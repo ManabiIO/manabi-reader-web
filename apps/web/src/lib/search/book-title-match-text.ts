@@ -51,10 +51,7 @@ function add(
   } else result.set(key, [value]);
 }
 
-function indexSeriesText(
-  nodes: readonly ShelfNode[],
-  result: IndexedBookTitleContextGroup[]
-) {
+function indexSeriesText(nodes: readonly ShelfNode[], result: IndexedBookTitleContextGroup[]) {
   for (const node of nodes) {
     if (node.kind !== 'series') continue;
     const context = {
