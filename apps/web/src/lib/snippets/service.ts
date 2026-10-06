@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { get, writable, type Readable } from 'svelte/store';
+import { get, writable, type Readable } from '$lib/state/store';
 import { account, currentUser, localUser } from '../manabi/client';
 import { integrationDB, exclusive, setMetadata } from '../manabi/persistence';
 import {

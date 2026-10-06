@@ -40,9 +40,9 @@ class PitchHandler(existing.StaticHandler):
     analysis_requests = []
 
     def do_GET(self):
-        if ('voice-pitch.worker-' in self.path or
-                'swift-f0-0.3.0-' in self.path or
-                'ort-wasm-simd-threaded-' in self.path):
+        if ('voice-pitch-' in self.path or
+                'swift-f0-0.3.0.' in self.path or
+                'ort-wasm-simd-threaded.' in self.path):
             self.analysis_requests.append(self.path)
         super().do_GET()
 
@@ -65,15 +65,17 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
     def setUp(self):
         super().setUp()
         self.context.add_init_script('''(() => {
-          window.__pitchQA = {created: 0, terminated: 0, results: []}
+          window.__pitchQA = {created: 0, terminated: 0, results: [], errors: []}
           const NativeWorker = window.Worker
           window.Worker = class extends NativeWorker {
             constructor(url, options) {
               super(url, options)
-              this.pitch = String(url).includes('voice-pitch.worker-')
+              this.pitch = String(url).includes('voice-pitch-')
               if (this.pitch) {
                 __pitchQA.created++
+                this.addEventListener('error', event => __pitchQA.errors.push({type: 'worker-error', message: event.message}))
                 this.addEventListener('message', ({data}) => {
+                  if (data?.type === 'error') __pitchQA.errors.push(data)
                   if (data?.type === 'result') {
                     __pitchQA.results.push(data.result)
                     if (__pitchQA.results.length > 64) __pitchQA.results.shift()
@@ -125,9 +127,9 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
         expect(self.strip.get_by_text('Paused · trace held', exact=True)).to_be_visible()
         expect(self.strip.locator('path.pitch')).to_have_attribute('d', __import__('re').compile('.*L.*'))
         requested = PitchHandler.analysis_requests[self.analysis_start:]
-        self.assertTrue(any('voice-pitch.worker-' in path for path in requested))
-        self.assertTrue(any('swift-f0-0.3.0-' in path for path in requested))
-        self.assertTrue(any('ort-wasm-simd-threaded-' in path for path in requested))
+        self.assertTrue(any('voice-pitch-' in path for path in requested))
+        self.assertTrue(any('swift-f0-0.3.0.' in path for path in requested))
+        self.assertTrue(any('ort-wasm-simd-threaded.' in path for path in requested))
         self.strip.scroll_into_view_if_needed()
 
     def capture(self, name):

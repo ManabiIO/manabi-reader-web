@@ -310,6 +310,7 @@ class ProductJourneys(ProductJourneyBase):
     def test_statistics_heading_keeps_words_whole_at_large_text(self):
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Statistics', exact=True).click()
+        expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         toolbar = self.page.get_by_role('banner', name='Statistics toolbar')
         for width, height, scale in ((320, 568, '200%'), (390, 844, '100%'), (1280, 900, '100%')):
             with self.subTest(width=width, scale=scale):

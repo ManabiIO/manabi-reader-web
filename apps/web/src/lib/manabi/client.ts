@@ -5,7 +5,7 @@
  */
 
 import { boundedBytes } from '$lib/library/bounded-response';
-import { derived, get, writable } from 'svelte/store';
+import { derived, get, writable } from '$lib/state/store';
 import {
   parseSession,
   providerAuthorization,
@@ -56,6 +56,11 @@ function rememberLocalProfile(user: ManabiUser | null) {
 
 const ROOT = '/api/reader-web/';
 let generation = 0;
+/** Non-credential generation fence for persistent local/native runtime owners.
+ * Unlike accountScope(), this is valid for offline and anonymous profiles. */
+export function accountGeneration(): number {
+  return generation;
+}
 let refreshSerial = 0;
 interface AccountRefreshFlight {
   generation: number;
@@ -274,10 +279,14 @@ export async function request<T>(
       credentials: 'same-origin',
       redirect: 'error',
       cache: 'no-store',
-      // Library source discovery can still be in flight when a document closes.
-      // Keep this small account-scoped GET alive so WebKit does not report its
+      // Background source, reading-feed and preference reads can outlive navigation.
+      // Keep these account-scoped GETs alive so WebKit does not report their
       // unload cancellation as an uncaught cross-origin fetch error.
-      keepalive: method === 'GET' && path === 'connections/',
+      keepalive:
+        method === 'GET' &&
+        (path === 'connections/' ||
+          path.startsWith('personal/changes/?') ||
+          path.split('?', 1)[0] === 'preferences/'),
       signal: AbortSignal.timeout(45000)
     });
   } catch {

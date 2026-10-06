@@ -243,7 +243,7 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
             self.page.evaluate('v => document.documentElement.style.fontSize=v', scale)
             header = self.page.locator('header.settings-header')
             back = header.get_by_role('link', name='Back', exact=True)
-            navigate = header.get_by_role('button', name='Navigate', exact=True)
+            navigate = header.get_by_role('button', name='Settings actions', exact=True)
             self.assertLessEqual(self.page.locator('html').evaluate('e=>e.scrollWidth-e.clientWidth'), 1)
             self.assert_clickable(back)
             self.assert_clickable(navigate)
@@ -258,14 +258,13 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
                 b, t, n = back.bounding_box(), title.bounding_box(), navigate.bounding_box()
                 self.assertLessEqual(b['x']+b['width'], t['x'])
                 self.assertLessEqual(t['x']+t['width'], n['x'])
-            else:
-                primary = header.get_by_role('navigation', name='Primary navigation')
-                expect(primary.get_by_role('link', name='Settings', exact=True)).to_have_attribute('aria-current', 'page')
+            expect(header.get_by_role('navigation', name='Primary navigation')).to_have_count(0)
             self.capture('header-' + str(width))
             navigate.click()
-            menu = self.page.get_by_role('dialog', name='Manabi Reader', exact=True)
-            expect(menu.get_by_role('link', name='Accounts and libraries', exact=True)).to_be_visible()
-            menu.get_by_role('button', name='Close', exact=True).click()
+            menu = self.page.get_by_role('menu', name='Page actions', exact=True)
+            expect(menu.get_by_role('menuitem', name='Accounts and libraries', exact=True)).to_be_visible()
+            expect(menu.get_by_role('menuitem', name='Settings', exact=True)).to_have_count(0)
+            self.page.keyboard.press('Escape')
             expect(menu).to_have_count(0)
             expect(navigate).to_be_focused()
 
@@ -273,47 +272,18 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
         self.page.set_viewport_size({'width': 320, 'height': 320})
         self.settings()
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
-        trigger = self.page.get_by_role('button', name='Navigate', exact=True)
+        trigger = self.page.get_by_role('button', name='Settings actions', exact=True)
         trigger.focus()
         trigger.press('Enter')
-        panel = self.page.get_by_role('dialog', name='Manabi Reader', exact=True)
+        panel = self.page.get_by_role('menu', name='Page actions', exact=True)
         expect(panel).to_be_visible()
-        close = panel.get_by_role('button', name='Close', exact=True)
-
-        def assert_close_reachable():
-            box = close.bounding_box()
-            viewport = self.page.evaluate('''() => {
-              const v=visualViewport;
-              return {
-                left:v?.offsetLeft ?? 0, top:v?.offsetTop ?? 0,
-                right:(v?.offsetLeft ?? 0)+(v?.width ?? innerWidth),
-                bottom:(v?.offsetTop ?? 0)+(v?.height ?? innerHeight)
-              };
-            }''')
-            self.assertGreaterEqual(box['width'], 43.99)
-            self.assertGreaterEqual(box['height'], 43.99)
-            self.assertGreaterEqual(box['x'], viewport['left'] - 1)
-            self.assertGreaterEqual(box['y'], viewport['top'] - 1)
-            self.assertLessEqual(box['x'] + box['width'], viewport['right'] + 1)
-            self.assertLessEqual(box['y'] + box['height'], viewport['bottom'] + 1)
-            self.assertTrue(close.evaluate('''e => {
-              const r=e.getBoundingClientRect();
-              const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
-              return !!hit && (hit===e || e.contains(hit));
-            }'''))
-
-        assert_close_reachable()
-        navigation = panel.get_by_role('navigation', name='Main navigation')
-        navigation.evaluate('e => e.scrollTop = e.scrollHeight')
-        self.page.wait_for_function('e => e.scrollTop > 0', arg=navigation.element_handle())
-        expect(panel.get_by_role('link', name='User guide', exact=True)).to_be_visible()
+        expect(panel.get_by_role('menuitem', name='Settings', exact=True)).to_have_count(0)
         self.assertLessEqual(panel.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
-        assert_close_reachable()
-        self.capture('global-nav-short-enlarged-scrolled')
-
-        close.focus()
-        expect(close).to_be_focused()
-        close.press('Enter')
+        guide = panel.get_by_role('menuitem', name='User guide', exact=True)
+        guide.scroll_into_view_if_needed()
+        expect(guide).to_be_in_viewport()
+        self.capture('context-actions-short-enlarged-scrolled')
+        guide.press('Escape')
         expect(panel).to_have_count(0)
         expect(trigger).to_be_focused()
 
@@ -326,6 +296,51 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
         typography.click()
         expect(typography).to_have_attribute('aria-current', 'page')
         expect(back).to_have_attribute('href', '/reader-web/manage')
+
+    def test_app_back_restores_library_entry_and_forward_restores_settings_visit(self):
+        original = self.page.evaluate('history.state')
+        self.page.get_by_role('button', name='Library actions', exact=True).click()
+        self.page.get_by_role('menuitem', name='Settings', exact=True).click()
+        expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
+        self.page.get_by_role('navigation', name='Settings categories').get_by_role(
+            'link', name='Fonts & text', exact=True).click()
+        expect(self.page).to_have_url(self.origin + '/reader-web/settings#typography')
+        length = self.page.evaluate('history.length')
+        self.page.get_by_role('link', name='Back', exact=True).click()
+        expect(self.page).to_have_url(self.origin + '/reader-web/manage')
+        expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
+            'aria-busy', 'false')
+        self.assertEqual(original, self.page.evaluate('history.state'))
+        self.assertEqual(length, self.page.evaluate('history.length'))
+        self.page.go_forward()
+        expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
+        expect(self.page.get_by_role('link', name='Back', exact=True)).to_have_attribute(
+            'href', '/reader-web/manage')
+        self.page.get_by_role('link', name='Back', exact=True).click()
+        expect(self.page).to_have_url(self.origin + '/reader-web/manage')
+        self.assertEqual(original, self.page.evaluate('history.state'))
+        self.assertEqual(length, self.page.evaluate('history.length'))
+
+    def test_other_pushed_screens_back_restores_original_library_entry(self):
+        original = self.page.evaluate('history.state')
+        for destination in ['Accounts and Libraries', 'Snippets', 'Statistics']:
+            with self.subTest(destination=destination):
+                if destination == 'Snippets':
+                    self.page.locator('.library-rail').get_by_role('link').filter(
+                        has_text='Snippets').click()
+                else:
+                    self.page.get_by_role('button', name='Library actions', exact=True).click()
+                    self.page.get_by_role('menuitem', name=destination, exact=True).click()
+                back = self.page.get_by_role('link', name='Back', exact=True)
+                expect(back).to_be_visible()
+                expect(back).to_have_attribute('href', '/reader-web/manage')
+                length = self.page.evaluate('history.length')
+                back.click()
+                expect(self.page).to_have_url(self.origin + '/reader-web/manage')
+                expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
+                    'aria-busy', 'false')
+                self.assertEqual(original, self.page.evaluate('history.state'))
+                self.assertEqual(length, self.page.evaluate('history.length'))
 
     def test_reader_origin_survives_settings_category_navigation(self):
         self.import_book('Settings back origin')

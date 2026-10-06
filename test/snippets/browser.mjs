@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { chromium, webkit, expect as baseExpect } from '@playwright/test';
 const url = process.env.SNIPPETS_URL ?? 'http://127.0.0.1:4178/reader-web';
@@ -257,11 +257,26 @@ try {
   await expect(page.getByRole('article', { name: 'Snippet content' })).toContainText('京都');
   passed('create, durable native IndexedDB save and reader reload');
 
+  const readingArticle = page.getByRole('article', { name: 'Snippet content' });
+  const readerFont = () =>
+    readingArticle.evaluate((node) => parseFloat(window.getComputedStyle(node).fontSize));
+  const defaultReaderFont = await readerFont();
+  assert.equal(defaultReaderFont, 20);
+
   // Stress the actual reader controls and vertical layout at enlarged UI text.
   await page.setViewportSize({ width: 320, height: 480 });
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '200%';
   });
+  assert.equal(
+    await readerFont(),
+    defaultReaderFont * 2,
+    'Saved snippet text must scale with the browser root font'
+  );
+  await page.getByRole('button', { name: 'Larger text', exact: true }).click();
+  await expect.poll(readerFont).toBe((defaultReaderFont + 2) * 2);
+  await page.getByRole('button', { name: 'Smaller text', exact: true }).click();
+  await expect.poll(readerFont).toBe(defaultReaderFont * 2);
   const moreActions = page.getByRole('button', { name: 'More actions', exact: true });
   await expect(moreActions).toBeVisible();
   const readingToolbar = page.getByRole('toolbar', { name: 'Snippet reading controls' });
@@ -299,14 +314,7 @@ try {
         box.y >= -1 && box.y + box.height <= 481,
         `Last Snippets action must scroll into the short viewport: ${JSON.stringify(box)}`
       );
-      assert(
-        await item.evaluate((node) => {
-          const r = node.getBoundingClientRect();
-          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-          return !!hit && (hit === node || node.contains(hit));
-        }),
-        'Last Snippets action must remain hit-testable after keyboard scrolling'
-      );
+      await item.click({ trial: true });
     }
   }
   await page.keyboard.press('Escape');
@@ -328,22 +336,23 @@ try {
     assert(box && box.height >= 43.5, `${name} must remain at least 44 CSS px high`);
     assert(box.x >= -1 && box.x + box.width <= 321, `${name} must stay inside the viewport`);
     assert(box.y >= -1 && box.y + box.height <= 481, `${name} must be vertically reachable`);
-    assert(
-      await control.evaluate((node) => {
-        const r = node.getBoundingClientRect();
-        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        return !!hit && (hit === node || node.contains(hit));
-      }),
-      `${name} must remain hit-testable after enlarged-text scrolling`
-    );
+    await control.click({ trial: true });
   }
   const verticalToggle = readingToolbar.getByRole('button', {
     name: 'Vertical reading',
     exact: true
   });
+  assert(
+    (await page.locator('html').evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
+    'Horizontal snippet reader must not make the page overflow horizontally'
+  );
   await verticalToggle.click();
   await expect(verticalToggle).toHaveAttribute('aria-pressed', 'true');
-  const readingArticle = page.getByRole('article', { name: 'Snippet content' });
+  assert.equal(
+    await readerFont(),
+    defaultReaderFont * 2,
+    'Vertical snippet text must retain browser font scaling'
+  );
   assert.equal(
     await readingArticle.evaluate((node) => window.getComputedStyle(node).writingMode),
     'vertical-rl'
@@ -369,7 +378,12 @@ try {
     document.documentElement.style.fontSize = '';
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  passed('reader controls and vertical mode reflow at 200% text');
+  assert.equal(
+    await readerFont(),
+    defaultReaderFont,
+    'Removing browser scaling must retain the selected reading size'
+  );
+  passed('reader text, controls and vertical mode reflow at 200% text');
 
   // Stress the real TipTap toolbar and annotation form, not a substitute editor.
   await page.getByRole('button', { name: 'Edit', exact: true }).click();
@@ -439,7 +453,7 @@ try {
     (await page.locator('html').evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
     'Snippets workspace must not overflow horizontally at 320px / 200% text'
   );
-  await expect(page.getByRole('button', { name: 'Navigate', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Snippets actions', exact: true })).toBeVisible();
   const largeTextEvidence = process.env.SNIPPETS_SCREENSHOT;
   if (largeTextEvidence) {
     const largeTextPath = largeTextEvidence.replace(/\.png$/i, '-large-text.png');
@@ -470,14 +484,24 @@ try {
     selectionBox.width >= 43.5 && selectionBox.height >= 43.5,
     'Snippet selection target must remain at least 44x44 CSS px'
   );
+  await selectionTarget.click({ trial: true });
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '200%';
+  });
+  const selectedCopy = page.locator('.snippet-card.selected .content');
   assert(
-    await selectionTarget.evaluate((label) => {
-      const r = label.getBoundingClientRect();
-      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return !!hit && (hit === label || label.contains(hit));
-    }),
-    'Snippet selection target center must be hit-testable'
+    (await selectedCopy.boundingBox()).width >= 192,
+    'Selected snippet cards must retain readable copy width at 320px / 200% text'
   );
+  assert((await page.locator('html').evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1);
+  const enlargedSelectionBox = await selectionTarget.boundingBox();
+  assert(enlargedSelectionBox.width >= 43.5 && enlargedSelectionBox.height >= 43.5);
+  await selectionTarget.click({ trial: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '';
+  });
   await page.getByRole('button', { name: 'Done selecting', exact: true }).click();
   passed('modifier-click enters visible selection mode');
   const search = page.getByRole('searchbox', { name: 'Search snippets' });
@@ -715,14 +739,7 @@ try {
       closeBox.y + closeBox.height <= 321,
     'Save-location close target must remain inside the short visual viewport'
   );
-  assert(
-    await enlargedPickerClose.evaluate((button) => {
-      const r = button.getBoundingClientRect();
-      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return !!hit && (hit === button || button.contains(hit));
-    }),
-    'Save-location close target must remain hit-testable after picker scrolling'
-  );
+  await enlargedPickerClose.click({ trial: true });
   assert(
     (await picker.evaluate((element) => element.scrollWidth - element.clientWidth)) <= 1,
     'Save-location dialog must not overflow horizontally at 200% text'
@@ -792,6 +809,42 @@ try {
     page.getByRole('article', { name: 'Snippet content' }).locator('ruby rt')
   ).toHaveText('とうきょう');
   passed('HTML ruby import through actual TipTap and chosen Dropbox document save');
+
+  const markdownEvent = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Markdown', exact: true }).click();
+  const markdownDownload = await markdownEvent,
+    markdownPath = await markdownDownload.path();
+  assert(markdownPath, 'Markdown export must produce a readable download.');
+  const markdownBytes = await readFile(markdownPath),
+    markdownText = markdownBytes.toString('utf8');
+  assert.match(markdownText, /<ruby[\s\S]*?<rt>とうきょう<\/rt>[\s\S]*?<\/ruby>/);
+  await openLibrary(page);
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'ruby-roundtrip.md',
+    mimeType: 'text/markdown',
+    buffer: markdownBytes
+  });
+  const markdownEditor = page.getByRole('textbox', { name: 'Snippet text', exact: true });
+  const roundTripRuby = markdownEditor.locator('ruby').first();
+  await expect(roundTripRuby.locator('rt')).toHaveText('とうきょう');
+  assert.equal(
+    await roundTripRuby.evaluate((ruby) =>
+      [...ruby.childNodes]
+        .filter((node) => node.nodeName !== 'RT' && node.nodeName !== 'RP')
+        .map((node) => node.textContent ?? '')
+        .join('')
+    ),
+    '東京'
+  );
+  await expect(markdownEditor).toContainText('勉強します。');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const leaveDialog = page.getByRole('dialog', { name: 'Keep this draft?' });
+  await expect(leaveDialog).toBeVisible();
+  await leaveDialog.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
+  await expect(leaveDialog).toHaveCount(0);
+  passed('ruby survives Markdown export and Markdown import through actual TipTap');
+  await page.locator('.snippet-shelf .title').filter({ hasText: '日本語の抜粋' }).click();
+  await expect(page.getByRole('article', { name: 'Snippet content' })).toBeVisible();
   await openLibrary(page);
   await page.getByRole('button', { name: 'Default save location…', exact: true }).click();
   await page
@@ -1011,6 +1064,35 @@ try {
   console.error('FAILED', error);
   if (page && !page.isClosed()) {
     console.error((await page.locator('body').innerText()).slice(0, 18000));
+    console.error(
+      'Snippet layout:',
+      await page.evaluate(() => ({
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        page: {
+          clientWidth: document.documentElement.clientWidth,
+          scrollWidth: document.documentElement.scrollWidth
+        },
+        elements: [
+          ...document.querySelectorAll(
+            '.snippet-workspace, .snippet-workspace .brand, .reading-tools, .snippet-reading, .editor-toolbar, .annotation, .annotation label'
+          )
+        ].map((node) => {
+          const box = node.getBoundingClientRect();
+          const style = window.getComputedStyle(node);
+          return {
+            className: node.className,
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
+            clientWidth: node.clientWidth,
+            scrollWidth: node.scrollWidth,
+            writingMode: style.writingMode,
+            margin: style.margin
+          };
+        })
+      }))
+    );
     const screen = process.env.SNIPPETS_SCREENSHOT ?? '/tmp/snippet-browser-failure.png';
     await mkdir(dirname(screen), { recursive: true });
     await page.screenshot({ path: screen, fullPage: true }).catch(() => undefined);

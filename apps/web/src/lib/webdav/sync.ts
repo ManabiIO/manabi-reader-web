@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { writable, get } from 'svelte/store';
+import { writable, get } from '$lib/state/store';
 import type { IDBPTransaction } from 'idb';
 import { database } from '$lib/data/store';
 import type BooksDb from '$lib/data/database/books-db/versions/books-db';

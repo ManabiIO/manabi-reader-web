@@ -2422,6 +2422,8 @@
     styleSheet={$bookData$.styleSheet}
     publicationManifest={$rawBookData$.publicationManifest}
     sourceFormat={readerSourceFormat($rawBookData$)}
+    language={$rawBookData$.language ?? ''}
+    pageDirection={$rawBookData$.pageDirection?.value ?? 'unknown'}
     width={$containerViewportWidth$ ?? 0}
     height={$containerViewportHeight$ ?? 0}
     {fontFeatureSettings}

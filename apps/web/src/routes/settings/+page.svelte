@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { tap } from 'rxjs';
   import { afterNavigate } from '$app/navigation';
   import SettingsWorkspace from '$lib/components/settings/settings-workspace.svelte';
   import SettingsContent from '$lib/components/settings/settings-content.svelte';
@@ -76,16 +75,17 @@
   import { mergeEntries } from '$lib/components/merged-header-icon/merged-entries';
   import { pagePath } from '$lib/data/env';
   import { storage } from '$lib/data/window/navigator/storage';
+  import {
+    persistentStorageStatus,
+    retryPersistentStorage
+  } from '$lib/data/window/navigator/persistent-storage';
   import { formatPageTitle } from '$lib/functions/format-page-title';
   import { writableSubject } from '$lib/functions/svelte/store';
-  import { reduceToEmptyString } from '$lib/functions/rxjs/reduce-to-empty-string';
 
   const persistentStorage$ = writableSubject(false);
-  let persistentStorageReactive = false;
 
   onMount(() => {
-    storage.persisted().then(setPersistentStorage);
-
+    persistentStorageStatus().then(setPersistentStorage);
     setStorageQuota();
   });
 
@@ -105,23 +105,13 @@
     prevPage = `${from.url.pathname}${from.url.search}`;
   });
 
-  const setPersistentStorage$ = persistentStorage$.pipe(
-    tap((value) => {
-      if (!persistentStorageReactive) return;
-      if (!value) {
-        setPersistentStorage(true);
-        return;
-      }
-
-      storage.persist().then(setPersistentStorage).finally(setStorageQuota);
-    }),
-    reduceToEmptyString()
-  );
-
   function setPersistentStorage(value: boolean) {
-    persistentStorageReactive = false;
     persistentStorage$.next(value);
-    persistentStorageReactive = true;
+  }
+
+  async function requestPersistentStorage() {
+    setPersistentStorage(await retryPersistentStorage());
+    setStorageQuota();
   }
 
   function setStorageQuota() {
@@ -193,7 +183,8 @@
       bind:selectionToBookmarkEnabled={$selectionToBookmarkEnabled$}
       bind:enableTapEdgeToFlip={$enableTapEdgeToFlip$}
       bind:pageColumns={$pageColumns$}
-      bind:persistentStorage={$persistentStorage$}
+      persistentStorage={$persistentStorage$}
+      {requestPersistentStorage}
       bind:hideExternalReadHint={$hideExternalReadHint$}
       bind:confirmClose={$confirmClose$}
       bind:manualBookmark={$manualBookmark$}
@@ -224,7 +215,6 @@
     />
   </SettingsWorkspace>
 </div>
-{$setPersistentStorage$ ?? ''}
 
 <style>
   .settings-frame {

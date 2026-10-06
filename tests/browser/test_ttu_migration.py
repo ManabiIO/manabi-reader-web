@@ -501,10 +501,26 @@ class MigrationBrowser(unittest.TestCase):
         manifest['bookCount'] += 1
         files['yatsu-backup-manifest.json'] = json.dumps(manifest)
         self.page.goto(self.origin + '/reader-web/import-ttu?source=yatsu')
-        self.page.get_by_label('Choose Yatsu backup ZIPs', exact=True).set_input_files({
+        picker = self.page.get_by_label('Choose Yatsu backup ZIPs', exact=True)
+        expect(picker).to_be_visible()
+        # Include intermediate paints: an inspection error must not compete with
+        # a second live status while the importer refreshes destination choices.
+        self.page.evaluate('''() => {
+            window.importStatusPeak = 0;
+            const record = () => {
+                window.importStatusPeak = Math.max(window.importStatusPeak,
+                    document.querySelectorAll('[role="status"]').length);
+            };
+            record();
+            new MutationObserver(record).observe(document.body,
+                {childList: true, subtree: true});
+        }''')
+        picker.set_input_files({
             'name': 'corrupt-yatsu.zip', 'mimeType': 'application/zip', 'buffer': zip_bytes(files)
         })
         expect(self.page.get_by_role('status')).to_contain_text('book count does not match', timeout=30000)
+        expect(self.page.get_by_role('button', name='Stop inspecting', exact=True)).not_to_be_visible()
+        self.assertEqual(1, self.page.evaluate('window.importStatusPeak'))
         self.assertEqual([], self.snapshot()['data'])
 
 

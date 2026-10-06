@@ -4,12 +4,5 @@
  * All rights reserved.
  */
 
-type VideoImportMeta = ImportMeta & {
-  readonly env: {
-    readonly VITE_ENABLE_VIDEO_LEARNING?: string;
-  };
-};
-
-/** Build-time release boundary. Enabled builds are qualified by the video workflow. */
-export const videoLearningEnabled =
-  (import.meta as VideoImportMeta).env.VITE_ENABLE_VIDEO_LEARNING === 'true';
+/** Build-time release boundary; enabled builds need media qualification. */
+export const videoLearningEnabled = process.env.EXPO_PUBLIC_ENABLE_VIDEO_LEARNING === 'true';

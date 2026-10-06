@@ -5,13 +5,11 @@
  */
 
 import assert from 'node:assert/strict';
-import { Buffer } from 'node:buffer';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
-import { compile } from 'svelte/compiler';
 
 // Compile and render the actual components, not a duplicate shape table.
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -19,41 +17,38 @@ const lib = path.join(root, 'apps/web/src/lib');
 const { outputFiles } = await build({
   stdin: {
     contents: `
-      import Button, { buttonVariants } from './components/ui/button/button.svelte';
-      import Close from './components/ui/close-button.svelte';
-      import InputGroupButton from './components/ui/input-group/input-group-button.svelte';
-      import Input from './components/ui/input/input.svelte';
-      import InputGroupInput from './components/ui/input-group/input-group-input.svelte';
-      import { render } from 'svelte/server';
-      export { buttonVariants };
-      export function html(kind, props) {
-        return render({ Button, Close, InputGroupButton, Input, InputGroupInput }[kind], { props }).body;
-      }`,
-    resolveDir: lib
+      import React from 'react';
+      import {Button, CloseButton as Close} from './reader-react/dom';
+      import {buttonVariants} from './snippets-react/button-styles';
+      import {InputGroupButton, Input, InputGroupInput} from './ui/form-controls';
+      import {renderToStaticMarkup} from 'react-dom/server';
+      export {buttonVariants};
+      export function html(kind,props){return renderToStaticMarkup(React.createElement({Button,Close,InputGroupButton,Input,InputGroupInput}[kind],props));}
+    `,
+    resolveDir: path.join(root, 'apps/web/src'),
+    loader: 'tsx'
   },
-  alias: { $lib: lib },
+  alias: { $lib: lib, '$app/navigation': path.join(root, 'apps/web/src/runtime/navigation.ts') },
   bundle: true,
   platform: 'node',
   format: 'esm',
-  conditions: ['svelte'],
   write: false,
-  plugins: [
-    {
-      name: 'svelte-component-contract',
-      setup(builder) {
-        builder.onLoad({ filter: /\.svelte$/ }, async ({ path: filename }) => ({
-          contents: compile(await readFile(filename, 'utf8'), { filename, generate: 'server' }).js
-            .code,
-          loader: 'js',
-          resolveDir: path.dirname(filename)
-        }));
-      }
-    }
-  ]
+  jsx: 'automatic',
+  loader: { '.css': 'empty' },
+  external: ['react', 'react-dom', 'react-dom/server'],
+  banner: {
+    js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);"
+  }
 });
-const { buttonVariants, html } = await import(
-  `data:text/javascript;base64,${Buffer.from(outputFiles[0].text).toString('base64')}`
-);
+const directory = await mkdtemp(path.join(root, '.button-contract-'));
+let buttonVariants, html;
+try {
+  const compiled = path.join(directory, 'components.mjs');
+  await writeFile(compiled, outputFiles[0].text);
+  ({ buttonVariants, html } = await import(pathToFileURL(compiled).href));
+} finally {
+  await rm(directory, { recursive: true, force: true });
+}
 const classes = (props) => buttonVariants(props).split(/\s+/);
 
 test('only regular and large bordered variants automatically use capsules', () => {

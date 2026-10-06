@@ -2,23 +2,22 @@
 
 No request interception, replacement filesystem methods, mocked adapters, or
 substitute book reader. The adapter cases load the production modules through
-Vite, outside the production build, to retain one instance across external edits.
+a test-only ESM bundle, outside the Expo production build, to retain one
+instance across external edits. The bundle mounts the real React Library and
+BrowserRuntime; the separate static cases above it exercise the built Expo app.
 """
 import json
 import base64
 import hashlib
 import io
 import zipfile
-import os
 from pathlib import Path
-import signal
-import socket
 import subprocess
 import sys
-import time
+import threading
 import unittest
-from urllib.error import URLError
 from urllib.request import urlopen
+from urllib.parse import unquote, urlsplit
 
 from playwright.sync_api import sync_playwright, expect
 from test_shared_ttu import SharedTtuBrowser
@@ -133,39 +132,46 @@ class SharedSafetyStatic(SharedTtuBrowser):
             self.assertEqual(before, reading_snapshot(self.page))
 
 
+class SharedRuntimeHandler(static.StaticHandler):
+    """Serve only the generated integration fixture and its production exports."""
+    directory_root = REPOSITORY / 'test-results/shared-storage-runtime'
+    extensions_map = {**static.StaticHandler.extensions_map, '.ts': 'text/javascript'}
+
+    def translate_path(self, value):
+        pathname = unquote(urlsplit(value).path)
+        if not pathname.startswith('/reader-web/'):
+            return str(self.directory_root / '__not_an_application_route__')
+        relative = pathname[len('/reader-web/'):]
+        if '..' in Path(relative).parts:
+            return str(self.directory_root / '__not_an_application_route__')
+        return str(self.directory_root / ('manage.html' if relative == 'manage' else relative))
+
+
 class SharedStorageRuntime(static.ReaderBrowser):
     new_context = SharedTtuBrowser.new_context
 
     @classmethod
     def setUpClass(cls):
-        with socket.socket() as listener:
-            listener.bind(('127.0.0.1', 0))
-            port = listener.getsockname()[1]
-        cls.origin = 'http://127.0.0.1:' + str(port)
         output = REPOSITORY / 'test-results'
         output.mkdir(exist_ok=True)
-        cls.log = (output / 'shared-runtime-vite.log').open('w')
-        environment = dict(os.environ, BASE_PATH='/reader-web')
-        cls.process = subprocess.Popen(
-            [str(REPOSITORY / 'apps/web/node_modules/.bin/vite'), '--host', '127.0.0.1', '--port', str(port), '--strictPort'],
-            cwd=REPOSITORY / 'apps/web', env=environment, stdout=cls.log, stderr=subprocess.STDOUT, start_new_session=True)
+        # Compile before starting the server: missing dependencies and source
+        # errors fail immediately, rather than timing out on an empty page.
+        with (output / 'shared-runtime-build.log').open('w') as log:
+            subprocess.run(
+                ['node', 'test/expo/shared-storage-runtime-build.mjs',
+                 str(SharedRuntimeHandler.directory_root)],
+                cwd=REPOSITORY, stdout=log, stderr=subprocess.STDOUT,
+                check=True, timeout=120)
+        cls.server = static.ThreadingHTTPServer(('127.0.0.1', 0), SharedRuntimeHandler)
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+        cls.origin = 'http://127.0.0.1:' + str(cls.server.server_port)
+        cls.playwright = None
+        cls.browser = None
         try:
-            deadline = time.monotonic() + 120
-            while time.monotonic() < deadline:
-                if cls.process.poll() is not None:
-                    raise RuntimeError('Vite exited; see shared-runtime-vite.log')
-                try:
-                    with urlopen(cls.origin + '/reader-web/manage', timeout=2) as response:
-                        if response.status == 200:
-                            break
-                except (URLError, TimeoutError, ConnectionError):
-                    # Vite can accept the TCP connection and reset it while its
-                    # module graph is still becoming ready. A transient reset is
-                    # another not-ready signal, not a failed qualification.
-                    pass
-                time.sleep(0.2)
-            else:
-                raise RuntimeError('Vite did not become ready; see shared-runtime-vite.log')
+            with urlopen(cls.origin + '/reader-web/manage', timeout=5) as response:
+                if response.status != 200 or b'/reader-web/shared-runtime.js' not in response.read():
+                    raise RuntimeError('Shared storage integration server returned the wrong fixture')
             cls.playwright = sync_playwright().start()
             cls.browser = cls.playwright.chromium.launch()
         except BaseException:
@@ -174,27 +180,28 @@ class SharedStorageRuntime(static.ReaderBrowser):
 
     @classmethod
     def stop_server(cls):
-        if cls.process.poll() is None:
-            os.killpg(cls.process.pid, signal.SIGTERM)
+        try:
+            if cls.browser is not None:
+                cls.browser.close()
+        finally:
             try:
-                cls.process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                os.killpg(cls.process.pid, signal.SIGKILL)
-                cls.process.wait()
-        cls.log.close()
+                if cls.playwright is not None:
+                    cls.playwright.stop()
+            finally:
+                cls.server.shutdown()
+                cls.server.server_close()
+                cls.thread.join(timeout=5)
+                if cls.thread.is_alive():
+                    raise RuntimeError('Shared storage integration server did not stop')
 
     @classmethod
     def tearDownClass(cls):
-        try:
-            cls.browser.close()
-            cls.playwright.stop()
-        finally:
-            cls.stop_server()
+        cls.stop_server()
 
     def open_runtime(self):
         self.page.goto(self.origin + '/reader-web/manage')
-        # Visible SSR commands do not establish initialized application stores.
-        # This Svelte action exists only after the real import handlers mount.
+        # The actual React import handlers and IndexedDB-backed shelves must
+        # mount before any adapter test accesses their shared module instances.
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached(timeout=30000)
         expect(self.page.get_by_role('region', name='Library shelves', exact=True)).to_have_attribute(
             'data-hydrated', 'true', timeout=30000)

@@ -29,6 +29,14 @@ concurrency:
   cancel-in-progress: true
 jobs:
   checked-in-cpu:
+    # This exact migration is qualified once in expo-migration.yml.
+    if: >-
+      !(github.repository == 'ManabiIO/manabi-reader-web' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
+        github.head_ref == 'feat/expo-android-web-migration') ||
+       (github.event_name == 'push' &&
+        github.ref == 'refs/heads/feat/expo-android-web-migration')))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     defaults:

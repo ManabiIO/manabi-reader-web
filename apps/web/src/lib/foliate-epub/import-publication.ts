@@ -84,7 +84,17 @@ function chapterLabels(toc: FoliateNavigationItem[] | undefined): Map<string, st
 
 function copyRootAttributes(source: Element, target: HTMLElement): void {
   // These attributes have already crossed the HTML sanitizer, including style.
-  for (const name of ['id', 'class', 'style', 'lang', 'xml:lang', 'dir', 'hidden', 'aria-hidden']) {
+  for (const name of [
+    'id',
+    'data-manabi-fragment-id',
+    'class',
+    'style',
+    'lang',
+    'xml:lang',
+    'dir',
+    'hidden',
+    'aria-hidden'
+  ]) {
     const value = source.getAttribute(name);
     if (value !== null) target.setAttribute(name, value);
   }

@@ -248,8 +248,7 @@
   {
     "id": "persistent-storage",
     "category": "library",
-    "title": "Persistent storage",
-    "binding": "persistentStorage"
+    "title": "Persistent storage"
   },
   {
     "id": "hide-external-read-hint",

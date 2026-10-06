@@ -272,9 +272,22 @@ class RheaReader(previous.RefinedAppearance):
             self.assertLessEqual(box['x'] + box['width'], 390)
             panel.get_by_role('button', name='Increase text size', exact=True).tap()
             self.page.wait_for_function('localStorage.getItem("fontSize") === "21"')
+            self.page.evaluate('''() => {
+              window.backdropTouchEnds = [];
+              document.addEventListener('touchend', event => {
+                if (event.target instanceof Element &&
+                    event.target.classList.contains('reader-modal-backdrop')) {
+                  // Inspect the final native cancellation after all listeners.
+                  setTimeout(() => window.backdropTouchEnds.push(event.defaultPrevented), 0);
+                }
+              }, {capture: true, passive: true});
+            }''')
             self.page.touchscreen.tap(20, 20)
             expect(panel).to_have_count(0)
             expect(self.page.get_by_role('button', name='Themes & Settings', exact=True)).to_be_focused()
+            self.page.wait_for_function('window.backdropTouchEnds.length === 1')
+            self.assertEqual([True], self.page.evaluate('window.backdropTouchEnds'),
+                             'Outside touch must cancel its delayed compatibility click')
             reveal_reader_controls(self.page)
             self.page.get_by_role('button', name='Themes & Settings', exact=True).tap()
             close = panel.get_by_role('button', name='Close reading appearance', exact=True)
@@ -664,6 +677,8 @@ class RheaReader(previous.RefinedAppearance):
             expect(more.get_by_role('menuitemradio', name=name, exact=True)).to_be_visible()
         self.page.keyboard.press('Escape')
         self.page.keyboard.press('Escape')
+        expect(self.page.get_by_role('menu')).to_have_count(0)
+        expect(self.page.get_by_role('button', name='Library actions', exact=True)).to_be_focused()
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         self.page.get_by_role('button', name='Select All Visible', exact=True).click()
@@ -815,6 +830,7 @@ class RheaReader(previous.RefinedAppearance):
     def test_statistics_filter_is_one_focus_managed_sheet(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
         self.page.goto(self.origin + '/reader-web/statistics')
+        expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         trigger = self.page.get_by_role('button', name='Filter books', exact=True)
         trigger.click()
         sheet = self.page.get_by_role('dialog', name='Filter books', exact=True)
@@ -1032,18 +1048,20 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_statistics_navigation_and_options_sheet(self):
         self.page.goto(self.origin + '/reader-web/statistics')
+        expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         self.page.get_by_role('button', name='Heatmap', exact=True).click()
         expect(self.page.get_by_role('button', name='Heatmap', exact=True)).to_have_attribute('aria-pressed','true')
         self.page.get_by_role('button', name='Summary', exact=True).click()
         self.page.get_by_role('button', name='Statistics options', exact=True).click()
         self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()
-        panel = self.page.locator('[data-slot="sheet-content"]')
+        panel = self.page.get_by_role('dialog', name='Statistics options', exact=True)
         expect(panel).to_be_visible()
         self.page.keyboard.press('Escape')
         expect(panel).to_have_count(0)
 
     def test_statistics_raw_recovery_download_preserves_ambiguous_days(self):
         self.page.goto(self.origin + '/reader-web/statistics')
+        expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         expect(self.page.get_by_role('button', name='Statistics options', exact=True)).to_be_visible()
         # The header can render before the application's database upgrade. A
         # bare open here would create an empty v1 database if it wins that race.
@@ -1108,7 +1126,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.reload()
         self.page.get_by_role('button', name='Statistics options', exact=True).click()
         self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()
-        panel = self.page.locator('[data-slot="sheet-content"]')
+        panel = self.page.get_by_role('dialog', name='Statistics options', exact=True)
         expect(panel.get_by_role('button', name='Download raw history (JSON)')).to_be_visible()
         self.page.evaluate('''() => {
           const original = URL.createObjectURL.bind(URL);

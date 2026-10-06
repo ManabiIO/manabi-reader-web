@@ -33,6 +33,7 @@ class PanelUsabilityBrowser(LibraryBase):
 
     def statistics(self):
         self.page.goto(self.origin + '/reader-web/statistics')
+        expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         expect(self.page.get_by_role('button', name='Filter books', exact=True)).to_be_enabled()
         self.frames()
 

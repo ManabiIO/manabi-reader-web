@@ -21,12 +21,12 @@ class ReaderIntegration(LibraryBase):
         self.assertEqual(2, len(before['data']))
         self.seed_shared_source()
         self.page.goto(self.origin + '/reader-web/shared-library')
-        navigation = self.page.get_by_role('navigation', name='Primary navigation', exact=True)
-        links = navigation.get_by_role('link')
-        expect(links).to_have_count(4)
-        bounds = [links.nth(i).bounding_box() for i in range(4)]
-        for left, right in zip(bounds, bounds[1:]):
-            self.assertGreaterEqual(right['x'] - left['x'] - left['width'], 11)
+        expect(self.page.get_by_role('navigation', name='Primary navigation')).to_have_count(0)
+        self.page.get_by_role('button', name='Shared libraries actions', exact=True).click()
+        menu = self.page.get_by_role('menu', name='Page actions', exact=True)
+        expect(menu.get_by_role('menuitem', name='Accounts and libraries', exact=True)).to_be_visible()
+        expect(menu.get_by_role('menuitem', name='Shared libraries', exact=True)).to_have_count(0)
+        self.page.keyboard.press('Escape')
         publish = self.page.get_by_role('region', name='Publish browser books', exact=True)
         choice = publish.get_by_role('checkbox', name=title, exact=True)
         expect(choice).to_have_count(1)
