@@ -112,6 +112,45 @@ test('query-independent snapshot preserves direct and contextual matching semant
   });
 });
 
+test('nested folder index stores each leaf key once while parent matches admit descendants', () => {
+  const item = {
+    ...book('book:leaf'),
+    title: 'Leaf',
+    canonicalTitle: 'Leaf',
+    creators: []
+  };
+  const inner = {
+    kind: 'series',
+    id: 'inner',
+    directoryId: 'inner',
+    name: 'Inner Cats',
+    books: [item],
+    children: [{ kind: 'book', id: item.key, book: item }]
+  };
+  const outer = {
+    kind: 'series',
+    id: 'outer',
+    directoryId: 'outer',
+    name: 'Outer Cats',
+    books: [item],
+    children: [inner]
+  };
+  const snapshot = buildBookTitleSearchSnapshot([item], [outer], []);
+  const storedKeys = (groups) =>
+    groups.reduce(
+      (count, group) => count + group.bookKeys.length + storedKeys(group.children),
+      0
+    );
+  assert.equal(storedKeys(snapshot.contexts), 1);
+  assert.deepEqual([...queryBookTitleSearchSnapshot(snapshot, 'outer').matchedKeys], ['book:leaf']);
+  assert.deepEqual(queryBookTitleSearchSnapshot(snapshot, 'outer').textByBook, {
+    'book:leaf': [{ text: 'Outer Cats', detail: 'Folder · Outer Cats' }]
+  });
+  assert.deepEqual(queryBookTitleSearchSnapshot(snapshot, 'inner').textByBook, {
+    'book:leaf': [{ text: 'Inner Cats', detail: 'Folder · Inner Cats' }]
+  });
+});
+
 test('snapshot queries do not depend on later mutation of source metadata', () => {
   const item = {
     ...book('book:a'),
