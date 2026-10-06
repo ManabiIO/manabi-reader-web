@@ -34,7 +34,7 @@ export async function prepareAndroidQualification({
   );
   await fs.copyFile(path.join(fixtureDirectory, 'probe.js'), path.join(assetDir, 'probe.js'));
   const version = JSON.parse(
-    await fs.readFile(path.join(root, 'apps/web/src/lib/search/manabitan-version.json'), 'utf8')
+    await fs.readFile(path.join(root, 'apps/web/src/lib/search/dictionary-providers/manabitan/version.json'), 'utf8')
   );
   if (version.repository !== 'ManabiIO/manabitan' || !/^[a-f0-9]{40}$/.test(version.revision))
     throw new Error('Invalid pinned Manabitan revision.');

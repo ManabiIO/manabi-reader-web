@@ -4,180 +4,26 @@
  * All rights reserved.
  */
 
-import { assets as base } from '$app/paths';
-import version from './manabitan-version.json';
-export interface DictionaryPreview {
-  id: string;
-  term: string;
-  reading: string;
-  senses: { source: string; text: string; tags: string[] }[];
-}
-export interface DictionaryResult {
-  version: 1;
-  query: string;
-  matchedQuery: string;
-  /** True when the pinned runtime produced prefix-derived results. */
-  prefix: boolean;
-  dictionaryCount: number;
-  preview: { items: DictionaryPreview[]; hasMore: boolean };
-  lookup?: { dictionaryEntries: unknown[] };
-}
-export interface DictionaryStatus {
-  dictionaries: {
-    title: string;
-    revision?: string;
-    author?: string;
-    description?: string;
-  }[];
-  preferences: { disabled: string[] };
-}
-export interface RecommendedDictionary {
-  name: string;
-  description: string;
-  category: 'terms' | 'kanji' | 'frequency';
-  homepage: string;
-  downloadUrl: string;
-}
-interface Client {
-  open(): Promise<DictionaryStatus>;
-  status(options?: { signal?: AbortSignal }): Promise<DictionaryStatus>;
-  search(query: string, full: boolean, options: { signal: AbortSignal }): Promise<DictionaryResult>;
-  importDictionary(
-    blob: Blob,
-    options: { signal: AbortSignal; onProgress: (value: unknown) => void }
-  ): Promise<{ summary: { title: string }; warnings: string[]; cancelledAfterCommit: boolean }>;
-  deleteDictionary(title: string, options?: { signal?: AbortSignal }): Promise<DictionaryStatus>;
-  setEnabled(title: string, enabled: boolean): Promise<DictionaryStatus>;
-  setDefault(choice: string, title?: string): Promise<DictionaryStatus>;
-  close(): Promise<void>;
-}
-export interface DictionaryRuntime {
-  client: Client;
-  render: (
-    container: HTMLElement,
-    result: NonNullable<DictionaryResult['lookup']>,
-    client: Client,
-    lookup: (query: string) => void
-  ) => () => void;
-  installDefault: (options: {
-    signal: AbortSignal;
-    onProgress: (loaded: number, total: number) => void;
-  }) => Promise<Blob>;
-  recommendations: (options: { signal: AbortSignal }) => Promise<RecommendedDictionary[]>;
-}
+import { openDictionaryProvider } from './dictionary-provider-selection';
+import type { DictionaryRuntime } from './dictionary-provider';
+
+export type {
+  DictionaryPreview,
+  DictionaryResult,
+  DictionaryRuntime,
+  DictionaryStatus,
+  RecommendedDictionary
+} from './dictionary-provider';
+
 let active: Promise<DictionaryRuntime> | undefined;
 let retirement = Promise.resolve();
 let leases = 0;
+
 async function open(): Promise<DictionaryRuntime> {
   await retirement;
-  // A DOM export's base is './'; native dynamic import resolves against the
-  // JavaScript chunk unless we anchor the URL to its trusted HTML document.
-  const root = new URL(`${base}/manabitan/${version.revision}/`, location.href).href;
-  const response = await fetch(`${root}manifest.json`, {
-    credentials: 'omit',
-    signal: AbortSignal.timeout(15000)
-  });
-  if (!response.ok)
-    throw new Error(
-      'The built-in dictionary assets are unavailable. Retry after reloading this Reader release.'
-    );
-  const manifest = await response.json();
-  if (
-    manifest.apiVersion !== 1 ||
-    manifest.searchVersion !== 1 ||
-    manifest.revision !== version.revision
-  )
-    throw new Error('This Reader release needs its matching Manabitan search runtime.');
-  // Module paths are pinned by Reader, never supplied by a dictionary or URL query.
-  const [module, renderer, presets] = await Promise.all([
-    import(/* @metro-ignore */ `${root}web/client.js`),
-    import(/* @metro-ignore */ `${root}web/render.js`),
-    import(/* @metro-ignore */ `${root}web/presets.js`)
-  ]);
-  if (!document.querySelector('link[data-manabi-dictionary-style]')) {
-    const style = document.createElement('link');
-    style.rel = 'stylesheet';
-    style.href = `${root}css/structured-content.css`;
-    style.dataset.manabiDictionaryStyle = 'true';
-    document.head.append(style);
-  }
-  const client: Client = new module.ManabiTanWebClient();
-  try {
-    await client.open();
-  } catch (error) {
-    await client.close().catch(() => {});
-    throw error;
-  }
-  return {
-    client,
-    render: renderer.renderDictionaryResults,
-    installDefault: (options) =>
-      presets.downloadDefaultDictionary(
-        new URL(
-          `${base}/dictionary-archives/${presets.DEFAULT_DICTIONARY.fileName}`,
-          location.href
-        ),
-        options
-      ),
-    recommendations: async ({ signal }) => {
-      const response = await fetch(
-        new URL(`${root}data/recommended-dictionaries.json`, location.href),
-        {
-          credentials: 'omit',
-          signal,
-          cache: 'force-cache'
-        }
-      );
-      if (!response.ok) throw new Error('Recommended dictionaries are unavailable.');
-      const catalog: unknown = await response.json();
-      if (!catalog || typeof catalog !== 'object' || Array.isArray(catalog))
-        throw new Error('Recommended dictionary catalog is invalid.');
-      const japanese = (catalog as Record<string, unknown>).ja;
-      if (!japanese || typeof japanese !== 'object' || Array.isArray(japanese))
-        throw new Error('Japanese dictionary recommendations are unavailable.');
-      const result: RecommendedDictionary[] = [];
-      for (const category of ['terms', 'kanji', 'frequency'] as const) {
-        const items = (japanese as Record<string, unknown>)[category];
-        if (!Array.isArray(items)) continue;
-        for (const item of items) {
-          if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
-          const record = item as Record<string, unknown>;
-          if (
-            typeof record.name !== 'string' ||
-            typeof record.description !== 'string' ||
-            typeof record.homepage !== 'string' ||
-            typeof record.downloadUrl !== 'string'
-          )
-            continue;
-          let homepage: URL, download: URL;
-          try {
-            homepage = new URL(record.homepage);
-            download = new URL(record.downloadUrl);
-          } catch {
-            continue;
-          }
-          if (
-            homepage.protocol !== 'https:' ||
-            download.protocol !== 'https:' ||
-            homepage.username ||
-            homepage.password ||
-            download.username ||
-            download.password
-          )
-            continue;
-          result.push({
-            name: record.name.slice(0, 256),
-            description: record.description.slice(0, 2000),
-            category,
-            homepage: homepage.href,
-            downloadUrl: download.href
-          });
-        }
-      }
-      return result;
-    }
-  };
+  return openDictionaryProvider();
 }
+
 /** One local-storage owner per tab; retiring owners finish before a new one opens. */
 export function dictionaryLease() {
   leases++;

@@ -278,7 +278,7 @@
   }
 
   $: if (browser) {
-    // because Yomitan popup creates overflow on vertical-rl
+    // External dictionary popups can create overflow on vertical-rl.
     document.body.classList.add(cssClassOverflowHidden);
   }
 
