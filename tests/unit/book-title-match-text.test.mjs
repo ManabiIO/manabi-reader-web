@@ -126,6 +126,20 @@ test('snapshot queries do not depend on later mutation of source metadata', () =
   assert.deepEqual([...queryBookTitleSearchSnapshot(snapshot, 'dog').matchedKeys], []);
 });
 
+test('query-independent snapshot admits direct series metadata without shelf context', () => {
+  const item = {
+    ...book('book:series'),
+    title: 'Dog guide',
+    canonicalTitle: 'Dog guide',
+    creators: [],
+    series: { name: 'Cat Studies' }
+  };
+  const snapshot = buildBookTitleSearchSnapshot([item], [], []);
+  const result = queryBookTitleSearchSnapshot(snapshot, 'cat');
+  assert.deepEqual([...result.matchedKeys], ['book:series']);
+  assert.equal(bookTitleMatchDetail(item, result.textByBook[item.key] ?? [], 'cat'), 'Series · Cat Studies');
+});
+
 test('book title match context is empty without a query', () => {
   const result = bookTitleMatchIndex([book('book:a')], [], [], '');
   assert.deepEqual(result.textByBook, {});
