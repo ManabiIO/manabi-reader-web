@@ -526,7 +526,7 @@ export async function verifyExport({
         await read(`${dir}moss.wasm`);
       }
     const version = JSON.parse(
-      await fs.readFile(path.join(app, 'src/lib/search/manabitan-version.json'), 'utf8')
+      await fs.readFile(path.join(app, 'src/lib/search/dictionary-providers/manabitan/version.json'), 'utf8')
     );
     const dictionaryRoot = `${publicRoot}manabitan/${version.revision}/`;
     const dictionary = await json(`${dictionaryRoot}manifest.json`);
