@@ -14,7 +14,11 @@
   import SearchExcerpt from '../components/search-excerpt.svelte';
   import DictionarySearch from './dictionary-search.svelte';
   import { searchBookContents } from './book-content-source';
-  import type { BookTitleMatchContext } from './book-title-match-text';
+  import {
+    queryBookTitleSearchSnapshot,
+    type BookTitleSearchSnapshot
+  } from './book-title-match-text';
+  import { foldSearch } from '../library/search-normalization';
   import {
     bookTitleRows,
     scopedSnippetTitleRows,
@@ -43,8 +47,7 @@
   export let query = '';
   export let searchScope: LibrarySearchScope = 'everything';
   export let books: ShelfBook[] = [];
-  export let matches: ShelfBook[] = [];
-  export let bookMatchText: Record<string, readonly BookTitleMatchContext[]> = {};
+  export let bookSearchSnapshot: BookTitleSearchSnapshot = { direct: [], contexts: [] };
   export let snippetMembers: string[] | undefined = undefined;
   export let returnTo = '/manage';
   export let openBook: (book: ShelfBook, locator?: ReaderLocator) => void;
@@ -81,9 +84,7 @@
   let stopMedia: () => void = () => {};
   let mediaTitleRevision = 0;
   let mediaContentRevision = 0;
-  const titleMatchesRevisionFor = referenceRevision<ShelfBook[]>();
-  const titleMatchTextRevisionFor =
-    referenceRevision<Record<string, readonly BookTitleMatchContext[]>>();
+  const bookSearchSnapshotRevisionFor = referenceRevision<BookTitleSearchSnapshot>();
   const snippetTitleRevisionFor = arrayRevision<SnippetSummary>(
     (left, right) => left.id === right.id && left.key === right.key && left.title === right.title
   );
@@ -141,10 +142,8 @@
   $: queryWithinLimit = librarySearchQueryWithinLimit(query);
   $: scopePlan = librarySearchScopePlan(searchScope);
   $: resultPlan = searchResultPlan(filter);
-  $: titleMatchesRevision =
-    resultPlan.titles && scopePlan.books ? titleMatchesRevisionFor(matches) : 0;
-  $: titleMatchTextRevision =
-    resultPlan.titles && scopePlan.books ? titleMatchTextRevisionFor(bookMatchText) : 0;
+  $: bookSearchSnapshotRevision =
+    resultPlan.titles && scopePlan.books ? bookSearchSnapshotRevisionFor(bookSearchSnapshot) : 0;
   $: snippetTitleRevision =
     resultPlan.titles && scopePlan.snippets ? snippetTitleRevisionFor(eligible) : 0;
   $: snippetContentRevision =
@@ -162,8 +161,7 @@
         query,
         owner,
         searchScope,
-        scopePlan.books ? titleMatchesRevision : 0,
-        scopePlan.books ? titleMatchTextRevision : 0,
+        scopePlan.books ? bookSearchSnapshotRevision : 0,
         scopePlan.snippets ? snippetTitleRevision : 0,
         videoLearningEnabled && searchScope === 'everything' ? mediaTitleRevision : 0
       ])
@@ -207,12 +205,12 @@
   }
   function startTitles() {
     const plan = librarySearchScopePlan(searchScope);
-    const selectedBooks = plan.books ? [...matches] : [],
+    const selectedBookCorpus = plan.books ? [...books] : [],
+      selectedBookSnapshot = bookSearchSnapshot,
       selectedSnippets = plan.snippets ? [...eligible] : [],
       selectedOwner = owner,
       selectedQuery = query,
-      runVideos = videoLearningEnabled && searchScope === 'everything',
-      selectedBookMatchText = bookMatchText;
+      runVideos = videoLearningEnabled && searchScope === 'everything';
     titleTask.start(async (signal, publish) => {
       const guard = () => {
         signal.throwIfAborted();
@@ -243,7 +241,20 @@
         }
       };
       // Metadata stays local and independent of dictionary initialization and
-      // expensive body projection. Do not normalize the editable query to kana.
+      // expensive body projection. Query the immutable Book snapshot only after
+      // this task owns the debounced generation; never scan the corpus in the
+      // synchronous input/reactive path.
+      let selectedBooks: ShelfBook[] = [],
+        selectedBookMatchText: Record<string, readonly import('./book-title-match-text').BookTitleMatchContext[]> =
+          {};
+      if (plan.books) {
+        const index = queryBookTitleSearchSnapshot(
+          selectedBookSnapshot,
+          foldSearch(selectedQuery.trim())
+        );
+        selectedBooks = selectedBookCorpus.filter((book) => index.matchedKeys.has(book.key));
+        selectedBookMatchText = index.textByBook;
+      }
       const bookRows = bookTitleRows(selectedBooks, selectedBookMatchText, selectedQuery);
       refreshSnippetRows();
       guard();
@@ -287,7 +298,7 @@
           truncated: videoTruncated
         }
       });
-    }, 0);
+    });
   }
   function startContent() {
     const plan = librarySearchScopePlan(searchScope);
