@@ -13,6 +13,12 @@ bash scripts/build-docs
 
 The site builds into `apps/web/build/docs/` after the web app build. The backend release pipeline packages both in one static artifact; production publication is controlled separately by the backend deployment configuration.
 
+## Licensing boundary
+
+Reader-owned source is BSD 3-Clause. The current local-dictionary provider is built from an exact pinned revision of [Manabitan](https://github.com/ManabiIO/manabitan), a separately licensed GPL-3.0-or-later Yomitan fork. Manabitan source is checked out and built in an isolated ignored cache; its generated runtime is distributed with its GPL license and exact corresponding source rather than vendored into Reader source.
+
+Contributions must keep GPL implementation code out of Reader-owned modules. See [CONTRIBUTING.md](CONTRIBUTING.md) and the [dictionary provider boundary](docs/architecture/dictionary-provider-boundary.md).
+
 Manabi Reader for Web began as a fork of [ッツ Ebook Reader](https://github.com/ttu-ttu/ebook-reader). Its [original README](docs/ttu-upstream-readme.md) is retained for attribution and historical reference. See the guide's [Credits](site-docs/credits.md), [BSD 3-Clause](LICENSE), and [third-party UI licenses](THIRD_PARTY_UI_LICENSES.md).
 
 ## Expo Android and web draft
