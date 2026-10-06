@@ -316,9 +316,19 @@ export function LibraryScreen({ routeUrl, onOpenBook, onReady }: LibraryScreenPr
           m.editorsPicksOpen = open;
         }}
       >
-        <Dialog.Content className="sm:max-w-2xl">
-          <Dialog.Title>Editor's Picks</Dialog.Title>
-          <Dialog.Description>Open a book selected by Manabi.</Dialog.Description>
+        <Dialog.Content
+          className="flex flex-col overflow-hidden sm:max-w-2xl"
+          onCloseAutoFocus={(event: { preventDefault(): void }) => {
+            const target = toolbar.current?.querySelector<HTMLButtonElement>(
+              'button[aria-label="Library actions"]'
+            );
+            if (!target?.isConnected) return;
+            event.preventDefault();
+            target.focus({ preventScroll: true });
+          }}
+        >
+          <Dialog.Title className="sr-only">Editor's Picks</Dialog.Title>
+          <Dialog.Description className="sr-only">Open a book selected by Manabi.</Dialog.Description>
           <EditorsPicks
             routeUrl={routeUrl}
             headingId="editors-picks-dialog-heading"
