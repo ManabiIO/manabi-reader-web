@@ -270,6 +270,8 @@ export function ReaderScreen(props: Partial<SessionProps> & ReaderViewProps) {
             controlsVisible={c.showHeader}
             previewNavigationActive={c.navigationPreviewing || c.suppressResumeSave}
             htmlContent={c.$bookData$.htmlContent}
+            language={c.$rawBookData$.language ?? ''}
+            pageDirection={c.$rawBookData$.pageDirection?.value ?? 'unknown'}
             epubResources={c.$bookData$.epubResources}
             styleSheet={c.$bookData$.styleSheet}
             publicationManifest={c.$rawBookData$.publicationManifest}
