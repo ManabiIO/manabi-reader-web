@@ -698,8 +698,7 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
                 query={c.query}
                 searchScope={c.librarySearchScope}
                 books={c.searchableBooks}
-                matches={c.metadataMatches}
-                bookMatchText={c.metadataMatchText}
+                bookSearchSnapshot={c.metadataSearchSnapshot}
                 openBook={c.openBook}
                 onquery={c.setQuery}
                 onscope={c.setSearchScope}
