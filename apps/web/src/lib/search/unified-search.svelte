@@ -29,7 +29,7 @@
   import { queryTask, type SearchState } from './query-task.mjs';
   import {
     advanceMediaSearchRevisions,
-    projectedArrayRevision,
+    arrayRevision,
     referenceRevision,
     searchResultPlan,
     type SearchResultFilter
@@ -83,22 +83,21 @@
   const titleMatchesRevisionFor = referenceRevision<ShelfBook[]>();
   const titleMatchTextRevisionFor =
     referenceRevision<Record<string, readonly BookTitleMatchContext[]>>();
-  const snippetTitleRevisionFor = projectedArrayRevision<SnippetSummary>((item) => [
-    item.key,
-    item.title
-  ]);
-  const snippetContentRevisionFor = projectedArrayRevision<SnippetSummary>((item) => [
-    item.key,
-    item.title,
-    item.revision
-  ]);
-  const contentBooksRevisionFor = projectedArrayRevision<ShelfBook>((book) => [
-    book.key,
-    book.bookId,
-    book.title,
-    book.contentHash,
-    book.lastBookModified
-  ]);
+  const snippetTitleRevisionFor = arrayRevision<SnippetSummary>(
+    (left, right) => left.key === right.key && left.title === right.title
+  );
+  const snippetContentRevisionFor = arrayRevision<SnippetSummary>(
+    (left, right) =>
+      left.key === right.key && left.title === right.title && left.revision === right.revision
+  );
+  const contentBooksRevisionFor = arrayRevision<ShelfBook>(
+    (left, right) =>
+      left.key === right.key &&
+      left.bookId === right.bookId &&
+      left.title === right.title &&
+      left.contentHash === right.contentHash &&
+      left.lastBookModified === right.lastBookModified
+  );
   async function mediaRuntime(): Promise<LazyMediaRuntime> {
     if (!videoLearningEnabled) throw new Error('Video learning is disabled.');
     if (!mediaRuntimePromise) {
