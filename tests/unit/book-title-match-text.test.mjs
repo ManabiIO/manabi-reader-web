@@ -4,7 +4,9 @@ import test from 'node:test';
 import {
   bookTitleMatchIndex,
   bookTitleMatchDetail,
-  bookTitleSearchFields
+  bookTitleSearchFields,
+  buildBookTitleSearchSnapshot,
+  queryBookTitleSearchSnapshot
 } from '../../apps/web/src/lib/search/book-title-match-text.ts';
 
 const book = (key, aliases = [key]) => ({ key, organizationAliases: aliases });
@@ -61,6 +63,67 @@ test('book title match context retains nested series and overlapping collection 
     ]
   });
   assert.deepEqual([...result.matchedKeys], ['book:a', 'book:b']);
+});
+
+test('query-independent snapshot preserves direct and contextual matching semantics', () => {
+  const a = {
+    ...book('book:a', ['book:a', 'content:a']),
+    title: 'Dog guide',
+    canonicalTitle: 'Original dog title',
+    creators: [{ name: 'Cat Author' }]
+  };
+  const b = {
+    ...book('book:b', ['book:b']),
+    title: 'Bird guide',
+    canonicalTitle: 'Bird guide',
+    creators: []
+  };
+  const tree = [
+    {
+      kind: 'series',
+      id: 'folder',
+      directoryId: 'folder',
+      name: 'Cat Folder',
+      books: [b],
+      children: [{ kind: 'book', id: b.key, book: b }]
+    }
+  ];
+  const collections = [
+    { id: 'cats', name: 'Cat Archive', members: ['content:a'] },
+    { id: 'dogs', name: 'Dog Archive', members: ['book:b'] }
+  ];
+  const snapshot = buildBookTitleSearchSnapshot([a, b], tree, collections);
+
+  const cats = queryBookTitleSearchSnapshot(snapshot, 'cat');
+  assert.deepEqual([...cats.matchedKeys], ['book:a', 'book:b']);
+  assert.deepEqual(cats.textByBook, {
+    'book:a': [{ text: 'Cat Archive', detail: 'Collection · Cat Archive' }],
+    'book:b': [{ text: 'Cat Folder', detail: 'Folder · Cat Folder' }]
+  });
+
+  const original = queryBookTitleSearchSnapshot(snapshot, 'original');
+  assert.deepEqual([...original.matchedKeys], ['book:a']);
+  assert.deepEqual(original.textByBook, {});
+
+  const dogs = queryBookTitleSearchSnapshot(snapshot, 'dog');
+  assert.deepEqual([...dogs.matchedKeys], ['book:a', 'book:b']);
+  assert.deepEqual(dogs.textByBook, {
+    'book:b': [{ text: 'Dog Archive', detail: 'Collection · Dog Archive' }]
+  });
+});
+
+test('snapshot queries do not depend on later mutation of source metadata', () => {
+  const item = {
+    ...book('book:a'),
+    title: 'Cat guide',
+    canonicalTitle: 'Cat guide',
+    creators: []
+  };
+  const snapshot = buildBookTitleSearchSnapshot([item], [], []);
+  item.title = 'Dog guide';
+  item.canonicalTitle = 'Dog guide';
+  assert.deepEqual([...queryBookTitleSearchSnapshot(snapshot, 'cat').matchedKeys], ['book:a']);
+  assert.deepEqual([...queryBookTitleSearchSnapshot(snapshot, 'dog').matchedKeys], []);
 });
 
 test('book title match context is empty without a query', () => {
