@@ -155,7 +155,7 @@ export function EditorsPicks({
       className={
         embedded
           ? 'editors-picks rounded-2xl border border-border/70 bg-muted/30 p-[16px] text-left sm:p-5'
-          : 'editors-picks text-left'
+          : 'editors-picks flex min-h-0 flex-col text-left'
       }
     >
       <div className="mb-3">
@@ -184,7 +184,7 @@ export function EditorsPicks({
           className={
             embedded
               ? 'max-h-[min(34rem,55dvh)] overflow-y-auto overscroll-contain pr-1'
-              : 'max-h-[min(34rem,60dvh)] overflow-y-auto overscroll-contain pr-1'
+              : 'min-h-0 max-h-[min(34rem,60dvh)] overflow-y-auto overscroll-contain pr-1'
           }
         >
           <div className="grid gap-3">
