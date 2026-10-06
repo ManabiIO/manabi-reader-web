@@ -138,14 +138,19 @@
   $: eligible = $snippetItems.filter(
     (item) => !item.trashedAt && (!snippetMembers || snippetMembers.includes(snippetKey(item.id)))
   );
-  $: titleMatchesRevision = titleMatchesRevisionFor(matches);
-  $: titleMatchTextRevision = titleMatchTextRevisionFor(bookMatchText);
-  $: snippetTitleRevision = snippetTitleRevisionFor(eligible);
-  $: snippetContentRevision = snippetContentRevisionFor(eligible);
-  $: contentBooksRevision = contentBooksRevisionFor(books);
   $: queryWithinLimit = librarySearchQueryWithinLimit(query);
   $: scopePlan = librarySearchScopePlan(searchScope);
   $: resultPlan = searchResultPlan(filter);
+  $: titleMatchesRevision =
+    resultPlan.titles && scopePlan.books ? titleMatchesRevisionFor(matches) : 0;
+  $: titleMatchTextRevision =
+    resultPlan.titles && scopePlan.books ? titleMatchTextRevisionFor(bookMatchText) : 0;
+  $: snippetTitleRevision =
+    resultPlan.titles && scopePlan.snippets ? snippetTitleRevisionFor(eligible) : 0;
+  $: snippetContentRevision =
+    resultPlan.content && scopePlan.snippets ? snippetContentRevisionFor(eligible) : 0;
+  $: contentBooksRevision =
+    resultPlan.content && scopePlan.books ? contentBooksRevisionFor(books) : 0;
   $: availableFilters = scopePlan.dictionary
     ? filters
     : filters.filter((item) => item.id !== 'dictionary');
