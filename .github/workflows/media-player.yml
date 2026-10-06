@@ -7,6 +7,29 @@ on:
         description: 'Also reproduce the documented Chromium 153 Incognito handle crash (fails on affected build)'
         type: boolean
         default: false
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/src/lib/media/**'
+      - 'apps/web/src/lib/manabi/media-*.ts'
+      - 'apps/web/src/routes/videos/**'
+      - 'apps/web/src/lib/search/**'
+      - 'tests/browser/test_unified_search.py'
+      - 'apps/web/src/lib/components/book-reader/reader-appearance.svelte'
+      - 'apps/web/src/lib/appearance/**'
+      - 'apps/web/src/lib/data/*font*'
+      - 'apps/web/src/lib/data/reader-typography.ts'
+      - 'apps/web/src/lib/data/store.ts'
+      - 'apps/web/src/lib/functions/reader-font-layout.ts'
+      - 'tests/media/**'
+      - 'tests/browser/test_static_reader.py'
+      - 'tools/media/**'
+      - 'apps/web/package.json'
+      - 'apps/web/svelte.config.js'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/media-player.yml'
+
   pull_request:
     paths:
       - 'apps/web/src/lib/media/**'
@@ -121,7 +144,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg espeak
           python -m pip install playwright==1.63.0
-          python -m playwright install --with-deps chromium
+          python -m playwright install --with-deps chromium webkit
+      - name: Cross-browser Videos application shell
+        run: |
+          status=0
+          for engine in chromium webkit; do
+            python tests/media/app-shell-browser.py --engine "$engine" \
+              --output "test-results/media/app-shell/$engine" || status=1
+          done
+          exit "$status"
       - name: Install qualified storage browser
         run: bash tools/media/install-qualified-chromium.sh test-results/media/browser
       - name: Generate short fixture and run media regressions

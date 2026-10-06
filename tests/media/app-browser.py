@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import sys
 import threading
 from playwright.sync_api import sync_playwright, expect
@@ -145,8 +146,12 @@ def main():
         shelf = page.get_by_label('Video library', exact=True)
         card_select = shelf.get_by_role('checkbox').first
         expect(card_select).to_be_visible()
-        select_target = card_select.locator('..')
+        library_card = card_select.locator('xpath=ancestor::article[1]')
+        expect(library_card).to_have_class(re.compile(r'.*\bvideo-card\b.*'))
+        select_target = library_card.locator('.video-select')
+        expect(select_target).to_be_visible()
         select_box = select_target.bounding_box()
+        assert select_box is not None, 'selection target detached during shelf refresh'
         assert select_box['width'] >= 43.5 and select_box['height'] >= 43.5, select_box
         assert card_select.evaluate("""input => {
             const label=input.closest('label');
@@ -154,13 +159,78 @@ def main():
             const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
             return !!hit && (hit===label || label.contains(hit));
         }""")
+        batch = page.get_by_role('group', name='Video selection actions', exact=True)
+        select_visible = batch.get_by_role('button', name='Select visible videos', exact=True)
+        clear_selection = batch.get_by_role('button', name='Clear selection', exact=True)
+        bulk_generate = batch.get_by_role('button', name='Generate missing transcripts', exact=True)
+        selection_status = batch.get_by_role('status')
+        expect(selection_status).to_have_text('No videos selected')
+        expect(selection_status).to_have_attribute('aria-atomic', 'true')
+        expect(select_visible).to_be_enabled()
+        expect(clear_selection).to_be_disabled()
+        expect(bulk_generate).to_be_disabled()
+
         card_select.focus()
         expect(card_select).to_be_focused()
         page.keyboard.press('Space')
         expect(card_select).to_be_checked()
+        expect(selection_status).to_have_text('1 video selected')
+        expect(select_visible).to_be_disabled()
+        expect(clear_selection).to_be_enabled()
+        expect(bulk_generate).to_be_enabled()
+
         page.keyboard.press('Space')
         expect(card_select).not_to_be_checked()
-        results.append('video card selection has a native 44px keyboard and pointer target')
+        expect(library_card).not_to_have_class(re.compile(r'.*\bselected\b.*'))
+        expect(selection_status).to_have_text('No videos selected')
+        expect(select_visible).to_be_enabled()
+        expect(clear_selection).to_be_disabled()
+        expect(bulk_generate).to_be_disabled()
+
+        select_visible.focus()
+        select_visible.press('Enter')
+        expect(card_select).to_be_checked()
+        expect(library_card).to_have_class(re.compile(r'.*\bselected\b.*'))
+        expect(selection_status).to_have_text('1 video selected')
+        expect(select_visible).to_be_disabled()
+        expect(clear_selection).to_be_focused()
+
+        clear_selection.press('Enter')
+        # The checked DOM state clears in the same activation turn; async shelf
+        # refresh must not create a checked/no-selection visual contradiction.
+        expect(card_select).not_to_be_checked()
+        expect(selection_status).to_have_text('No videos selected')
+        expect(clear_selection).to_be_disabled()
+        expect(select_visible).to_be_focused()
+        expect(bulk_generate).to_be_disabled()
+        results.append('video batch selection exposes one coherent count and disables no-op actions')
+
+        page.set_viewport_size({'width':320,'height':568})
+        page.evaluate("document.documentElement.style.fontSize='200%'")
+        batch.scroll_into_view_if_needed()
+        assert batch.evaluate("e => e.scrollWidth-e.clientWidth") <= 1
+        assert page.locator('html').evaluate("e => e.scrollWidth-e.clientWidth") <= 1
+        for control in (select_visible, clear_selection, bulk_generate):
+            box = control.bounding_box()
+            assert box and box['height'] >= 43.5, box
+            assert box['x'] >= -1 and box['x'] + box['width'] <= 321, box
+        status_box = selection_status.bounding_box()
+        assert status_box and status_box['x'] >= -1 and status_box['x'] + status_box['width'] <= 321
+        page.screenshot(path=str(args.output/'video-selection-200-percent.png'), full_page=True)
+
+        page.emulate_media(forced_colors='active')
+        select_visible.focus()
+        select_visible.press('Enter')
+        expect(library_card).to_have_class(re.compile(r'.*\bselected\b.*'))
+        selected_outline = library_card.evaluate("node => getComputedStyle(node).outlineStyle")
+        assert selected_outline != 'none', selected_outline
+        page.emulate_media(forced_colors='none')
+        clear_selection.focus()
+        clear_selection.press('Enter')
+
+        page.evaluate("document.documentElement.style.fontSize=''")
+        page.set_viewport_size({'width':1280,'height':900})
+        results.append('video batch actions reflow without overflow at 200 percent text')
 
         existing = page.get_by_label('Choose existing subtitles', exact=True)
         expect(existing.locator('option')).to_have_count(3)
@@ -312,7 +382,7 @@ def main():
                 const r=child.getBoundingClientRect();
                 return {
                     tag:child.tagName, cls:String(child.className || '').slice(0,120),
-                    text:(child.textContent || '').trim().replace(/\s+/g,' ').slice(0,80),
+                    text:(child.textContent || '').trim().replace(/\\s+/g,' ').slice(0,80),
                     left:r.left, right:r.right, width:r.width
                 };
             }).filter(item => item.right > bounds.right + 1 || item.left < bounds.left - 1)
@@ -347,7 +417,6 @@ def main():
         for control in library_controls:
             assert_reachable(control)
 
-        library_card = page.locator('.video-card').filter(has_text='video.mp4')
         library_card.scroll_into_view_if_needed()
         expect(library_card).to_be_visible()
         assert library_card.evaluate("node => node.scrollWidth-node.clientWidth") <= 1

@@ -94,13 +94,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   min-width: 0;
   min-height: 44px;
   padding: 8px 22px;
   border-radius: 20px;
   text-decoration: none;
   text-align: center;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
   color: inherit;
 }
 .media-sections [aria-current] {
@@ -118,6 +119,14 @@
 }
 .media-actions {
   margin: 16px 0;
+}
+.media-selection-status {
+  flex: 1 1 100%;
+  min-width: 0;
+  min-height: 1.5em;
+  color: var(--media-secondary);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
 }
 .media-actions input[type='search'] {
   flex: 1;
@@ -137,7 +146,7 @@
 .caption-controls label {
   font-size: 0.8125rem;
   color: var(--media-secondary);
-  flex: 1;
+  flex: 1 1 220px;
 }
 .caption-controls select {
   width: 100%;
@@ -178,6 +187,11 @@
   border-radius: 18px;
   border: 1px solid var(--media-border);
   min-width: 0;
+}
+.video-card.selected {
+  outline: 2px solid var(--ring, var(--media-accent));
+  outline-offset: 2px;
+  background: color-mix(in oklch, var(--media-surface) 86%, var(--media-accent));
 }
 .video-select {
   position: absolute;
@@ -638,6 +652,13 @@
   .manabi-media {
     padding: 16px;
   }
+  .caption-controls {
+    align-items: stretch;
+  }
+  .caption-controls label {
+    flex-basis: 100%;
+    width: 100%;
+  }
   .manabi-media header h1 {
     font-size: 1.875rem;
   }
@@ -693,6 +714,10 @@
   .media-sections [aria-current],
   .video-toolbar [aria-pressed='true'] {
     outline: 1px solid Highlight;
+  }
+  .video-card.selected {
+    outline: 2px solid Highlight;
+    background: Canvas;
   }
 }
 
