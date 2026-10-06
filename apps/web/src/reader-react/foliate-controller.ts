@@ -48,6 +48,8 @@ import { ReaderController, readerTick, type StoreValue } from './controller';
 
 export interface FoliateProps {
   htmlContent: string;
+  language?: string;
+  direction?: 'ltr' | 'rtl';
   styleSheet?: string;
   epubResources: EpubResourceData[] | undefined;
   publicationManifest: PublicationManifest;
@@ -562,7 +564,12 @@ export function createFoliate(
       styleSheet,
       publicationManifest,
       document,
-      { writingMode: verticalMode ? 'vertical-rl' : 'horizontal-tb', resources: epubResources }
+      {
+        language: props.language,
+        direction: props.direction,
+        writingMode: verticalMode ? 'vertical-rl' : 'horizontal-tb',
+        resources: epubResources
+      }
     );
     __readerController.changed((book = publication.book));
     __readerController.changed((sourceSections = publication.sourceSections));
