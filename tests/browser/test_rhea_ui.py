@@ -152,9 +152,26 @@ class RheaReader(previous.RefinedAppearance):
         self.assertLessEqual(menu_box['x'] + menu_box['width'], 321)
         self.assertLessEqual(menu_box['y'] + menu_box['height'], 321)
         self.assertLessEqual(menu.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
-        for item in menu.get_by_role('menuitem').all():
+        items = menu.get_by_role('menuitem')
+        for item in items.all():
             box = item.bounding_box()
             self.assertGreaterEqual(box['height'], 43.99)
+        # The short menu intentionally scrolls. Keyboard navigation must bring
+        # its final action completely into view instead of merely exposing a
+        # clipped label at the viewport edge.
+        items.first.focus()
+        for _ in range(items.count() - 1):
+            self.page.keyboard.press('ArrowDown')
+        last = items.last
+        expect(last).to_be_focused()
+        last_box = last.bounding_box()
+        self.assertGreaterEqual(last_box['y'], -1)
+        self.assertLessEqual(last_box['y'] + last_box['height'], 321)
+        self.assertTrue(last.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
         self.page.screenshot(path='test-results/reader-toolbar-enlarged-short.png')
         self.page.keyboard.press('Escape')
         expect(menu).to_have_count(0)
@@ -310,6 +327,57 @@ class RheaReader(previous.RefinedAppearance):
         self.page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
         self.wait_for_fonts()
+
+        self.page.set_viewport_size({'width': 320, 'height': 360})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        reveal_reader_controls(self.page)
+        self.page.get_by_role('button', name='Contents', exact=True).click()
+        enlarged = self.page.get_by_role('dialog', name='Table of contents', exact=True)
+        heading = enlarged.get_by_role('heading', name='Contents', exact=True)
+        close = enlarged.get_by_role('button', name='Close Table of Contents', exact=True)
+        expect(heading).to_be_visible()
+        self.assertEqual('nowrap', heading.evaluate('e => getComputedStyle(e).whiteSpace'))
+        heading_box, close_box = heading.bounding_box(), close.bounding_box()
+        self.assertLessEqual(heading_box['height'], float(
+            heading.evaluate('e => parseFloat(getComputedStyle(e).lineHeight)')) + 1)
+        self.assertLessEqual(heading_box['x'] + heading_box['width'], close_box['x'] - 1)
+        self.assertGreaterEqual(close_box['width'], 43.99)
+        self.assertGreaterEqual(close_box['height'], 43.99)
+        self.assertLessEqual(close_box['x'] + close_box['width'], 321)
+        self.assertLessEqual(close_box['y'] + close_box['height'], 361)
+        self.assertTrue(close.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
+
+        chapters = enlarged.get_by_role('navigation', name='Chapters', exact=True)
+        self.page.wait_for_function(
+            'e => e.scrollHeight > e.clientHeight',
+            arg=chapters.element_handle()
+        )
+        chapters.evaluate('e => e.scrollTop = e.scrollHeight')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=chapters.element_handle())
+        self.assertEqual('hidden', enlarged.evaluate('e => getComputedStyle(e).overflowY'))
+        for control_name in ('Close Table of Contents', 'Previous Chapter', 'Next Chapter'):
+            control = enlarged.get_by_role('button', name=control_name, exact=True)
+            bounds = control.bounding_box()
+            self.assertGreaterEqual(bounds['height'], 43.99)
+            self.assertGreaterEqual(bounds['x'], -1)
+            self.assertGreaterEqual(bounds['y'], -1)
+            self.assertLessEqual(bounds['x'] + bounds['width'], 321)
+            self.assertLessEqual(bounds['y'] + bounds['height'], 361)
+            self.assertTrue(control.evaluate('''e => {
+              const r=e.getBoundingClientRect();
+              const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+              return !!hit && (hit===e || e.contains(hit));
+            }'''), control_name)
+
+        self.page.screenshot(path='test-results/contents-enlarged-word-intact.png')
+        close.click()
+        expect(enlarged).to_have_count(0)
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
         for width in (320, 390, 1440):
             self.page.set_viewport_size({'width': width, 'height': 844})
             reveal_reader_controls(self.page)

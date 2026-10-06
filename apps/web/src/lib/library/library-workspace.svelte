@@ -1853,7 +1853,9 @@
       >
     </Dialog.Header>
     {#if dialog === 'details' && targetBook}
-      <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-3 text-sm">
+      <dl
+        class="grid grid-cols-1 gap-x-[20px] gap-y-3 pe-[52px] text-sm min-[480px]:grid-cols-[auto_minmax(0,1fr)] [&>dd]:min-w-0 [&>dd]:break-words"
+      >
         <dt class="text-muted-foreground">Characters</dt>
         <dd>{targetBook.characters || 'No data'}</dd>
         <dt class="text-muted-foreground">Last read</dt>

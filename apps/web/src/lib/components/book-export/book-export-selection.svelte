@@ -41,55 +41,55 @@
 <fieldset class="mt-6 min-w-0">
   <legend class="mb-3 text-lg font-semibold">Export content</legend>
   <div class="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
-    <label class="flex min-h-11 min-w-0 items-center gap-3 rounded-xl px-2 hover:bg-muted">
+    <label class="flex min-h-11 min-w-0 items-center gap-[12px] rounded-xl px-[8px] hover:bg-muted">
       <input
         type="checkbox"
-        class="size-5 shrink-0 accent-primary"
+        class="size-[20px] shrink-0 accent-primary"
         name="data"
         value="data"
         bind:group={dataToReplicate}
       />
-      <span class="min-w-0 break-words">Book data</span>
+      <span class="min-w-0 break-normal [overflow-wrap:normal]">Book data</span>
     </label>
-    <label class="flex min-h-11 min-w-0 items-center gap-3 rounded-xl px-2 hover:bg-muted">
+    <label class="flex min-h-11 min-w-0 items-center gap-[12px] rounded-xl px-[8px] hover:bg-muted">
       <input
         type="checkbox"
-        class="size-5 shrink-0 accent-primary"
+        class="size-[20px] shrink-0 accent-primary"
         name="bookmark"
         value="bookmark"
         bind:group={dataToReplicate}
       />
-      <span class="min-w-0 break-words">Reading position</span>
+      <span class="min-w-0 break-normal [overflow-wrap:normal]">Reading position</span>
     </label>
-    <label class="flex min-h-11 min-w-0 items-center gap-3 rounded-xl px-2 hover:bg-muted">
+    <label class="flex min-h-11 min-w-0 items-center gap-[12px] rounded-xl px-[8px] hover:bg-muted">
       <input
         type="checkbox"
-        class="size-5 shrink-0 accent-primary"
+        class="size-[20px] shrink-0 accent-primary"
         name="statistic"
         value="statistic"
         bind:group={dataToReplicate}
       />
-      <span class="min-w-0 break-words">Statistics</span>
+      <span class="min-w-0 break-normal [overflow-wrap:normal]">Statistics</span>
     </label>
-    <label class="flex min-h-11 min-w-0 items-center gap-3 rounded-xl px-2 hover:bg-muted">
+    <label class="flex min-h-11 min-w-0 items-center gap-[12px] rounded-xl px-[8px] hover:bg-muted">
       <input
         type="checkbox"
-        class="size-5 shrink-0 accent-primary"
+        class="size-[20px] shrink-0 accent-primary"
         name="audioBook"
         value="audioBook"
         bind:group={dataToReplicate}
       />
-      <span class="min-w-0 break-words">Audiobook</span>
+      <span class="min-w-0 break-normal [overflow-wrap:normal]">Audiobook</span>
     </label>
-    <label class="flex min-h-11 min-w-0 items-center gap-3 rounded-xl px-2 hover:bg-muted">
+    <label class="flex min-h-11 min-w-0 items-center gap-[12px] rounded-xl px-[8px] hover:bg-muted">
       <input
         type="checkbox"
-        class="size-5 shrink-0 accent-primary"
+        class="size-[20px] shrink-0 accent-primary"
         name="subtitle"
         value="subtitle"
         bind:group={dataToReplicate}
       />
-      <span class="min-w-0 break-words">Subtitles</span>
+      <span class="min-w-0 break-normal [overflow-wrap:normal]">Subtitles</span>
     </label>
   </div>
 </fieldset>
