@@ -1,9 +1,6 @@
 <script lang="ts">
   import { foldSearch } from './search-normalization';
-  import {
-    buildBookTitleSearchSnapshot,
-    queryBookTitleSearchSnapshot
-  } from '../search/book-title-match-text';
+  import { buildBookTitleSearchSnapshot } from '../search/book-title-match-text';
   import { librarySelection } from './selection-action';
   import {
     librarySelectionScopeKey,
@@ -104,7 +101,6 @@
   import type { ReaderLocator } from '../reader-location';
   import UnifiedSearch from '../search/unified-search.svelte';
   import {
-    librarySearchQueryWithinLimit,
     libraryShelfSearchQuery,
     parseLibrarySearchScope,
     type LibrarySearchScope
@@ -365,14 +361,6 @@
     searchableBooks,
     tree,
     $organization.collections
-  );
-  $: metadataMatchIndex = queryBookTitleSearchSnapshot(
-    metadataSearchSnapshot,
-    librarySearchQueryWithinLimit(query) ? normalizedQuery : ''
-  );
-  $: metadataMatchText = metadataMatchIndex.textByBook;
-  $: metadataMatches = searchableBooks.filter((book) =>
-    metadataMatchIndex.matchedKeys.has(book.key)
   );
   $: flatDestination = !series && (collectionId === 'finished' || !!selectedCollection);
   $: seriesMatchedKeys =
@@ -1560,8 +1548,7 @@
         {query}
         searchScope={librarySearchScope}
         books={searchableBooks}
-        matches={metadataMatches}
-        bookMatchText={metadataMatchText}
+        bookSearchSnapshot={metadataSearchSnapshot}
         {openBook}
         onquery={setQuery}
         onscope={setSearchScope}
