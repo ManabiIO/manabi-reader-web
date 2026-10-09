@@ -23,12 +23,15 @@ export function EditorsPicks({
   openingId = '',
   headingId = 'editors-picks-heading',
   embedded = false,
+  contained = false,
   routeUrl,
   onOpen
 }: {
   openingId?: string;
   headingId?: string;
   embedded?: boolean;
+  /** A bounded dialog owns the height; only its book list should scroll. */
+  contained?: boolean;
   /** The mounted Library destination, even before Expo commits browser history. */
   routeUrl?: string;
   onOpen(pick: EditorsPick): void;
@@ -153,12 +156,14 @@ export function EditorsPicks({
     <section
       aria-labelledby={headingId}
       className={
-        embedded
-          ? 'editors-picks rounded-2xl border border-border/70 bg-muted/30 p-[16px] text-left sm:p-5'
-          : 'editors-picks text-left'
+        contained
+          ? 'editors-picks flex min-h-0 flex-col text-left'
+          : embedded
+            ? 'editors-picks rounded-2xl border border-border/70 bg-muted/30 p-[16px] text-left sm:p-5'
+            : 'editors-picks text-left'
       }
     >
-      <div className="mb-3">
+      <div className={contained ? 'sr-only' : 'mb-3'}>
         <h3 id={headingId} className="text-base font-semibold">
           Editor's Picks
         </h3>
@@ -182,9 +187,11 @@ export function EditorsPicks({
           role="region"
           tabIndex={0}
           className={
-            embedded
-              ? 'max-h-[min(34rem,55dvh)] overflow-y-auto overscroll-contain pr-1'
-              : 'max-h-[min(34rem,60dvh)] overflow-y-auto overscroll-contain pr-1'
+            contained
+              ? 'min-h-0 overflow-y-auto overscroll-contain pr-1'
+              : embedded
+                ? 'max-h-[min(34rem,55dvh)] overflow-y-auto overscroll-contain pr-1'
+                : 'max-h-[min(34rem,60dvh)] overflow-y-auto overscroll-contain pr-1'
           }
         >
           <div className="grid gap-3">

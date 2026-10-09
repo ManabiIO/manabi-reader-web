@@ -158,6 +158,8 @@ export function BookReader(props: Partial<BookReaderProps> & ReaderViewProps) {
                   styleSheet={c.styleSheet}
                   epubResources={c.epubResources}
                   publicationManifest={c.publicationManifest}
+                  language={c.language}
+                  direction={c.pageDirection === 'unknown' ? undefined : c.pageDirection}
                   width={c.width}
                   height={c.height}
                   maxInlineSize={c.secondDimensionMaxValue}
