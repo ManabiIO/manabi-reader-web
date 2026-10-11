@@ -186,6 +186,32 @@ async function qualify(engine, width, appearance, full) {
         'Themes & Settings'
       );
       await page.getByRole('button', { name: 'Themes & Settings', exact: true }).click();
+      if (width === 390) {
+        await page.evaluate(() => (document.documentElement.style.fontSize = '32px'));
+        for (const select of await page.locator('.react-reader-appearance select').all()) {
+          assert.ok(
+            (await select.boundingBox()).height >= 88,
+            'Reading settings grow with doubled text size'
+          );
+        }
+        await capture(page, 'refined-reader-appearance-enlarged-' + suffix);
+        const settings = page.getByRole('button', { name: /All Settings/ });
+        await settings.scrollIntoViewIfNeeded();
+        const bounds = await settings.boundingBox();
+        assert.ok(
+          bounds.y >= 0 && bounds.y + bounds.height <= 900,
+          'Lower sheet action is reachable'
+        );
+        for (let i = 0; i < 18; i++) {
+          await page.keyboard.press('Tab');
+          assert.ok(
+            await page.evaluate(
+              () => !!document.activeElement.closest('.reader-modal[role="dialog"]')
+            )
+          );
+        }
+        await page.evaluate(() => document.documentElement.style.removeProperty('font-size'));
+      }
       await page.getByRole('button', { name: 'Close reading appearance', exact: true }).click();
       assert.equal(
         await page.getByRole('dialog', { name: 'Themes & Settings', exact: true }).count(),
@@ -215,7 +241,9 @@ async function qualify(engine, width, appearance, full) {
 for (const appearance of ['light', 'dark']) {
   for (const width of [320, 390, 820, 1440]) await qualify(chromium, width, appearance, true);
 }
-for (const width of [390, 1440]) await qualify(webkit, width, 'light', false);
+for (const appearance of ['light', 'dark']) {
+  for (const width of [390, 820, 1440]) await qualify(webkit, width, appearance, false);
+}
 console.log(
   JSON.stringify({ captures: results.length, engines: ['Chromium', 'WebKit'], results }, null, 2)
 );
