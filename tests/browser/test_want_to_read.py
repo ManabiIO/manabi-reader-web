@@ -371,7 +371,7 @@ class WantToReadBrowser(LibraryBase):
 
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Add Books', exact=True).hover()
-        self.page.get_by_role('menuitem', name='Import Backup', exact=True).click()
+        self.page.get_by_role('menuitem', name='Import backup', exact=True).click()
         chooser = self.page.locator('input[type=file][accept=".zip,application/zip"]')
         chooser.set_input_files({'name': 'legacy-backup.zip', 'mimeType': 'application/zip', 'buffer': raw})
         deadline = time.monotonic() + 60
@@ -553,7 +553,7 @@ class WantToReadBrowser(LibraryBase):
         # Exercise the responsive rail/sheet boundary and keyboard activation.
         for width in (390, 768, 1024, 1440):
             self.page.set_viewport_size({'width': width, 'height': 844})
-            if width < 1024:
+            if width < 768:
                 trigger = self.page.get_by_role('button', name='Collections', exact=True)
                 trigger.focus()
                 self.page.keyboard.press('Enter')
@@ -569,7 +569,7 @@ class WantToReadBrowser(LibraryBase):
             expect(want).to_be_focused()
             self.page.keyboard.press('Enter')
             expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
-            if width < 1024:
+            if width < 768:
                 self.page.keyboard.press('Escape')
 
         # Touch path uses a genuine touch-enabled browser context and real menu.

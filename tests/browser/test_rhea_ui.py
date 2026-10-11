@@ -410,7 +410,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_empty_library_has_keyboard_import_action(self):
         self.page.goto(self.origin + '/reader-web/manage')
-        action = self.page.get_by_role('button', name='Import File(s)', exact=True)
+        action = self.page.get_by_role('button', name='Import files', exact=True)
         expect(action).to_be_visible()
         expect(self.page.locator('input[type=file][accept*=".epub"]')).to_be_hidden()
         action.focus()
@@ -695,7 +695,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.get_by_role('button', name='Cancel selection', exact=True).click()
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Add Books', exact=True).click()
-        for name in ['Import File(s)','Import Folder(s)','Import Backup','Import from Ttu Ebook Reader']:
+        for name in ['Import files','Import folder','Import backup','Import from Ttu Ebook Reader']:
             expect(self.page.get_by_role('menuitem', name=name, exact=True)).to_be_visible()
         self.page.keyboard.press('Escape')
 

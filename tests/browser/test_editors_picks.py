@@ -199,8 +199,11 @@ class EditorsPicksBrowser(unittest.TestCase):
 
     def test_empty_state_order_scroll_and_open(self):
         self.library()
-        for name in ['Import File(s)', 'Import Backup']:
-            expect(self.page.get_by_role('button', name=name)).to_be_visible()
+        expect(self.page.get_by_role('button', name='Import files', exact=True)).to_be_visible()
+        backup = self.page.get_by_role('button', name='Import backup', exact=True)
+        expect(backup).not_to_be_visible()
+        self.page.locator('.library-empty-import-options summary').press('Enter')
+        expect(backup).to_be_visible()
         for name in ['Import from Ttu Ebook Reader', 'Import from Yatsu Reader',
                      'Local folder', 'Google Drive', 'Dropbox', 'OneDrive']:
             expect(self.page.get_by_role('link', name=name)).to_be_visible()
@@ -359,7 +362,7 @@ class EditorsPicksBrowser(unittest.TestCase):
         PicksHandler.index_started = threading.Event()
         PicksHandler.index_gate = threading.Event()
         self.page.goto(self.origin + '/reader-web/manage')
-        expect(self.page.get_by_role('heading', name='Make room for a good book')).to_be_visible()
+        expect(self.page.get_by_role('heading', name='No books in your library')).to_be_visible()
         self.assertTrue(PicksHandler.index_started.wait(timeout=5))
         self.page.get_by_role('button', name='Collections', exact=True).click()
         sheet = self.page.locator('#library-collections-sheet')
@@ -377,7 +380,7 @@ class EditorsPicksBrowser(unittest.TestCase):
         PicksHandler.index_started = threading.Event()
         PicksHandler.index_gate = threading.Event()
         self.page.goto(self.origin + '/reader-web/manage')
-        expect(self.page.get_by_role('heading', name='Make room for a good book')).to_be_visible()
+        expect(self.page.get_by_role('heading', name='No books in your library')).to_be_visible()
         self.assertTrue(PicksHandler.index_started.wait(timeout=5))
 
         with self.page.expect_event(
@@ -407,7 +410,7 @@ class EditorsPicksBrowser(unittest.TestCase):
         PicksHandler.index_started = threading.Event()
         PicksHandler.index_gate = threading.Event()
         self.page.goto(self.origin + '/reader-web/manage')
-        expect(self.page.get_by_role('heading', name='Make room for a good book')).to_be_visible()
+        expect(self.page.get_by_role('heading', name='No books in your library')).to_be_visible()
         self.assertTrue(PicksHandler.index_started.wait(timeout=5))
 
         self.context.set_offline(True)

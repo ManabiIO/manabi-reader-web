@@ -170,3 +170,36 @@ dialog.library-react-dialog input:is([type='text'], [type='search'], [type='numb
 .react-reader-header .reader-toolbar [data-slot='button'] {
   border-radius: 8px;
 }
+
+/* The embedded reader uses accessible div dialogs rather than native dialog tags. */
+:root .reader-modal[role='dialog'] {
+  box-shadow: 0 12px 40px rgb(0 0 0 / 16%);
+  scroll-padding-block: 76px 24px;
+}
+:root .reader-modal-center[role='dialog'] {
+  border-radius: 12px;
+}
+:root .react-reader-appearance .reader-appearance {
+  border-radius: 12px 12px 0 0;
+}
+:root .react-reader-appearance :is(.size-controls, .modes, .theme-tile, select),
+:root .react-reader-appearance :is(.size-controls, .modes) [data-slot='button'] {
+  border-radius: 8px;
+}
+:root .react-reader-appearance select {
+  /* WebKit's native select ignores padding when it chooses its default height. */
+  height: 2.75rem;
+  min-height: 44px;
+}
+@media (min-width: 640px) {
+  :root .react-reader-appearance .reader-appearance {
+    border-radius: 12px;
+  }
+}
+
+/* Keep cover depth subordinate to the book titles and shelf navigation. */
+:root .library-react .cover-surface {
+  box-shadow:
+    0 3px 8px rgb(0 0 0 / 14%),
+    0 1px 2px rgb(0 0 0 / 10%);
+}
