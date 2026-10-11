@@ -150,7 +150,7 @@ export function AppNav({
               data-icon-only="true"
               variant="ghost"
               size="icon-lg"
-              shape="circle"
+              shape="rounded"
               aria-label={iconOnly ? 'Main menu' : `${screenTitle} actions`}
               title="More actions"
             >

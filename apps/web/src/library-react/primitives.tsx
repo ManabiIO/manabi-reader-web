@@ -99,14 +99,14 @@ export const CloseButton = forwardRef<HTMLElement, AnyProps>(function CloseButto
     <Button
       {...props}
       ref={ref}
-      variant="secondary"
+      variant="ghost"
       size="icon-lg"
-      shape="circle"
+      shape="rounded"
       data-modal-dismiss=""
       className={`size-[44px] min-h-[44px] min-w-[44px] text-muted-foreground hover:text-foreground pointer-coarse:min-h-[44px] pointer-coarse:min-w-[44px] ${props.className ?? ''}`}
       aria-label={props['aria-label'] ?? 'Close'}
     >
-      <X className="size-[18px]" strokeWidth={3} aria-hidden="true" />
+      <X className="size-[18px]" strokeWidth={2} aria-hidden="true" />
     </Button>
   );
 });

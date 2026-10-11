@@ -110,7 +110,7 @@ export function HeaderView({
         <>
           <header
             aria-label={'Library toolbar'}
-            className={['floating-library-header text-foreground lg:ml-[16rem]']
+            className={['floating-library-header text-foreground md:ml-[16rem]']
               .filter(Boolean)
               .join(' ')}
           >
@@ -131,7 +131,7 @@ export function HeaderView({
                   >
                     <label
                       className={[
-                        'flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded-full bg-muted px-2 focus-within:ring-2 focus-within:ring-ring min-[390px]:gap-2 min-[390px]:px-3'
+                        'flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded-lg bg-muted px-2 focus-within:ring-2 focus-within:ring-ring min-[390px]:gap-2 min-[390px]:px-3'
                       ]
                         .filter(Boolean)
                         .join(' ')}
@@ -195,7 +195,7 @@ export function HeaderView({
                           aria-label={'Back'}
                           title={'Back'}
                           onClick={() => c.libraryMenu?.back()}
-                          className={['size-11 shrink-0 rounded-full'].filter(Boolean).join(' ')}
+                          className={['size-11 shrink-0 rounded-lg'].filter(Boolean).join(' ')}
                         >
                           <ArrowLeft
                             weight={'bold'}
@@ -223,18 +223,15 @@ export function HeaderView({
                           <span className={['whitespace-nowrap'].filter(Boolean).join(' ')}>
                             {'Manabi Reader'}
                           </span>
-                          <span
-                            className={['font-normal whitespace-nowrap text-muted-foreground']
-                              .filter(Boolean)
-                              .join(' ')}
-                          >
-                            {'for Web'}
-                          </span>
                         </h1>
                       </>
                     )}
                   </div>
-                  <div className={['flex shrink-0 items-center gap-1.5'].filter(Boolean).join(' ')}>
+                  <div
+                    className={['library-toolbar-actions flex shrink-0 items-center gap-1.5']
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
                     {c.compactLibrary ? (
                       <>
                         <Button
@@ -247,7 +244,7 @@ export function HeaderView({
                           ref={(element: any) => {
                             c.searchButton = element;
                           }}
-                          className={['size-11 rounded-full lg:hidden'].filter(Boolean).join(' ')}
+                          className={['size-11 rounded-lg md:hidden'].filter(Boolean).join(' ')}
                         >
                           <Search
                             weight={'bold'}
@@ -267,7 +264,7 @@ export function HeaderView({
                       aria-controls={'library-collections-sheet'}
                       onClick={() => c.dispatch('collectionsClick')}
                       disabled={!!c.replicationToProgress}
-                      className={['size-11 rounded-full lg:hidden'].filter(Boolean).join(' ')}
+                      className={['size-11 rounded-lg md:hidden'].filter(Boolean).join(' ')}
                     >
                       <CollectionsList
                         weight={'bold'}
@@ -275,6 +272,16 @@ export function HeaderView({
                         className={['size-6'].filter(Boolean).join(' ')}
                       />
                     </Button>
+                    {!c.compactLibrary && (
+                      <Button
+                        onClick={c.openFilePicker}
+                        className="min-h-11"
+                        disabled={!!c.replicationToProgress}
+                      >
+                        <FileArrowUp size={18} aria-hidden="true" />
+                        Import
+                      </Button>
+                    )}
                     <Menu.Root>
                       <Menu.Trigger
                         child={({ props }: { props: Record<string, any> }) => (
@@ -290,7 +297,7 @@ export function HeaderView({
                                 props.ref(element);
                                 c.libraryActionsButton = element;
                               }}
-                              className={['size-11 rounded-full'].filter(Boolean).join(' ')}
+                              className={['size-11 rounded-lg'].filter(Boolean).join(' ')}
                             >
                               <MoreHorizontal
                                 weight={'bold'}
@@ -612,7 +619,7 @@ export function HeaderView({
                       <>
                         <label
                           className={[
-                            'hidden min-h-11 w-[clamp(12rem,20vw,18rem)] min-w-0 items-center gap-2 rounded-full bg-muted px-3 text-sm focus-within:ring-2 focus-within:ring-ring lg:flex'
+                            'hidden min-h-11 w-[clamp(12rem,20vw,18rem)] min-w-0 items-center gap-2 rounded-lg bg-muted px-3 text-sm focus-within:ring-2 focus-within:ring-ring md:flex'
                           ]
                             .filter(Boolean)
                             .join(' ')}

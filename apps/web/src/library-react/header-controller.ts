@@ -36,7 +36,7 @@ export class HeaderController extends ObservableController {
       current: typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches
     };
   }
-  compactLibrary = browser && window.matchMedia('(max-width: 1023px)').matches;
+  compactLibrary = browser && window.matchMedia('(max-width: 767px)').matches;
   searchExpanded = false;
   hydrated = false;
   searchInput!: HTMLInputElement | undefined;
@@ -272,7 +272,7 @@ export class HeaderController extends ObservableController {
     );
     return (() => {
       this.hydrated = true;
-      const media = window.matchMedia('(max-width: 1023px)');
+      const media = window.matchMedia('(max-width: 767px)');
       const update = () => (this.compactLibrary = media.matches);
       update();
       media.addEventListener('change', update);

@@ -185,11 +185,11 @@ export function LibraryScreen({ routeUrl, onOpenBook, onReady }: LibraryScreenPr
   const empty = (
     <section
       data-slot="library-empty-state"
-      className="mx-auto mt-6 max-w-4xl min-w-0 rounded-3xl border border-border bg-card p-[20px] text-left shadow-sm sm:mt-10 sm:p-8"
+      className="library-empty-content mt-6 min-w-0 max-w-4xl text-left"
     >
-      <h2 className="text-xl font-semibold">Make room for a good book</h2>
+      <h2 className="text-xl font-semibold">No books in your library</h2>
       <p className="mt-2 text-sm text-muted-foreground">
-        Add your own books, connect a library, or open one of our picks.
+        Import ebook files or connect a library to add books.
       </p>
       <div className="mt-7 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-7 sm:grid-cols-2">
         <section aria-labelledby="add-books-heading">
@@ -243,7 +243,7 @@ export function LibraryScreen({ routeUrl, onOpenBook, onReady }: LibraryScreenPr
             {['Local folder', 'Google Drive', 'Dropbox', 'OneDrive'].map((name, index) => (
               <Button
                 key={name}
-                variant="secondary"
+                variant="outline"
                 className="min-h-11 w-full justify-start"
                 href={resolve(`/connections#${index ? 'cloud' : 'local'}-heading`)}
               >

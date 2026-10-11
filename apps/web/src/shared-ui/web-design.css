@@ -1,0 +1,161 @@
+/* @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors. */
+/* Browser presentation only. Native Expo controls keep their platform styling. */
+:root {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, 'Hiragino Sans', 'Yu Gothic', Meiryo,
+    'Noto Sans JP', sans-serif;
+}
+[data-slot='button']:active:not(:disabled):not([aria-disabled='true']) {
+  filter: brightness(0.94);
+}
+[data-slot='button']:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+/* Keep dismissal a recognizable, unboxed action with a full touch target. */
+[data-modal-dismiss] {
+  border-radius: 8px !important;
+  border-color: transparent !important;
+  background: transparent !important;
+}
+[data-modal-dismiss]:hover:not(:disabled) {
+  background: var(--muted) !important;
+}
+:is(dialog[data-slot='dialog-content'], dialog[data-slot='sheet-content']) {
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 16%);
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+  scroll-padding-block: 76px 24px;
+}
+:root .library-react .library-empty-content > div:first-of-type {
+  max-width: 48rem;
+}
+:root .library-react .library-empty-content [data-slot='button'][data-variant='link'] {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  text-decoration: none;
+}
+:root .library-react .library-empty-content [data-slot='button'][data-variant='link']:hover {
+  text-decoration: underline;
+}
+:root .library-react .library-empty-content .editors-picks {
+  border-radius: 10px;
+  box-shadow: none;
+}
+:root .library-react .floating-library-header button[data-size='icon'] {
+  border-color: transparent !important;
+  border-radius: 8px;
+  background: transparent !important;
+}
+:root
+  .library-react
+  .floating-library-header
+  button[data-size='icon']:is(:hover, [aria-expanded='true']) {
+  background: var(--secondary) !important;
+}
+:root .library-react .floating-library-header button[data-size='icon'] svg {
+  width: 20px;
+  height: 20px;
+}
+:root .library-react .floating-library-header label:has(input[type='search']) {
+  border: 1px solid var(--border);
+  background: var(--background);
+  border-radius: 8px;
+}
+@media (min-width: 768px) {
+  .settings-workspace .section-navigation-sidebar {
+    display: grid;
+    overflow: visible;
+    gap: 2px;
+  }
+  .settings-workspace .section-navigation-sidebar [data-section-link] {
+    justify-content: flex-start;
+    border-bottom: 0;
+    border-radius: 8px;
+  }
+  .settings-workspace .section-navigation-sidebar [aria-current='page'] {
+    background: var(--secondary);
+    color: var(--foreground);
+  }
+}
+@media (max-width: 767px) {
+  :root .library-react .floating-library-header .library-header-inner {
+    padding-inline: 16px;
+  }
+  :root .library-react .library-workspace {
+    --library-gutter: 16px !important;
+  }
+  :root .library-react .floating-library-header button[data-size='icon'] {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+@media (forced-colors: active) {
+  [data-slot='button']:focus-visible {
+    outline-color: Highlight;
+  }
+}
+
+@media (min-width: 768px) {
+  :root .library-react .library-header-inner {
+    flex-wrap: wrap;
+  }
+  :root .library-react .library-toolbar-actions {
+    flex: 1 1 400px;
+    justify-content: flex-end;
+  }
+  :root .library-react .library-toolbar-actions label:has(input[type='search']) {
+    flex: 1;
+    max-width: 320px;
+  }
+}
+
+/* These overrides load only through RuntimeProvider.web, never the native DOM reader. */
+[data-slot='button'][data-shape='auto']:is([data-size='default'], [data-size='lg']):not(
+    [data-variant='link']
+  ) {
+  border-radius: 8px !important;
+}
+[data-slot='button'][data-variant='outline'] {
+  border-color: var(--border) !important;
+  background: var(--background) !important;
+  color: var(--foreground) !important;
+}
+[data-slot='button'][data-variant='outline']:hover:not(:disabled):not([aria-disabled='true']) {
+  background: var(--muted) !important;
+}
+[data-slot='button'][data-variant='outline'][aria-expanded='true'] {
+  background: var(--secondary) !important;
+}
+[data-slot='button'][data-variant='outline'] * {
+  color: inherit !important;
+}
+[data-modal-dismiss] svg {
+  stroke-width: 2;
+}
+dialog[data-slot='dialog-content'] {
+  border-radius: 12px !important;
+}
+dialog[data-slot='sheet-content'][data-side='bottom'] {
+  border-radius: 12px 12px 0 0;
+}
+dialog :is([data-slot='dialog-title'], [data-slot='sheet-title']) {
+  font-family: var(--font-sans);
+}
+dialog.library-react-dialog input:not([type]),
+dialog.library-react-dialog input:is([type='text'], [type='search'], [type='number']) {
+  border-radius: 8px;
+}
+.settings-workspace #settings-content section,
+:root .react-settings-import-ttu-screen .migration-page :is(section, article, .file-picker) {
+  border-radius: 12px;
+}
+:root .library-react .unified-search :is(.scopes, .filters) button {
+  border-radius: 8px;
+}
+.react-reader-header .reader-toolbar [data-slot='button'] {
+  border-radius: 8px;
+}

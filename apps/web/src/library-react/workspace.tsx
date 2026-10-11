@@ -1060,7 +1060,7 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
                                   : c.notFinished
                                     ? 'All books here are finished'
                                     : c.collectionId === WANT_TO_READ_ID
-                                      ? 'What will you read next?'
+                                      ? 'No books in Want to Read'
                                       : c.selectedCollection
                                         ? 'No books in this collection'
                                         : 'No books here'}
