@@ -439,7 +439,7 @@ class BooksLibraryBrowser(LibraryBase):
             with self.subTest(width=width):
                 self.page.set_viewport_size({'width': width, 'height': 844})
                 self.go_library()
-                if width < 1024:
+                if width < 768:
                     self.page.get_by_role('button', name='Collections', exact=True).click()
                     self.page.locator('#library-collections-sheet').get_by_role(
                         'button', name=re.compile(r'^Portable Shelf\s+1$')).click()
@@ -708,7 +708,7 @@ class BooksLibraryBrowser(LibraryBase):
                 if width <= 430:
                     self.assertEqual(2, geometry['columns'])
                 if width == 768:
-                    self.assertEqual(4, geometry['columns'])
+                    self.assertEqual(2, geometry['columns'])
                 if width == 1440:
                     self.assertEqual(6, geometry['columns'])
                 for cover in geometry['covers']:
@@ -722,7 +722,7 @@ class BooksLibraryBrowser(LibraryBase):
         self.assertGreater(measurements[1400]['columns'], measurements[1300]['columns'])
         self.assertLess(measurements[1400]['width'], measurements[1300]['width'])
         self.assertGreater(measurements[1728]['columns'], measurements[1400]['columns'])
-        # Selection adds a row to the floating header. The sidebar stays in
+        # Selection adds a row to the header. The sidebar stays in
         # its own full-height panel through both header sizes.
         self.page.set_viewport_size({'width': 1440, 'height': 700})
         header = self.page.get_by_role('banner', name='Library toolbar')
@@ -733,14 +733,14 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.wait_for_function('''() => {
             const rail = document.querySelector('.library-rail').getBoundingClientRect();
             const shell = document.querySelector('.library-nav-shell');
-            return Math.abs(rail.top - 16) < 2 && rail.bottom <= innerHeight - 14 &&
+            return Math.abs(rail.top) < 2 && Math.abs(rail.bottom - innerHeight) < 2 &&
               shell.classList.contains('scrolled') &&
-              getComputedStyle(shell, '::before').backdropFilter !== 'none';
+              parseFloat(getComputedStyle(shell, '::before').borderBottomWidth) > 0;
         }''')
         expect(rail.get_by_role('button', name=re.compile('^Books'))).to_be_in_viewport()
         header.get_by_role('button', name='Cancel selection', exact=True).click()
         self.page.wait_for_function('''() => {
-            return Math.abs(document.querySelector('.library-rail').getBoundingClientRect().top - 16) < 2;
+            return Math.abs(document.querySelector('.library-rail').getBoundingClientRect().top) < 2;
         }''')
 
     def test_library_responsive_search_geometry_and_touch_targets(self):
@@ -753,10 +753,10 @@ class BooksLibraryBrowser(LibraryBase):
                 self.page.set_viewport_size({'width': width, 'height': 844})
                 self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
                 brand = self.page.get_by_role('banner', name='Library toolbar').get_by_role(
-                    'heading', name='Manabi Reader for Web', exact=True).bounding_box()
+                    'heading', name='Manabi Reader', exact=True).bounding_box()
                 shelf = self.page.locator('.shelf-heading:visible, .unified-search:visible').first.bounding_box()
                 self.assertAlmostEqual(brand['x'], shelf['x'], delta=1)
-                if width < 1024:
+                if width < 768:
                     trigger = self.page.get_by_role('button', name='Search library', exact=True)
                     expect(trigger).to_be_visible()
                     actions = self.page.get_by_role('button', name='Library actions', exact=True).bounding_box()
@@ -901,7 +901,7 @@ class BooksLibraryBrowser(LibraryBase):
                 header = self.page.get_by_role('banner', name='Library toolbar')
                 expect(header.get_by_role('button', name='Main menu', exact=True)).to_have_count(0)
                 rail = self.page.get_by_role('complementary', name='Collections', exact=True)
-                if width < 1024:
+                if width < 768:
                     expect(rail).not_to_be_visible()
                     trigger = header.get_by_role('button', name='Collections', exact=True)
                     trigger.click()
@@ -972,7 +972,7 @@ class BooksLibraryBrowser(LibraryBase):
             track_box = track.bounding_box()
             self.assertAlmostEqual(track_box['x'], shelves['x'], delta=1)
             self.assertAlmostEqual(track_box['x'] + track_box['width'], shelves['x'] + shelves['width'], delta=1)
-            if width < 1024:
+            if width < 768:
                 self.assertAlmostEqual(track_box['x'], 0, delta=1)
                 self.assertAlmostEqual(track_box['width'], width, delta=1)
                 track.evaluate('e => e.scrollTo({left: 0, behavior: "instant"})')
@@ -1130,7 +1130,7 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.set_viewport_size({'width':390, 'height':844})
         header = self.page.get_by_role('banner', name='Library toolbar')
         expect(self.page).to_have_title(re.compile(r'Library'))
-        heading = header.get_by_role('heading', name='Manabi Reader for Web', exact=True)
+        heading = header.get_by_role('heading', name='Manabi Reader', exact=True)
         expect(heading).to_be_visible()
         title_width = heading.evaluate('element => [element.scrollWidth, element.clientWidth]')
         self.assertLessEqual(title_width[0], title_width[1] + 1)
@@ -1172,9 +1172,9 @@ class BooksLibraryBrowser(LibraryBase):
             return {top: box.top, bottom: box.bottom, radius: parseFloat(style.borderTopLeftRadius),
                 rightBorder: parseFloat(style.borderRightWidth)};
         }''')
-        self.assertAlmostEqual(16, panel['top'], delta=2)
-        self.assertAlmostEqual(884, panel['bottom'], delta=2)
-        self.assertGreaterEqual(panel['radius'], 20)
+        self.assertAlmostEqual(0, panel['top'], delta=2)
+        self.assertAlmostEqual(900, panel['bottom'], delta=2)
+        self.assertEqual(0, panel['radius'])
         self.assertGreater(panel['rightBorder'], 0)
         scroll_y = self.page.evaluate('''() => {
             const spacer = document.createElement('div');
@@ -1186,8 +1186,8 @@ class BooksLibraryBrowser(LibraryBase):
         }''')
         self.assertGreater(scroll_y, 0)
         scrolled = rail.bounding_box()
-        self.assertAlmostEqual(16, scrolled['y'], delta=2)
-        self.assertAlmostEqual(884, scrolled['y'] + scrolled['height'], delta=2)
+        self.assertAlmostEqual(0, scrolled['y'], delta=2)
+        self.assertAlmostEqual(900, scrolled['y'] + scrolled['height'], delta=2)
         self.page.evaluate("document.getElementById('rail-scroll-fixture').remove(); window.scrollTo(0, 0)")
         header_style = header.evaluate('''element => {
             const style = getComputedStyle(element);
@@ -1205,11 +1205,11 @@ class BooksLibraryBrowser(LibraryBase):
         expect(rail).to_be_visible()
         self.page.reload()
         expect(rail).to_be_visible()
-        self.page.set_viewport_size({'width':1023, 'height':900})
+        self.page.set_viewport_size({'width':767, 'height':900})
         expect(rail).not_to_be_visible()
         expect(header.get_by_role('button', name='Main menu', exact=True)).to_have_count(0)
         expect(header.get_by_role('button', name='Collections', exact=True)).to_be_visible()
-        self.page.set_viewport_size({'width':1024, 'height':900})
+        self.page.set_viewport_size({'width':768, 'height':900})
         expect(rail).to_be_visible()
         expect(header.get_by_role('button', name='Main menu', exact=True)).not_to_be_visible()
         expect(header.get_by_role('button', name='Collections', exact=True)).not_to_be_visible()

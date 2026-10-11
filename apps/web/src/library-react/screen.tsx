@@ -185,11 +185,11 @@ export function LibraryScreen({ routeUrl, onOpenBook, onReady }: LibraryScreenPr
   const empty = (
     <section
       data-slot="library-empty-state"
-      className="mx-auto mt-6 max-w-4xl min-w-0 rounded-3xl border border-border bg-card p-[20px] text-left shadow-sm sm:mt-10 sm:p-8"
+      className="library-empty-content mt-6 max-w-4xl min-w-0 text-left"
     >
-      <h2 className="text-xl font-semibold">Make room for a good book</h2>
+      <h2 className="text-xl font-semibold">No books in your library</h2>
       <p className="mt-2 text-sm text-muted-foreground">
-        Add your own books, connect a library, or open one of our picks.
+        Import ebook files or connect a library to add books.
       </p>
       <div className="mt-7 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-7 sm:grid-cols-2">
         <section aria-labelledby="add-books-heading">
@@ -198,7 +198,7 @@ export function LibraryScreen({ routeUrl, onOpenBook, onReady }: LibraryScreenPr
           </h3>
           <div className="mt-3 grid gap-2">
             <Button size="lg" className="min-h-11 w-full" onClick={h.openFilePicker}>
-              Import File(s)
+              Import files
             </Button>
             {!mobile && (
               <Button
@@ -206,34 +206,39 @@ export function LibraryScreen({ routeUrl, onOpenBook, onReady }: LibraryScreenPr
                 className="min-h-11 w-full justify-start"
                 onClick={h.openFolderPicker}
               >
-                Import Folder(s)
+                Import folder
               </Button>
             )}
-            <Button
-              variant="outline"
-              className="min-h-11 w-full justify-start"
-              onClick={h.openBackupPicker}
-            >
-              Import Backup
-            </Button>
-            <Button
-              variant="link"
-              className="min-h-11 w-full justify-start"
-              href={resolve('/import-ttu')}
-            >
-              <span>Import from Ttu Ebook Reader</span>
-              <CaretRight className="size-4 rtl:rotate-180" aria-hidden="true" />
-            </Button>
-            <Button
-              variant="link"
-              className="min-h-11 w-full justify-start"
-              href={resolve('/import-ttu?source=yatsu')}
-            >
-              <span>Import from Yatsu Reader</span>
-              <CaretRight className="size-4 rtl:rotate-180" aria-hidden="true" />
-            </Button>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">You can also drop ebook files here.</p>
+          <details className="library-empty-import-options mt-3">
+            <summary>Other import options</summary>
+            <div className="grid gap-2 pt-2">
+              <Button
+                variant="link"
+                className="min-h-11 w-full justify-start"
+                onClick={h.openBackupPicker}
+              >
+                Import backup
+              </Button>
+              <Button
+                variant="link"
+                className="min-h-11 w-full justify-start"
+                href={resolve('/import-ttu')}
+              >
+                <span>Import from Ttu Ebook Reader</span>
+                <CaretRight className="size-4 rtl:rotate-180" aria-hidden="true" />
+              </Button>
+              <Button
+                variant="link"
+                className="min-h-11 w-full justify-start"
+                href={resolve('/import-ttu?source=yatsu')}
+              >
+                <span>Import from Yatsu Reader</span>
+                <CaretRight className="size-4 rtl:rotate-180" aria-hidden="true" />
+              </Button>
+            </div>
+          </details>
         </section>
         <section aria-labelledby="connect-library-heading">
           <h3 id="connect-library-heading" className="text-base font-semibold">
@@ -243,7 +248,7 @@ export function LibraryScreen({ routeUrl, onOpenBook, onReady }: LibraryScreenPr
             {['Local folder', 'Google Drive', 'Dropbox', 'OneDrive'].map((name, index) => (
               <Button
                 key={name}
-                variant="secondary"
+                variant="outline"
                 className="min-h-11 w-full justify-start"
                 href={resolve(`/connections#${index ? 'cloud' : 'local'}-heading`)}
               >
