@@ -275,6 +275,7 @@ export function HeaderView({
                     {!c.compactLibrary && (
                       <Button
                         onClick={c.openFilePicker}
+                        variant={c.hasBooks ? 'default' : 'ghost'}
                         className="min-h-11"
                         disabled={!!c.replicationToProgress}
                       >
@@ -342,18 +343,18 @@ export function HeaderView({
                           >
                             <Menu.Item onSelect={() => c.fileImportElm?.click()}>
                               <FileArrowUp aria-hidden={'true'} />
-                              {'Import File(s)'}
+                              {'Import files'}
                             </Menu.Item>
                             {!readStore(isMobile$) ? (
                               <>
                                 <Menu.Item onSelect={() => c.folderImportElm?.click()}>
                                   <FolderPlus aria-hidden={'true'} />
-                                  {'Import Folder(s)'}
+                                  {'Import folder'}
                                 </Menu.Item>
                               </>
                             ) : null}
                             <Menu.Item onSelect={() => c.backupImportElm?.click()}>
-                              {'Import Backup'}
+                              {'Import backup'}
                             </Menu.Item>
                             <Menu.Separator />
                             <Menu.Item onSelect={() => goto(resolve('/import-ttu'))}>
@@ -1049,17 +1050,17 @@ export function HeaderView({
                     <>
                       <ActionMenu label={'Add books'}>
                         <Menu.Item onSelect={() => c.fileImportElm?.click()}>
-                          {'Import File(s)'}
+                          {'Import files'}
                         </Menu.Item>
                         {!readStore(isMobile$) ? (
                           <>
                             <Menu.Item onSelect={() => c.folderImportElm?.click()}>
-                              {'Import Folder(s)'}
+                              {'Import folder'}
                             </Menu.Item>
                           </>
                         ) : null}
                         <Menu.Item onSelect={() => c.backupImportElm?.click()}>
-                          {'Import Backup'}
+                          {'Import backup'}
                         </Menu.Item>
                         <Menu.Separator />
                         <Menu.Item onSelect={() => goto(resolve('/import-ttu'))}>

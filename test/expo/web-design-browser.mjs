@@ -13,11 +13,15 @@ const repository = path.resolve('.');
 assert.ok(!output.startsWith(repository + path.sep), 'Keep generated pixels out of Git');
 await mkdir(output, { recursive: true });
 const results = [];
-const book = {
-  name: '春の読書.txt',
-  mimeType: 'text/plain',
-  buffer: Buffer.from('春の読書\n\n日本語の本を読みます。今日は暖かい一日です。\n'.repeat(60))
-};
+const books = ['春の読書', '短い物語', '旅の記録', '日本語の練習', '夏の便り', '日々の文章'].map(
+  (title) => ({
+    name: `${title}.txt`,
+    mimeType: 'text/plain',
+    buffer: Buffer.from(`${title}\n\n日本語の本を読みます。今日は暖かい一日です。\n`.repeat(60))
+  })
+);
+const catalogIndex = `<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>All Books</title><link rel="subsection" href="/static/reader/books/opds/feeds/qa.xml"/></entry></feed>`;
+const catalogBooks = `<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>qa-1</id><title>読書の練習</title><author><name>Local QA fixture</name></author><summary>Generated catalog fixture for layout review.</summary><link rel="http://opds-spec.org/acquisition" type="application/epub+zip" href="/static/reader/books/library/qa.epub"/></entry></feed>`;
 
 async function capture(page, name) {
   await page.evaluate(() => document.fonts.ready);
@@ -39,15 +43,56 @@ async function qualify(engine, width, appearance, full) {
       colorScheme: appearance
     });
     await context.addInitScript((mode) => localStorage.setItem('appearance', mode), appearance);
-    await context.route('**/*', (route) =>
-      new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort()
-    );
+    let catalogError = false;
+    await context.route('**/*', (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === '/static/reader/books/opds/index.xml')
+        return route.fulfill({
+          status: catalogError ? 503 : 200,
+          contentType: 'application/atom+xml',
+          body: catalogError ? 'Intentional QA error fixture' : catalogIndex
+        });
+      if (url.pathname === '/static/reader/books/opds/feeds/qa.xml')
+        return route.fulfill({ contentType: 'application/atom+xml', body: catalogBooks });
+      return url.hostname === '127.0.0.1' ? route.continue() : route.abort();
+    });
     const page = await context.newPage();
     const suffix = `${width}-${appearance}${full ? '' : '-webkit'}`;
     await page.goto(origin + '/reader-web/manage');
     await page.getByText('No books in your library', { exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Try Again', exact: true }).waitFor();
-    await capture(page, 'after-empty-' + suffix);
+    await page.getByText('読書の練習', { exact: true }).waitFor();
+    await capture(page, 'refined-empty-catalog-' + suffix);
+    const secondaryImports = page.locator('.library-empty-import-options');
+    const disclosure = secondaryImports.locator('summary');
+    assert.equal(
+      await secondaryImports.getByRole('button', { name: 'Import backup' }).isVisible(),
+      false
+    );
+    if (width === 390 && appearance === 'light' && full) {
+      catalogError = true;
+      await page.reload();
+      await page.getByRole('button', { name: 'Try Again', exact: true }).waitFor();
+      await capture(page, 'refined-intentional-catalog-error-' + suffix);
+      catalogError = false;
+      await page.getByRole('button', { name: 'Try Again', exact: true }).click();
+      await page.getByText('読書の練習', { exact: true }).waitFor();
+    }
+    await disclosure.focus();
+    await page.keyboard.press('Space');
+    assert.ok(await secondaryImports.getByRole('button', { name: 'Import backup' }).isVisible());
+    assert.ok(
+      await secondaryImports.getByRole('link', { name: 'Import from Ttu Ebook Reader' }).isVisible()
+    );
+    assert.ok(
+      await secondaryImports.getByRole('link', { name: 'Import from Yatsu Reader' }).isVisible()
+    );
+    if (width === 390 && appearance === 'light' && full)
+      await capture(page, 'refined-secondary-imports-' + suffix);
+    await page.keyboard.press('Enter');
+    assert.equal(
+      await secondaryImports.getByRole('button', { name: 'Import backup' }).isVisible(),
+      false
+    );
     if (width < 768) {
       const trigger = page.getByRole('button', { name: 'Collections', exact: true });
       assert.ok((await trigger.boundingBox()).width >= 44);
@@ -59,7 +104,7 @@ async function qualify(engine, width, appearance, full) {
         await page.keyboard.press('Tab');
         assert.ok(await page.evaluate(() => !!document.activeElement.closest('dialog[open]')));
       }
-      await capture(page, 'after-collections-' + suffix);
+      await capture(page, 'refined-collections-' + suffix);
       await page.keyboard.press('Escape');
       assert.equal(await page.locator('dialog[open]').count(), 0);
       assert.equal(
@@ -73,22 +118,46 @@ async function qualify(engine, width, appearance, full) {
       assert.ok(await page.locator('.library-rail').isVisible());
       await page.getByRole('button', { name: 'New Collection…', exact: true }).click();
       await page.locator('dialog[open]').waitFor();
-      await capture(page, 'after-collections-' + suffix);
+      await capture(page, 'refined-collections-' + suffix);
       await page.keyboard.press('Escape');
       assert.equal(await page.locator('dialog[open]').count(), 0);
     }
-    await page.locator('input[type=file][multiple]').first().setInputFiles(book);
+    await page.locator('input[type=file][multiple]').first().setInputFiles(books);
     await page.getByText('春の読書', { exact: true }).first().waitFor();
-    await capture(page, 'after-populated-' + suffix);
+    await page.getByText('6 books', { exact: true }).waitFor();
+    await capture(page, 'refined-populated-' + suffix);
     if (full) {
+      if (width === 390) {
+        await page.getByText('春の読書', { exact: true }).first().click();
+        await page.getByRole('button', { name: 'Not now', exact: true }).click();
+        assert.equal(
+          await page
+            .locator('.react-reader-book-reader')
+            .evaluate((node) => getComputedStyle(node).writingMode),
+          'vertical-rl'
+        );
+        await capture(page, 'refined-reader-' + suffix);
+        await page.getByRole('button', { name: 'Themes & Settings', exact: true }).click();
+        await page.getByRole('dialog', { name: 'Themes & Settings', exact: true }).waitFor();
+        await capture(page, 'refined-reader-appearance-' + suffix);
+        await page.keyboard.press('Escape');
+        assert.equal(
+          await page.getByRole('dialog', { name: 'Themes & Settings', exact: true }).count(),
+          0
+        );
+        assert.equal(
+          await page.evaluate(() => document.activeElement.getAttribute('aria-label')),
+          'Themes & Settings'
+        );
+      }
       await page.goto(origin + '/reader-web/settings');
       await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
-      await capture(page, 'after-settings-' + suffix);
+      await capture(page, 'refined-settings-' + suffix);
       await page.goto(origin + '/reader-web/import-ttu');
       await page
         .getByRole('heading', { name: 'Import from Ttu Ebook Reader', exact: true })
         .waitFor();
-      await capture(page, 'after-import-' + suffix);
+      await capture(page, 'refined-import-' + suffix);
     }
     await context.close();
   } finally {

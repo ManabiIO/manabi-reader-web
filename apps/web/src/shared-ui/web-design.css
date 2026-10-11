@@ -43,6 +43,17 @@
   border-radius: 10px;
   box-shadow: none;
 }
+.library-empty-import-options summary {
+  min-height: 44px;
+  padding-block: 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+.library-empty-import-options summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
 :root .library-react .floating-library-header button[data-size='icon'] {
   border-color: transparent !important;
   border-radius: 8px;
