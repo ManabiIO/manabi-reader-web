@@ -788,8 +788,14 @@ class BooksLibraryBrowser(LibraryBase):
                     expect(self.page.get_by_role('button', name='Search library', exact=True)).not_to_be_visible()
                     self.assertEqual(1, self.page.get_by_role('banner', name='Library toolbar')
                                      .get_by_role('searchbox', name='Search library').count())
-                    self.assertGreater(search.bounding_box()['x'], self.page.get_by_role(
-                        'button', name='Library actions', exact=True).bounding_box()['x'])
+                    search_row = search.locator('..').bounding_box()
+                    actions = self.page.get_by_role(
+                        'button', name='Library actions', exact=True).bounding_box()
+                    if width < 1024:
+                        self.assertGreaterEqual(search_row['y'], actions['y'] + actions['height'])
+                        self.assertAlmostEqual(search_row['x'], brand['x'], delta=1)
+                    else:
+                        self.assertGreater(search_row['x'], actions['x'] + actions['width'])
                     self.assertEqual(0, self.page.get_by_role('region', name='Library shelves')
                                      .get_by_role('searchbox').count())
                     rail_text = self.page.get_by_role('complementary', name='Collections')
@@ -833,10 +839,15 @@ class BooksLibraryBrowser(LibraryBase):
                     self.assertGreaterEqual(geometry['targetWidth'], 44)
                     self.assertGreaterEqual(geometry['targetHeight'], 44)
                 header = self.page.get_by_role('banner', name='Library toolbar')
-                icons = header.locator('button:visible svg').evaluate_all(
+                icons = header.locator('button[data-size=icon]:visible svg').evaluate_all(
                     'icons => icons.map(icon => icon.getBoundingClientRect().width)')
                 self.assertTrue(icons)
-                self.assertTrue(all(size >= 24 for size in icons), icons)
+                self.assertTrue(all(abs(size - 20) <= 0.1 for size in icons), icons)
+                # Glyph size is independent of the accessible hit target.
+                for target in header.locator('button:visible').all():
+                    box = target.bounding_box()
+                    self.assertGreaterEqual(box['width'], 44)
+                    self.assertGreaterEqual(box['height'], 44)
                 if width == 390:
                     proportion = self.page.locator('.shelf-grid').evaluate('''grid =>
                         parseFloat(getComputedStyle(grid).columnGap) /

@@ -50,7 +50,11 @@
   display: none;
 }
 .library-react .series-hero {
-  background: linear-gradient(145deg, var(--muted), color-mix(in oklch, var(--card) 45%, var(--background)));
+  background: linear-gradient(
+    145deg,
+    var(--muted),
+    color-mix(in oklch, var(--card) 45%, var(--background))
+  );
 }
 .library-react .series-title-row {
   display: flex;
@@ -78,14 +82,14 @@
   overflow: hidden;
   scroll-snap-align: start;
 }
-.library-react .continue-card > button[data-slot=button] {
+.library-react .continue-card > button[data-slot='button'] {
   width: 44px;
   height: 44px;
   min-width: 44px;
   min-height: 44px;
   flex-shrink: 0;
 }
-.library-react .continue-card > button[data-slot=button] svg {
+.library-react .continue-card > button[data-slot='button'] svg {
   width: 20px;
   height: 20px;
 }
@@ -201,7 +205,10 @@
 .library-react .shelf-grid {
   --shelf-gap: clamp(1.5rem, 3cqi, 2.5rem);
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(9.25rem, (100% - var(--shelf-gap)) / 2), 1fr));
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(min(9.25rem, (100% - var(--shelf-gap)) / 2), 1fr)
+  );
   column-gap: var(--shelf-gap);
   row-gap: 1.5rem;
   align-items: start;
@@ -292,7 +299,7 @@
   margin-top: 7px;
   line-height: 16px;
 }
-.library-react .shelf-grid .book-status > [role=img] {
+.library-react .shelf-grid .book-status > [role='img'] {
   margin-top: 8px;
 }
 .library-react .shelf-grid .book-status button {
@@ -386,7 +393,7 @@
 @media (min-width: 768px) {
   .library-react .library-frame {
     display: grid;
-    grid-template-columns: 16rem minmax(0, 1fr);
+    grid-template-columns: var(--library-rail-width, 16rem) minmax(0, 1fr);
     align-items: start;
   }
   .library-react .library-workspace {
@@ -399,7 +406,7 @@
     position: fixed;
     top: 0;
     left: 0;
-    width: 16rem;
+    width: var(--library-rail-width, 16rem);
     height: 100dvh;
     overflow-y: auto;
     padding: 1rem 0.75rem;
@@ -416,7 +423,7 @@
   .library-react .library-rail h2 {
     padding-top: 0.5rem;
   }
-  .library-react .library-rail button {
+  .library-react .library-rail :is(button, a) {
     display: grid;
     grid-template-columns: 1.1rem minmax(0, 1fr) auto;
     align-items: center;
@@ -427,27 +434,27 @@
     border-radius: 0.625rem;
     text-align: left;
   }
-  .library-react .library-rail button:hover {
+  .library-react .library-rail :is(button, a):hover {
     background: var(--accent);
   }
-  .library-react .library-rail button[aria-current=page] {
+  .library-react .library-rail :is(button, a)[aria-current='page'] {
     background: var(--accent);
     font-weight: 600;
   }
-  .library-react .library-rail button:focus-visible {
+  .library-react .library-rail :is(button, a):focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
-  .library-react .library-rail button svg {
+  .library-react .library-rail :is(button, a) svg {
     width: 1.1rem;
     height: 1.1rem;
   }
-  .library-react .library-rail button span:nth-child(2) {
+  .library-react .library-rail :is(button, a) span:nth-child(2) {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .library-react .library-rail button span:last-child:not(:nth-child(2)) {
+  .library-react .library-rail :is(button, a) span:last-child:not(:nth-child(2)) {
     color: var(--muted-foreground);
     font-variant-numeric: tabular-nums;
   }
@@ -520,7 +527,9 @@
   max-width: 100%;
   border-radius: 2px;
   background: var(--muted);
-  box-shadow: 0 14px 18px -10px rgba(0, 0, 0, 0.45), 0 2px 4px rgba(0, 0, 0, 0.18);
+  box-shadow:
+    0 14px 18px -10px rgba(0, 0, 0, 0.45),
+    0 2px 4px rgba(0, 0, 0, 0.18);
 }
 .library-react img {
   display: block;
@@ -546,7 +555,11 @@
   justify-content: center;
   overflow: hidden;
   padding: 14% 10%;
-  background: linear-gradient(155deg, oklch(52% 0.08 var(--cover-hue)), oklch(30% 0.055 var(--cover-hue)));
+  background: linear-gradient(
+    155deg,
+    oklch(52% 0.08 var(--cover-hue)),
+    oklch(30% 0.055 var(--cover-hue))
+  );
   color: white;
   border: 1px solid var(--border);
 }
@@ -578,10 +591,16 @@
   width: 6%;
   max-width: 14px;
   border-left: 1px solid rgba(0, 0, 0, 0.1);
-  background: linear-gradient(90deg, rgba(0, 0, 0, 0.15) 0%, rgba(255, 255, 255, 0.15) 20%, rgba(0, 0, 0, 0.09) 35%, transparent 100%);
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.15) 0%,
+    rgba(255, 255, 255, 0.15) 20%,
+    rgba(0, 0, 0, 0.09) 35%,
+    transparent 100%
+  );
   pointer-events: none;
 }
-.library-react .cover-stage[data-direction=unknown] .binding {
+.library-react .cover-stage[data-direction='unknown'] .binding {
   display: none;
 }
 .library-react .right-bound .binding {
@@ -720,7 +739,7 @@
   width: 44px;
   padding-inline: 0;
 }
-.library-react .library-selection-toolbar.compact-selection > [data-slot=dropdown-menu-trigger] {
+.library-react .library-selection-toolbar.compact-selection > [data-slot='dropdown-menu-trigger'] {
   grid-column: 4;
   grid-row: 2;
 }
@@ -782,8 +801,8 @@
   border: 1px solid transparent;
   overflow-wrap: anywhere;
 }
-.library-react .unified-search .scopes button[aria-pressed=true],
-.library-react .unified-search .filters button[aria-pressed=true] {
+.library-react .unified-search .scopes button[aria-pressed='true'],
+.library-react .unified-search .filters button[aria-pressed='true'] {
   border-color: var(--border);
   background: var(--muted);
   font-weight: 650;
@@ -882,8 +901,8 @@
   }
 }
 @media (forced-colors: active) {
-  .library-react .unified-search .scopes button[aria-pressed=true],
-  .library-react .unified-search .filters button[aria-pressed=true] {
+  .library-react .unified-search .scopes button[aria-pressed='true'],
+  .library-react .unified-search .filters button[aria-pressed='true'] {
     outline: 2px solid Highlight;
     outline-offset: -2px;
     border-color: Highlight;
@@ -1110,7 +1129,7 @@
   flex-shrink: 0;
 }
 .library-react-dialog .collection-row:hover,
-.library-react-dialog .collection-row[aria-current=page] {
+.library-react-dialog .collection-row[aria-current='page'] {
   background: var(--muted);
 }
 .library-react-dialog .collection-row:focus-visible {
@@ -1156,7 +1175,7 @@
   pointer-events: none;
 }
 .library-react .library-nav-shell::before {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -1172,10 +1191,10 @@
 }
 @media (min-width: 768px) {
   .library-react .library-section-switcher {
-    margin-inline-start: 16rem;
+    margin-inline-start: var(--library-rail-width, 16rem);
   }
   .library-react .library-nav-shell::before {
-    left: 16rem;
+    left: var(--library-rail-width, 16rem);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1301,7 +1320,9 @@
   padding: 4px;
   border-radius: 24px;
   background: var(--muted);
-  font: 0.9375rem/1.4 system-ui, sans-serif;
+  font:
+    0.9375rem/1.4 system-ui,
+    sans-serif;
 }
 
 .library-react .media-library-tabs a {

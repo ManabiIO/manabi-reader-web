@@ -397,7 +397,7 @@
   @media (min-width: 768px) {
     .library-frame {
       display: grid;
-      grid-template-columns: 16rem minmax(0, 1fr);
+      grid-template-columns: var(--library-rail-width, 16rem) minmax(0, 1fr);
       align-items: start;
     }
     .library-workspace {
@@ -410,7 +410,7 @@
       position: fixed;
       top: 0;
       left: 0;
-      width: 16rem;
+      width: var(--library-rail-width, 16rem);
       height: 100dvh;
       overflow-y: auto;
       padding: 1rem 0.75rem;
@@ -427,7 +427,7 @@
     .library-rail h2 {
       padding-top: 0.5rem;
     }
-    .library-rail button {
+    .library-rail :is(button, a) {
       display: grid;
       grid-template-columns: 1.1rem minmax(0, 1fr) auto;
       align-items: center;
@@ -438,27 +438,27 @@
       border-radius: 0.625rem;
       text-align: left;
     }
-    .library-rail button:hover {
+    .library-rail :is(button, a):hover {
       background: var(--accent);
     }
-    .library-rail button[aria-current='page'] {
+    .library-rail :is(button, a)[aria-current='page'] {
       background: var(--accent);
       font-weight: 600;
     }
-    .library-rail button:focus-visible {
+    .library-rail :is(button, a):focus-visible {
       outline: 2px solid var(--ring);
       outline-offset: 2px;
     }
-    .library-rail button svg {
+    .library-rail :is(button, a) svg {
       width: 1.1rem;
       height: 1.1rem;
     }
-    .library-rail button span:nth-child(2) {
+    .library-rail :is(button, a) span:nth-child(2) {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .library-rail button span:last-child:not(:nth-child(2)) {
+    .library-rail :is(button, a) span:last-child:not(:nth-child(2)) {
       color: var(--muted-foreground);
       font-variant-numeric: tabular-nums;
     }
@@ -1205,10 +1205,10 @@
   }
   @media (min-width: 768px) {
     .library-section-switcher {
-      margin-inline-start: 16rem;
+      margin-inline-start: var(--library-rail-width, 16rem);
     }
     .library-nav-shell::before {
-      left: 16rem;
+      left: var(--library-rail-width, 16rem);
     }
   }
   @media (prefers-reduced-motion: reduce) {

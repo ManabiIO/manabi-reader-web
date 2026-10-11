@@ -281,7 +281,7 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
         expect(self.page.locator('button[data-reader-controls]')).to_be_focused()
         self.page.evaluate('document.documentElement.style.fontSize = ""')
 
-    def test_notes_actions_have_distinct_shapes_and_remain_reachable_in_landscape(self):
+    def test_notes_actions_have_browser_corners_and_remain_reachable_in_landscape(self):
         self.open_reader()
         self.page.set_viewport_size({'width': 568, 'height': 320})
         reveal_reader_controls(self.page)
@@ -291,8 +291,8 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
         export = panel.get_by_role('button', name='Export Notes', exact=True)
         def shape(button):
             return button.evaluate('e => ({h:e.getBoundingClientRect().height,r:parseFloat(getComputedStyle(e).borderTopLeftRadius)})')
-        self.assertGreaterEqual(shape(add)['r'], shape(add)['h'] / 2)
-        self.assertLess(shape(export)['r'], shape(export)['h'] / 2)
+        for action in (add, export):
+            self.assertAlmostEqual(shape(action)['r'], 8, delta=0.1)
         add.click()
         saved = panel.get_by_role('button').filter(has_text='Go to saved passage')
         expect(saved).to_have_count(1)

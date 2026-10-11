@@ -28,8 +28,11 @@
   padding-bottom: max(24px, env(safe-area-inset-bottom));
   scroll-padding-block: 76px 24px;
 }
-:root .library-react .library-empty-content > div:first-of-type {
+:root .library-react .library-empty-content {
   max-width: 48rem;
+}
+:root .library-react .library-empty-content > div:first-of-type {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
 }
 :root .library-react .library-empty-content [data-slot='button'][data-variant='link'] {
   justify-content: space-between;
@@ -40,8 +43,27 @@
   text-decoration: underline;
 }
 :root .library-react .library-empty-content .editors-picks {
-  border-radius: 10px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  padding: 24px 0 0;
+}
+:root .library-react .library-empty-content .editors-picks article {
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 12px 0 16px;
+}
+:root .library-react .library-empty-content .editors-picks article:last-child {
+  border-bottom: 0;
+}
+:root .library-react .library-empty-content .editors-picks article > div:first-child {
+  border-radius: 3px;
   box-shadow: none;
+}
+:root .library-react .library-empty-content .editors-picks article [data-slot='button'] {
+  border-radius: 8px;
 }
 .library-empty-import-options summary {
   min-height: 44px;
@@ -111,6 +133,24 @@
 }
 
 @media (min-width: 768px) {
+  :root .library-react {
+    --library-rail-width: min(16rem, 40vw);
+  }
+  :root .library-react .library-rail nav > :is(button, a) > span:nth-child(2) {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  :root .library-react .library-rail nav > :is(button, a) > span:nth-child(2):last-child {
+    grid-column: 2 / -1;
+  }
+  :root .library-react .floating-library-header {
+    margin-left: var(--library-rail-width);
+    container: library-toolbar / inline-size;
+  }
   :root .library-react .library-header-inner {
     flex-wrap: wrap;
   }
@@ -121,6 +161,44 @@
   :root .library-react .library-toolbar-actions label:has(input[type='search']) {
     flex: 1;
     max-width: 320px;
+  }
+}
+
+/* Tablet actions stay beside the title; search has a full-width second row. */
+@media (min-width: 768px) and (max-width: 1023px) {
+  :root .library-react .library-header-inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  :root .library-react .library-toolbar-actions {
+    display: contents;
+  }
+  :root .library-react .library-toolbar-actions label:has(input[type='search']) {
+    grid-column: 1 / -1;
+    width: 100%;
+    max-width: none;
+  }
+  :root .library-react .library-header-inner h1 span {
+    white-space: normal;
+  }
+}
+
+/* Reflow enlarged text before the title and actions can collide. */
+@container library-toolbar (max-width: 28rem) {
+  :root .library-react .library-header-inner {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  :root .library-react .library-toolbar-actions {
+    display: flex;
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  :root .library-react .library-toolbar-actions label:has(input[type='search']) {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: none;
   }
 }
 
@@ -175,6 +253,11 @@ dialog.library-react-dialog input:is([type='text'], [type='search'], [type='numb
 :root .reader-modal[role='dialog'] {
   box-shadow: 0 12px 40px rgb(0 0 0 / 16%);
   scroll-padding-block: 76px 24px;
+}
+/* Notes own an inner scroller; focus must not scroll their dismissal header away. */
+:root .reader-modal[role='dialog']:has(> [data-annotations-scroll]) {
+  overflow: clip;
+  scroll-padding-block: 0;
 }
 :root .reader-modal-center[role='dialog'] {
   border-radius: 12px;

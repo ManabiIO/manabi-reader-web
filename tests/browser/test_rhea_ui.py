@@ -530,7 +530,7 @@ class RheaReader(previous.RefinedAppearance):
           return {height: rect.height, radius: parseFloat(getComputedStyle(e).borderTopLeftRadius)};
         }''')
         self.assertGreaterEqual(geometry['height'], 43.99)
-        self.assertGreaterEqual(geometry['radius'], geometry['height'] / 2)
+        self.assertAlmostEqual(geometry['radius'], 8, delta=0.1)
         trigger.click()
         dialog = self.page.locator('[data-slot="dialog-content"]')
         expect(dialog).to_be_visible()

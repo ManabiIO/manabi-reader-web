@@ -274,12 +274,7 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
               <span>{'Books'}</span>
               <span>{c.books.length}</span>
             </button>
-            <a
-              href={resolve('/snippets')}
-              className={['flex items-center gap-3 rounded-xl p-3 text-sm']
-                .filter(Boolean)
-                .join(' ')}
-            >
+            <a href={resolve('/snippets')}>
               <Books aria-hidden={'true'} />
               <span>{'Snippets'}</span>
               <span>{readStore(snippetItems).filter((item) => !item.trashedAt).length}</span>
