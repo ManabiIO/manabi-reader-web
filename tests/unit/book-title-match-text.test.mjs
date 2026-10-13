@@ -137,10 +137,7 @@ test('nested folder index stores each leaf key once while parent matches admit d
   };
   const snapshot = buildBookTitleSearchSnapshot([item], [outer], []);
   const storedKeys = (groups) =>
-    groups.reduce(
-      (count, group) => count + group.bookKeys.length + storedKeys(group.children),
-      0
-    );
+    groups.reduce((count, group) => count + group.bookKeys.length + storedKeys(group.children), 0);
   assert.equal(storedKeys(snapshot.contexts), 1);
   assert.deepEqual([...queryBookTitleSearchSnapshot(snapshot, 'outer').matchedKeys], ['book:leaf']);
   assert.deepEqual(queryBookTitleSearchSnapshot(snapshot, 'outer').textByBook, {
@@ -176,7 +173,10 @@ test('query-independent snapshot admits direct series metadata without shelf con
   const snapshot = buildBookTitleSearchSnapshot([item], [], []);
   const result = queryBookTitleSearchSnapshot(snapshot, 'cat');
   assert.deepEqual([...result.matchedKeys], ['book:series']);
-  assert.equal(bookTitleMatchDetail(item, result.textByBook[item.key] ?? [], 'cat'), 'Series · Cat Studies');
+  assert.equal(
+    bookTitleMatchDetail(item, result.textByBook[item.key] ?? [], 'cat'),
+    'Series · Cat Studies'
+  );
 });
 
 test('book title match context is empty without a query', () => {

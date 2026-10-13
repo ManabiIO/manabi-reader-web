@@ -39,7 +39,6 @@ export function librarySearchQueryWithinLimit(value: string): boolean {
   return true;
 }
 
-
 /**
  * Unified search owns the visible surface outside selection mode. Keep the
  * hidden shelf unfiltered so typing does not also refilter/sort the entire shelf.

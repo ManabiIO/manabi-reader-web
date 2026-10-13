@@ -265,6 +265,44 @@ test('the active React header preserves IME text until composition ends, with ex
   }
 });
 
+// UNRUN: source-only PR261 follow-up; exact-head execution is deferred.
+test('search Escape preserves native and tracked IME composition before ordinary dismissal', () => {
+  const h = headerHarness();
+  try {
+    const model = new h.HeaderController();
+    let dismissed = 0,
+      prevented = 0;
+    model.closeSearch = () => dismissed++;
+    model.searchDraft = '日本';
+    const escape = {
+      defaultPrevented: false,
+      key: 'Escape',
+      keyCode: 27,
+      preventDefault: () => prevented++
+    };
+    for (const extra of [
+      { nativeEvent: { isComposing: true } },
+      { isComposing: true },
+      { keyCode: 229 },
+      { nativeEvent: { keyCode: 229 } },
+      { defaultPrevented: true },
+      { key: 'Enter' }
+    ])
+      model.searchKeydown({ ...escape, ...extra });
+    model.searchComposing = true;
+    model.searchKeydown(escape);
+    assert.equal(dismissed, 0);
+    assert.equal(prevented, 0);
+    assert.equal(model.searchDraft, '日本');
+    model.searchComposing = false;
+    model.searchKeydown(escape);
+    assert.equal(dismissed, 1);
+    assert.equal(prevented, 1);
+  } finally {
+    h.restore();
+  }
+});
+
 test('unwatched synchronous store reads dispose function and object subscriptions', () => {
   for (const objectSubscription of [false, true]) {
     let stops = 0;
@@ -405,6 +443,7 @@ function searchHarness() {
   };
 }
 
+// UNRUN after repairing the retained fixture's missing membership filter.
 test('active React unified search keeps corpus work behind the debounced generation', async () => {
   const harness = searchHarness();
   const model = new harness.SearchController();
@@ -433,6 +472,7 @@ test('active React unified search keeps corpus work behind the debounced generat
     contexts: []
   };
   model.query = 'c';
+  model.snippetMembers = ['snippet:10000000-0000-4000-8000-000000000001'];
 
   void model.nextTitleSignature;
   void model.nextContentSignature;

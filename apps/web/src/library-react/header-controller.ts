@@ -239,6 +239,30 @@ export class HeaderController extends ObservableController {
     this.searchComposing = false;
     this.searchDraft = this.externalSearchQuery;
   }
+  searchKeydown(event: {
+    defaultPrevented: boolean;
+    key: string;
+    keyCode?: number;
+    isComposing?: boolean;
+    nativeEvent?: {
+      isComposing?: boolean;
+      keyCode?: number;
+    };
+    preventDefault(): void;
+  }) {
+    if (
+      event.defaultPrevented ||
+      event.key !== 'Escape' ||
+      this.searchComposing ||
+      event.isComposing ||
+      event.nativeEvent?.isComposing ||
+      event.keyCode === 229 ||
+      event.nativeEvent?.keyCode === 229
+    )
+      return;
+    event.preventDefault();
+    void this.closeSearch();
+  }
   async openSearch() {
     this.searchExpanded = true;
     await tick();

@@ -161,13 +161,7 @@ export function HeaderView({
                         onCompositionStart={c.searchCompositionStarted}
                         onCompositionEnd={c.searchCompositionEnded}
                         onBlur={c.searchInputBlurred}
-                        onKeyDown={(event: any) => {
-                          if (event.isComposing || event.keyCode === 229) return;
-                          if (event.key === 'Escape') {
-                            event.preventDefault();
-                            void c.closeSearch();
-                          }
-                        }}
+                        onKeyDown={c.searchKeydown}
                         ref={(element: any) => {
                           c.searchInput = element;
                         }}

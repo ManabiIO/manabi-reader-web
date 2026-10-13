@@ -141,10 +141,7 @@ export function queryBookTitleSearchSnapshot(
     if (entry.folded.some((value) => value.includes(normalizedQuery))) matchedKeys.add(entry.key);
 
   const result = new Map<string, BookTitleMatchContext[]>();
-  const addGroupBooks = (
-    group: IndexedBookTitleContextGroup,
-    context: BookTitleMatchContext
-  ) => {
+  const addGroupBooks = (group: IndexedBookTitleContextGroup, context: BookTitleMatchContext) => {
     for (const key of group.bookKeys) {
       add(result, key, context);
       matchedKeys.add(key);
