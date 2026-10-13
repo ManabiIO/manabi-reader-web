@@ -349,13 +349,14 @@ export class DatabaseService {
       const dateKey = getDateKey(startDaysHoursForTracker);
       const statistic = { ...getDefaultStatistic(bookTitle, dateKey), bookKey };
       const tx = db.transaction(['readerStatistic', 'lastModified'], 'readwrite');
-      await tx.objectStore('readerStatistic').put(statistic);
-      await tx.objectStore('lastModified').put({
-        title: bookKey,
-        dataType: StorageDataType.STATISTICS,
-        lastModifiedValue: statistic.lastStatisticModified
+      await commitTransaction(tx, async () => {
+        await tx.objectStore('readerStatistic').put(statistic);
+        await tx.objectStore('lastModified').put({
+          title: bookKey,
+          dataType: StorageDataType.STATISTICS,
+          lastModifiedValue: statistic.lastStatisticModified
+        });
       });
-      await tx.done;
       return [dateKey, true];
     }
 
@@ -371,8 +372,7 @@ export class DatabaseService {
 
     const dateKey = getDateKey(startDaysHoursForTracker);
     const tx = db.transaction(['statistic', 'lastModified'], 'readwrite');
-
-    try {
+    await commitTransaction(tx, async () => {
       const statisticsStore = tx.objectStore('statistic');
       const lastModifiedStore = tx.objectStore('lastModified');
       const newStatistic = getDefaultStatistic(bookTitle, dateKey);
@@ -383,18 +383,7 @@ export class DatabaseService {
         dataType: StorageDataType.STATISTICS,
         lastModifiedValue: newStatistic.lastStatisticModified
       });
-
-      await tx.done;
-    } catch (error: any) {
-      try {
-        tx.abort();
-        await tx.done;
-      } catch (_) {
-        // no-op
-      }
-
-      throw error;
-    }
+    });
 
     return [dateKey, true];
   }
@@ -918,8 +907,7 @@ export class DatabaseService {
   ) {
     const db = await this.db;
     const tx = db.transaction(['storageSource'], 'readwrite');
-
-    try {
+    await commitTransaction(tx, async () => {
       const store = tx.objectStore('storageSource');
 
       if (oldName && storageSource.name !== oldName) {
@@ -931,29 +919,18 @@ export class DatabaseService {
       } else {
         await store.add(storageSource);
       }
+    });
 
-      await tx.done;
+    if (isSyncTarget) {
+      syncTarget$.next(storageSource.name);
+    } else if (oldName) {
+      syncTarget$.next('');
+    }
 
-      if (isSyncTarget) {
-        syncTarget$.next(storageSource.name);
-      } else if (oldName) {
-        syncTarget$.next('');
-      }
-
-      if (isStorageSourceDefault) {
-        setStorageSourceDefault(storageSource.name, storageSource.type);
-      } else if (oldName) {
-        setStorageSourceDefault('', storageSource.type);
-      }
-    } catch (error: any) {
-      try {
-        tx.abort();
-        await tx.done;
-      } catch (_) {
-        // no-op
-      }
-
-      throw error;
+    if (isStorageSourceDefault) {
+      setStorageSourceDefault(storageSource.name, storageSource.type);
+    } else if (oldName) {
+      setStorageSourceDefault('', storageSource.type);
     }
   }
 
@@ -1048,40 +1025,41 @@ export class DatabaseService {
         );
       const updated = updateStatisticToStore(rows, currentLastModified);
       const tx = db.transaction(['readerStatistic', 'lastModified'], 'readwrite');
-      const store = tx.objectStore('readerStatistic');
-      if (statisticsMergeMode !== MergeMode.LOCAL) await store.delete(statisticRange(bookKey));
-      const movesCompletion = updated.statisticsToStore.some((row) => row.completedBook === 1);
-      for (const row of updated.statisticsToStore) {
-        const existing =
+      await commitTransaction(tx, async () => {
+        const store = tx.objectStore('readerStatistic');
+        if (statisticsMergeMode !== MergeMode.LOCAL) await store.delete(statisticRange(bookKey));
+        const movesCompletion = updated.statisticsToStore.some((row) => row.completedBook === 1);
+        for (const row of updated.statisticsToStore) {
+          const existing =
+            statisticsMergeMode === MergeMode.LOCAL
+              ? await store.get([bookKey, row.dateKey])
+              : undefined;
+          // A tracker flush may have captured this day before Complete Book
+          // committed it. Preserve that explicit completion when the older flush
+          // reaches IndexedDB later. A deliberate completion-date move writes a
+          // new completed row in the same batch, so it may clear the old flag.
+          await store.put(
+            preserveCompletedStatistic(
+              existing,
+              { ...row, title: bookTitle, bookKey },
+              movesCompletion
+            )
+          );
+        }
+        const modifiedStore = tx.objectStore('lastModified');
+        const previousModified =
           statisticsMergeMode === MergeMode.LOCAL
-            ? await store.get([bookKey, row.dateKey])
+            ? await modifiedStore.get([bookKey, StorageDataType.STATISTICS])
             : undefined;
-        // A tracker flush may have captured this day before Complete Book
-        // committed it. Preserve that explicit completion when the older flush
-        // reaches IndexedDB later. A deliberate completion-date move writes a
-        // new completed row in the same batch, so it may clear the old flag.
-        await store.put(
-          preserveCompletedStatistic(
-            existing,
-            { ...row, title: bookTitle, bookKey },
-            movesCompletion
+        await modifiedStore.put({
+          title: bookKey,
+          dataType: StorageDataType.STATISTICS,
+          lastModifiedValue: Math.max(
+            updated.newStatisticModified,
+            previousModified?.lastModifiedValue ?? 0
           )
-        );
-      }
-      const modifiedStore = tx.objectStore('lastModified');
-      const previousModified =
-        statisticsMergeMode === MergeMode.LOCAL
-          ? await modifiedStore.get([bookKey, StorageDataType.STATISTICS])
-          : undefined;
-      await modifiedStore.put({
-        title: bookKey,
-        dataType: StorageDataType.STATISTICS,
-        lastModifiedValue: Math.max(
-          updated.newStatisticModified,
-          previousModified?.lastModifiedValue ?? 0
-        )
+        });
       });
-      await tx.done;
       return;
     }
 
@@ -1104,69 +1082,21 @@ export class DatabaseService {
     ));
 
     const tx = db.transaction(['statistic', 'lastModified'], 'readwrite');
-
-    try {
+    await commitTransaction(tx, async () => {
       const statisticsStore = tx.objectStore('statistic');
       const lastModifiedStore = tx.objectStore('lastModified');
-      const limiter = pLimit(1);
-      const tasks: Promise<void>[] = [];
 
-      if (statisticsMergeMode !== MergeMode.LOCAL) {
-        tasks.push(
-          limiter(async () => {
-            try {
-              await statisticsStore.delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
-            } catch (error: any) {
-              limiter.clearQueue();
+      if (statisticsMergeMode !== MergeMode.LOCAL)
+        await statisticsStore.delete(IDBKeyRange.bound([bookTitle], [bookTitle, []]));
 
-              throw error;
-            }
-          })
-        );
-      }
+      for (const statistic of statisticsToStore) await statisticsStore.put(statistic);
 
-      statisticsToStore.forEach((statistic) =>
-        tasks.push(
-          limiter(async () => {
-            try {
-              await statisticsStore.put(statistic);
-            } catch (error: any) {
-              limiter.clearQueue();
-
-              throw error;
-            }
-          })
-        )
-      );
-
-      tasks.push(
-        limiter(async () => {
-          try {
-            await lastModifiedStore.put({
-              title: bookTitle,
-              dataType: StorageDataType.STATISTICS,
-              lastModifiedValue: newStatisticModified
-            });
-          } catch (error: any) {
-            limiter.clearQueue();
-
-            throw error;
-          }
-        })
-      );
-
-      await Promise.all(tasks);
-      await tx.done;
-    } catch (error: any) {
-      try {
-        tx.abort();
-        await tx.done;
-      } catch (_) {
-        // no-op
-      }
-
-      throw error;
-    }
+      await lastModifiedStore.put({
+        title: bookTitle,
+        dataType: StorageDataType.STATISTICS,
+        lastModifiedValue: newStatisticModified
+      });
+    });
   }
 
   async updateStatistic(newStatistic: BookStatistic) {
@@ -1266,59 +1196,19 @@ export class DatabaseService {
 
     const db = await this.db;
     const tx = db.transaction(['statistic', 'lastModified'], 'readwrite');
-    const titlesToDelete = new Set<string>();
-
-    try {
+    await commitTransaction(tx, async () => {
       const statisticsStore = tx.objectStore('statistic');
       const lastModifiedStore = tx.objectStore('lastModified');
-      const limiter = pLimit(1);
-      const tasks: Promise<void>[] = [];
+      const titlesToDelete = new Set(lastModifiedTitlesToDelete);
 
-      for (let index = 0, { length } = lastModifiedTitlesToDelete; index < length; index += 1) {
-        titlesToDelete.add(lastModifiedTitlesToDelete[index]);
+      for (const statistic of statistics) {
+        titlesToDelete.add(statistic.title);
+        await statisticsStore.delete([statistic.title, statistic.dateKey]);
       }
 
-      statistics.forEach((statistic) =>
-        tasks.push(
-          limiter(async () => {
-            try {
-              titlesToDelete.add(statistic.title);
-              await statisticsStore.delete([statistic.title, statistic.dateKey]);
-            } catch (error: any) {
-              limiter.clearQueue();
-
-              throw error;
-            }
-          })
-        )
-      );
-
-      [...titlesToDelete].forEach((titleToDelete) =>
-        tasks.push(
-          limiter(async () => {
-            try {
-              await lastModifiedStore.delete([titleToDelete, StorageDataType.STATISTICS]);
-            } catch (error: any) {
-              limiter.clearQueue();
-
-              throw error;
-            }
-          })
-        )
-      );
-
-      await Promise.all(tasks);
-      await tx.done;
-    } catch (error: any) {
-      try {
-        tx.abort();
-        await tx.done;
-      } catch (_) {
-        // no-op
-      }
-
-      throw error;
-    }
+      for (const titleToDelete of titlesToDelete)
+        await lastModifiedStore.delete([titleToDelete, StorageDataType.STATISTICS]);
+    });
   }
 
   async deleteStatisticEntries(
@@ -1440,54 +1330,14 @@ export class DatabaseService {
 
     const db = await this.db;
     const tx = db.transaction(['readingGoal'], 'readwrite');
-
-    try {
+    await commitTransaction(tx, async () => {
       const store = tx.objectStore('readingGoal');
-      const limiter = pLimit(1);
-      const tasks: Promise<void>[] = [];
 
-      readingGoalsToDelete.forEach((readingGoal) =>
-        tasks.push(
-          limiter(async () => {
-            try {
-              await store.delete(readingGoal);
-            } catch (error: any) {
-              limiter.clearQueue();
+      for (const readingGoal of readingGoalsToDelete) await store.delete(readingGoal);
+      for (const readingGoal of readingGoalsToInsert) await store.put(readingGoal);
+    });
 
-              throw error;
-            }
-          })
-        )
-      );
-
-      readingGoalsToInsert.forEach((readingGoal) =>
-        tasks.push(
-          limiter(async () => {
-            try {
-              await store.put(readingGoal);
-            } catch (error: any) {
-              limiter.clearQueue();
-
-              throw error;
-            }
-          })
-        )
-      );
-
-      await Promise.all(tasks);
-      await tx.done;
-
-      lastReadingGoalsModified$.next(Date.now());
-    } catch (error: any) {
-      try {
-        tx.abort();
-        await tx.done;
-      } catch (_) {
-        // no-op
-      }
-
-      throw error;
-    }
+    lastReadingGoalsModified$.next(Date.now());
   }
 
   async storeReadingGoals(
@@ -1513,58 +1363,19 @@ export class DatabaseService {
     }
 
     const tx = db.transaction(['readingGoal'], 'readwrite');
-
-    try {
+    await commitTransaction(tx, async () => {
       const readingGoalStore = tx.objectStore('readingGoal');
-      const limiter = pLimit(1);
-      const tasks: Promise<void>[] = [];
 
       readingGoalsToStore.sort(readingGoalSortFunction);
+      await readingGoalStore.clear();
+      for (const readingGoal of readingGoalsToStore) await readingGoalStore.put(readingGoal);
+    });
 
-      tasks.push(
-        limiter(async () => {
-          try {
-            await readingGoalStore.clear();
-          } catch (error: any) {
-            limiter.clearQueue();
+    lastReadingGoalsModified$.next(newReadingGoalModified);
 
-            throw error;
-          }
-        })
-      );
+    const currentUserGoal = await getCurrentReadingGoal();
 
-      readingGoalsToStore.forEach((readingGoal) =>
-        tasks.push(
-          limiter(async () => {
-            try {
-              await readingGoalStore.put(readingGoal);
-            } catch (error: any) {
-              limiter.clearQueue();
-
-              throw error;
-            }
-          })
-        )
-      );
-
-      await Promise.all(tasks);
-      await tx.done;
-
-      lastReadingGoalsModified$.next(newReadingGoalModified);
-
-      const currentUserGoal = await getCurrentReadingGoal();
-
-      readingGoal$.next(currentUserGoal);
-    } catch (error: any) {
-      try {
-        tx.abort();
-        await tx.done;
-      } catch (_) {
-        // no-op
-      }
-
-      throw error;
-    }
+    readingGoal$.next(currentUserGoal);
   }
 
   async deleteReadingGoal(dateKey?: string) {

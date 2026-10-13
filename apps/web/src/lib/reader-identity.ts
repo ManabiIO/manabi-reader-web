@@ -5,6 +5,7 @@
  */
 
 import { database } from '$lib/data/store';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 
 /** Legacy imports without original-byte hashes keep a stable, local-only identity. */
 export async function readerBookKeyFor(bookId: number, contentHash?: string): Promise<string> {
@@ -12,12 +13,14 @@ export async function readerBookKeyFor(bookId: number, contentHash?: string): Pr
     return `content:${contentHash.toLowerCase()}`;
   const db = await database.db;
   const tx = db.transaction('readerLocalIdentity', 'readwrite');
-  const store = tx.objectStore('readerLocalIdentity');
-  let identity = await store.get(bookId);
-  if (!identity) {
-    identity = { bookId, uuid: crypto.randomUUID() };
-    await store.put(identity);
-  }
-  await tx.done;
+  const identity = await commitTransaction(tx, async () => {
+    const store = tx.objectStore('readerLocalIdentity');
+    let value = await store.get(bookId);
+    if (!value) {
+      value = { bookId, uuid: crypto.randomUUID() };
+      await store.put(value);
+    }
+    return value;
+  });
   return `local:${identity.uuid}`;
 }
