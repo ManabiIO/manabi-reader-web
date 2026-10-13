@@ -1,5 +1,28 @@
 # Browser design reference and refinement
 
+## Source composition checkpoint (October 13, 2026)
+
+This checkpoint composes the design head `6ac23fd58f67d156bb38a0d834a2d27c57d19f28` with the repaired [PR #262](https://github.com/ManabiIO/manabi-reader-web/pull/262) head `75674fd06ca8eb9e2a80b1cae868e79bc96433aa`. Both existing draft PRs remain open against `main`; PR #262 is now an ancestor of this design branch. Its original dialog and EPUB commits are retained, followed by focused selection-focus and video-shelf repairs. No release branch, native checkout, workflow setting, persisted-data schema or production deployment changed.
+
+The visible task registry showed the original design task idle and no other active owner for these two PRs. This bounded ownership check is not an exhaustive claim about all workers. Work used an isolated local clone and its own composition worktree, leaving dirty primary, design, screenshot and hotfix checkouts untouched. Repository guidance requires considering backup/restore when persisted data changes; these repairs change DOM focus, rendering and regression sources without changing persisted records. The separately owned pitch worker/runtime and pitch React adapters were not edited.
+
+Retained exact-head CI establishes the starting failures:
+
+- At PR #262's original head `ac93ee2a81b76be1bd8f0261e4247ecbe0bf29f7`, [Library parity](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37881128068/job/113660827310) failed the second selection-toolbar Escape focus restoration at 320 px/200% text. [Video qualification](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37881128041/job/113660827667) received a missing selection-label bounding box during upload. The recorded workflow totals were 14 successes, two failures and one skip.
+- At design head `6ac23fd5`, [Appearance](https://github.com/ManabiIO/manabi-reader-web/actions/runs/38128835239/job/114438744598) and [Books library](https://github.com/ManabiIO/manabi-reader-web/actions/runs/38128835173/job/114438744233) expected hidden outer Picks-dialog overflow and observed auto scrolling. Both [WebKit](https://github.com/ManabiIO/manabi-reader-web/actions/runs/38128835155/job/114438744337) and [Chromium](https://github.com/ManabiIO/manabi-reader-web/actions/runs/38128835155/job/114438744454) EPUB jobs observed missing book direction and LTR turn/host/root direction. The recorded totals were 14 successful workflows, three failed workflows and one skip. The two engine jobs belong to one failed workflow.
+
+Source review confirms that the design branch lacked PR #262's contained Picks layout and React EPUB semantic propagation. Composition retains the separate embedded catalog layout, flat empty state, tablet toolbar reflow, browser dialog corners and notes' inner scroller. The browser styling adds no overflow rule that overrides the contained Picks dialog, and EPUB language/direction still travel from imported records through the session and both reader controllers into `createStoredFoliateBook`, matching the Svelte path.
+
+Selection exit previously tried to focus a hidden normal-toolbar trigger after an animation-frame tick, which is not a React commit boundary. `HeaderView` now restores focus in its layout effect when committed selection mode ends, including shelf Escape. Regression sources retain the original failed assertion and add repeated toolbar/shelf Escape plus settled-frame focus ownership. The Picks regression adds repeated enlarged phone/tablet reopening and Escape focus restoration.
+
+Video metadata refresh previously replaced every shelf control even when caption/queue notifications changed no visible metadata. Unchanged shelf content now retains its mounted controls, while explicit selection and clear actions still synchronize the native checkbox state. The upload regression samples label geometry and pointer hit in one DOM evaluation, retaining the same 44 px, pointer and keyboard requirements. Added production-workspace regression sources cover node identity, focus, native selection, immediate clearing and select-all/clear. These address source-visible lifecycle and measurement races; new runtime execution is still needed to confirm they explain and resolve the retained failures.
+
+**All new execution-based verification is deferred by user instruction.** This checkpoint ran no builds, tests, type checks, linters, package installs, asset generation, browser verification, benchmarks, native execution or manual CI dispatch. Source reading, Git diffs and composition were the only review. Historical passes and sibling workflow successes below do not qualify either new head or the combined tree.
+
+The later separately owned batch must qualify both exact published heads: selection Cancel/Escape and shelf Escape at 320 px/200% text across Chromium/WebKit; enlarged repeated Picks open/scroll/close/Escape at phone and tablet widths plus the embedded catalog; RTL language/direction and resource overrides before/after reload; video upload identity publication, selection targets and no-op versus changed shelf refresh; design toolbar geometry, search/import/disclosure, appearance and notes dismissal. Build, type, lint, focused regression and broader CI qualification also remain deferred. Both PRs remain draft pending that evidence.
+
+## Historical design work and execution evidence
+
 Research and captures: October 10–11, 2026. Scope: the active Expo Router web app in `apps/web`, based on `origin/main` a1101b66. The root Svelte UI is retired. The dirty primary checkout was preserved in place; this work uses an isolated worktree.
 
 ## Reference evidence

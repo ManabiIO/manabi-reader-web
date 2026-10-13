@@ -297,6 +297,20 @@ class EditorsPicksBrowser(unittest.TestCase):
         library_actions = self.page.get_by_role('button', name='Library actions', exact=True)
         expect(library_actions).to_be_focused()
         expect(self.page.get_by_role('menu')).to_have_count(0)
+        for width in (320, 820):
+            self.page.set_viewport_size({'width': width, 'height': 320})
+            library_actions.click()
+            self.page.get_by_role('menuitem', name='Add Books', exact=True).click()
+            self.page.get_by_role('menuitem', name="Editor's Picks", exact=True).click()
+            expect(dialog).to_be_visible()
+            expect(region).to_be_visible()
+            self.assertEqual('hidden', dialog.evaluate('e => getComputedStyle(e).overflowY'))
+            region.evaluate('e => e.scrollTop = e.scrollHeight')
+            self.assertGreater(region.evaluate('e => e.scrollTop'), 0)
+            self.page.keyboard.press('Escape')
+            expect(dialog).to_have_count(0)
+            expect(library_actions).to_be_focused()
+            expect(self.page.get_by_role('menu')).to_have_count(0)
         self.page.evaluate('document.documentElement.style.fontSize = ""')
 
     def test_open_action_stays_focusable_during_slow_failure_and_returns_after_error(self):

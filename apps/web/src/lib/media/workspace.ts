@@ -120,6 +120,7 @@ export class VideoWorkspace {
   private closed = false;
   private closing?: Promise<void>;
   private refreshing = 0;
+  private shelfSignature = '';
   private jobsRead?: Promise<void>;
   private jobsDirty = false;
   private tracksRead?: Promise<void>;
@@ -1354,6 +1355,18 @@ export class VideoWorkspace {
             (resume.get(a.key)?.updatedAt ?? a.info.addedAt)
       );
       this.selected = new Set([...this.selected].filter((k) => items.some((i) => i.key === k)));
+      const signature = JSON.stringify([
+        this.search.value,
+        this.filter.value,
+        items.map(({ key, info, localVersion }) => [key, info, localVersion, resume.get(key)])
+      ]);
+      // Caption and queue notifications also refresh metadata. Keep unchanged
+      // controls mounted so a pointer or keyboard interaction retains its target.
+      if (signature === this.shelfSignature) {
+        for (const check of this.shelf.querySelectorAll<HTMLInputElement>('input[type=checkbox]'))
+          check.checked = this.selected.has(check.value as ContentKey);
+        return;
+      }
       const focused =
         document.activeElement instanceof HTMLElement && this.shelf.contains(document.activeElement)
           ? document.activeElement
@@ -1447,6 +1460,7 @@ export class VideoWorkspace {
             ?.focus({ preventScroll: true });
         }
       }
+      this.shelfSignature = signature;
     } catch (e) {
       this.error(e);
     }

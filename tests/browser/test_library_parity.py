@@ -151,6 +151,24 @@ class LibraryParityBrowser(LibraryBase):
         expect(toolbar).to_have_count(0)
         expect(actions).to_be_focused()
 
+        # Repeat after the hidden normal toolbar has been revealed. Shelf and
+        # toolbar Escape must both restore focus after the committed layout.
+        for target in ('toolbar', 'shelf', 'toolbar'):
+            actions.press('Enter')
+            self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
+            toolbar = self.page.get_by_role('toolbar', name='Book selection', exact=True)
+            expect(toolbar).to_be_visible()
+            control = (toolbar.get_by_role('button', name='Select All Visible', exact=True)
+                       if target == 'toolbar' else self.items().first)
+            control.focus()
+            control.press('Escape')
+            expect(toolbar).to_have_count(0)
+            expect(actions).to_be_focused()
+            # Let pending entry-focus callbacks finish before asserting ownership.
+            self.page.evaluate('''() => new Promise(resolve =>
+                requestAnimationFrame(() => requestAnimationFrame(resolve)))''')
+            expect(actions).to_be_focused()
+
     def start_drag(self, layout):
         first, second = self.items().nth(0).bounding_box(), self.items().nth(1).bounding_box()
         if layout == 'Grid':
