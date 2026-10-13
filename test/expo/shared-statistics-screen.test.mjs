@@ -573,6 +573,107 @@ test('summary details and a virtualized page chooser remain nonmodal anchored co
   }
 });
 
+// UNRUN: authored for the source-only Statistics privacy repair. Uses the
+// mounted production shared screen, RNW controls and actual anchored popover.
+test('shared Summary hides numeric children, reveals before details, and preserves named dismissal focus across repeated cycles', async () => {
+  const hidden = ['readingTime', 'charactersRead', 'lastReadingSpeed'];
+  const fake = fakePort({
+    async load(query) {
+      fake.calls.load.push(query);
+      return { ...snapshot(query), blurredMeasurements: hidden };
+    }
+  });
+  const fixture = await mount(fake.port);
+  try {
+    const queryCalls = fake.calls.load.length;
+    const metrics = () => [...fixture.container.querySelectorAll('[role="button"],button')]
+      .filter((node) => /value hidden.*reveal/.test(node.getAttribute('aria-label') ?? ''));
+    assert.equal(metrics().length, 3);
+    for (let index = 0; index < 3; index++) {
+      const metric = metrics()[0];
+      assert.equal(metric.textContent, '••••', 'Hidden numeric text is absent from the DOM');
+      assert.ok(metric.querySelector('[aria-hidden="true"]'));
+      const label = metric.getAttribute('aria-label');
+      assert.ok(!/\b(?:2|50|1500)\b/.test(label));
+      await act(async () => { metric.focus(); metric.click(); });
+      await settle();
+      assert.equal(dialog('Measurement details'), undefined, 'First activation only reveals');
+      assert.equal(document.activeElement, metric);
+      assert.match(metric.getAttribute('aria-label'), /Activate to view details/);
+      assert.notEqual(metric.textContent, '••••');
+      for (let cycle = 0; cycle < 2; cycle++) {
+        await act(async () => metric.click());
+        await settle();
+        const panel = dialog('Measurement details');
+        assert.ok(panel);
+        const close = findButton('Close measurement details', panel);
+        assert.equal(document.activeElement, close);
+        if (cycle === 0) await act(async () => close.click());
+        else await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', {
+          key: 'Escape', bubbles: true, cancelable: true
+        })));
+        await settle();
+        assert.equal(dialog('Measurement details'), undefined);
+        assert.equal(document.activeElement, metric);
+      }
+    }
+    assert.deepEqual(hidden, ['readingTime', 'charactersRead', 'lastReadingSpeed']);
+    assert.equal(fake.calls.load.length, queryCalls, 'Reveal does not change the query or reread history');
+    assert.deepEqual(fake.calls.mutate, []);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+// UNRUN: current-snapshot ownership and outside-pointer focus regression.
+test('shared Summary re-hides on a new snapshot, retires raw details and leaves outside-pointer focus with its destination', async () => {
+  const fake = fakePort({
+    async load(query) {
+      fake.calls.load.push(query);
+      return { ...snapshot(query), blurredMeasurements: ['readingTime'] };
+    }
+  });
+  const fixture = await mount(fake.port);
+  const metric = () => [...fixture.container.querySelectorAll('[role="button"],button')]
+    .find((node) => /^Total Time for Panel title 000/.test(node.getAttribute('aria-label') ?? ''));
+  try {
+    const anchor = metric();
+    assert.ok(anchor);
+    await act(async () => { anchor.focus(); anchor.click(); });
+    await settle();
+    await act(async () => anchor.click());
+    await settle();
+    assert.ok(dialog('Measurement details'));
+    const destination = findButton('Choose statistics page');
+    await act(async () => {
+      destination.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true }));
+      destination.focus();
+    });
+    await settle();
+    assert.equal(dialog('Measurement details'), undefined);
+    assert.equal(document.activeElement, destination);
+    await act(async () => anchor.click());
+    await settle();
+    assert.ok(dialog('Measurement details'));
+    await press('Next statistics page');
+    assert.equal(dialog('Measurement details'), undefined);
+    assert.match(metric().getAttribute('aria-label'), /value hidden/);
+    assert.equal(metric().textContent, '••••');
+    await act(async () => metric().click());
+    await settle();
+    assert.equal(dialog('Measurement details'), undefined);
+    await act(async () => metric().click());
+    await settle();
+    assert.ok(dialog('Measurement details'));
+    await act(async () => fake.invalidate());
+    await settle();
+    assert.equal(dialog('Measurement details'), undefined);
+    assert.deepEqual(fake.calls.mutate, []);
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
 test('account invalidation retires a mounted pending confirmation before it can mutate another owner', async () => {
   const fake = fakePort();
   const fixture = await mount(fake.port);
