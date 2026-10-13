@@ -108,7 +108,7 @@ for (const strict of [false, true]) {
   });
   assert.ok(container.querySelector('input[webkitdirectory]'), 'folder import is mounted');
   await settle(() => !library.loading && !workspace.scanning, 'cold IndexedDB work completes');
-  assert.match(container.textContent, /Make room for a good book/);
+  assert.match(container.textContent, /No books in your library/);
   assert.equal(document.querySelectorAll('#manabi-packaged-fonts').length, 1);
   assert.ok(requests.includes('/api/reader-web/session/'));
 

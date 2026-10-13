@@ -348,7 +348,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
             instructions = self.page.locator('.migration-page > section').first
             self.assertAlmostEqual(
                 instructions.evaluate('e => parseFloat(getComputedStyle(e).borderTopLeftRadius)'),
-                16,
+                12,
                 delta=0.1
             )
             self.capture(f'connect-import-ttu-{mode}-320')

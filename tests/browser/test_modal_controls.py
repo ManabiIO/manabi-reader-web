@@ -62,7 +62,7 @@ class ModalControlsBrowser(LibraryBase):
         self.assertEqual([], result['overlaps'], result)
         self.assertGreaterEqual(result['width'], 43.99, result)
         self.assertAlmostEqual(result['width'], result['height'], delta=0.5)
-        self.assertGreaterEqual(result['radius'], result['height'] / 2, result)
+        self.assertAlmostEqual(result['radius'], 8, delta=0.1, msg=result)
         self.assertNotEqual(result['fill'], result['tint'], result)
         self.assertGreaterEqual(result['panel']['x'], -1, result)
         self.assertGreaterEqual(result['panel']['y'], -1, result)
@@ -128,7 +128,7 @@ class ModalControlsBrowser(LibraryBase):
                     close = self.check_modal(panel)
                     done = panel.get_by_role('button', name='Done', exact=True)
                     shape = done.evaluate('e => ({height:e.getBoundingClientRect().height, radius:parseFloat(getComputedStyle(e).borderRadius)})')
-                    self.assertGreaterEqual(shape['radius'], shape['height'] / 2)
+                    self.assertAlmostEqual(shape['radius'], 8, delta=0.1)
                     for key, target in [('Tab', done), ('Tab', close), ('Tab', done),
                                         ('Shift+Tab', close), ('Shift+Tab', done), ('Shift+Tab', close)]:
                         self.page.keyboard.press(key)

@@ -237,6 +237,21 @@ class UnifiedSearch(ProductJourneyBase):
         # Intermediate IME text stays local and must not rewrite navigation state.
         expect(self.page).to_have_url(re.compile(r'[?&]q=cat(?:&|$)'))
 
+        # UNRUN PR261 follow-up: React exposes composition on nativeEvent.
+        # Escape belongs to the candidate list even when keyCode is ordinary 27.
+        prevented = field.evaluate("""element => {
+          const event = new KeyboardEvent('keydown', {
+            bubbles: true, cancelable: true, key: 'Escape', code: 'Escape',
+            keyCode: 27, isComposing: true
+          });
+          element.dispatchEvent(event);
+          return event.defaultPrevented;
+        }""")
+        self.assertFalse(prevented)
+        expect(field).to_have_value('猫')
+        expect(field).to_be_focused()
+        expect(self.page).to_have_url(re.compile(r'[?&]q=cat(?:&|$)'))
+
         # Crossing only the compact-menu breakpoint rerenders the same header/search
         # surface without replacing the compact-library input.
         self.page.set_viewport_size({'width': 700, 'height': 800})
