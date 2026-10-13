@@ -67,6 +67,8 @@ const audio = document.querySelector('audio'); audio.src = URL.createObjectURL(n
 window.audio = audio;
 window.controller = createPitchController(state => { window.state = state; window.states.push(state.status); window.paths = pitchPaths(state.points, state.time); });
 controller.setAudio(audio); controller.setVisible(true);
+// The module harness owns one dialogue interval; production supplies exact subtitle bounds.
+controller.setSpeechWindow({start: 0, end: seconds});
 document.querySelector('#show').onclick = () => controller.setEnabled(true);
 document.querySelector('#play').onclick = () => audio.play();
 window.ready = true;
