@@ -1021,6 +1021,33 @@ def main():
             assert card.locator('details').evaluate('e=>e.open')
             assert page.evaluate("document.activeElement.textContent==='Rename title'")
         case('a playback checkpoint refresh preserves an open menu and its keyboard focus',focus)
+        def unchanged_shelf():
+            result=page.evaluate("""async()=>{
+                await workspace.refresh();
+                const checkbox=document.querySelector('.video-card input[type=checkbox]'),
+                    label=checkbox.closest('label'),card=checkbox.closest('.video-card');
+                checkbox.focus();
+                for(let i=0;i<3;i++)await workspace.refresh();
+                return {same:document.querySelector('.video-card input[type=checkbox]')===checkbox,
+                    label:checkbox.closest('label')===label,card:checkbox.closest('.video-card')===card,
+                    connected:label.isConnected,focused:document.activeElement===checkbox};
+            }""")
+            assert all(result.values()),result
+            page.get_by_label('Select Watching',exact=True).check()
+            page.evaluate('workspace.refresh()')
+            assert page.get_by_label('Select Watching',exact=True).is_checked()
+            page.get_by_role('button',name='Clear selection',exact=True).click()
+            page.wait_for_function('!document.querySelector(".video-card input[type=checkbox]").checked')
+            # Clearing immediately after a native change must also work without
+            # an intervening refresh that records the checked state.
+            page.get_by_label('Select Watching',exact=True).check()
+            page.get_by_role('button',name='Clear selection',exact=True).click()
+            page.wait_for_function('!document.querySelector(".video-card input[type=checkbox]").checked')
+            page.get_by_role('button',name='Select visible videos',exact=True).click()
+            assert page.locator('.video-card input:checked').count()==3
+            page.get_by_role('button',name='Clear selection',exact=True).click()
+            page.wait_for_function('document.querySelectorAll(".video-card input:checked").length===0')
+        case('unchanged shelf refresh retains native selection nodes and explicit selection changes',unchanged_shelf)
         def queries():
             page.evaluate('window.readKinds=[];window.oldRecords=store.records.bind(store);store.records=async(...args)=>{readKinds.push(args[1]);return oldRecords(...args)};void 0')
             page.get_by_label('Search videos',exact=True).fill('Watching');page.wait_for_timeout(60)

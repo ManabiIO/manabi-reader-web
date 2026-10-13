@@ -316,10 +316,11 @@ export function LibraryScreen({ routeUrl, onOpenBook, onReady }: LibraryScreenPr
           m.editorsPicksOpen = open;
         }}
       >
-        <Dialog.Content className="sm:max-w-2xl">
+        <Dialog.Content className="grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden sm:max-w-2xl">
           <Dialog.Title>Editor's Picks</Dialog.Title>
           <Dialog.Description>Open a book selected by Manabi.</Dialog.Description>
           <EditorsPicks
+            contained
             routeUrl={routeUrl}
             headingId="editors-picks-dialog-heading"
             openingId={m.openingPickId}

@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, useLayoutEffect, useRef, type ReactNode } from 'react';
 /**
  * React/controller port of lib/components/book-card/book-manager-header.svelte; transactions retain their original guards.
  */
@@ -55,6 +55,13 @@ export function HeaderView({
   c: HeaderController;
   children?: ReactNode;
 }) {
+  const selectMode = c.selectMode;
+  const wasSelecting = useRef(selectMode);
+  useLayoutEffect(() => {
+    // The normal toolbar must be committed and visible before it can take focus.
+    if (wasSelecting.current && !selectMode) c.restoreSelectionFocus();
+    wasSelecting.current = selectMode;
+  }, [c, selectMode]);
   return (
     <>
       <Action

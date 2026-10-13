@@ -145,15 +145,17 @@ def main():
         shelf = page.get_by_label('Video library', exact=True)
         card_select = shelf.get_by_role('checkbox').first
         expect(card_select).to_be_visible()
-        select_target = card_select.locator('..')
-        select_box = select_target.bounding_box()
-        assert select_box['width'] >= 43.5 and select_box['height'] >= 43.5, select_box
-        assert card_select.evaluate("""input => {
+        # Upload may publish a verified identity between browser round trips.
+        # Sample the current native checkbox's label and pointer hit atomically.
+        select_box = card_select.evaluate("""input => {
             const label=input.closest('label');
             const r=label.getBoundingClientRect();
             const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
-            return !!hit && (hit===label || label.contains(hit));
+            return {width:r.width,height:r.height,
+                hit:!!hit && (hit===label || label.contains(hit))};
         }""")
+        assert select_box['width'] >= 43.5 and select_box['height'] >= 43.5, select_box
+        assert select_box['hit'], select_box
         card_select.focus()
         expect(card_select).to_be_focused()
         page.keyboard.press('Space')

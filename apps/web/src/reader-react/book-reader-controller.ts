@@ -58,6 +58,9 @@ export interface BookReaderProps {
   sheetPagination?: boolean;
   controlsVisible?: boolean;
   htmlContent: string;
+  language?: string;
+  pageDirection?: 'ltr' | 'rtl' | 'unknown';
+
   styleSheet?: string;
   epubResources: EpubResourceData[] | undefined;
   publicationManifest: PublicationManifest | undefined;
@@ -355,6 +358,9 @@ export function createBookReader(
     return true;
   }
   let htmlContent: string = props.htmlContent;
+  let language: string = props.language ?? '';
+  let pageDirection: 'ltr' | 'rtl' | 'unknown' = props.pageDirection ?? 'unknown';
+
   let styleSheet = props.styleSheet !== undefined ? props.styleSheet : '';
   let epubResources: EpubResourceData[] | undefined = props.epubResources;
   let publicationManifest: PublicationManifest | undefined = props.publicationManifest;
@@ -685,6 +691,22 @@ export function createBookReader(
     set controlsVisible(nextValue: typeof controlsVisible) {
       if (Object.is(controlsVisible, nextValue)) return;
       controlsVisible = nextValue;
+      __readerController.invalidate();
+    },
+    get language() {
+      return language;
+    },
+    set language(nextValue: typeof language) {
+      if (Object.is(language, nextValue)) return;
+      language = nextValue;
+      __readerController.invalidate();
+    },
+    get pageDirection() {
+      return pageDirection;
+    },
+    set pageDirection(nextValue: typeof pageDirection) {
+      if (Object.is(pageDirection, nextValue)) return;
+      pageDirection = nextValue;
       __readerController.invalidate();
     },
     get htmlContent() {
@@ -1201,6 +1223,9 @@ export function createBookReader(
       if ('controlsVisible' in next)
         api.controlsVisible = next.controlsVisible as typeof controlsVisible;
       if ('htmlContent' in next) api.htmlContent = next.htmlContent as typeof htmlContent;
+      if ('language' in next) api.language = next.language as typeof language;
+      if ('pageDirection' in next) api.pageDirection = next.pageDirection as typeof pageDirection;
+
       if ('styleSheet' in next) api.styleSheet = next.styleSheet as typeof styleSheet;
       if ('epubResources' in next) api.epubResources = next.epubResources as typeof epubResources;
       if ('publicationManifest' in next)

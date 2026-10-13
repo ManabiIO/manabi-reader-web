@@ -87,11 +87,12 @@ export class HeaderController extends ObservableController {
       })
     );
   }
-  async exitSelectionMode() {
+  exitSelectionMode() {
     this.selectMode = false;
+  }
+  restoreSelectionFocus() {
     // Selection chrome unmounts its focused control. Restore a stable trigger
-    // for both the modern browser library and legacy provider libraries.
-    await tick();
+    // from HeaderView's layout effect after React reveals the normal toolbar.
     (
       this.libraryActionsButton ??
       document.querySelector<HTMLButtonElement>('.app-header button[aria-label="Add books"]')
