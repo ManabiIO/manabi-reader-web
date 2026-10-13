@@ -88,6 +88,10 @@ export class VideoWorkspace {
   private jobs = make('section');
   private syncPanel = make('section');
   private selected = new Set<ContentKey>();
+  private selectionStatus = make('span');
+  private selectVisibleButton!: HTMLButtonElement;
+  private clearSelectionButton!: HTMLButtonElement;
+  private bulkGenerateButton!: HTMLButtonElement;
   private sources = new Map<ContentKey, ByteSource>();
   /** A digest belongs to this immutable local File instance, not its filename or mtime. */
   private verifiedSources = new WeakMap<ByteSource, ContentKey>();
@@ -187,7 +191,7 @@ export class VideoWorkspace {
     this.search.placeholder = 'Search videos';
     this.search.setAttribute('aria-label', 'Search videos');
     this.search.addEventListener('input', () => {
-      this.selected.clear();
+      this.clearSelectionView();
       void this.refresh();
     });
     for (const [value, label] of [
@@ -212,7 +216,7 @@ export class VideoWorkspace {
       this.filter.append(option);
     }
     this.filter.addEventListener('change', () => {
-      this.selected.clear();
+      this.clearSelectionView();
       void this.refresh();
     });
     tools.append(this.search, this.sort, this.filter);
@@ -272,19 +276,35 @@ export class VideoWorkspace {
     );
     const batch = make('div');
     batch.className = 'media-actions';
+    batch.setAttribute('role', 'group');
+    batch.setAttribute('aria-label', 'Video selection actions');
+    this.selectionStatus.className = 'media-selection-status';
+    this.selectionStatus.setAttribute('aria-live', 'polite');
+    this.selectionStatus.setAttribute('aria-atomic', 'true');
+    this.selectVisibleButton = action('Select visible videos', () => {
+      const ownsFocus = document.activeElement === this.selectVisibleButton;
+      for (const check of this.shelf.querySelectorAll<HTMLInputElement>('input[type=checkbox]'))
+        this.selected.add(check.value as ContentKey);
+      this.updateSelectionActions();
+      if (ownsFocus && this.selectVisibleButton.disabled)
+        this.clearSelectionButton.focus({ preventScroll: true });
+    });
+    this.clearSelectionButton = action('Clear selection', () => {
+      const ownsFocus = document.activeElement === this.clearSelectionButton;
+      this.clearSelectionView();
+      if (ownsFocus && this.clearSelectionButton.disabled)
+        this.selectVisibleButton.focus({ preventScroll: true });
+      void this.refresh();
+    });
+    this.bulkGenerateButton = action(
+      'Generate missing transcripts',
+      () => void this.bulk().catch((e) => this.error(e))
+    );
     batch.append(
-      action('Select visible videos', () => {
-        for (const check of this.shelf.querySelectorAll<HTMLInputElement>('input[type=checkbox]')) {
-          check.checked = true;
-          this.selected.add(check.value as ContentKey);
-        }
-        this.notice(`${this.selected.size} videos selected`);
-      }),
-      action('Clear selection', () => {
-        this.selected.clear();
-        void this.refresh();
-      }),
-      action('Generate missing transcripts', () => void this.bulk().catch((e) => this.error(e)))
+      this.selectVisibleButton,
+      this.clearSelectionButton,
+      this.bulkGenerateButton,
+      this.selectionStatus
     );
     this.shelf.className = 'video-shelf';
     this.shelf.setAttribute('aria-label', 'Video library');
@@ -303,6 +323,7 @@ export class VideoWorkspace {
       this.jobs
     );
     host.append(this.root);
+    this.updateSelectionActions();
     const engine = options.engine ?? new MossClient(options.runtimeBase);
     this.decoderCache = new DecodeSessionCache<Job>(async (job, signal) => {
       const source = await this.resolveSource(jobContentKey(job), signal);
@@ -369,6 +390,30 @@ export class VideoWorkspace {
     const label = make('label');
     label.append(document.createTextNode(text), control);
     return label;
+  }
+  private clearSelectionView() {
+    this.selected.clear();
+    // Keep rendered controls consistent before the asynchronous shelf read.
+    this.updateSelectionActions();
+  }
+  private updateSelectionActions() {
+    const visible = [...this.shelf.querySelectorAll<HTMLInputElement>('input[type=checkbox]')];
+    for (const check of visible) {
+      const selected = this.selected.has(check.value as ContentKey);
+      if (check.checked !== selected) check.checked = selected;
+      check.closest('.video-card')?.classList.toggle('selected', selected);
+    }
+    this.clearSelectionButton.disabled = this.selected.size === 0;
+    this.bulkGenerateButton.disabled = this.selected.size === 0;
+    this.selectVisibleButton.disabled =
+      visible.length === 0 ||
+      visible.every((check) => this.selected.has(check.value as ContentKey));
+    const status =
+      this.selected.size === 0
+        ? 'No videos selected'
+        : `${this.selected.size} ${this.selected.size === 1 ? 'video' : 'videos'} selected`;
+    // Do not repeat live announcements on unchanged metadata notifications.
+    if (this.selectionStatus.textContent !== status) this.selectionStatus.textContent = status;
   }
   private notice(text: string) {
     if (!this.closed) this.status.textContent = text;
@@ -1120,9 +1165,8 @@ export class VideoWorkspace {
     await this.refreshJobs();
     return job.id;
   }
-  private async bulk() {
+  private async bulk(selection: readonly ContentKey[] = [...this.selected]) {
     const lang = language(this.lang.value),
-      selection = [...this.selected],
       skipped: string[] = [];
     for (const key of selection) {
       this.lifetime.signal.throwIfAborted();
@@ -1363,8 +1407,7 @@ export class VideoWorkspace {
       // Caption and queue notifications also refresh metadata. Keep unchanged
       // controls mounted so a pointer or keyboard interaction retains its target.
       if (signature === this.shelfSignature) {
-        for (const check of this.shelf.querySelectorAll<HTMLInputElement>('input[type=checkbox]'))
-          check.checked = this.selected.has(check.value as ContentKey);
+        this.updateSelectionActions();
         return;
       }
       const focused =
@@ -1398,9 +1441,11 @@ export class VideoWorkspace {
         checkbox.value = key;
         checkbox.checked = this.selected.has(key);
         checkbox.setAttribute('aria-label', `Select ${info.title}`);
-        checkbox.addEventListener('change', () =>
-          checkbox.checked ? this.selected.add(key) : this.selected.delete(key)
-        );
+        checkbox.addEventListener('change', () => {
+          if (checkbox.checked) this.selected.add(key);
+          else this.selected.delete(key);
+          this.updateSelectionActions();
+        });
         const selectionTarget = make('label');
         selectionTarget.className = 'video-select';
         selectionTarget.append(checkbox);
@@ -1423,10 +1468,10 @@ export class VideoWorkspace {
         menu.append(
           make('summary', 'Actions'),
           action('Open video', () => void this.reopen(key).catch((e) => this.error(e))),
-          action('Generate missing transcript', () => {
-            this.selected = new Set([key]);
-            void this.bulk().catch((e) => this.error(e));
-          }),
+          action(
+            'Generate missing transcript',
+            () => void this.bulk([key]).catch((e) => this.error(e))
+          ),
           action('Rename title', () => {
             const title = window.prompt('Video display title', info.title);
             if (title?.trim())
@@ -1461,6 +1506,7 @@ export class VideoWorkspace {
         }
       }
       this.shelfSignature = signature;
+      this.updateSelectionActions();
     } catch (e) {
       this.error(e);
     }
