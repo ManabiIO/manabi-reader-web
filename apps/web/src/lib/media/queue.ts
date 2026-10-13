@@ -891,9 +891,10 @@ export class TranscriptionQueue {
                     ? await audioProofAsync(bounds.start, bounds.end, pcm, signal)
                     : undefined;
                   const inputDuration = pcm.length / 16000;
+                  const digitalSilence = pcm.every((sample) => sample === 0);
                   let raw = '';
                   let inferenceMs = performance.now() - decodeStarted;
-                  if (!pcm.every((sample) => sample === 0)) {
+                  if (!digitalSilence) {
                     await this.engine.prepare(signal, (p) => this.notify({ job, ...p }));
                     const inferenceStarted = performance.now();
                     raw = await transcribeWithPreview(this.engine, pcm, signal, (text) => {
@@ -920,7 +921,11 @@ export class TranscriptionQueue {
                     ...(cue.speaker ? { speaker: `w${index}/${cue.speaker}` } : {})
                   }));
                   const next = { ...state, windows: [...state.windows] };
-                  next.windows[index] = { cues, inferenceMs };
+                  next.windows[index] = {
+                    cues,
+                    inferenceMs,
+                    ...(digitalSilence ? { digitalSilence: true as const } : {})
+                  };
                   const safe = acceptedSparseCues(next, job.duration);
                   preserveAccepted(job.cues, safe);
                   job = {
