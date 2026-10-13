@@ -195,9 +195,10 @@ absence must never be inferred as silence or synthesized from empty captions.
 
 The focused integration is derived from PR #215 at
 `c5e016ab423731f0bdaae73909dd9f86fa91b496`, against main
-`a1101b66db4c194140aeb4a8d6edcdfc86b4c770`. The donor's player/ETA changes are
-deferred for coordination with the pitch owner; this integration leaves timing
-sampling and shared audio adapters unchanged. Video Learning remains default-off
+`a1101b66db4c194140aeb4a8d6edcdfc86b4c770`. It also integrates the donor's
+player progress clock and timing samples after confirming pitch PR #264 does not
+touch `media/player.ts`. Shared audio adapters remain unchanged. Video Learning
+remains default-off
 (`EXPO_PUBLIC_ENABLE_VIDEO_LEARNING` requires explicit `true`). This feature is
 not a v3-hotfix release blocker.
 
@@ -214,10 +215,34 @@ not qualify these new changes.
 
 ### Playback estimates
 
-The player measures decode plus warm inference time for each finished core,
-excluding first-time model download/preparation, and estimates how
-long it will take to build a 26-second caption lead. The estimate is updated
-as more windows finish; before the first window it says that it is estimating.
+The player measures decode plus warm inference time for each finished non-silent
+core, excluding first-time model download/preparation and exact-zero cores that
+bypass MOSS, and estimates how long it will take to build a 26-second caption lead.
+The estimate is updated
+as more non-silent windows finish; before the first such sample it says that it is
+estimating after the first speech window. An ordinary empty recognition result,
+including an older saved result with no silence evidence, still counts as an
+inference timing sample. Exact-zero cores continue to count toward completed
+coverage and caption readiness.
+
+Until a non-silent timing sample exists, decoding starts an elapsed clock for
+the current candidate speech window. Completing an exact-zero core retires that
+clock, and the next decoding notification starts a fresh one. Repeated completion
+notifications do not restart it. Checking, downloading, verifying and loading the
+model preserve the current attempt's clock. This elapsed display includes model
+preparation; preparation is still excluded from the measured throughput estimate.
+The first timing sample, pause, failure, completion, or switching jobs retires the
+clock.
+
+**ETA follow-up verification: UNRUN (2026-10-13).** Added regression sources in
+`tests/media/sparse-playback-snapshot.test.mjs` cover mixed silent/speech timing,
+all-silent coverage, ordinary-empty timing and immutable notification snapshots.
+The focused cases in `tests/media/dom-browser.py` cover a playhead that still
+needs captions after silent coverage, preparation stages, repeated silent cores,
+the first measured result, and clock retirement on job status/identity changes.
+No browser, model, test, build, lint, type-check, install, benchmark or CI run was
+performed for this follow-up.
+
 If inference takes longer than one core of playback, the UI says captions may
 need to buffer again. Viewers can wait or choose **Play without captions**.
 This is a rolling estimate, not a promise of sustained real-time transcription.

@@ -16,10 +16,19 @@ function compare(state, duration) {
     snapshot = sparsePlaybackSnapshot(state, duration);
   assert.ok(Object.isFrozen(snapshot));
   assert.equal(snapshot.cueDigest, cueDigest(safeSparseCues(state, duration)));
-  const samples = state.windows.flatMap((w, i) =>
-    w ? [{ ...sparseBounds(i, duration), ms: w.inferenceMs }] : []
-  );
-  assert.equal(snapshot.count, samples.length);
+  const completed = state.windows.flatMap((w, i) =>
+      w
+        ? [
+            {
+              ...sparseBounds(i, duration),
+              ms: w.inferenceMs,
+              digitalSilence: w.digitalSilence
+            }
+          ]
+        : []
+    ),
+    samples = completed.filter((sample) => !sample.digitalSilence);
+  assert.equal(snapshot.count, completed.length);
   assert.equal(
     snapshot.totalMs,
     samples.reduce((n, s) => n + s.ms, 0)
@@ -106,6 +115,40 @@ for (const policy of ['overlap-sparse-v1', 'overlap-sparse-v2']) {
     compare(state, 78);
   });
 }
+test('digital-silent coverage does not make the ASR throughput estimate look faster', () => {
+  const state = newSparseState(52);
+  state.windows[0] = { cues: [], inferenceMs: 52000 };
+  state.windows[1] = { cues: [], inferenceMs: 250, digitalSilence: true };
+  const snapshot = compare(state, 52),
+    first = sparseBounds(0, 52);
+  assert.equal(snapshot.count, 2, 'both completed cores still count as coverage');
+  assert.equal(snapshot.totalMs, 52000);
+  assert.equal(snapshot.inputSeconds, first.end - first.start);
+  assert.equal(snapshot.coreSeconds, first.coreEnd - first.coreStart);
+});
+test('silent coverage waits for an ASR timing sample; ordinary empty output still counts', () => {
+  for (const policy of ['overlap-sparse-v1', 'overlap-sparse-v2']) {
+    const state = newSparseState(78);
+    state.policy = policy;
+    state.windows[0] = { cues: [], inferenceMs: 50, digitalSilence: true };
+    state.windows[1] = { cues: [], inferenceMs: 75, digitalSilence: true };
+    const silence = compare(state, 78);
+    assert.equal(silence.count, 2);
+    assert.equal(silence.totalMs, 0);
+    assert.equal(silence.inputSeconds, 0);
+    assert.equal(silence.coreSeconds, 0);
+    assert.equal(silence.lead(0), 50, 'zero inputs still provide caption-ready coverage');
+
+    state.windows[2] = { cues: [], inferenceMs: 40000 };
+    const measured = compare(state, 78);
+    assert.equal(measured.count, 3);
+    assert.equal(measured.totalMs, 40000, 'empty output alone does not imply skipped inference');
+    assert.equal(measured.inputSeconds, 28);
+    assert.equal(measured.coreSeconds, 26);
+    assert.equal(measured.lead(0), 78);
+    assert.equal(silence.inputSeconds, 0, 'previous notification snapshots remain immutable');
+  }
+});
 test('snapshot has no live dependence on its mutable input; a new notification recomputes', () => {
   const state = newSparseState(52);
   state.windows[0] = { cues: [cue('w0/cue-0', 2, 3)], inferenceMs: 17 };

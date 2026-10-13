@@ -440,6 +440,9 @@ export function sparsePlaybackSnapshot(state: SparseState, duration: number) {
     if (!window) return;
     const bounds = sparseBounds(index, duration);
     count++;
+    // Exact-zero cores contribute coverage but bypass MOSS, so their decode
+    // time cannot estimate the cost of recognizing a later non-silent input.
+    if (window.digitalSilence === true) return;
     totalMs += window.inferenceMs;
     inputSeconds += bounds.end - bounds.start;
     coreSeconds += bounds.coreEnd - bounds.coreStart;
