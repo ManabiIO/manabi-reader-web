@@ -1002,6 +1002,103 @@ def main():
                 await store.edit('guest','video_resume',syntheticKey('b'),syntheticKey('b'),resume(syntheticKey('b'),30,true));
             }''')
             page.wait_for_function('document.querySelectorAll(".video-card").length===3')
+        # UNRUN: authored for the separately owned execution batch.
+        def batch_selection_state():
+            populate()
+            batch=page.get_by_role('group',name='Video selection actions',exact=True)
+            select_visible=batch.get_by_role('button',name='Select visible videos',exact=True)
+            clear=batch.get_by_role('button',name='Clear selection',exact=True)
+            generate=batch.get_by_role('button',name='Generate missing transcripts',exact=True)
+            status=batch.locator('.media-selection-status')
+            assert status.inner_text()=='No videos selected'
+            assert status.get_attribute('aria-live')=='polite'
+            assert status.get_attribute('aria-atomic')=='true'
+            assert select_visible.is_enabled() and clear.is_disabled() and generate.is_disabled()
+            # Keep the existing application/error status unambiguous to its callers.
+            assert page.get_by_role('status').count()==1
+            page.get_by_label('Select Watching',exact=True).check()
+            assert status.inner_text()=='1 video selected'
+            assert page.locator('.video-card.selected').count()==1
+            assert clear.is_enabled() and generate.is_enabled()
+            immediate=page.evaluate("""()=>{
+                const input=document.querySelector('[aria-label="Search videos"]');
+                input.value='Finished';input.dispatchEvent(new Event('input',{bubbles:true}));
+                return {selected:workspace.selected.size,
+                    checked:[...document.querySelectorAll('.video-card input[type=checkbox]')].map(e=>e.checked),
+                    cards:document.querySelectorAll('.video-card.selected').length,
+                    status:document.querySelector('.media-selection-status').textContent};
+            }""")
+            assert immediate==dict(selected=0,checked=[False,False,False],cards=0,status='No videos selected'),immediate
+            page.wait_for_function('document.querySelectorAll(".video-card").length===1')
+            select_visible.focus();select_visible.press('Enter')
+            assert status.inner_text()=='1 video selected'
+            assert select_visible.is_disabled() and clear.is_focused()
+            clear.press('Enter')
+            assert status.inner_text()=='No videos selected'
+            assert clear.is_disabled() and generate.is_disabled() and select_visible.is_focused()
+            assert not page.get_by_label('Select Finished',exact=True).is_checked()
+            page.get_by_label('Search videos',exact=True).fill('')
+            page.wait_for_function('document.querySelectorAll(".video-card").length===3')
+            page.get_by_label('Select Watching',exact=True).check()
+            immediate=page.evaluate("""()=>{
+                const filter=document.querySelector('[aria-label="Filter videos"]');
+                filter.value='continue';filter.dispatchEvent(new Event('change',{bubbles:true}));
+                return {selected:workspace.selected.size,
+                    checked:document.querySelectorAll('.video-card input:checked').length,
+                    cards:document.querySelectorAll('.video-card.selected').length};
+            }""")
+            assert immediate==dict(selected=0,checked=0,cards=0),immediate
+            page.wait_for_function('document.querySelectorAll(".video-card").length===1')
+            stable=page.evaluate("""async()=>{
+                await workspace.refresh();
+                const node=document.querySelector('.media-selection-status');let changes=0;
+                const observer=new MutationObserver(records=>changes+=records.length);
+                observer.observe(node,{subtree:true,childList:true,characterData:true});
+                await workspace.refresh();await workspace.refresh();observer.disconnect();
+                return changes;
+            }""")
+            assert stable==0,stable
+            page.get_by_label('Search videos',exact=True).fill('no matching video')
+            page.wait_for_function('document.querySelectorAll(".video-card").length===0')
+            assert select_visible.is_disabled() and clear.is_disabled() and generate.is_disabled()
+        case('selection controls and live count synchronize before asynchronous view reads',batch_selection_state)
+        # UNRUN: real generation actions use missing-source fixtures, never bulk mocks.
+        def explicit_generation_keys():
+            populate()
+            read=page.evaluate("""()=>{
+                window.generationKeys=[];window.originalSelectionTracks=store.tracks.bind(store);
+                store.tracks=async(...args)=>{generationKeys.push(args[1]);return originalSelectionTracks(...args)};
+                return {watching:syntheticKey('a'),other:syntheticKey('c')};
+            }""")
+            batch=page.get_by_role('group',name='Video selection actions',exact=True)
+            def start(action):
+                # Await a fresh error announcement, rather than the preceding attempt's text.
+                page.evaluate('workspace.status.textContent="";generationKeys.length=0')
+                action.click()
+                page.wait_for_function('''document.querySelector('.manabi-media > [role=status]')
+                    ?.textContent.includes('Reopen this video to reconnect its local file')''')
+            try:
+                card=page.locator('.video-card').filter(has=page.get_by_role('button',name='New',exact=True))
+                card.locator('summary').click()
+                action=card.get_by_role('button',name='Generate missing transcript',exact=True)
+                start(action)
+                assert page.evaluate('generationKeys')==[read['other']]
+                assert page.evaluate('workspace.selected.size')==0
+                assert batch.locator('.media-selection-status').inner_text()=='No videos selected'
+                page.get_by_label('Select Watching',exact=True).check()
+                start(action)
+                assert page.evaluate('generationKeys')==[read['other']]
+                assert page.evaluate('[...workspace.selected]')==[read['watching']]
+                assert page.get_by_label('Select Watching',exact=True).is_checked()
+                assert not page.get_by_label('Select New',exact=True).is_checked()
+                assert batch.locator('.media-selection-status').inner_text()=='1 video selected'
+                start(batch.get_by_role('button',name='Generate missing transcripts',exact=True))
+                assert page.evaluate('generationKeys')==[read['watching']]
+                assert page.evaluate('[...workspace.selected]')==[read['watching']]
+                assert page.evaluate('prepares')==0 and page.evaluate('inferences')==0
+            finally:
+                page.evaluate('store.tracks=originalSelectionTracks')
+        case('single-card generation uses its explicit key while batch generation retains selection',explicit_generation_keys)
         def filtering():
             populate();page.get_by_label('Select New',exact=True).check()
             page.get_by_label('Filter videos',exact=True).select_option('continue')
@@ -1021,6 +1118,33 @@ def main():
             assert card.locator('details').evaluate('e=>e.open')
             assert page.evaluate("document.activeElement.textContent==='Rename title'")
         case('a playback checkpoint refresh preserves an open menu and its keyboard focus',focus)
+        def unchanged_shelf():
+            result=page.evaluate("""async()=>{
+                await workspace.refresh();
+                const checkbox=document.querySelector('.video-card input[type=checkbox]'),
+                    label=checkbox.closest('label'),card=checkbox.closest('.video-card');
+                checkbox.focus();
+                for(let i=0;i<3;i++)await workspace.refresh();
+                return {same:document.querySelector('.video-card input[type=checkbox]')===checkbox,
+                    label:checkbox.closest('label')===label,card:checkbox.closest('.video-card')===card,
+                    connected:label.isConnected,focused:document.activeElement===checkbox};
+            }""")
+            assert all(result.values()),result
+            page.get_by_label('Select Watching',exact=True).check()
+            page.evaluate('workspace.refresh()')
+            assert page.get_by_label('Select Watching',exact=True).is_checked()
+            page.get_by_role('button',name='Clear selection',exact=True).click()
+            page.wait_for_function('!document.querySelector(".video-card input[type=checkbox]").checked')
+            # Clearing immediately after a native change must also work without
+            # an intervening refresh that records the checked state.
+            page.get_by_label('Select Watching',exact=True).check()
+            page.get_by_role('button',name='Clear selection',exact=True).click()
+            page.wait_for_function('!document.querySelector(".video-card input[type=checkbox]").checked')
+            page.get_by_role('button',name='Select visible videos',exact=True).click()
+            assert page.locator('.video-card input:checked').count()==3
+            page.get_by_role('button',name='Clear selection',exact=True).click()
+            page.wait_for_function('document.querySelectorAll(".video-card input:checked").length===0')
+        case('unchanged shelf refresh retains native selection nodes and explicit selection changes',unchanged_shelf)
         def queries():
             page.evaluate('window.readKinds=[];window.oldRecords=store.records.bind(store);store.records=async(...args)=>{readKinds.push(args[1]);return oldRecords(...args)};void 0')
             page.get_by_label('Search videos',exact=True).fill('Watching');page.wait_for_timeout(60)

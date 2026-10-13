@@ -145,21 +145,42 @@ def main():
         shelf = page.get_by_label('Video library', exact=True)
         card_select = shelf.get_by_role('checkbox').first
         expect(card_select).to_be_visible()
-        select_target = card_select.locator('..')
-        select_box = select_target.bounding_box()
-        assert select_box['width'] >= 43.5 and select_box['height'] >= 43.5, select_box
-        assert card_select.evaluate("""input => {
+        # Upload may publish a verified identity between browser round trips.
+        # Sample the current native checkbox's label and pointer hit atomically.
+        select_box = card_select.evaluate("""input => {
             const label=input.closest('label');
             const r=label.getBoundingClientRect();
             const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
-            return !!hit && (hit===label || label.contains(hit));
+            return {width:r.width,height:r.height,
+                hit:!!hit && (hit===label || label.contains(hit))};
         }""")
+        assert select_box['width'] >= 43.5 and select_box['height'] >= 43.5, select_box
+        assert select_box['hit'], select_box
+        # UNRUN: added selection assertions retain the native target/keyboard gate above.
+        batch = page.get_by_role('group', name='Video selection actions', exact=True)
+        selection_status = batch.locator('.media-selection-status')
+        select_visible = batch.get_by_role('button', name='Select visible videos', exact=True)
+        clear_selection = batch.get_by_role('button', name='Clear selection', exact=True)
+        bulk_generate = batch.get_by_role('button', name='Generate missing transcripts', exact=True)
+        expect(selection_status).to_have_text('No videos selected')
+        expect(selection_status).to_have_attribute('aria-live', 'polite')
+        expect(selection_status).to_have_attribute('aria-atomic', 'true')
+        expect(select_visible).to_be_enabled()
+        expect(clear_selection).to_be_disabled()
+        expect(bulk_generate).to_be_disabled()
         card_select.focus()
         expect(card_select).to_be_focused()
         page.keyboard.press('Space')
         expect(card_select).to_be_checked()
+        expect(selection_status).to_have_text('1 video selected')
+        expect(select_visible).to_be_disabled()
+        expect(clear_selection).to_be_enabled()
+        expect(bulk_generate).to_be_enabled()
         page.keyboard.press('Space')
         expect(card_select).not_to_be_checked()
+        expect(selection_status).to_have_text('No videos selected')
+        expect(clear_selection).to_be_disabled()
+        expect(bulk_generate).to_be_disabled()
         results.append('video card selection has a native 44px keyboard and pointer target')
 
         existing = page.get_by_label('Choose existing subtitles', exact=True)

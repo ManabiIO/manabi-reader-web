@@ -7,6 +7,7 @@
 import { type ReactNode } from 'react';
 import Runtime from '../runtime/Runtime.web';
 import { RouterBinding } from '../runtime/router-binding';
+import '../shared-ui/web-design.css';
 export function RuntimeProvider({ children }: { children: ReactNode }) {
   return (
     <>

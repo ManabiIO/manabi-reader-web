@@ -36,7 +36,7 @@ export class HeaderController extends ObservableController {
       current: typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches
     };
   }
-  compactLibrary = browser && window.matchMedia('(max-width: 1023px)').matches;
+  compactLibrary = browser && window.matchMedia('(max-width: 767px)').matches;
   searchExpanded = false;
   hydrated = false;
   searchInput!: HTMLInputElement | undefined;
@@ -87,11 +87,12 @@ export class HeaderController extends ObservableController {
       })
     );
   }
-  async exitSelectionMode() {
+  exitSelectionMode() {
     this.selectMode = false;
+  }
+  restoreSelectionFocus() {
     // Selection chrome unmounts its focused control. Restore a stable trigger
-    // for both the modern browser library and legacy provider libraries.
-    await tick();
+    // from HeaderView's layout effect after React reveals the normal toolbar.
     (
       this.libraryActionsButton ??
       document.querySelector<HTMLButtonElement>('.app-header button[aria-label="Add books"]')
@@ -272,7 +273,7 @@ export class HeaderController extends ObservableController {
     );
     return (() => {
       this.hydrated = true;
-      const media = window.matchMedia('(max-width: 1023px)');
+      const media = window.matchMedia('(max-width: 767px)');
       const update = () => (this.compactLibrary = media.matches);
       update();
       media.addEventListener('change', update);
