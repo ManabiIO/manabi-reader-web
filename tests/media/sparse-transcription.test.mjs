@@ -12,7 +12,8 @@ import {
   sparseCoverage,
   sparseMissingWindowsForLead,
   assembleSparse,
-  sparseBounds
+  sparseBounds,
+  validateSparseState
 } from '../../.cache/media-test-build/sparse-transcription.js';
 import { TransactionFactory, RangeDouble } from './transaction-double.mjs';
 import { transcriptionDraft } from '../../.cache/media-test-build/transcription-draft.js';
@@ -100,6 +101,132 @@ test('agreed whole cues crossing a seam margin appear, one-sided cues require re
   assert.deepEqual(safeSparseCues(state, 52), []);
   assert.deepEqual(assembleSparse(state), { repair: 0 });
   assert.equal(sparseLead(state, 52, 0), 23);
+});
+test('verified digital silence resolves only whole cues covered by the zero input', () => {
+  const state = newSparseState(52);
+  const early = cue(0, 3, 4, 'real speech');
+  state.windows[0] = {
+    cues: [early, cue(0, 24, 27, 'silence hallucination')],
+    inferenceMs: 1
+  };
+  state.windows[1] = { cues: [], inferenceMs: 1, digitalSilence: true };
+  const source = structuredClone(state);
+  assert.deepEqual(safeSparseCues(state, 52), [early]);
+  assert.deepEqual(acceptedSparseCues(state, 52), [early]);
+  assert.deepEqual(assembleSparse(state), { cues: [early] });
+  assert.equal(sparseLead(state, 52, 0), 52);
+  assert.equal(sparseCoverage(state, 52), 52);
+  assert.deepEqual(state, source, 'reconciliation never edits durable hypotheses');
+
+  // A cue beginning before the verified-zero input is kept whole and remains
+  // ambiguous. Silence evidence is not permission to clip its prefix.
+  state.windows[0] = { cues: [early, cue(0, 23, 27, 'crossing speech')], inferenceMs: 1 };
+  assert.deepEqual(assembleSparse(state), { repair: 0 });
+
+  // The evidence works in the other direction too: a previous zero window can
+  // refute only whole cues from the next hypothesis wholly inside its input.
+  state.windows[0] = { cues: [], inferenceMs: 1, digitalSilence: true };
+  state.windows[1] = { cues: [cue(1, 24, 27, 'reverse hallucination')], inferenceMs: 1 };
+  assert.deepEqual(assembleSparse(state), { cues: [] });
+
+  state.windows[1] = { cues: [cue(1, 25, 29, 'crossing out of silence')], inferenceMs: 1 };
+  assert.deepEqual(assembleSparse(state), { repair: 0 });
+  assert.equal(state.windows[1].cues[0].end, 29, 'the crossing suffix remains whole');
+});
+test('silence evidence round-trips while old empty hypotheses remain unknown', () => {
+  const state = newSparseState(52);
+  state.windows[0] = { cues: [cue(0, 24, 28, 'whole shared halo')], inferenceMs: 1 };
+  state.windows[1] = { cues: [], inferenceMs: 1 };
+  const legacy = validateSparseState(JSON.parse(JSON.stringify(state)), 52);
+  assert.equal(Object.hasOwn(legacy.windows[1], 'digitalSilence'), false);
+  assert.deepEqual(assembleSparse(legacy), { repair: 0 });
+
+  state.windows[1].digitalSilence = true;
+  const restored = validateSparseState(JSON.parse(JSON.stringify(state)), 52);
+  assert.deepEqual(restored, state);
+  assert.deepEqual(assembleSparse(restored), { cues: [] });
+
+  for (const invalid of [false, null, 0, 1, 'true']) {
+    state.windows[1].digitalSilence = invalid;
+    assert.throws(() => validateSparseState(state, 52), /Invalid sparse window/);
+  }
+});
+test('superseded zero windows cannot override either outer seam of a repair', () => {
+  for (const seam of [0, 1]) {
+    const state = newSparseState(78);
+    const boundary = seam === 0 ? 51 : 25;
+    const repaired = {
+      id: `w${seam}/repair-0`,
+      start: boundary,
+      end: boundary + 2,
+      text: 'agreed'
+    };
+    state.windows[0] = {
+      cues: [cue(0, seam === 0 ? 3 : 25, seam === 0 ? 4 : 27, seam === 0 ? 'early' : 'agreed')],
+      inferenceMs: 1
+    };
+    state.windows[1] = { cues: [], inferenceMs: 1, digitalSilence: true };
+    state.windows[2] = {
+      cues: [cue(2, seam === 0 ? 51 : 60, seam === 0 ? 53 : 61, seam === 0 ? 'agreed' : 'late')],
+      inferenceMs: 1
+    };
+    state.repairs[seam] = [repaired];
+    const source = structuredClone(state);
+    const result = assembleSparse(validateSparseState(state, 78));
+    assert.equal(result.repair, undefined);
+    assert.equal(result.cues.filter((item) => item.text === 'agreed').length, 1);
+    assert.deepEqual(result.cues[0], seam === 0 ? repaired : state.windows[0].cues[0]);
+    assert.deepEqual(state, source);
+  }
+});
+test('digital silence does not authorize an empty repair or erase repair speech', () => {
+  const state = newSparseState(52);
+  state.windows[0] = { cues: [cue(0, 23, 27, 'crossing speech')], inferenceMs: 1 };
+  state.windows[1] = { cues: [], inferenceMs: 1, digitalSilence: true };
+  state.repairs[0] = [];
+  assert.deepEqual(assembleSparse(state), { repair: 0 });
+  assert.throws(() => validateSparseState(state, 52), /Empty sparse seam repair/);
+
+  const repair = { id: 'w0/repair-0', start: 24, end: 27, text: 'repaired speech' };
+  state.repairs[0] = [repair];
+  assert.deepEqual(assembleSparse(validateSparseState(state, 52)), { cues: [repair] });
+});
+test('legacy sparse v1 does not reinterpret saved boundaries with newer silence evidence', () => {
+  const state = newSparseState(52);
+  state.policy = 'overlap-sparse-v1';
+  state.windows[0] = {
+    cues: [cue(0, 24, 27, 'historically accepted boundary')],
+    inferenceMs: 1
+  };
+  state.windows[1] = { cues: [], inferenceMs: 1, digitalSilence: true };
+  assert.deepEqual(assembleSparse(state), { repair: 0 });
+});
+test('digital-silence evidence is explicit and cannot coexist with saved speech', () => {
+  const state = newSparseState(52);
+  state.windows[0] = {
+    cues: [cue(0, 3, 4, 'contradiction')],
+    inferenceMs: 1,
+    digitalSilence: true
+  };
+  assert.throws(
+    () =>
+      validateJob({
+        version: 3,
+        sparse: state,
+        id: crypto.randomUUID(),
+        mediaKey: key,
+        language: 'ja',
+        audioTrack: '1',
+        duration: 52,
+        status: 'failed',
+        nextWindow: 1,
+        cues: [],
+        modelSha256: 'a'.repeat(64),
+        engineRevision: 'test',
+        createdAt: Date.now()
+      }),
+    /Digital-silent sparse window/
+  );
 });
 test('an empty seam repair cannot erase recognized speech', () => {
   const state = newSparseState(52);
@@ -223,6 +350,133 @@ test('watched-through sparse job completes from one inference per window', async
     );
   } finally {
     unblock?.();
+    await queue.dispose();
+    await store.close();
+    if (old === undefined) delete globalThis.IDBKeyRange;
+    else globalThis.IDBKeyRange = old;
+  }
+});
+test('a verified-zero neighbor removes a sparse halo hallucination without repair inference', async () => {
+  const old = globalThis.IDBKeyRange;
+  globalThis.IDBKeyRange = RangeDouble;
+  const store = new MediaStore(new TransactionFactory(), 'sparse-silence-evidence-tests');
+  const decoded = [],
+    inferred = [];
+  const engine = {
+    async prepare() {},
+    async transcribe() {
+      inferred.push(1);
+      if (inferred.length > 1)
+        throw Error('silence reconciliation must not start repair inference');
+      return '[3][S01]real speech[4][24][S01]silence hallucination[27]';
+    },
+    dispose() {}
+  };
+  const queue = new TranscriptionQueue(store, 'guest', engine, async (_job, start, end) => {
+    decoded.push(start);
+    const pcm = new Float32Array(Math.round((end - start) * 16000));
+    if (start === 0) pcm.fill(0.1);
+    return pcm;
+  });
+  try {
+    const job = await queue.enqueue(key, 'ja', '1', 52, 0);
+    for (let i = 0; i < 500; i++) {
+      const saved = await store.local('guest', 'jobs', job.id);
+      if (saved?.status === 'complete' || saved?.status === 'failed') break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    const saved = validateJob(await store.local('guest', 'jobs', job.id));
+    assert.equal(saved.status, 'complete', saved.error);
+    assert.deepEqual(decoded, [0, 24]);
+    assert.equal(inferred.length, 1);
+    const [track] = await store.tracks('guest', key);
+    assert.deepEqual(
+      track.cues.map((item) => item.text),
+      ['real speech']
+    );
+  } finally {
+    await queue.dispose();
+    await store.close();
+    if (old === undefined) delete globalThis.IDBKeyRange;
+    else globalThis.IDBKeyRange = old;
+  }
+});
+test('exact model-input silence survives queue restart without rewriting accepted speech', async () => {
+  const old = globalThis.IDBKeyRange;
+  globalThis.IDBKeyRange = RangeDouble;
+  const factory = new TransactionFactory();
+  const name = 'sparse-silence-resume-tests';
+  let store = new MediaStore(factory, name);
+  const decoded = [];
+  let inferred = 0,
+    prepared = 0,
+    failLast = true;
+  const engine = {
+    async prepare() {
+      prepared++;
+    },
+    async transcribe(pcm) {
+      inferred++;
+      structuredClone(pcm.buffer, { transfer: [pcm.buffer] });
+      return inferred === 1
+        ? '[3][S01]accepted[4][24][S01]halo hallucination[27]'
+        : '[6][S01]later[7]';
+    },
+    dispose() {}
+  };
+  const decode = async (_job, start, end) => {
+    decoded.push(start);
+    if (start === 50 && failLast) throw Error('Stop after the silence checkpoint');
+    const length = Math.round((end - start) * 16000);
+    if (start === 24) {
+      const pcm = new Float32Array(length + 1).fill(-0);
+      pcm[length] = 0.1; // The decoder's extra rounding sample is not model input.
+      return pcm;
+    }
+    const pcm = new Float32Array(length);
+    pcm[0] = 2 ** -149; // Even the smallest Float32 speech/noise sample is not zero.
+    return pcm;
+  };
+  let queue = new TranscriptionQueue(store, 'guest', engine, decode);
+  try {
+    const job = await queue.enqueue(key, 'ja', '1', 78, 0);
+    for (let i = 0; i < 500; i++) {
+      if ((await store.local('guest', 'jobs', job.id))?.status === 'failed') break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    const checkpoint = validateJob(await store.local('guest', 'jobs', job.id));
+    assert.equal(checkpoint.status, 'failed');
+    assert.match(checkpoint.error, /Stop after the silence checkpoint/);
+    assert.equal(checkpoint.nextWindow, 2);
+    assert.equal(checkpoint.sparse.windows[1].digitalSilence, true);
+    assert.equal(Object.hasOwn(checkpoint.sparse.windows[0], 'digitalSilence'), false);
+    assert.equal(checkpoint.sparse.windows[0].cues[1].text, 'halo hallucination');
+    assert.deepEqual(checkpoint.cues.map((item) => item.text), ['accepted']);
+    assert.equal(inferred, 1);
+    assert.equal(prepared, 1, 'zero input does not prepare the model');
+    assert.deepEqual(await store.tracks('guest', key), []);
+
+    await queue.dispose();
+    await store.close();
+    failLast = false;
+    store = new MediaStore(factory, name);
+    queue = new TranscriptionQueue(store, 'guest', engine, decode);
+    await queue.resume(job.id);
+    for (let i = 0; i < 500; i++) {
+      const saved = await store.local('guest', 'jobs', job.id);
+      if (saved?.status === 'complete' || saved?.status === 'failed') break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    const saved = validateJob(await store.local('guest', 'jobs', job.id));
+    assert.equal(saved.status, 'complete', saved.error);
+    assert.equal(saved.sparse, undefined, 'published checkpoints are still compacted');
+    assert.deepEqual(decoded, [0, 24, 50, 50], 'saved windows are never decoded again');
+    assert.equal(inferred, 2);
+    assert.equal(prepared, 2);
+    const [track] = await store.tracks('guest', key);
+    assert.deepEqual(track.cues.map((item) => item.text), ['accepted', 'later']);
+    assert.deepEqual(track.cues[0], checkpoint.cues[0], 'accepted identity and timing stay fixed');
+  } finally {
     await queue.dispose();
     await store.close();
     if (old === undefined) delete globalThis.IDBKeyRange;

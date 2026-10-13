@@ -139,7 +139,7 @@ True microphone streaming and a neural VAD remain outside this change.
 ## Playback-first sparse jobs
 
 An explicit Generate action in the player now creates a version-3
-`overlap-sparse-v1` job. Its 26-second cores and two-second halos bound normal
+`overlap-sparse-v2` job. Its 26-second cores and two-second halos bound normal
 MOSS inputs to 30 seconds. The current playhead selects the next missing core;
 seeks change that priority after the current inference finishes. Each completed
 core is checkpointed once and reused in the same job as the queue fills the
@@ -162,6 +162,57 @@ pair uses the full repaired cues for playback and final publication, preserving
 the identities and timing of matched accepted cues.
 Completed version-3 jobs are compacted after atomic track publication, so
 routine queue reads do not reload the complete window hypotheses.
+
+### Durable digital-silence evidence
+
+Normal sparse windows persist optional `digitalSilence: true` only when every
+sample of the bounded model PCM equals zero. This uses `sparseModelPcm`'s exact
+input after its permitted extra rounding sample has been removed, before worker
+transfer can detach the buffer. Signed zero qualifies; any nonzero sample,
+including quiet speech or low-level noise, continues through MOSS. An ordinary
+empty recognition result does not establish silence.
+
+For `overlap-sparse-v2`, a verified-zero neighbor may refute a one-sided cue only
+when the whole cue lies inside that zero input. Crossing cues stay whole and
+unresolved. Filtering applies to a derived reconciliation copy; the original
+window hypotheses remain saved. Display, readiness, accepted-prefix derivation,
+and publication share that reconciliation. Legacy `overlap-sparse-v1` jobs retain
+their historical acceptance semantics, and older windows lacking the optional
+field remain unknown. Validation rejects non-`true` evidence and a silent window
+containing speech.
+
+An input superseded by either adjacent seam repair cannot refute cues on the
+repair's outer seam. Repairs remain the authority for their own hypotheses;
+silence evidence neither filters their cues nor relaxes the prohibition on an
+empty repair replacing recognized speech. Existing accepted-cue preservation,
+account scoping, lease checks and atomic publication remain in force.
+
+This evidence is part of the device-only job checkpoint, survives validation and
+resume, and is compacted with the other source hypotheses after publication. It
+does not add a portable caption field, sync record type or backup/restore format.
+Restored unfinished jobs, wherever supported, must retain the optional field;
+absence must never be inferred as silence or synthesized from empty captions.
+
+The focused integration is derived from PR #215 at
+`c5e016ab423731f0bdaae73909dd9f86fa91b496`, against main
+`a1101b66db4c194140aeb4a8d6edcdfc86b4c770`. The donor's player/ETA changes are
+deferred for coordination with the pitch owner; this integration leaves timing
+sampling and shared audio adapters unchanged. Video Learning remains default-off
+(`EXPO_PUBLIC_ENABLE_VIDEO_LEARNING` requires explicit `true`). This feature is
+not a v3-hotfix release blocker.
+
+**Integration verification: UNRUN (2026-10-13).** Regression sources in
+`tests/media/sparse-transcription.test.mjs` cover covered and crossing cues in both
+directions, unknown/malformed/contradictory saved evidence, legacy v1, repair
+precedence and empty-repair rejection, immutable source/accepted cues, one-inference
+completion, and checkpoint/restart/compaction using transaction and engine doubles.
+The restart case includes a tiny nonzero sample, signed zero, buffer detachment,
+and a discarded decoder rounding sample. No tests, builds, lint, type checks,
+package installs, model execution, browser QA, benchmarks or CI dispatch were run
+for this integration. Historical qualification elsewhere in this document does
+not qualify these new changes.
+
+### Playback estimates
 
 The player measures decode plus warm inference time for each finished core,
 excluding first-time model download/preparation, and estimates how
