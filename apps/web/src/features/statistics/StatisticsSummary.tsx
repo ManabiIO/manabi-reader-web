@@ -34,10 +34,21 @@ import {
 export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
   const { colors } = useUiTheme();
   const { width } = useWindowDimensions();
-  const [details, setDetails] = useState<{ lines: string[]; anchor: View }>();
+  const [details, setDetails] = useState<{
+    lines: string[];
+    anchor: View;
+    snapshot: typeof state.data;
+  }>();
   const [pagesOpen, setPagesOpen] = useState(false);
   const [pagesAnchor, setPagesAnchor] = useState<View>();
+  // Reveals belong to this mounted snapshot. Keep the saved tracker privacy
+  // preference intact and hide again when a fresh owner snapshot arrives.
+  const [revealed, setRevealed] = useState<{ snapshot: typeof state.data; keys: Set<string> }>({
+    snapshot: state.data,
+    keys: new Set()
+  });
   const { data, query: q, editor } = state;
+  const visibleDetails = details?.snapshot === data ? details : undefined;
   const wide = width >= 768;
   const columns: {
     key: StatisticsQuery['sort'];
@@ -166,7 +177,11 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
           accessibilityRole="button"
           accessibilityLabel={`Show full title ${row.title}`}
           onPress={(event) =>
-            setDetails({ lines: [row.title], anchor: event.currentTarget as unknown as View })
+            setDetails({
+              lines: [row.title],
+              anchor: event.currentTarget as unknown as View,
+              snapshot: data
+            })
           }
           style={styles.detailTarget}
         >
@@ -183,34 +198,47 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
         : column.key === 'characters'
           ? 'charactersRead'
           : 'lastReadingSpeed';
-    const blurred = state.data?.blurredMeasurements?.includes(key);
+    const blurred =
+      !!data?.blurredMeasurements?.includes(key) &&
+      !(revealed.snapshot === data && revealed.keys.has(key));
+    const value =
+      column.key === 'time'
+        ? `${minutes(row.measurements[q.timeSource])} min`
+        : column.key === 'characters'
+          ? String(row.measurements[q.charactersSource])
+          : `${row.measurements[q.speedSource]} / h`;
     return (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${column.label} details for ${row.title || row.date}`}
-        onPress={(event) =>
+        accessibilityLabel={
+          blurred
+            ? `${column.label} for ${row.title || row.date}, value hidden. Activate to reveal.`
+            : `${column.label} for ${row.title || row.date}: ${value}. Activate to view details.`
+        }
+        onPress={(event) => {
+          if (blurred) {
+            setRevealed((previous) => ({
+              snapshot: data,
+              keys: new Set([...(previous.snapshot === data ? previous.keys : []), key])
+            }));
+            return;
+          }
           setDetails({
             lines: measurementDetails(row, column.key as 'time' | 'characters' | 'speed'),
-            anchor: event.currentTarget as unknown as View
-          })
-        }
+            anchor: event.currentTarget as unknown as View,
+            snapshot: data
+          });
+        }}
         style={styles.detailTarget}
       >
-        <Text style={[styles.cellText, { color: colors.foreground, opacity: blurred ? 0 : 1 }]}>
-          {column.key === 'time'
-            ? `${minutes(row.measurements[q.timeSource])} min`
-            : column.key === 'characters'
-              ? row.measurements[q.charactersSource]
-              : `${row.measurements[q.speedSource]} / h`}
+        <Text
+          aria-hidden={blurred}
+          accessibilityElementsHidden={blurred}
+          importantForAccessibility={blurred ? 'no-hide-descendants' : 'auto'}
+          style={[styles.cellText, { color: blurred ? colors.mutedForeground : colors.foreground }]}
+        >
+          {blurred ? '••••' : value}
         </Text>
-        {blurred && (
-          <Text
-            accessibilityLabel="Hidden measurement"
-            style={{ position: 'absolute', color: colors.mutedForeground }}
-          >
-            ••••
-          </Text>
-        )}
       </Pressable>
     );
   };
@@ -372,15 +400,16 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
         </View>
       )}
       <AnchoredPopover
-        visible={!!details}
+        visible={!!visibleDetails}
         title="Measurement details"
         label="Measurement details"
         closeLabel="Close measurement details"
-        anchor={details?.anchor}
+        anchor={visibleDetails?.anchor}
         onClose={() => setDetails(undefined)}
         maxWidth={320}
+        focusSelected
       >
-        {details?.lines.map((detail) => (
+        {visibleDetails?.lines.map((detail) => (
           <Text key={detail} style={{ color: colors.foreground, marginBottom: 8 }}>
             {detail}
           </Text>
