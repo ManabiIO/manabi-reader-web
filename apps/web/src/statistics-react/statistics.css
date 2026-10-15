@@ -74,11 +74,35 @@
   }
 }
 
+.react-statistics-statistics-screen .statistics-options-sheet {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .react-statistics-statistics-settings .statistics-options {
-  display: grid;
-  flex-shrink: 0;
+  display: flex;
   min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+.react-statistics-statistics-settings .statistics-options-header {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 12px;
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--popover);
+}
+.react-statistics-statistics-settings .statistics-options-scroll {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
   gap: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px;
   padding-bottom: max(20px, env(safe-area-inset-bottom));
 }

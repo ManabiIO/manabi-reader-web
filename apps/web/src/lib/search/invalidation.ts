@@ -36,3 +36,41 @@ export function advanceMediaSearchRevisions(
     content: current.content + Number(captionsChanged || metadataChanged)
   };
 }
+
+/** Advance only when an immutable snapshot reference is replaced. */
+export function referenceRevision<T>() {
+  let current: T | undefined,
+    initialized = false,
+    revision = 0;
+  return (next: T): number => {
+    if (!initialized || next !== current) {
+      initialized = true;
+      current = next;
+      revision++;
+    }
+    return revision;
+  };
+}
+
+/**
+ * Advance when a replacement immutable array changes the searchable fields.
+ * Same-reference reads are O(1); replacement snapshots compare in place and
+ * allocate no corpus-sized projection/signature.
+ */
+export function arrayRevision<T>(equal: (left: T, right: T) => boolean) {
+  let current: readonly T[] | undefined,
+    initialized = false,
+    revision = 0;
+  return (next: readonly T[]): number => {
+    if (initialized && next === current) return revision;
+    const changed =
+      !initialized ||
+      !current ||
+      next.length !== current.length ||
+      next.some((item, index) => !equal(item, current![index]));
+    if (changed) revision++;
+    initialized = true;
+    current = next;
+    return revision;
+  };
+}

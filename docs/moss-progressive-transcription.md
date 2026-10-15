@@ -139,7 +139,7 @@ True microphone streaming and a neural VAD remain outside this change.
 ## Playback-first sparse jobs
 
 An explicit Generate action in the player now creates a version-3
-`overlap-sparse-v1` job. Its 26-second cores and two-second halos bound normal
+`overlap-sparse-v2` job. Its 26-second cores and two-second halos bound normal
 MOSS inputs to 30 seconds. The current playhead selects the next missing core;
 seeks change that priority after the current inference finishes. Each completed
 core is checkpointed once and reused in the same job as the queue fills the
@@ -163,10 +163,86 @@ the identities and timing of matched accepted cues.
 Completed version-3 jobs are compacted after atomic track publication, so
 routine queue reads do not reload the complete window hypotheses.
 
-The player measures decode plus warm inference time for each finished core,
-excluding first-time model download/preparation, and estimates how
-long it will take to build a 26-second caption lead. The estimate is updated
-as more windows finish; before the first window it says that it is estimating.
+### Durable digital-silence evidence
+
+Normal sparse windows persist optional `digitalSilence: true` only when every
+sample of the bounded model PCM equals zero. This uses `sparseModelPcm`'s exact
+input after its permitted extra rounding sample has been removed, before worker
+transfer can detach the buffer. Signed zero qualifies; any nonzero sample,
+including quiet speech or low-level noise, continues through MOSS. An ordinary
+empty recognition result does not establish silence.
+
+For `overlap-sparse-v2`, a verified-zero neighbor may refute a one-sided cue only
+when the whole cue lies inside that zero input. Crossing cues stay whole and
+unresolved. Filtering applies to a derived reconciliation copy; the original
+window hypotheses remain saved. Display, readiness, accepted-prefix derivation,
+and publication share that reconciliation. Legacy `overlap-sparse-v1` jobs retain
+their historical acceptance semantics, and older windows lacking the optional
+field remain unknown. Validation rejects non-`true` evidence and a silent window
+containing speech.
+
+An input superseded by either adjacent seam repair cannot refute cues on the
+repair's outer seam. Repairs remain the authority for their own hypotheses;
+silence evidence neither filters their cues nor relaxes the prohibition on an
+empty repair replacing recognized speech. Existing accepted-cue preservation,
+account scoping, lease checks and atomic publication remain in force.
+
+This evidence is part of the device-only job checkpoint, survives validation and
+resume, and is compacted with the other source hypotheses after publication. It
+does not add a portable caption field, sync record type or backup/restore format.
+Restored unfinished jobs, wherever supported, must retain the optional field;
+absence must never be inferred as silence or synthesized from empty captions.
+
+The focused integration is derived from PR #215 at
+`c5e016ab423731f0bdaae73909dd9f86fa91b496`, against main
+`a1101b66db4c194140aeb4a8d6edcdfc86b4c770`. It also integrates the donor's
+player progress clock and timing samples after confirming pitch PR #264 does not
+touch `media/player.ts`. Shared audio adapters remain unchanged. Video Learning
+remains default-off
+(`EXPO_PUBLIC_ENABLE_VIDEO_LEARNING` requires explicit `true`). This feature is
+not a v3-hotfix release blocker.
+
+**Integration verification: UNRUN (2026-10-13).** Regression sources in
+`tests/media/sparse-transcription.test.mjs` cover covered and crossing cues in both
+directions, unknown/malformed/contradictory saved evidence, legacy v1, repair
+precedence and empty-repair rejection, immutable source/accepted cues, one-inference
+completion, and checkpoint/restart/compaction using transaction and engine doubles.
+The restart case includes a tiny nonzero sample, signed zero, buffer detachment,
+and a discarded decoder rounding sample. No tests, builds, lint, type checks,
+package installs, model execution, browser QA, benchmarks or CI dispatch were run
+for this integration. Historical qualification elsewhere in this document does
+not qualify these new changes.
+
+### Playback estimates
+
+The player measures decode plus warm inference time for each finished non-silent
+core, excluding first-time model download/preparation and exact-zero cores that
+bypass MOSS, and estimates how long it will take to build a 26-second caption lead.
+The estimate is updated
+as more non-silent windows finish; before the first such sample it says that it is
+estimating after the first speech window. An ordinary empty recognition result,
+including an older saved result with no silence evidence, still counts as an
+inference timing sample. Exact-zero cores continue to count toward completed
+coverage and caption readiness.
+
+Until a non-silent timing sample exists, decoding starts an elapsed clock for
+the current candidate speech window. Completing an exact-zero core retires that
+clock, and the next decoding notification starts a fresh one. Repeated completion
+notifications do not restart it. Checking, downloading, verifying and loading the
+model preserve the current attempt's clock. This elapsed display includes model
+preparation; preparation is still excluded from the measured throughput estimate.
+The first timing sample, pause, failure, completion, or switching jobs retires the
+clock.
+
+**ETA follow-up verification: UNRUN (2026-10-13).** Added regression sources in
+`tests/media/sparse-playback-snapshot.test.mjs` cover mixed silent/speech timing,
+all-silent coverage, ordinary-empty timing and immutable notification snapshots.
+The focused cases in `tests/media/dom-browser.py` cover a playhead that still
+needs captions after silent coverage, preparation stages, repeated silent cores,
+the first measured result, and clock retirement on job status/identity changes.
+No browser, model, test, build, lint, type-check, install, benchmark or CI run was
+performed for this follow-up.
+
 If inference takes longer than one core of playback, the UI says captions may
 need to buffer again. Viewers can wait or choose **Play without captions**.
 This is a rolling estimate, not a promise of sustained real-time transcription.

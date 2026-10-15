@@ -7,7 +7,8 @@ recording, upload or second playback element is involved.
 
 ## Reading the view
 
-The shaded waveform shows relative audio amplitude. The yellow (`#ffd83d`)
+The shaded waveform shows relative mixed-audio amplitude inside the active
+subtitle. The yellow (`#ffd83d`)
 contour shows estimated acoustic pitch, with higher lines representing a higher
 voice. Both the waveform and its surface follow the reader’s foreground,
 background and border tokens in light and dark modes.
@@ -22,6 +23,13 @@ Pausing holds the completed trace. Seeking, looping, changing speed, choosing
 another audio file, or reopening the strip starts a new trace. Resuming after
 pause or buffering begins a separate contour segment. The About this view
 disclosure explains these limits without occupying the main transcript view.
+
+Between timed subtitles, the strip shows **Waiting for dialogue** and sends no
+model requests. Existing points scroll out with the media clock. Each cue owns
+its exact delayed, duration-clamped half-open interval; samples outside it are
+zeroed before inference and projected frames outside it are discarded. A new
+cue starts a separate segment. Overlapping music or speakers inside the active
+cue can still influence the monophonic estimate.
 
 This is a **live rolling visualization**, not a precomputed full-cue graph.
 Not-yet-played passages have no contour. The 85–520 Hz speech range does not cover
@@ -56,6 +64,20 @@ is hidden; pausing, ending and buffering retire both pending results and their
 watchdogs. A fresh native audio window and available media data are required
 before sampling resumes. Stale callbacks cannot restore retired traces.
 
+Inference is serialized even when a newer playback epoch retires an unfinished
+request. Explicit retirement also drops queued work during gaps. Input and all
+returned output tensors are disposed after success or failure, including
+partial input allocation and malformed outputs; published arrays are copied
+before release. Quiet non-silent input receives model-only gain, while amplitude
+and current-hop silence gating use the original resampled samples.
+
+The controller prefers a 48 kHz context. If the native fallback cannot fit
+11 past + 1 current + 10 future model frames inside the 32,768-sample analyser,
+it fails before worker download or media capture and closes the unused context.
+Retry can create a new context after the output rate changes. A cue transition
+waits for future context without shortening a full post-seek or post-pause
+fresh-audio wait.
+
 **Web Audio routing invariant:** once the media element is captured, its direct
 connection to the destination stays alive while visualization is hidden or off.
 Only the analyser branch is disconnected. Closing or suspending that context on
@@ -72,6 +94,15 @@ search to 85–520 Hz, uses SwiftF0's confidence with a 0.52 voiced threshold,
 retains a rolling −35 dB relative level gate, and maps the model's fixed 16 ms
 frames back to media time. The previous custom autocorrelation estimator has
 been removed rather than retained as a silent fallback.
+
+The vendored graph is Git blob `3619f9ab7ad7c852b995550c74d971be236225d7`
+(135,090 bytes). It accepts float32 `audio` shaped `[1, samples]` and scalar
+float32 `fmin`/`fmax`; outputs are float64 `pitch` and float32 `confidence`, each
+`[1, frames]`. ONNX Runtime Web remains pinned to 1.29.0, using WASM CPU.
+The [v0.3.0 reference source](https://github.com/lars76/swift-f0/blob/v0.3.0/swift_f0/core.py)
+defines 16,000 Hz / 256 samples = **16 ms** per model frame. The centered 32 ms
+window measures display level; it is not the model hop. Frame selection needs
+11 preceding and 10 subsequent frames. The minimum complete window is 352 ms.
 
 SwiftF0 requires about 176 ms of future context for a final streaming frame.
 Reader therefore analyzes a short rolling window and displays a slightly
@@ -105,3 +136,27 @@ Screenshots and diagnostics are retained under `test-results/voice-pitch-app`.
 Repository lint, application type-check and build, the native engine matrix,
 and actual-app acceptance must be checked on the selected PR head. The PR
 qualification ledger records observed results; an added test is not a pass.
+
+## October 13 source reconciliation (unqualified)
+
+This composition starts from Expo main `a1101b66db4c194140aeb4a8d6edcdfc86b4c770`.
+The model, runtime version, document-base worker initialization, asset URL
+resolution and lazy loading remain in their current Expo form. No persistent
+user data or backup format changes.
+
+| Historical donor | Semantic disposition |
+| --- | --- |
+| #252 `2b8af420bea544ece819300bdb20b6a56513df12` | Carry tensor ownership, current-hop silence, full context, high-rate filtering/capture bounds, serialization and stale-reply protection. Fix its adapter's missing ownership of rejected/unexpected output tensors. Extend retirement to gaps with no replacement analysis. |
+| #227 `456e8712507c72c09c44bbe355cb01d637ab1fc6` | Carry exact cue masks, gap clock and cue state into the live React adapter. Preserve main's 0.55 s / 96 ms single-frame cadence. Its 0.64 s / 256 ms batching and alternate context-rate fallback are not adopted; qualify them separately if desired. Do not transplant its malformed literal `\n` in `analysis.ts`. |
+| #193 `5b54d32682e4cce1d9f14769717fa8d0c09d721b` | Carry cue entry/exit ownership and broken contours through the composition above. Retained Svelte changes remain historical evidence; the dirty shared Svelte source is not edited. |
+
+All three donor PRs remain open; ancestry alone is not a semantic disposition.
+Regression sources cover resource lifetime, worker retirement, cue identity,
+timestamp projection, gap admission and React cue ownership. **No tests,
+type checks, lint, builds, installs, benchmarks, model execution, playback,
+browser verification or CI dispatch were performed for this composition.**
+The later authorized batch must run core and React/Expo regressions, qualify the
+real model in Chromium/Firefox/WebKit, and verify lazy assets in the actual Expo
+web export and packaged Android DOM host. Synthetic assertions do not qualify
+Japanese speech or mixed dialogue/music accuracy. This upstream media work is
+outside native v3-hotfix release blockers.

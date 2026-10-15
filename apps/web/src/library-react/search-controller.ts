@@ -19,7 +19,12 @@ import type { ShelfBook } from '$lib/library/view-model';
 import type { ReaderLocator } from '$lib/reader-location';
 import type { SnippetSummary } from '$lib/snippets/summary';
 import { searchBookContents } from '$lib/search/book-content-source';
-import type { BookTitleMatchContext } from '$lib/search/book-title-match-text';
+import {
+  queryBookTitleSearchSnapshot,
+  type BookTitleMatchContext,
+  type BookTitleSearchSnapshot
+} from '$lib/search/book-title-match-text';
+import { foldSearch } from '$lib/library/search-normalization';
 import {
   bookTitleRows,
   scopedSnippetTitleRows,
@@ -38,22 +43,33 @@ import {
 import { queryTask, type SearchState } from '$lib/search/query-task.mjs';
 import {
   advanceMediaSearchRevisions,
+  arrayRevision,
+  referenceRevision,
   searchResultPlan,
   type SearchResultFilter
 } from '$lib/search/invalidation';
-import { librarySearchScopePlan, type LibrarySearchScope } from '$lib/search/library-search-scope';
+import {
+  librarySearchQueryWithinLimit,
+  librarySearchScopePlan,
+  type LibrarySearchScope
+} from '$lib/search/library-search-scope';
 type Results = SearchResults<SearchRow>;
 type LazyMediaRuntime = {
   store: import('$lib/media/store').MediaStore;
   search: typeof import('$lib/media/video-search');
 };
+interface EligibleSnippetSnapshot {
+  items: readonly SnippetSummary[];
+  members: readonly string[] | undefined;
+  eligible: SnippetSummary[];
+}
+const eligibleSnippetSnapshots = new WeakMap<object, EligibleSnippetSnapshot>();
 import { ObservableController, readStore, tick } from './observable-controller';
 export class SearchController extends ObservableController {
   query = '';
   searchScope: LibrarySearchScope = 'everything';
   books: ShelfBook[] = [];
-  matches: ShelfBook[] = [];
-  bookMatchText: Record<string, readonly BookTitleMatchContext[]> = {};
+  bookSearchSnapshot: BookTitleSearchSnapshot = { direct: [], contexts: [] };
   snippetMembers: string[] | undefined = undefined;
   returnTo = '/manage';
   openBook!: (book: ShelfBook, locator?: ReaderLocator) => void;
@@ -89,6 +105,23 @@ export class SearchController extends ObservableController {
   stopMedia: () => void = () => {};
   mediaTitleRevision = 0;
   mediaContentRevision = 0;
+  bookSearchSnapshotRevisionFor = referenceRevision<BookTitleSearchSnapshot>();
+  snippetTitleRevisionFor = arrayRevision<SnippetSummary>(
+    (left, right) => left.id === right.id && left.key === right.key && left.title === right.title
+  );
+  snippetContentRevisionFor = arrayRevision<SnippetSummary>(
+    (left, right) =>
+      left.key === right.key && left.title === right.title && left.revision === right.revision
+  );
+  contentBooksRevisionFor = arrayRevision<ShelfBook>(
+    (left, right) =>
+      left.key === right.key &&
+      left.bookId === right.bookId &&
+      left.isPlaceholder === right.isPlaceholder &&
+      left.title === right.title &&
+      left.contentHash === right.contentHash &&
+      left.lastBookModified === right.lastBookModified
+  );
   contentTask = queryTask<Results>((value) => {
     this.content = value;
   });
@@ -129,11 +162,18 @@ export class SearchController extends ObservableController {
     return readStore(localUser)?.id ?? null;
   }
   get eligible() {
-    return readStore(snippetItems).filter(
-      (item) =>
-        !item.trashedAt &&
-        (!this.snippetMembers || this.snippetMembers.includes(snippetKey(item.id)))
+    const items = readStore(snippetItems),
+      members = this.snippetMembers;
+    const cached = eligibleSnippetSnapshots.get(this);
+    if (cached && cached.items === items && cached.members === members) return cached.eligible;
+    const eligible = items.filter(
+      (item) => !item.trashedAt && (!members || members.includes(snippetKey(item.id)))
     );
+    eligibleSnippetSnapshots.set(this, { items, members, eligible });
+    return eligible;
+  }
+  get queryWithinLimit() {
+    return librarySearchQueryWithinLimit(this.query);
   }
   get scopePlan() {
     return librarySearchScopePlan(this.searchScope);
@@ -147,47 +187,36 @@ export class SearchController extends ObservableController {
       : this.filters.filter((item) => item.id !== 'dictionary');
   }
   get nextTitleSignature() {
-    return this.resultPlan.titles
-      ? JSON.stringify([
-          this.query,
-          this.owner,
-          this.searchScope,
-          this.scopePlan.books
-            ? this.matches.map((book) => [
-                book.key,
-                book.title,
-                book.canonicalTitle,
-                (book.creators ?? []).map((creator) => creator.name),
-                book.series?.name ?? null,
-                this.bookMatchText[book.key] ?? []
-              ])
-            : [],
-          this.scopePlan.snippets ? this.eligible.map((item) => [item.key, item.title]) : [],
-          videoLearningEnabled && this.searchScope === 'everything' ? this.mediaTitleRevision : 0
-        ])
-      : 'inactive';
+    if (!this.resultPlan.titles) return 'inactive';
+    const bookRevision = this.scopePlan.books
+      ? this.bookSearchSnapshotRevisionFor(this.bookSearchSnapshot)
+      : 0;
+    const snippetRevision = this.scopePlan.snippets
+      ? this.snippetTitleRevisionFor(this.eligible)
+      : 0;
+    return JSON.stringify([
+      this.query,
+      this.owner,
+      this.searchScope,
+      bookRevision,
+      snippetRevision,
+      videoLearningEnabled && this.searchScope === 'everything' ? this.mediaTitleRevision : 0
+    ]);
   }
   get nextContentSignature() {
-    return this.resultPlan.content
-      ? JSON.stringify([
-          this.query,
-          this.owner,
-          this.searchScope,
-          this.scopePlan.books
-            ? this.books.map((book) => [
-                book.key,
-                book.bookId,
-                book.title,
-                book.contentHash,
-                book.lastBookModified
-              ])
-            : [],
-          this.scopePlan.snippets
-            ? this.eligible.map((item) => [item.key, item.title, item.revision])
-            : [],
-          videoLearningEnabled && this.searchScope === 'everything' ? this.mediaContentRevision : 0
-        ])
-      : 'inactive';
+    if (!this.resultPlan.content) return 'inactive';
+    const bookRevision = this.scopePlan.books ? this.contentBooksRevisionFor(this.books) : 0;
+    const snippetRevision = this.scopePlan.snippets
+      ? this.snippetContentRevisionFor(this.eligible)
+      : 0;
+    return JSON.stringify([
+      this.query,
+      this.owner,
+      this.searchScope,
+      bookRevision,
+      snippetRevision,
+      videoLearningEnabled && this.searchScope === 'everything' ? this.mediaContentRevision : 0
+    ]);
   }
   get visibleTitles() {
     return (this.titles.value?.rows ?? []).slice(0, this.filter === 'all' ? 2 : this.titleLimit);
@@ -214,12 +243,12 @@ export class SearchController extends ObservableController {
   }
   startTitles() {
     const plan = librarySearchScopePlan(this.searchScope);
-    const selectedBooks = plan.books ? [...this.matches] : [],
-      selectedSnippets = plan.snippets ? [...this.eligible] : [],
+    const selectedBookCorpus = plan.books ? this.books : [],
+      selectedBookSnapshot = this.bookSearchSnapshot,
+      selectedSnippets = plan.snippets ? this.eligible : [],
       selectedOwner = this.owner,
       selectedQuery = this.query,
-      runVideos = videoLearningEnabled && this.searchScope === 'everything',
-      selectedBookMatchText = this.bookMatchText;
+      runVideos = videoLearningEnabled && this.searchScope === 'everything';
     this.titleTask.start(async (signal, publish) => {
       const guard = () => {
         signal.throwIfAborted();
@@ -249,8 +278,19 @@ export class SearchController extends ObservableController {
           snippetScope = undefined;
         }
       };
-      // Metadata stays local and independent of dictionary initialization and
-      // expensive body projection. Do not normalize the editable query to kana.
+      // Query the immutable Book metadata snapshot only after this debounced
+      // generation owns the work. Query edits never clone or scan the Book corpus
+      // synchronously before this point.
+      let selectedBooks: ShelfBook[] = [],
+        selectedBookMatchText: Record<string, readonly BookTitleMatchContext[]> = {};
+      if (plan.books) {
+        const index = queryBookTitleSearchSnapshot(
+          selectedBookSnapshot,
+          foldSearch(selectedQuery.trim())
+        );
+        selectedBooks = selectedBookCorpus.filter((book) => index.matchedKeys.has(book.key));
+        selectedBookMatchText = index.textByBook;
+      }
       const bookRows = bookTitleRows(selectedBooks, selectedBookMatchText, selectedQuery);
       refreshSnippetRows();
       guard();
@@ -294,19 +334,19 @@ export class SearchController extends ObservableController {
           truncated: videoTruncated
         }
       });
-    }, 0);
+    });
   }
   startContent() {
     const plan = librarySearchScopePlan(this.searchScope);
-    const selectedBooks = plan.books ? [...this.books] : [],
-      selectedSnippets = plan.snippets ? [...this.eligible] : [],
+    const selectedBooks = plan.books ? this.books : [],
+      selectedSnippets = plan.snippets ? this.eligible : [],
       needle = this.query,
       selectedOwner = this.owner,
-      runVideos = videoLearningEnabled && this.searchScope === 'everything',
-      selectedBooksById = new Map(
+      runVideos = videoLearningEnabled && this.searchScope === 'everything';
+    this.contentTask.start((signal, publish) => {
+      const selectedBooksById = new Map(
         selectedBooks.flatMap((book) => (book.bookId ? [[book.bookId, book] as const] : []))
       );
-    this.contentTask.start((signal, publish) => {
       const guard = () => {
         signal.throwIfAborted();
         if (selectedOwner !== (localProfileUser()?.id ?? null))
@@ -391,7 +431,7 @@ export class SearchController extends ObservableController {
     this.titleTask.stop();
     this.titles = { state: 'idle' };
     this.titleLimit = 30;
-    if (!this.resultPlan.titles || !this.query.trim() || [...this.query].length > 512) return;
+    if (!this.resultPlan.titles || !this.query.trim() || !this.queryWithinLimit) return;
     this.startTitles();
   }
   refreshContent() {
@@ -399,7 +439,7 @@ export class SearchController extends ObservableController {
     this.contentTask.stop();
     this.content = { state: 'idle' };
     this.contentLimit = 30;
-    if (!this.resultPlan.content || !this.query.trim() || [...this.query].length > 512) return;
+    if (!this.resultPlan.content || !this.query.trim() || !this.queryWithinLimit) return;
     this.startContent();
   }
   async choose(value: SearchResultFilter) {

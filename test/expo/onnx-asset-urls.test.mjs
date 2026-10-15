@@ -104,7 +104,7 @@ test('the browser sends its document base to every new pitch worker', async () =
   }
 });
 
-async function workerFixture({ fail = false } = {}) {
+async function workerFixture({ fail = false, deferred = false } = {}) {
   const result = await build({
     entryPoints: [path.join(pitch, 'voice-pitch.worker.ts')],
     bundle: true,
@@ -122,7 +122,10 @@ async function workerFixture({ fail = false } = {}) {
           bundle.onLoad({ filter: /.*/, namespace: 'test' }, () => ({
             contents: `
         export function prepareSwiftF0(base) { globalThis.prepares.push(base); return ${fail ? 'Promise.reject(new Error("model load failed"))' : 'Promise.resolve({})'}; }
-        export async function analyseSwiftF0Window() { globalThis.analyses++; return { hz: 220, rms: 1 }; }
+        export async function analyseSwiftF0Window() {
+          globalThis.analyses++;
+          ${deferred ? 'return new Promise((resolve, reject) => globalThis.pending.push({ resolve, reject }));' : 'return { hz: 220, rms: 1 };'}
+        }
       `
           }));
         }
@@ -134,6 +137,7 @@ async function workerFixture({ fail = false } = {}) {
     Float32Array,
     prepares: [],
     analyses: 0,
+    pending: [],
     postMessage: (message) => messages.push(message)
   });
   vm.runInContext(result.outputFiles[0].text, context);
@@ -161,6 +165,37 @@ test('pitch worker waits for init, ignores duplicate init and only analyses afte
   assert.equal(worker.context.analyses, 1);
   assert.equal(worker.messages[1].type, 'result');
   assert.equal(worker.messages[1].id, 7);
+});
+
+// Authored only: execute with the later authorized Expo qualification batch.
+test('the actual worker serializes epochs and retirement suppresses late success and error', async () => {
+  for (const reject of [false, true]) {
+    const worker = await workerFixture({ deferred: true });
+    worker.send({ type: 'init', assetBaseURL: 'https://reader.invalid/reader-web/' });
+    await flush();
+    const request = (id, epoch) => ({ type: 'analyze', id, epoch, rate: 16000, samples: new Float32Array(8800) });
+    worker.send(request(1, 1));
+    await flush();
+    worker.send(request(2, 2));
+    await flush();
+    assert.equal(worker.context.analyses, 1, 'new epoch cannot overlap session.run');
+    worker.send({ type: 'retire', epoch: 3 });
+    worker.send({ type: 'retire', epoch: 0 });
+    const first = worker.context.pending.shift();
+    if (reject) first.reject(new Error('retired run failed'));
+    else first.resolve({ hz: 220, rms: 1 });
+    await flush();
+    assert.equal(worker.messages.length, 1, 'only the initial readiness can be published');
+    assert.equal(worker.context.analyses, 1, 'queued retired epoch must not run');
+    worker.send(request(3, 3));
+    await flush();
+    assert.equal(worker.context.analyses, 2);
+    worker.context.pending.shift().resolve({ hz: 220, rms: 0.001 });
+    await flush();
+    assert.equal(worker.messages.at(-1).id, 3);
+    assert.equal(worker.messages.at(-1).epoch, 3);
+    assert.equal(worker.messages.at(-1).result.hz, 220, 'retired loudness cannot mute a new epoch');
+  }
 });
 
 test('invalid init or model-load failure produces a load error and never readiness', async () => {

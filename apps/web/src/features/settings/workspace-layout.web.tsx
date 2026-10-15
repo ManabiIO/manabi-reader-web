@@ -17,7 +17,7 @@ export function WorkspaceFrame({ children, rootRef }: WorkspaceFrameProps) {
     <Dom
       as="div"
       elementRef={rootRef}
-      className="settings-workspace grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]"
+      className="settings-workspace grid min-w-0 grid-cols-1 gap-6 md:grid-cols-[14rem_minmax(0,1fr)]"
     >
       {children}
     </Dom>
@@ -25,7 +25,7 @@ export function WorkspaceFrame({ children, rootRef }: WorkspaceFrameProps) {
 }
 export function WorkspaceAside({ children }: { children?: ReactNode }) {
   return (
-    <aside aria-label="Settings sections" className="min-w-0 self-start lg:sticky lg:top-20">
+    <aside aria-label="Settings sections" className="min-w-0 self-start md:sticky md:top-20">
       {children}
     </aside>
   );
