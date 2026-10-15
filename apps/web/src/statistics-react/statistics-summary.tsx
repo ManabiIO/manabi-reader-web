@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { useReaderController, readerTick } from '../reader-react/controller';
+import { useReaderController } from '../reader-react/controller';
 import {
   Dom,
   AppIcon,
@@ -186,6 +186,22 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                             const currentRowInEdit =
                               c.rowInEdit && c.rowInEdit.id === currentStatisticsSummaryRow.id;
                             const otherRowInEdit = c.rowInEdit && !currentRowInEdit;
+                            const readingTimeValue = `${secondsToMinutes(
+                              getNumberFromObject(
+                                currentStatisticsSummaryRow,
+                                c.$lastReadingTimeDataSource$
+                              )
+                            )} min`;
+                            const charactersValue = String(
+                              getNumberFromObject(
+                                currentStatisticsSummaryRow,
+                                c.$lastCharactersDataSource$
+                              )
+                            );
+                            const speedValue = `${getNumberFromObject(
+                              currentStatisticsSummaryRow,
+                              c.$lastReadingSpeedDataSource$
+                            )} / h`;
                             return (
                               <>
                                 <Dom
@@ -278,16 +294,10 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                     .filter(Boolean)
                                     .join(' ')}
                                   events={{
-                                    click: (event: MouseEvent) => {
-                                      c.statisticsSummaryPopoverDetails = [
+                                    click: (event: MouseEvent) =>
+                                      void c.openDetails(event.currentTarget as HTMLElement, [
                                         currentStatisticsSummaryRow.title
-                                      ];
-                                      readerTick().then(() => {
-                                        if (event.target instanceof HTMLElement) {
-                                          c.statisticsSummaryPopover.toggleOpen(event.target);
-                                        }
-                                      });
-                                    }
+                                      ])
                                   }}
                                 >
                                   {currentStatisticsSummaryRow.title}
@@ -323,34 +333,38 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                     {' '}
                                     <Dom
                                       as="button"
-                                      className={[
-                                        'text-left',
-                                        c.$lastBlurredTrackerItems$.has('readingTime') && 'blur'
-                                      ]
-                                        .filter(Boolean)
-                                        .join(' ')}
+                                      type="button"
+                                      data-summary-metric="readingTime"
+                                      className="text-left focus-visible:outline-2 focus-visible:outline-ring"
+                                      aria-pressed={c.$lastBlurredTrackerItems$.has('readingTime')}
+                                      aria-label={c.metricAccessibleLabel(
+                                        'readingTime',
+                                        'Reading time',
+                                        readingTimeValue
+                                      )}
                                       events={{
-                                        click: (event: MouseEvent) => {
-                                          c.statisticsSummaryPopoverDetails = [
-                                            `Time: ${secondsToMinutes(currentStatisticsSummaryRow.readingTime)} min`,
-                                            `Average Time: ${secondsToMinutes(currentStatisticsSummaryRow.averageReadingTime)} min`,
-                                            `Weighted Time: ${secondsToMinutes(currentStatisticsSummaryRow.averageWeightedReadingTime)} min`
-                                          ];
-                                          readerTick().then(() => {
-                                            if (event.target instanceof HTMLElement) {
-                                              c.statisticsSummaryPopover.toggleOpen(event.target);
-                                            }
-                                          });
-                                        }
+                                        click: (event: MouseEvent) =>
+                                          void c.openMetricDetails(
+                                            'readingTime',
+                                            event.currentTarget as HTMLElement,
+                                            [
+                                              `Time: ${secondsToMinutes(currentStatisticsSummaryRow.readingTime)} min`,
+                                              `Average Time: ${secondsToMinutes(currentStatisticsSummaryRow.averageReadingTime)} min`,
+                                              `Weighted Time: ${secondsToMinutes(currentStatisticsSummaryRow.averageWeightedReadingTime)} min`
+                                            ]
+                                          )
                                       }}
                                     >
-                                      {secondsToMinutes(
-                                        getNumberFromObject(
-                                          currentStatisticsSummaryRow,
-                                          c.$lastReadingTimeDataSource$
-                                        )
-                                      )}
-                                      {' min '}
+                                      <span
+                                        className={
+                                          c.$lastBlurredTrackerItems$.has('readingTime')
+                                            ? 'blur'
+                                            : undefined
+                                        }
+                                        aria-hidden={c.$lastBlurredTrackerItems$.has('readingTime')}
+                                      >
+                                        {readingTimeValue}
+                                      </span>
                                     </Dom>
                                   </>
                                 )}
@@ -385,31 +399,38 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                     {' '}
                                     <Dom
                                       as="button"
-                                      className={[
-                                        'text-left',
-                                        c.$lastBlurredTrackerItems$.has('charactersRead') && 'blur'
-                                      ]
-                                        .filter(Boolean)
-                                        .join(' ')}
+                                      type="button"
+                                      data-summary-metric="charactersRead"
+                                      className="text-left focus-visible:outline-2 focus-visible:outline-ring"
+                                      aria-pressed={c.$lastBlurredTrackerItems$.has('charactersRead')}
+                                      aria-label={c.metricAccessibleLabel(
+                                        'charactersRead',
+                                        'Characters',
+                                        charactersValue
+                                      )}
                                       events={{
-                                        click: (event: MouseEvent) => {
-                                          c.statisticsSummaryPopoverDetails = [
-                                            `Characters: ${currentStatisticsSummaryRow.charactersRead}`,
-                                            `Average Characters: ${currentStatisticsSummaryRow.averageCharactersRead}`,
-                                            `Weighted Characters: ${currentStatisticsSummaryRow.averageWeightedCharactersRead}`
-                                          ];
-                                          readerTick().then(() => {
-                                            if (event.target instanceof HTMLElement) {
-                                              c.statisticsSummaryPopover.toggleOpen(event.target);
-                                            }
-                                          });
-                                        }
+                                        click: (event: MouseEvent) =>
+                                          void c.openMetricDetails(
+                                            'charactersRead',
+                                            event.currentTarget as HTMLElement,
+                                            [
+                                              `Characters: ${currentStatisticsSummaryRow.charactersRead}`,
+                                              `Average Characters: ${currentStatisticsSummaryRow.averageCharactersRead}`,
+                                              `Weighted Characters: ${currentStatisticsSummaryRow.averageWeightedCharactersRead}`
+                                            ]
+                                          )
                                       }}
                                     >
-                                      {getNumberFromObject(
-                                        currentStatisticsSummaryRow,
-                                        c.$lastCharactersDataSource$
-                                      )}
+                                      <span
+                                        className={
+                                          c.$lastBlurredTrackerItems$.has('charactersRead')
+                                            ? 'blur'
+                                            : undefined
+                                        }
+                                        aria-hidden={c.$lastBlurredTrackerItems$.has('charactersRead')}
+                                      >
+                                        {charactersValue}
+                                      </span>
                                     </Dom>
                                   </>
                                 )}
@@ -444,34 +465,39 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                     {' '}
                                     <Dom
                                       as="button"
-                                      className={[
-                                        'text-left',
-                                        c.$lastBlurredTrackerItems$.has('lastReadingSpeed') &&
-                                          'blur'
-                                      ]
-                                        .filter(Boolean)
-                                        .join(' ')}
+                                      type="button"
+                                      data-summary-metric="lastReadingSpeed"
+                                      className="text-left focus-visible:outline-2 focus-visible:outline-ring"
+                                      aria-pressed={c.$lastBlurredTrackerItems$.has('lastReadingSpeed')}
+                                      aria-label={c.metricAccessibleLabel(
+                                        'lastReadingSpeed',
+                                        'Reading speed',
+                                        speedValue
+                                      )}
                                       events={{
-                                        click: (event: MouseEvent) => {
-                                          c.statisticsSummaryPopoverDetails = [
-                                            `Speed: ${currentStatisticsSummaryRow.lastReadingSpeed}`,
-                                            `Min Speed: ${currentStatisticsSummaryRow.minReadingSpeed}`,
-                                            `Alt Min Speed: ${currentStatisticsSummaryRow.altMinReadingSpeed}`,
-                                            `Max Speed: ${currentStatisticsSummaryRow.maxReadingSpeed}`
-                                          ];
-                                          readerTick().then(() => {
-                                            if (event.target instanceof HTMLElement) {
-                                              c.statisticsSummaryPopover.toggleOpen(event.target);
-                                            }
-                                          });
-                                        }
+                                        click: (event: MouseEvent) =>
+                                          void c.openMetricDetails(
+                                            'lastReadingSpeed',
+                                            event.currentTarget as HTMLElement,
+                                            [
+                                              `Speed: ${currentStatisticsSummaryRow.lastReadingSpeed}`,
+                                              `Min Speed: ${currentStatisticsSummaryRow.minReadingSpeed}`,
+                                              `Alt Min Speed: ${currentStatisticsSummaryRow.altMinReadingSpeed}`,
+                                              `Max Speed: ${currentStatisticsSummaryRow.maxReadingSpeed}`
+                                            ]
+                                          )
                                       }}
                                     >
-                                      {getNumberFromObject(
-                                        currentStatisticsSummaryRow,
-                                        c.$lastReadingSpeedDataSource$
-                                      )}
-                                      {' / h '}
+                                      <span
+                                        className={
+                                          c.$lastBlurredTrackerItems$.has('lastReadingSpeed')
+                                            ? 'blur'
+                                            : undefined
+                                        }
+                                        aria-hidden={c.$lastBlurredTrackerItems$.has('lastReadingSpeed')}
+                                      >
+                                        {speedValue}
+                                      </span>
                                     </Dom>
                                   </>
                                 )}
@@ -488,23 +514,33 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                         placement={c.renderFullStatisticsSummaryTable ? 'top-start' : 'top'}
                         yOffset={5}
                         containerStyles={`align-self:flex-start;display:${isDateAggregation ? 'none' : 'flex'}`}
+                        dialog
+                        label="Statistic details"
+                        restoreAnchorFocus
+                        events={{ open: () => void c.focusDetails() }}
                         bindings={{
                           this: (value) => {
                             c.statisticsSummaryPopover = value;
+                          },
+                          isOpen: (value) => {
+                            c.statisticsSummaryDetailsOpen = value;
                           }
                         }}
                       >
                         <Dom
                           as="div"
                           slot={'content'}
-                          className={['p-4'].filter(Boolean).join(' ')}
+                          className="relative min-w-48 p-4 pr-14"
                         >
                           <Dom
                             as="button"
-                            className={['absolute top-1 right-2 flex w-full justify-end']
-                              .filter(Boolean)
-                              .join(' ')}
-                            events={{ click: () => (c.statisticsSummaryPopoverDetails = []) }}
+                            type="button"
+                            elementRef={(value: HTMLButtonElement | null) => {
+                              c.statisticsSummaryDetailsClose = value;
+                            }}
+                            aria-label="Close statistic details"
+                            className="absolute top-2 right-2 flex size-[44px] items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-ring"
+                            events={{ click: c.closeDetails }}
                           >
                             <AppIcon icon={faClose}></AppIcon>
                           </Dom>
