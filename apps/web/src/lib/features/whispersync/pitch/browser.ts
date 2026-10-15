@@ -7,8 +7,8 @@ function createAudioContext() {
     // the full 550 ms SwiftF0 window even on devices with 96/192 kHz output.
     return new AudioContext({ sampleRate: 48000 });
   } catch {
-    // Some output devices reject an explicit rate. Retain pitch at the native
-    // rate rather than disabling it; the analyser still provides a shorter window.
+    // Some output devices reject an explicit rate. The controller checks the
+    // native rate's available context before downloading or capturing media.
     return new AudioContext();
   }
 }
