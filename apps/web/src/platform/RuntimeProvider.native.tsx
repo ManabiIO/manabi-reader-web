@@ -41,6 +41,8 @@ import {
 import { nativeNavigationPath } from './native-navigation';
 import { selectNativeLibraryCover } from '../native-library/cover-selection';
 import { selectNativeUserFont } from '../native-settings/font-selection';
+import { ConnectionNotice } from '../shared-ui/ConnectionNotice';
+import { UiThemeProvider } from '../shared-ui/theme';
 
 type ReaderHostDOMProps = DOMProps & {
   manabiReaderHost: true;
@@ -447,6 +449,21 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
             }}
             dom={dom}
           />
+        </View>
+        <View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            bottom: insets.bottom + 72,
+            right: insets.right + 16,
+            left: insets.left + 16,
+            alignItems: 'flex-end',
+            zIndex: 6
+          }}
+        >
+          <UiThemeProvider appearance={readerAppearance.mode}>
+            <ConnectionNotice online={snapshot.online} />
+          </UiThemeProvider>
         </View>
       </View>
     </RuntimeContext.Provider>

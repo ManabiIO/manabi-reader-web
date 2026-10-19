@@ -32,6 +32,8 @@ export const AppState={addEventListener(_,fn){appListeners.add(fn);return{remove
 export const BackHandler={addEventListener(_,fn){backListeners.add(fn);return{remove(){backListeners.delete(fn)}}}};
 export const View=({children,pointerEvents,style})=><div style={Object.assign({},...[style].flat())} data-reader-visible={pointerEvents==='auto'?'true':pointerEvents==='none'?'false':undefined}>{children}</div>;
 export const StatusBar=({style})=><span data-status-bar={style}/>;
+export const UiThemeProvider=({children})=><>{children}</>;
+export const ConnectionNotice=({online})=>online===false?<span data-offline-notice/>:null;
 let insets={top:48,right:0,bottom:24,left:0};export function useSafeAreaInsets(){return useSyncExternalStore(fn=>{routeListeners.add(fn);return()=>routeListeners.delete(fn)},()=>insets)}
 export function changeInsets(next){insets=next;for(const fn of routeListeners)fn()}
 export const Text=({children,accessibilityRole})=><span role={accessibilityRole}>{children}</span>;
@@ -86,6 +88,8 @@ await build({
           () => ({ path: fixture })
         );
         b.onResolve({ filter: /reader-runtime\.dom$/ }, () => ({ path: fixture }));
+        // Route lifetime owns placement, not the separately tested shared notice UI.
+        b.onResolve({ filter: /shared-ui\/(ConnectionNotice|theme)$/ }, () => ({ path: fixture }));
       }
     }
   ]
@@ -400,6 +404,23 @@ test('mounted native provider cancels a hidden passage admission without replayi
     await view.close();
   }
 });
+test('connection status stays outside the hidden DOM host and never reopens the reader', async () => {
+  const view = await mount();
+  try {
+    const opens = runtime.calls.filter((call) => call.method === 'open').length;
+    await act(async () => runtime.snapshot({ ...baseSnapshot, revision: 2, online: false }));
+    const notice = view.container.querySelector('[data-offline-notice]');
+    assert.ok(notice);
+    assert.equal(notice.closest('[data-reader-visible]'), null);
+    await act(async () => runtime.snapshot({ ...baseSnapshot, revision: 3, online: true }));
+    assert.equal(view.container.querySelector('[data-offline-notice]'), null);
+    assert.equal(runtime.calls.filter((call) => call.method === 'open').length, opens);
+    assert.equal(runtime.calls.filter((call) => call.method === 'close').length, 0);
+  } finally {
+    await view.close();
+  }
+});
+
 test.after(() => {
   rmSync(directory, { recursive: true, force: true });
   dom.window.close();

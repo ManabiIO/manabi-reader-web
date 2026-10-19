@@ -7,8 +7,6 @@ import ts from 'typescript';
 import * as transactions from '../../apps/web/src/lib/data/database/books-db/commit-transaction.mjs';
 import { deferred, loadOfflineModule } from './fixtures/offline-module.mjs';
 
-// UNRUN: composed onto current main without executing verification by user request.
-
 const sourceURL = new URL(
   '../../apps/web/src/lib/data/database/books-db/database.service.ts',
   import.meta.url
@@ -225,6 +223,7 @@ function writerHarness(requestFailure) {
                 ? { lastModifiedValue: 11 }
                 : undefined
           ),
+        add: (value) => request(name, 'add', value),
         put: (value) => request(name, 'put', value),
         delete: (key) => request(name, 'delete', key),
         clear: () => request(name, 'clear')
@@ -291,8 +290,7 @@ for (const [name, write] of writers) {
     if (name === 'statistic deletion')
       assert.ok(
         h.writes.some(
-          ([store, verb, key]) =>
-            store === 'lastModified' && verb === 'delete' && key[0] === 'Book'
+          ([store, verb, key]) => store === 'lastModified' && verb === 'delete' && key[0] === 'Book'
         ),
         'delete modification records for titles supplied by the statistic rows'
       );
@@ -325,9 +323,11 @@ for (const [name, write] of writers) {
     const failure = new DOMException('Request refused', 'UnknownError');
     const h = writerHarness(failure);
     let settled = false;
-    const rejected = assert.rejects(write(h.service), (error) => error === failure).then(() => {
-      settled = true;
-    });
+    const rejected = assert
+      .rejects(write(h.service), (error) => error === failure)
+      .then(() => {
+        settled = true;
+      });
     await h.aborted.promise;
     await setImmediate();
     assert.equal(settled, false, 'request failure must wait for transaction settlement');

@@ -1,0 +1,21 @@
+/** @license BSD-3-Clause */
+.connection-notice-dock,
+[data-testid='connection-details-dialog'] {
+  writing-mode: horizontal-tb;
+  direction: ltr;
+}
+.connection-notice-dock {
+  position: fixed;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: calc(4.5rem + env(safe-area-inset-bottom));
+  max-width: min(22rem, calc(100vw - 2rem));
+  z-index: 30;
+}
+.connection-notice-dock[data-sync-attention] {
+  bottom: calc(10rem + env(safe-area-inset-bottom));
+}
+@media print {
+  .connection-notice-dock {
+    display: none;
+  }
+}

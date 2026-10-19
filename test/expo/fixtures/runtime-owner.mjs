@@ -7,6 +7,7 @@ import React, { act } from 'react';
 import * as jsxRuntime from 'react/jsx-runtime';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
+import { BehaviorSubject } from 'rxjs';
 
 // Transpile complete production modules, not extracted callbacks or source-text
 // assertions. React, its reconciler, effects and the DOM are real. The controlled
@@ -268,7 +269,8 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     getAccessibleLastItem: async () => undefined,
     deleteData: (...args) => f.deleteData(...args)
   };
-  const reader = { database };
+  const online = new BehaviorSubject(true);
+  const reader = { database, isOnline$: online };
   const settingSubjects = Object.fromEntries(
     settings.settingDefinitions.map((field) => {
       let value =
@@ -511,6 +513,7 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     flushes,
     navigations,
     snapshots,
+    online,
     appearances,
     appearanceStores,
     replies,
