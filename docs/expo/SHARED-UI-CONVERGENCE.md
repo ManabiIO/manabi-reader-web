@@ -509,3 +509,21 @@ types and a fresh production web export passed. The complete retained appearance
 collection passed 31 cases in each of Chromium and WebKit (62 journeys), including
 actual image reencoding and offline persistence. Native background selection is
 still unavailable and is not qualified by these web results.
+
+### Packaged Android semantic-owner diagnosis
+
+Run `39507202372` at `5622af9e` passed both web jobs, Android compilation, origin
+policy, release packaging and worker checks, then failed the native size-slider
+lookup. Its actual accessibility snapshot contains a visible SeekBar with range
+50–95 and current value 95. The exact “Quick size for maximum page height” label
+is on that SeekBar's immediate child. Expo UI text inputs use the same split:
+an editable EditText owns its named semantics child. The harness now follows
+only the exact label's self or immediate SeekBar/EditText parent. It also checks
+screen and scroll-viewport bounds because Compose reports some offscreen virtual
+children as visible. Named control, enabled state, real native actions, range,
+local save and exact restore assertions remain required. A new packaged run must
+confirm this correction; the failed run does not qualify size or font edits.
+
+The raw log and parsed hierarchy are retained in local
+`native-background-images-sf7gtuop` evidence. This diagnosis changes test lookup,
+not product preference semantics or the installed Expo implementation.

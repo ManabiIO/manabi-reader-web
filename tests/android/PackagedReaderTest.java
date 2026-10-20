@@ -304,10 +304,12 @@ public final class PackagedReaderTest {
     while (SystemClock.uptimeMillis() < deadline) {
       AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
       if (root != null) {
-        for (AccessibilityNodeInfo node : findAccessibleText(root, label)) {
+        for (AccessibilityNodeInfo match : findAccessibleText(root, label)) {
+          AccessibilityNodeInfo node = nativeSemanticControl(match, false);
+          if (node == null) continue;
           node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
           String value = node.getText() == null ? "" : node.getText().toString();
-          if (node.isVisibleToUser() && node.isEnabled() && node.isEditable() && (expected == null || expected.equals(value))) return value;
+          if (nativeControlVisible(node) && node.isEnabled() && node.isEditable() && (expected == null || expected.equals(value))) return value;
         }
         scrollNativeForward(root);
       }
@@ -321,9 +323,11 @@ public final class PackagedReaderTest {
     while (SystemClock.uptimeMillis() < deadline) {
       AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
       if (root != null) {
-        for (AccessibilityNodeInfo node : findAccessibleText(root, label)) {
+        for (AccessibilityNodeInfo match : findAccessibleText(root, label)) {
+          AccessibilityNodeInfo node = nativeSemanticControl(match, false);
+          if (node == null) continue;
           node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
-          if (!node.isVisibleToUser() || !node.isEnabled() || !node.isEditable()) continue;
+          if (!nativeControlVisible(node) || !node.isEnabled() || !node.isEditable()) continue;
           Bundle arguments = new Bundle();
           arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
           assertTrue("The actual Expo text field must accept an accessible edit", node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments));
@@ -421,15 +425,17 @@ public final class PackagedReaderTest {
       AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
       if (root != null) {
         for (AccessibilityNodeInfo match : findAccessibleText(root, label)) {
-          match.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
-          AccessibilityNodeInfo.RangeInfo range = match.getRangeInfo();
-          if (!match.isVisibleToUser() || !match.isEnabled() || range == null) continue;
+          AccessibilityNodeInfo control = nativeSemanticControl(match, true);
+          if (control == null) continue;
+          control.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+          AccessibilityNodeInfo.RangeInfo range = control.getRangeInfo();
+          if (!nativeControlVisible(control) || !control.isEnabled() || range == null) continue;
           assertEquals(50f, range.getMin(), 0.01f);
           assertEquals(95f, range.getMax(), 0.01f);
           float chosen = Math.abs(range.getCurrent() - 50f) < 0.01f ? 75f : 50f;
           Bundle value = new Bundle();
           value.putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, chosen);
-          assertTrue("The named native slider must support accessible progress", match.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId(), value));
+          assertTrue("The named native slider must support accessible progress", control.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId(), value));
           return chosen;
         }
         scrollNativeForward(root);
@@ -445,12 +451,43 @@ public final class PackagedReaderTest {
     while (SystemClock.uptimeMillis() < deadline) {
       AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
       if (root != null) for (AccessibilityNodeInfo match : findAccessibleText(root, label)) {
-        AccessibilityNodeInfo.RangeInfo range = match.getRangeInfo();
-        if (match.isVisibleToUser() && match.isEnabled() && range != null && Math.abs(range.getCurrent() - chosen) < 0.01f) return;
+        AccessibilityNodeInfo control = nativeSemanticControl(match, true);
+        if (control == null) continue;
+        AccessibilityNodeInfo.RangeInfo range = control.getRangeInfo();
+        if (nativeControlVisible(control) && control.isEnabled() && range != null && Math.abs(range.getCurrent() - chosen) < 0.01f) return;
       }
       SystemClock.sleep(200);
     }
     throw new AssertionError("The saved dimension did not return to the native slider: " + label);
+  }
+
+  /** SDK 58 Compose emits a label child under the actual SeekBar/EditText.
+   * Follow only that direct semantic owner, never a sibling or arbitrary control. */
+  private AccessibilityNodeInfo nativeSemanticControl(AccessibilityNodeInfo label, boolean range) {
+    String expectedClass = range ? "android.widget.SeekBar" : "android.widget.EditText";
+    for (int depth = 0; label != null && depth < 2; depth++, label = label.getParent()) {
+      if (expectedClass.contentEquals(label.getClassName() == null ? "" : label.getClassName()) &&
+          (range ? label.getRangeInfo() != null : label.isEditable())) return label;
+    }
+    return null;
+  }
+
+  /** Compose may report visible=true for offscreen virtual descendants. Require
+   * real screen/scroll-viewport intersection before exercising their actions. */
+  private boolean nativeControlVisible(AccessibilityNodeInfo control) {
+    if (!control.isVisibleToUser()) return false;
+    Rect clipped = new Rect();
+    control.getBoundsInScreen(clipped);
+    if (clipped.isEmpty()) return false;
+    for (AccessibilityNodeInfo ancestor = control.getParent(); ancestor != null; ancestor = ancestor.getParent()) {
+      String kind = String.valueOf(ancestor.getClassName());
+      if (ancestor.getParent() == null || kind.equals("android.widget.ScrollView") || kind.equals("android.widget.HorizontalScrollView")) {
+        Rect viewport = new Rect();
+        ancestor.getBoundsInScreen(viewport);
+        if (!ancestor.isVisibleToUser() || !clipped.intersect(viewport)) return false;
+      }
+    }
+    return true;
   }
 
   private void awaitSelectedChoice(String label) throws Exception {
