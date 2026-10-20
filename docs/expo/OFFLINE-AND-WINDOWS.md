@@ -17,14 +17,14 @@ is not the app being developed here.
 | Web     | Expo Router / React Native Web, rich DOM reading surface, one IndexedDB owner | Production export and real browser scenarios                              |
 | Android | Expo app, Expo UI controls, one embedded DOM storage/reader owner             | APK, device, accessibility and offline restart acceptance remain required |
 
-The application returns to the pre-desktop Expo **57.0.26**, React Native
-**0.86.3**, React **19.2.3** baseline. SDK 58 is a separate upgrade to qualify on
-web and Android; there is no longer a native desktop version constraint.
+After restoring the pre-desktop baseline, the application advances to Expo
+**58.0.16**, React Native **0.88.0**, React **19.3.0**. There is no native desktop
+version constraint. See the [upgrade qualification](MIGRATION.md#october-20-sdk-58-upgrade).
 
 Expo UI documents universal Android/iOS/web controls, without a Windows native
 implementation. Use supported Compose controls and accessible web controls while
 sharing application components and domain logic.
-[Expo UI platform scope](https://docs.expo.dev/versions/v57.0.0/sdk/ui/universal/).
+[Expo UI platform scope](https://docs.expo.dev/versions/v58.0.0/sdk/ui/universal/).
 
 The web manifest requests `standalone`, with `id: ./` preserving its previous
 implicit `start_url: ./` identity. Start URL, scope, and origin are unchanged.

@@ -1,6 +1,8 @@
 name: Expo Android and web migration
 # Public-repository, stock-runner qualification only. No remote artifacts or caches.
 # Pull requests already run on synchronize; do not add a duplicate push trigger.
+# The historically named SDK branch now contains only web/Android; admit it
+# for explicit SDK 58 qualification dispatches, never automatic legacy jobs.
 on:
   pull_request:
     paths:
@@ -49,7 +51,9 @@ jobs:
         github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
         github.head_ref == 'feat/expo-android-web-migration') ||
        ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-        github.ref == 'refs/heads/feat/expo-android-web-migration'))
+        github.ref == 'refs/heads/feat/expo-android-web-migration') ||
+       (github.event_name == 'workflow_dispatch' &&
+        github.ref == 'refs/heads/codex/reader-windows-sdk56-20261020'))
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -221,7 +225,9 @@ jobs:
         github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
         github.head_ref == 'feat/expo-android-web-migration') ||
        ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-        github.ref == 'refs/heads/feat/expo-android-web-migration'))
+        github.ref == 'refs/heads/feat/expo-android-web-migration') ||
+       (github.event_name == 'workflow_dispatch' &&
+        github.ref == 'refs/heads/codex/reader-windows-sdk56-20261020'))
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     steps:
@@ -425,7 +431,9 @@ jobs:
         github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
         github.head_ref == 'feat/expo-android-web-migration') ||
        ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-        github.ref == 'refs/heads/feat/expo-android-web-migration'))
+        github.ref == 'refs/heads/feat/expo-android-web-migration') ||
+       (github.event_name == 'workflow_dispatch' &&
+        github.ref == 'refs/heads/codex/reader-windows-sdk56-20261020'))
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:

@@ -29,8 +29,8 @@ silently skip a missing optional runtime when the feature is enabled.
 
 ## Exact SDK topology
 
-The reviewed installation is Expo **57.0.26**, whose nested `@expo/cli` resolves
-to **57.0.27**. The executable exporter is under
+The reviewed installation is Expo **58.0.16**, whose nested `@expo/cli` resolves
+to **58.1.13**. The executable exporter is under
 `node_modules/expo/node_modules/@expo/cli`, not an unrelated hoisted CLI.
 
 | Stage                                   | HTML and generated JS/CSS                                                              | Imported fonts/model/WASM                         | Public assets              |

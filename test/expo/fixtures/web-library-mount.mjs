@@ -17,6 +17,7 @@ for (const key of [
   'sessionStorage',
   'Element',
   'HTMLElement',
+  'ShadowRoot',
   'HTMLInputElement',
   'MutationObserver',
   'Event',
@@ -35,7 +36,13 @@ for (const key of [
 Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
 Object.assign(globalThis, indexedDB);
 Object.assign(window, { indexedDB: globalThis.indexedDB, IDBKeyRange: globalThis.IDBKeyRange });
-window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+window.matchMedia = () => ({
+  matches: false,
+  addListener() {},
+  removeListener() {},
+  addEventListener() {},
+  removeEventListener() {}
+});
 window.scrollTo = () => {};
 globalThis.BroadcastChannel = undefined;
 globalThis.IntersectionObserver = class {

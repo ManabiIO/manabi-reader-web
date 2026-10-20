@@ -34,7 +34,7 @@ const WORKERS = [
   'reader-search-worker',
   'library-content-search-worker',
   'search-worker',
-  // SDK 57 strips .ts, then the remaining .worker suffix when naming this chunk.
+  // SDK 58 strips .ts, then the remaining .worker suffix when naming this chunk.
   'voice-pitch'
 ];
 const ORIGIN = 'https://appassets.androidplatform.net';
@@ -87,7 +87,7 @@ const properties = (node) =>
       .filter((p) => p.type === 'ObjectProperty')
       .map((p) => [String(p.key.name ?? value(p.key)), p.value])
   );
-/** Read actual minified Metro __d dependency maps, including SDK 57's worker transform. */
+/** Read actual minified Metro __d dependency maps, including SDK 58's worker transform. */
 export function inspectJavaScript(code) {
   const ast = parse(code, { sourceType: 'unambiguous', allowReturnOutsideFunction: true });
   const strings = new Set(),
@@ -441,7 +441,7 @@ export async function verifyExport({
       metadata = await json('metadata.json');
       check(
         metadata?.bundler === 'metro' && metadata?.version === 0,
-        'Android export must have SDK 57 Metro metadata'
+        'Android export must have SDK 58 Metro metadata'
       );
       const android = metadata?.fileMetadata?.android;
       check(!!android && !metadata?.fileMetadata?.ios, 'Expected Android-only export metadata');

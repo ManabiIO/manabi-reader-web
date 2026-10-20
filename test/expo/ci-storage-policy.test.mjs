@@ -89,9 +89,9 @@ const cases = [
   ],
   ['Retired experiment branch PR', { head: 'codex/reader-windows-sdk56-20261020' }, false, false],
   [
-    'Retired experiment branch dispatch preserves legacy manual behavior',
+    'Web/Android upgrade dispatch is admitted without changing legacy manual behavior',
     { event: 'workflow_dispatch', head: 'codex/reader-windows-sdk56-20261020' },
-    false,
+    true,
     true
   ],
   [
@@ -110,6 +110,17 @@ const cases = [
     },
     false,
     false
+  ],
+  [
+    'Private web/Android upgrade dispatch fails closed',
+    {
+      event: 'workflow_dispatch',
+      head: 'codex/reader-windows-sdk56-20261020',
+      visibility: 'private',
+      privateValue: true
+    },
+    false,
+    true
   ],
   ['same-repo migration PR', {}, true, false],
   ['same-repo migration push (legacy suppression)', { event: 'push' }, true, false],

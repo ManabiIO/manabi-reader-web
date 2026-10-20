@@ -21,7 +21,7 @@ interface FontAsset {
 }
 interface FontFile {
   size: number;
-  open(): { readBytes(length: number): Uint8Array; close(): void };
+  open(): { readBytes(length: number): Promise<Uint8Array>; close(): void };
 }
 export interface FontSelectionDependencies {
   scope(): BridgeScope;
@@ -81,7 +81,7 @@ export async function selectNativeUserFont(
     let sequence = 0;
     while (sent < size) {
       check();
-      const bytes = handle.readBytes(Math.min(IMPORT_CHUNK_BYTES, size - sent));
+      const bytes = await handle.readBytes(Math.min(IMPORT_CHUNK_BYTES, size - sent));
       check();
       if (!bytes.length || bytes.length > Math.min(IMPORT_CHUNK_BYTES, size - sent))
         throw new Error('The selected font changed or ended before its declared size.');

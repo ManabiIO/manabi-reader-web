@@ -552,10 +552,10 @@ test('installed React Native cover viewability keeps the newest measured viewpor
   const delayed = run({ ...libraryCoverViewability, minimumViewTime: 80 });
   assert.deepEqual(
     delayed.callbacks,
-    [['a', 'b'], ['a']],
-    'reproduces the observed stale callback'
+    [['a', 'b']],
+    'RN 0.88 rejects an obsolete delayed viewport callback'
   );
-  assert.ok(delayed.cancels.some((c) => c.requests?.includes(delayed.reads[1].request)));
+  assert.equal(delayed.cancels.length, 0, 'the obsolete callback cannot retire a visible cover');
   delayed.controller.dispose();
   for (const read of delayed.reads) read.resolve({ ...read, image: jpeg });
   await tick();

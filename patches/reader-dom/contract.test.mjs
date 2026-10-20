@@ -3,9 +3,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { readFile, mkdir, mkdtemp, copyFile, rm } from 'node:fs/promises';
+import { readFile, mkdir, mkdtemp, copyFile, rename } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -17,7 +17,7 @@ const installedRoot = path.dirname(require.resolve('@expo/dom-webview/package.js
 const installedPackage = JSON.parse(
   await readFile(path.join(installedRoot, 'package.json'), 'utf8')
 );
-const patch = path.join(here, 'expo-dom-webview-57.0.1.patch');
+const patch = path.join(here, 'expo-dom-webview-58.0.2.patch');
 const work = await mkdtemp(path.join(tmpdir(), 'reader-dom-contract-'));
 const native = 'android/src/main/java/expo/modules/webview';
 // Reconstruct only the touched upstream files; accepts a clean or already-patched pnpm install.
@@ -35,11 +35,11 @@ if (installedView.includes('var manabiReaderHost: Boolean')) {
     await mkdir(path.dirname(path.join(work, file)), { recursive: true });
     await copyFile(path.join(installedRoot, file), path.join(work, file));
   }
-  execFileSync('git', ['apply', '--reverse', patch], { cwd: work });
+  execFileSync('git', ['-c', 'core.autocrlf=false', 'apply', '--reverse', patch], { cwd: work });
 }
 
 try {
-  await test('patch is limited to exactly reviewed Expo DOM WebView 57.0.1 sources', async () => {
+  await test('patch is limited to exactly reviewed Expo DOM WebView 58.0.2 sources', async () => {
     assert.equal(installedPackage.version, upstream.version);
     for (const [file, hash] of Object.entries(upstream.files)) {
       assert.equal(
@@ -50,9 +50,9 @@ try {
         file
       );
     }
-    execFileSync('git', ['apply', '--check', patch], { cwd: work });
+    execFileSync('git', ['-c', 'core.autocrlf=false', 'apply', '--check', patch], { cwd: work });
   });
-  execFileSync('git', ['apply', patch], { cwd: work });
+  execFileSync('git', ['-c', 'core.autocrlf=false', 'apply', patch], { cwd: work });
   const host = await readFile(path.join(work, native, 'ReaderDomHost.kt'), 'utf8');
   const view = await readFile(path.join(work, native, 'DomWebView.kt'), 'utf8');
   await test('execute exact native URL policy on the JVM, including hostile origins and paths', async () => {
@@ -134,7 +134,7 @@ try {
       assert.equal(evaluate(input).window.ReactNativeWebView, undefined);
     }
   });
-  await test('SDK 57 exporter preserves the packaged HTML, JS, worker, public and WASM directory topology', async () => {
+  await test('SDK 58 exporter preserves the packaged HTML, JS, worker, public and WASM directory topology', async () => {
     const expoRoot = path.dirname(require.resolve('expo/package.json'));
     const expoRequire = createRequire(path.join(expoRoot, 'package.json'));
     const cliRoot = path.dirname(expoRequire.resolve('@expo/cli/package.json'));
@@ -170,5 +170,8 @@ try {
     assert.ok(host.includes('"js", "mjs" -> "text/javascript"'));
   });
 } finally {
-  await rm(work, { recursive: true, force: true });
+  const trash = path.join(homedir(), '.Trash');
+  await mkdir(trash, { recursive: true });
+  const retired = await mkdtemp(path.join(trash, 'reader-dom-contract-'));
+  await rename(work, path.join(retired, 'work'));
 }

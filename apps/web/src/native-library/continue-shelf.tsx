@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { FlatList, Pressable, View, type ViewToken } from 'react-native';
+import { FlatList, Pressable, View, type FlatListProps } from 'react-native';
 import { UiText as Text } from '../shared-ui/Typography';
 import { ActionButton } from '../shared-ui/ActionButton';
 import { UiIcon } from '../shared-ui/UiIcon';
@@ -32,7 +32,9 @@ export function NativeContinueShelf({
   images?: ReadonlyMap<string, NativeLibraryCover | null>;
   onOpen(book: NativeLibraryBook): void;
   onDetails(book: NativeLibraryBook): void;
-  onViewableItemsChanged(info: { viewableItems: ViewToken[] }): void;
+  onViewableItemsChanged(
+    info: Parameters<NonNullable<FlatListProps<NativeLibraryBook>['onViewableItemsChanged']>>[0]
+  ): void;
   viewabilityConfig: { itemVisiblePercentThreshold: number; minimumViewTime: number };
 }) {
   const { colors } = useUiTheme();

@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { forwardRef, useImperativeHandle, useRef, type ReactNode } from 'react';
+import { forwardRef, useImperativeHandle, useRef, type ComponentRef, type ReactNode } from 'react';
 import { ScrollView, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useUiTheme } from './theme';
 export interface CalendarHandle {
@@ -20,7 +20,7 @@ export interface CalendarLayoutProps {
 }
 export const CalendarLayout = forwardRef<CalendarHandle, CalendarLayoutProps>(
   function CalendarLayout({ children, label, cellSize, columns, onWidth }, ref) {
-    const scroll = useRef<ScrollView>(null);
+    const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
     const metrics = useRef({ width: 0, x: 0 });
     useImperativeHandle(
       ref,

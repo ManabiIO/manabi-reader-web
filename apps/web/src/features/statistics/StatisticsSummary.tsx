@@ -7,7 +7,7 @@
 import { AnchoredPopover } from '../../shared-ui/AnchoredPopover';
 import { UiIcon } from '../../shared-ui/UiIcon';
 import { UiText as Text } from '../../shared-ui/Typography';
-import { useState } from 'react';
+import { useState, type ComponentRef } from 'react';
 import { FlatList, Pressable, View, StyleSheet, useWindowDimensions } from 'react-native';
 import {
   ActionButton,
@@ -36,11 +36,11 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
   const { width } = useWindowDimensions();
   const [details, setDetails] = useState<{
     lines: string[];
-    anchor: View;
+    anchor: ComponentRef<typeof View>;
     snapshot: typeof state.data;
   }>();
   const [pagesOpen, setPagesOpen] = useState(false);
-  const [pagesAnchor, setPagesAnchor] = useState<View>();
+  const [pagesAnchor, setPagesAnchor] = useState<ComponentRef<typeof View>>();
   // Reveals belong to this mounted snapshot. Keep the saved tracker privacy
   // preference intact and hide again when a fresh owner snapshot arrives.
   const [revealed, setRevealed] = useState<{ snapshot: typeof state.data; keys: Set<string> }>({
@@ -179,7 +179,7 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
           onPress={(event) =>
             setDetails({
               lines: [row.title],
-              anchor: event.currentTarget as unknown as View,
+              anchor: event.currentTarget as unknown as ComponentRef<typeof View>,
               snapshot: data
             })
           }
@@ -225,7 +225,7 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
           }
           setDetails({
             lines: measurementDetails(row, column.key as 'time' | 'characters' | 'speed'),
-            anchor: event.currentTarget as unknown as View,
+            anchor: event.currentTarget as unknown as ComponentRef<typeof View>,
             snapshot: data
           });
         }}
@@ -383,7 +383,7 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
             accessibilityLabel="Choose statistics page"
             disabled={state.busy}
             onPress={(event) => {
-              setPagesAnchor(event.currentTarget as unknown as View);
+              setPagesAnchor(event.currentTarget as unknown as ComponentRef<typeof View>);
               setPagesOpen(true);
             }}
           >

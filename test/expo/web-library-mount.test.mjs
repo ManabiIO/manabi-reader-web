@@ -1,14 +1,15 @@
 /** @license BSD-3-Clause */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync, mkdirSync, renameSync } from 'node:fs';
+import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { build } from 'esbuild';
 
 const require = createRequire(import.meta.url);
+const appRequire = createRequire(new URL('../../apps/web/package.json', import.meta.url));
 
 test('the actual browser runtime and library mount, update and remount without starving IndexedDB', async () => {
   const output = mkdtempSync(join(tmpdir(), 'web-library-mount-'));
@@ -33,6 +34,7 @@ test('the actual browser runtime and library mount, update and remount without s
       format: 'cjs',
       jsx: 'automatic',
       conditions: ['browser'],
+      resolveExtensions: ['.web.tsx', '.tsx', '.web.ts', '.ts', '.web.js', '.js'],
       tsconfig: 'apps/web/tsconfig.json',
       loader: { '.css': 'empty', '.woff2': 'file', '.woff': 'file' },
       logLevel: 'silent',
@@ -40,6 +42,19 @@ test('the actual browser runtime and library mount, update and remount without s
         {
           name: 'host-react',
           setup(b) {
+            b.onResolve({ filter: /^react-native$/ }, () => ({
+              path: appRequire.resolve('react-native-web'),
+              external: true
+            }));
+            b.onResolve({ filter: /^expo-router$/ }, () => ({
+              path: 'router',
+              namespace: 'router'
+            }));
+            b.onLoad({ filter: /.*/, namespace: 'router' }, () => ({
+              contents:
+                "export const useIsFocused = () => true; export const Link = () => { throw new Error('Unexpected Link in mount fixture'); };",
+              loader: 'js'
+            }));
             b.onResolve({ filter: /^react(?:\/.*)?$|^react-dom(?:\/.*)?$/ }, (args) => ({
               path: require.resolve(args.path),
               external: true
@@ -59,6 +74,8 @@ test('the actual browser runtime and library mount, update and remount without s
     assert.equal(result.status, 0, result.stdout + '\n' + result.stderr);
     assert.match(result.stdout, /Library startup and remount completed/);
   } finally {
-    rmSync(output, { recursive: true, force: true });
+    const trash = join(homedir(), '.Trash');
+    mkdirSync(trash, { recursive: true });
+    renameSync(output, join(mkdtempSync(join(trash, 'web-library-mount-')), 'output'));
   }
 });

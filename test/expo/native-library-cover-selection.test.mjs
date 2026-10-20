@@ -1,8 +1,8 @@
 /** @license BSD-3-Clause */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync, mkdirSync, renameSync, readFileSync } from 'node:fs';
+import { tmpdir, homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { buildSync } from 'esbuild';
@@ -31,7 +31,11 @@ function bundle(path) {
 const { selectNativeLibraryCover } = bundle('native-library/cover-selection');
 const { NativeLibraryService } = bundle('native-library/service');
 const { coverOverride } = bundle('lib/library/cover-override');
-process.on('exit', () => rmSync(output, { recursive: true, force: true }));
+process.on('exit', () => {
+  const trash = join(homedir(), '.Trash');
+  mkdirSync(trash, { recursive: true });
+  renameSync(output, join(mkdtempSync(join(trash, 'native-selection-')), 'output'));
+});
 const png = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4);
 const file = (bytes = png, type = 'image/png') => new File([bytes], 'cover.png', { type });
 const deferred = () => {
@@ -173,8 +177,8 @@ function picker({ bytes = png, type = 'image/png', pick, command, read } = {}) {
       file: () => ({
         size: bytes.length,
         open: () => ({
-          readBytes(size) {
-            read?.();
+          async readBytes(size) {
+            await read?.();
             const value = bytes.slice(offset, offset + size);
             offset += value.length;
             return value;
@@ -503,3 +507,32 @@ test('native wiring keeps picker native, targets cancellation and revalidates fi
   assert.match(ui, /coverOperation\.current\?\.abort\(\)/);
   assert.doesNotMatch(dom, /DocumentPicker|expo-file-system/);
 });
+
+for (const reason of ['abort', 'account']) {
+  test(`pending async cover read retires on ${reason} before sending any bytes`, async () => {
+    const started = deferred(),
+      pending = deferred(),
+      abort = new AbortController();
+    const f = picker({
+      read: () => {
+        started.resolve();
+        return pending.promise;
+      }
+    });
+    const saving = selectNativeLibraryCover(f.dependencies, target, abort.signal);
+    await started.promise;
+    if (reason === 'abort') abort.abort();
+    else f.change();
+    pending.resolve();
+    await assert.rejects(saving);
+    assert.equal(
+      f.calls.filter((call) => ['import.chunk', 'import.commit'].includes(call.method)).length,
+      0
+    );
+    assert.equal(f.closed, 1);
+    assert.equal(
+      f.calls.filter((call) => call.method === 'import.cancel').length,
+      reason === 'abort' ? 1 : 0
+    );
+  });
+}

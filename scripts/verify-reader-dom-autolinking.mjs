@@ -12,14 +12,14 @@ const require = createRequire(path.join(app, 'package.json'));
 const expoRequire = createRequire(require.resolve('expo/package.json'));
 const autolinking = path.dirname(expoRequire.resolve('expo-modules-autolinking/package.json'));
 
-/** Match SDK 57 SettingsManager.configurePublication, which tests Gradle project names.
+/** Match SDK 58 SettingsManager.configurePublication, which tests Gradle project names.
  * Testing only whether the npm package is listed would silently accept the unpatched AAR.
  */
 export function verifyReaderDomAutolinking(resolved) {
   const modules = resolved.modules.filter((module) => module.packageName === '@expo/dom-webview');
   assert.equal(modules.length, 1, 'Exactly one patched DOM WebView must be autolinked');
   const module = modules[0];
-  assert.equal(module.packageVersion, '57.0.1', 'Re-review the patch before upgrading Expo DOM');
+  assert.equal(module.packageVersion, '58.0.2', 'Re-review the patch before upgrading Expo DOM');
   assert.equal(module.projects.length, 1, 'Re-review changed DOM native project layout');
   const project = module.projects[0];
   assert.equal(project.name, 'expo-dom-webview');

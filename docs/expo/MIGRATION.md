@@ -4,12 +4,12 @@ This branch is one deliberately large, **unmerged draft PR**. It replaces active
 
 ## Platform boundary
 
-- Expo SDK **57.0.26**, the current patched stable line, React **19.2.3**, React Native **0.86.3**. SDK 58 beta is not required for this migration.
+- Expo SDK **58.0.16**, React **19.3.0**, React Native **0.88.0**, Expo UI **58.0.21** and Router **58.0.24**. Windows is deferred; its renderer no longer constrains the web/Android version choice.
 - `app.config.ts` admits **Android and web only**. Scripts generate/export Android explicitly. There are no Expo iOS, macOS, Windows, or Linux application targets. Existing native Apple applications remain separate.
 - Route entries live in `src/app` and re-export screens outside that directory. Both Statistics entries now select the same shared screen/controller. Other nonreader presentations remain temporarily duplicated and must converge; platform file selection alone is not shared UI. Executable graph tests use the installed Expo DOM transform and positively check the common Statistics composition on both platforms while excluding browser owners from the Android shell.
 - Expo Router owns the application routes on Android and web. The deployed web prefix remains `/reader-web` (or an explicit `BASE_PATH`), and the existing route/query shapes remain the compatibility contract.
 - The React DOM reading surface retains EPUB/Foliate layout, ruby, vertical text, selection/ranges, annotations, dictionary rendering, rich content and browser workers. It renders directly on web and through an Expo DOM component on Android. It does not import or mount Svelte.
-- The target is shared screen composition, interaction state and branded RN/RNW style, with SDK 57 Expo UI universal controls and bounded semantic/system adapters. Statistics is the first integrated slice. Whole separate web/native pages are temporary references, not the target architecture. See [shared UI convergence](SHARED-UI-CONVERGENCE.md) for the inventory and remaining sequence.
+- The target is shared screen composition, interaction state and branded RN/RNW style, with SDK 58 Expo UI universal controls and bounded semantic/system adapters. Statistics is the first integrated slice. Whole separate web/native pages are temporary references, not the target architecture. See [shared UI convergence](SHARED-UI-CONVERGENCE.md) for the inventory and remaining sequence.
 
 ## Durable state, lifecycle and trust
 
@@ -108,7 +108,7 @@ Status is intentionally separate from coverage. `Ported` means source implementa
 
 ## Secure Android reader host
 
-The app explicitly source-builds `expo-dom-webview`; a precompiled upstream AAR would omit this security adapter and must fail qualification. The exact `@expo/dom-webview@57.0.1` patch in [patches/reader-dom](../../patches/reader-dom/README.md) gives the persistent DOM owner a stable packaged HTTPS origin through AndroidX WebViewAssetLoader. It blocks main-frame navigation, scopes message receipt to the exact origin/main frame, disables native-module evaluation and file-origin bypasses, and fails closed on unsupported WebView features. Imported EPUB frames are scriptless on Android. User-gesture external links are revalidated before Custom Tab opening. The patch's JVM URL policy has 89 executable assertions; Kotlin compilation and patched-host JVM tests passed on `a0988605`, and complete release APK assets/source-byte qualification passed on `727b360e`. Device OPFS/Web Locks/worker persistence and actual native/DOM replies remain unqualified until actual packaged-host instrumentation passes; the first emulator did not boot, and the current workflow adds the documented temporary-runner KVM setup.
+The app explicitly source-builds `expo-dom-webview`; a precompiled upstream AAR would omit this security adapter and must fail qualification. The exact `@expo/dom-webview@58.0.2` patch in [patches/reader-dom](../../patches/reader-dom/README.md) gives the persistent DOM owner a stable packaged HTTPS origin through AndroidX WebViewAssetLoader. It blocks main-frame navigation, scopes message receipt to the exact origin/main frame, disables native-module evaluation and file-origin bypasses, and fails closed on unsupported WebView features. Imported EPUB frames are scriptless on Android. User-gesture external links are revalidated before Custom Tab opening. The patch's JVM URL policy has 89 executable assertions; Kotlin compilation and patched-host JVM tests passed on `a0988605`, and complete release APK assets/source-byte qualification passed on `727b360e`. Device OPFS/Web Locks/worker persistence and actual native/DOM replies remain unqualified until actual packaged-host instrumentation passes; the first emulator did not boot, and the current workflow adds the documented temporary-runner KVM setup.
 
 Book selection tokens are checked against content identity at the actual read/delete boundary. Reader authorization outlives the asynchronous bridge reply and is revoked on replacement, close, teardown or account generation change. This avoids treating `setBookId` as a completed authorized load.
 
@@ -170,7 +170,7 @@ https://docs.expo.dev/versions/v57.0.0/sdk/ui/universal/host/
 
 ### Retained browser-entry ownership repair
 
-The web layout uses the installed SDK 57 `Navigator`/`Navigator.Slot` API with
+The web layout uses the installed SDK 58 `Navigator`/`Navigator.Slot` API with
 an isolated `WebSlotRouter` adapter. It delegates every action to Expo's exported
 `StackRouter`, then preserves the focused component key across contiguous
 Library/Snippets visits. Browser entries keep distinct Expo-owned history IDs
@@ -180,9 +180,9 @@ Native still uses its unmodified `Stack`.
 
 This adapter is version-sensitive: Expo documents `StackRouter` as an internal
 implementation despite its public export. Upgrade qualification must retain the
-actual installed reducer and memory-history tests for PUSH, REPLACE, POP,
+actual installed reducer and browser-history tests for PUSH, REPLACE, POP,
 POP_TO_TOP, GO_BACK, forward replay, unique route keys and once-decoded params.
-See [the SDK 57 Router API](https://docs.expo.dev/versions/v57.0.0/sdk/router/).
+See [the SDK 58 Router API](https://docs.expo.dev/versions/v58.0.0/sdk/router/).
 The local reducer/mounted tests are not a substitute for exact-head browser
 history, selection, draft and stale-open acceptance.
 
@@ -191,3 +191,59 @@ history, selection, draft and stale-open acceptance.
 Android now uses the canonical Finished calendar-day groups and the same saved newest/oldest preference as web, ordered before pagination. Saved timeline/grid is independent of Library/series layouts. Contextual Finished controls omit unfinished-only filtering. Invalid restored dates are shown as undated and sorted last.
 
 Release-app QA exposed a reader Back reset of the selected Library shelf. Approved hardware and DOM toolbar exits now dismiss to the existing workspace, retaining its shelf/search/page. Close/save and account retirement guards remain authoritative. See [the navigation parity report](NAVIGATION-ANDROID-PARITY.md) for exact APK, test and emulator evidence. Continue and Finished shelf composition are implemented; series hero, native Shared/Ttu placeholders and physical-device acceptance remain open.
+
+## October 20 SDK 58 upgrade
+
+SDK 58 is stable (October 15), with RN 0.88. Package versions follow Expo's
+published bundled-module mapping; the patched DOM module remains exact-pinned.
+The RN community CLI's Metro peer is explicitly aligned at 0.88.0. Expo's online
+check accepts the installed React and React DOM types. Existing unrelated
+ESLint/TypeScript plugin peer warnings are not hidden with overrides.
+
+- Keep `web.output: 'single'` and explicitly set Router `asyncRoutes: false`.
+  SDK 58 otherwise enables async web routes by default. The existing service
+  worker must have the complete route shell after its initial install; route
+  splitting needs separate offline acceptance before enabling it.
+- Use SDK 58's action result envelope and `isActionHandled` in `WebSlotRouter`.
+  Remap the affected route key with the retained screen key. Same-screen pops
+  keep Expo's exact count without an ambiguous target key, so multiple Library
+  visits cannot intercept a pop-to-top. Tests use the installed history reducer
+  and browser adapter, including distinct entry IDs, immutable snapshots,
+  Back/Forward, stale-open retirement and a two-entry pop.
+- Await FileHandle reads for books, covers and fonts. Check the original account
+  generation after each pending read; cover/font cancellation also checks its
+  abort signal before sending bytes. Keep bounded chunks and close descriptors
+  in `finally`. No source file, database schema, storage origin, or backup format
+  changes. Existing backups remain the restore boundary for another profile.
+- RN 0.88 component refs use component instance types; FlatList callback types
+  come from its public props. Keyboard handling normalizes the native event at
+  the shared button leaf, retaining web keyboard behavior.
+- Port the secure DOM patch to `@expo/dom-webview@58.0.2`. The four native/source
+  implementation files are byte-identical to 57.0.1; upstream Gradle version
+  fields and the declaration's removed source-map comment are the only touched
+  upstream differences. Fresh hashes, reversible patch checks, JVM URL policy,
+  actual exporter topology and source-build autolinking remain required.
+- Preserve Babel, project icon/ONNX transforms, explicit public assets and Android
+  source builds. Neither the experimental Rust transformer nor a fingerprint
+  name/version match establishes that a patched Android binary was rebuilt.
+- RN 0.88 now rejects obsolete delayed viewability callbacks. The installed-source
+  regression verifies that repair and still verifies our immediate visibility
+  configuration, cover publication and real viewport retirement.
+
+Current local evidence is recorded under the SDK 58 upgrade checkpoint. Web and
+Android production exports pass, with 501 web artifacts and 500 Android inventory artifacts. Android export is an
+inventory only: existing MD5-relocated worker/chunk warnings do not qualify an
+APK. No SDK 58 Android APK/device result is claimed; native compilation,
+packaged assets and offline process-restart acceptance must be rerun.
+
+Primary references: [SDK 58 release](https://expo.dev/changelog/sdk-58),
+[upgrade workflow](https://docs.expo.dev/workflow/upgrading-expo-sdk-walkthrough/),
+[Expo UI universal targets](https://docs.expo.dev/versions/v58.0.0/sdk/ui/universal/).
+
+Local acceptance: all 617 Expo regressions, including the updated 40-case CI
+policy gate, pass with zero skipped. Strict application
+TypeScript, scoped ESLint, frozen installation and the five DOM/JVM patch
+contracts pass. The actual exported app passes nine offline/connection scenarios
+across Chromium/WebKit and ten history/reader-retirement journeys (five per
+engine). Screenshots were inspected at compact and sidebar sizes. This is local
+candidate evidence, not a completed remote SDK 58 Android runtime result.

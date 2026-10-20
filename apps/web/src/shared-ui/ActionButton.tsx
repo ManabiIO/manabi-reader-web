@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { Children, forwardRef, type ReactNode } from 'react';
+import { Children, forwardRef, type ComponentRef, type ReactNode } from 'react';
 import { Link, type Href } from 'expo-router';
 import {
   Platform,
@@ -31,7 +31,8 @@ export type ActionSize =
   | 'icon-sm'
   | 'icon-lg';
 export type ActionShape = 'auto' | 'rounded' | 'capsule' | 'circle';
-export interface ActionButtonProps extends Omit<PressableProps, 'style' | 'children' | 'role'> {
+export interface ActionButtonProps
+  extends Omit<PressableProps, 'style' | 'children' | 'role' | 'onKeyDown'> {
   children: ReactNode;
   variant?: ActionVariant;
   size?: ActionSize;
@@ -67,147 +68,163 @@ const sizes = {
   'icon-sm': [32, 8, 0, 0, 16],
   'icon-lg': [44, 12, 0, 0, 20]
 } as const;
-export const ActionButton = forwardRef<View, ActionButtonProps>(function ActionButton(
-  {
-    children,
-    variant = 'default',
-    size = 'default',
-    shape = 'auto',
-    selected,
-    disabled,
-    title,
-    dataSet,
-    style,
-    textStyle,
-    role = 'button',
-    ...props
-  },
-  ref
-) {
-  const { colors: c } = useUiTheme();
-  const elementRef = useActionRef(ref, title);
-  const [baseHeight, radius, px, py, font] = sizes[size];
-  const height = Platform.OS === 'web' ? baseHeight : Math.max(44, baseHeight);
-  const icon = size.startsWith('icon') || shape === 'circle';
-  const active = selected ?? props['aria-pressed'] ?? props['aria-expanded'] ?? false;
-  const filled = variant === 'default';
-  const foreground = filled
-    ? c.primaryForeground
-    : variant === 'secondary'
-      ? c.secondaryForeground
-      : variant === 'outline' || variant === 'link'
-        ? c.primary
+export const ActionButton = forwardRef<ComponentRef<typeof View>, ActionButtonProps>(
+  function ActionButton(
+    {
+      children,
+      variant = 'default',
+      size = 'default',
+      shape = 'auto',
+      selected,
+      disabled,
+      title,
+      dataSet,
+      style,
+      textStyle,
+      role = 'button',
+      onKeyDown,
+      ...props
+    },
+    ref
+  ) {
+    const { colors: c } = useUiTheme();
+    const elementRef = useActionRef(ref, title);
+    const [baseHeight, radius, px, py, font] = sizes[size];
+    const height = Platform.OS === 'web' ? baseHeight : Math.max(44, baseHeight);
+    const icon = size.startsWith('icon') || shape === 'circle';
+    const active = selected ?? props['aria-pressed'] ?? props['aria-expanded'] ?? false;
+    const filled = variant === 'default';
+    const foreground = filled
+      ? c.primaryForeground
+      : variant === 'secondary'
+        ? c.secondaryForeground
+        : variant === 'outline' || variant === 'link'
+          ? c.primary
+          : variant === 'destructive'
+            ? c.destructive
+            : c.foreground;
+    const background = filled
+      ? c.primary
+      : variant === 'secondary'
+        ? c.secondary
         : variant === 'destructive'
-          ? c.destructive
-          : c.foreground;
-  const background = filled
-    ? c.primary
-    : variant === 'secondary'
-      ? c.secondary
-      : variant === 'destructive'
-        ? c.destructiveBackground
-        : 'transparent';
-  const round =
-    shape === 'circle' ||
-    shape === 'capsule' ||
-    (shape === 'auto' &&
-      ['default', 'secondary', 'outline', 'destructive'].includes(variant) &&
-      ['default', 'lg'].includes(size));
-  return (
-    <>
-      <UiPresentation />
-      <Pressable
-        {...props}
-        ref={elementRef}
-        role={role}
-        disabled={disabled}
-        {...(Platform.OS === 'web'
-          ? { title, dataSet: { uiButton: '', slot: 'button', variant, size, shape, ...dataSet } }
-          : {})}
-        aria-pressed={role === 'link' ? undefined : (props['aria-pressed'] ?? selected)}
-        aria-current={role === 'link' && selected ? 'page' : props['aria-current']}
-        accessibilityState={{
-          ...props.accessibilityState,
-          disabled: disabled ?? undefined,
-          ...(selected === undefined || (Platform.OS === 'web' && role === 'link')
-            ? {}
-            : { selected })
-        }}
-        style={(state) => {
-          const hover = (state as typeof state & { hovered?: boolean }).hovered;
-          const emphasized = active || state.pressed || hover;
-          return [
-            {
-              minHeight: height,
-              minWidth: icon ? height : 0,
-              width: icon ? height : undefined,
-              flexShrink: 0,
-              maxWidth: '100%',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexDirection: 'row',
-              flexWrap: 'wrap',
-              gap: size === 'default' || size === 'lg' ? 8 : 4,
-              paddingHorizontal: icon || variant === 'link' ? 0 : px,
-              paddingVertical: icon ? 0 : py,
-              borderWidth: variant === 'link' ? 0 : 1,
-              borderColor: variant === 'outline' ? c.primary : 'transparent',
-              borderRadius: round ? 999 : variant === 'link' ? 0 : radius,
-              backgroundColor:
-                emphasized && !disabled && variant === 'destructive'
-                  ? c.destructiveHover
-                  : emphasized && !disabled && ['ghost', 'outline'].includes(variant)
-                    ? variant === 'outline'
-                      ? c.primary
-                      : c.muted
-                    : background,
-              opacity: disabled ? 0.5 : state.pressed ? 0.8 : 1
-            },
-            style
-          ];
-        }}
-      >
-        {(state) => {
-          const color =
-            !disabled &&
-            variant === 'outline' &&
-            (active || state.pressed || (state as typeof state & { hovered?: boolean }).hovered)
-              ? c.primaryForeground
-              : foreground;
-          return (
-            <ControlTone.Provider value={color}>
-              {Children.map(children, (child) =>
-                typeof child === 'string' || typeof child === 'number' ? (
-                  <UiText
-                    style={[
-                      {
-                        color,
-                        fontFamily:
-                          Platform.OS === 'web' ? 'var(--font-sans, system-ui)' : undefined,
-                        fontSize:
-                          Platform.OS === 'web' ? (`${font / 16}rem` as unknown as number) : font,
-                        lineHeight:
-                          Platform.OS === 'web' ? ('1.4em' as unknown as number) : font * 1.4,
-                        textAlign: 'center',
-                        flexShrink: 1,
-                        fontWeight: '400'
-                      },
-                      textStyle
-                    ]}
-                  >
-                    {child}
-                  </UiText>
-                ) : (
-                  child
-                )
-              )}
-            </ControlTone.Provider>
-          );
-        }}
-      </Pressable>
-    </>
-  );
-});
+          ? c.destructiveBackground
+          : 'transparent';
+    const round =
+      shape === 'circle' ||
+      shape === 'capsule' ||
+      (shape === 'auto' &&
+        ['default', 'secondary', 'outline', 'destructive'].includes(variant) &&
+        ['default', 'lg'].includes(size));
+    return (
+      <>
+        <UiPresentation />
+        <Pressable
+          {...props}
+          onKeyDown={
+            onKeyDown
+              ? (event) =>
+                  onKeyDown({
+                    key: event.nativeEvent.key,
+                    ctrlKey: event.nativeEvent.ctrlKey,
+                    metaKey: event.nativeEvent.metaKey,
+                    currentTarget: event.currentTarget,
+                    preventDefault: () => event.preventDefault(),
+                    stopPropagation: () => event.stopPropagation()
+                  })
+              : undefined
+          }
+          ref={elementRef}
+          role={role}
+          disabled={disabled}
+          {...(Platform.OS === 'web'
+            ? { title, dataSet: { uiButton: '', slot: 'button', variant, size, shape, ...dataSet } }
+            : {})}
+          aria-pressed={role === 'link' ? undefined : (props['aria-pressed'] ?? selected)}
+          aria-current={role === 'link' && selected ? 'page' : props['aria-current']}
+          accessibilityState={{
+            ...props.accessibilityState,
+            disabled: disabled ?? undefined,
+            ...(selected === undefined || (Platform.OS === 'web' && role === 'link')
+              ? {}
+              : { selected })
+          }}
+          style={(state) => {
+            const hover = (state as typeof state & { hovered?: boolean }).hovered;
+            const emphasized = active || state.pressed || hover;
+            return [
+              {
+                minHeight: height,
+                minWidth: icon ? height : 0,
+                width: icon ? height : undefined,
+                flexShrink: 0,
+                maxWidth: '100%',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                gap: size === 'default' || size === 'lg' ? 8 : 4,
+                paddingHorizontal: icon || variant === 'link' ? 0 : px,
+                paddingVertical: icon ? 0 : py,
+                borderWidth: variant === 'link' ? 0 : 1,
+                borderColor: variant === 'outline' ? c.primary : 'transparent',
+                borderRadius: round ? 999 : variant === 'link' ? 0 : radius,
+                backgroundColor:
+                  emphasized && !disabled && variant === 'destructive'
+                    ? c.destructiveHover
+                    : emphasized && !disabled && ['ghost', 'outline'].includes(variant)
+                      ? variant === 'outline'
+                        ? c.primary
+                        : c.muted
+                      : background,
+                opacity: disabled ? 0.5 : state.pressed ? 0.8 : 1
+              },
+              style
+            ];
+          }}
+        >
+          {(state) => {
+            const color =
+              !disabled &&
+              variant === 'outline' &&
+              (active || state.pressed || (state as typeof state & { hovered?: boolean }).hovered)
+                ? c.primaryForeground
+                : foreground;
+            return (
+              <ControlTone.Provider value={color}>
+                {Children.map(children, (child) =>
+                  typeof child === 'string' || typeof child === 'number' ? (
+                    <UiText
+                      style={[
+                        {
+                          color,
+                          fontFamily:
+                            Platform.OS === 'web' ? 'var(--font-sans, system-ui)' : undefined,
+                          fontSize:
+                            Platform.OS === 'web' ? (`${font / 16}rem` as unknown as number) : font,
+                          lineHeight:
+                            Platform.OS === 'web' ? ('1.4em' as unknown as number) : font * 1.4,
+                          textAlign: 'center',
+                          flexShrink: 1,
+                          fontWeight: '400'
+                        },
+                        textStyle
+                      ]}
+                    >
+                      {child}
+                    </UiText>
+                  ) : (
+                    child
+                  )
+                )}
+              </ControlTone.Provider>
+            );
+          }}
+        </Pressable>
+      </>
+    );
+  }
+);
 export interface HeadingProps {
   children: ReactNode;
   level?: 1 | 2 | 3;

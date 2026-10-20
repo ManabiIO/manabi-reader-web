@@ -447,13 +447,13 @@ async function fixture(t, platform = 'web', media = false) {
   return { directory, app, output, platform, media };
 }
 
-test('uses installed SDK 57 chunk naming, including its second extension removal', () => {
+test('uses installed SDK 58 chunk naming, including its second extension removal', () => {
   assert.match(
     workerChunk('voice-pitch.worker'),
     /^_expo\/static\/js\/web\/voice-pitch-[a-f0-9]+\.js$/
   );
 });
-test('reads JSON-quoted SDK 57 dependency-map keys', () => {
+test('reads JSON-quoted SDK 58 dependency-map keys', () => {
   const found = inspectJavaScript(workerCall('reader-search-worker', 0, './'));
   assert.deepEqual(found.workers, [
     {
@@ -582,7 +582,7 @@ test('Android update metadata cannot substitute for an APK', async (t) => {
   assert.ok(result.errors.some((error) => /assets\/index.android.bundle/.test(error)));
 });
 test('actual installed exporter retains the expected update versus embedded topology', async () => {
-  assert.equal(JSON.parse(await fs.readFile(expoPackage)).version, '57.0.26');
+  assert.equal(JSON.parse(await fs.readFile(expoPackage)).version, '58.0.16');
   const embed = await fs.readFile(
     path.join(cli, 'build/src/export/embed/exportEmbedAsync.js'),
     'utf8'

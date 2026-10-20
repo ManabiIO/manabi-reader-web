@@ -244,3 +244,11 @@ identity, enlarged grid labels, enlarged selection toolbar, real theme contrast,
 metadata identity preservation, cancel/concurrent-edit isolation, keyboard/range
 selection, and responsive covers/columns. The original full inventories remain
 required; this bounded selection does not qualify native populated-shelf UI.
+
+October 20 SDK 58 qualification also admits an explicit `workflow_dispatch` on
+`codex/reader-windows-sdk56-20261020`. Its historical branch name remains to keep
+legacy job exclusions intact; the candidate contains only Android and web.
+Automatic pushes/PRs on that branch still do not enable the migration jobs or
+legacy cache/artifact jobs. Public visibility, exact repository, stock runners,
+and the no-cache/no-upload restrictions remain unchanged. Native Android
+acceptance must name the actual SDK 58 commit and completed run.

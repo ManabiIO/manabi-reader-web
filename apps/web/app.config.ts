@@ -48,7 +48,8 @@ const config: ExpoConfig = {
   android: { package: 'io.manabi.reader' },
   web: { bundler: 'metro', output: 'single', name: 'Manabi Reader', lang: 'ja' },
   plugins: [
-    'expo-router',
+    // Keep the full route shell available after the initial offline precache.
+    ['expo-router', { asyncRoutes: false }],
     'expo-system-ui',
     'expo-document-picker',
     'expo-file-system',

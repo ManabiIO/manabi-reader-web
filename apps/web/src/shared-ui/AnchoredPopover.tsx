@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import type { ReactNode } from 'react';
+import type { ComponentRef, ReactNode } from 'react';
 import type { View } from 'react-native';
 import { Dialog } from './ModalSurface';
 export interface AnchoredPopoverProps {
@@ -13,7 +13,7 @@ export interface AnchoredPopoverProps {
   title: string;
   label: string;
   closeLabel: string;
-  anchor?: View | null;
+  anchor?: ComponentRef<typeof View> | null;
   children: ReactNode;
   maxWidth?: number;
   maxHeight?: number;

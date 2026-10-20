@@ -1,8 +1,8 @@
 /** @license BSD-3-Clause */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync, mkdirSync, renameSync } from 'node:fs';
+import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
@@ -31,6 +31,8 @@ test('mounted Library routes own their series, shallow search and return navigat
           export { commitSnippet, reloadSnippets } from './apps/web/src/lib/snippets/service';
           export { createSnippet, plainContent } from './apps/web/src/lib/snippets/document';
           export { RouteParams } from 'expo-router';
+          export * from 'installed-expo-browser-history';
+          export * from 'installed-expo-history-adapter';
         `,
         resolveDir: process.cwd()
       },
@@ -39,7 +41,9 @@ test('mounted Library routes own their series, shallow search and return navigat
       platform: 'node',
       format: 'cjs',
       jsx: 'automatic',
-      conditions: ['browser'],
+      define: { __DEV__: 'false' },
+      conditions: ['browser', 'expo-source'],
+      resolveExtensions: ['.web.tsx', '.tsx', '.web.ts', '.ts', '.web.js', '.js'],
       tsconfig: 'apps/web/tsconfig.json',
       loader: { '.css': 'empty', '.woff2': 'file', '.woff': 'file' },
       logLevel: 'silent',
@@ -47,8 +51,18 @@ test('mounted Library routes own their series, shallow search and return navigat
         {
           name: 'host-react-and-route-context',
           setup(builder) {
+            builder.onResolve({ filter: /^installed-expo-browser-history$/ }, () => ({
+              path: appRequire.resolve('expo-router/build/global-state/browserHistory')
+            }));
+            builder.onResolve({ filter: /^installed-expo-history-adapter$/ }, () => ({
+              path: appRequire.resolve('expo-router/build/global-state/browserHistoryAdapter')
+            }));
+            builder.onResolve({ filter: /^react-native$/ }, () => ({
+              path: appRequire.resolve('react-native-web'),
+              external: true
+            }));
             builder.onResolve({ filter: /^installed-expo-stack-router$/ }, () => ({
-              path: appRequire.resolve('expo-router/build/react-navigation/routers/StackRouter'),
+              path: appRequire.resolve('expo-router/build/react-navigation/routers/index'),
               external: true
             }));
             builder.onResolve({ filter: /^react(?:\/.*)?$|^react-dom(?:\/.*)?$/ }, (args) => ({
@@ -64,7 +78,8 @@ test('mounted Library routes own their series, shallow search and return navigat
             builder.onLoad({ filter: /.*/, namespace: 'local-route-context' }, () => ({
               contents: `
                 import { createContext, useContext } from 'react';
-                export { StackRouter } from 'installed-expo-stack-router';
+                export { StackRouter, isActionHandled } from 'installed-expo-stack-router';
+                export const Link = () => { throw new Error('Unexpected link render in route ownership fixture'); };
                 export const RouteParams = createContext({});
                 export const useRoute = () => ({ params: useContext(RouteParams) });
                 export const useIsFocused = () => true;
@@ -90,6 +105,8 @@ test('mounted Library routes own their series, shallow search and return navigat
       assert.match(result.stdout, /Library route ownership completed/);
     }
   } finally {
-    rmSync(output, { recursive: true, force: true });
+    const trash = join(homedir(), '.Trash');
+    mkdirSync(trash, { recursive: true });
+    renameSync(output, join(mkdtempSync(join(trash, 'library-route-ownership-')), 'output'));
   }
 });

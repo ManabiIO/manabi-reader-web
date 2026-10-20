@@ -7,7 +7,7 @@
 import { isRtlTarget } from '../../shared-ui/layout-direction';
 import { UiIcon } from '../../shared-ui/UiIcon';
 import { UiText as Text } from '../../shared-ui/Typography';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
 import { View, StyleSheet, useWindowDimensions } from 'react-native';
 import { ActionButton, useUiTheme } from '../../shared-ui/StatisticsPrimitives';
 import {
@@ -54,7 +54,7 @@ export function StatisticsHeatmap({
   const [gridWidth, setGridWidth] = useState(0);
   const [activeDate, setActiveDate] = useState<string>();
   const calendar = useRef<CalendarHandle>(null);
-  const buttons = useRef(new Map<string, View>());
+  const buttons = useRef(new Map<string, ComponentRef<typeof View>>());
   const cellSize = heatmapCellSize(gridWidth, 15, 1, 57);
   const active = activeDate?.startsWith(String(displayYear))
     ? activeDate

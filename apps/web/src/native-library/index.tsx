@@ -25,7 +25,7 @@ import {
   useColorScheme,
   useWindowDimensions,
   View,
-  type ViewToken
+  type FlatListProps
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Host as ExpoHost, TextInput, useNativeState } from '@expo/ui';
@@ -223,20 +223,28 @@ function Library() {
     publishCoverViewport();
   };
   const onRecentViewableItemsChanged = useRef(
-    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    ({
+      viewableItems
+    }: Parameters<NonNullable<FlatListProps<NativeLibraryBook>['onViewableItemsChanged']>>[0]) => {
       visibleRecent.current = viewableItems
         .filter(({ item }) => item.hasCover)
         .map(({ item }) => item.key);
       publishCoverViewport();
     }
   ).current;
-  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
-    visibleBooks.current = viewableItems
-      .flatMap(({ item }) => (item.kind === 'book' ? [item] : (item.books ?? [])))
-      .filter((book) => book.hasCover)
-      .map((book) => book.key);
-    publishCoverViewport();
-  }).current;
+  const onViewableItemsChanged = useRef(
+    ({
+      viewableItems
+    }: Parameters<
+      NonNullable<FlatListProps<NativeLibraryState['items'][number]>['onViewableItemsChanged']>
+    >[0]) => {
+      visibleBooks.current = viewableItems
+        .flatMap(({ item }) => (item.kind === 'book' ? [item] : (item.books ?? [])))
+        .filter((book) => book.hasCover)
+        .map((book) => book.key);
+      publishCoverViewport();
+    }
+  ).current;
   const viewabilityConfig = useRef(libraryCoverViewability).current;
   const [query, setQuery] = useState<LibraryQuery>({
     query: '',

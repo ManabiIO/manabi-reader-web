@@ -267,7 +267,9 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
           while (sent < size) {
             if (owner.session !== latest.current.session || owner.epoch !== latest.current.epoch)
               throw new Error('The account changed during import.');
-            const bytes = handle.readBytes(Math.min(IMPORT_CHUNK_BYTES, size - sent));
+            const bytes = await handle.readBytes(Math.min(IMPORT_CHUNK_BYTES, size - sent));
+            if (owner.session !== latest.current.session || owner.epoch !== latest.current.epoch)
+              throw new Error('The account changed during import.');
             if (!bytes.length) throw new Error('The selected file ended before its declared size.');
             await command('import.chunk', {
               transferId,
