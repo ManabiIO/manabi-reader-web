@@ -1,7 +1,7 @@
 # Packaged Android reader smoke qualification
 
-Status: both packaged instrumentation phases passed on SDK 58 source `71d0e5a0`
-in [run 39467753609](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39467753609/job/118783498761),
+Status: both packaged instrumentation phases passed on SDK 58 source `9aeb3ad1`
+in [run 39473146431](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39473146431/job/118802173201),
 on API 35 with WebView 124.0.6367.219. This qualifies the synthetic host checks
 below on that exact APK. New source and the wider device/product matrix still
 require their own qualification; local unit tests or compilation alone do not

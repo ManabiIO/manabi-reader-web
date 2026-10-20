@@ -355,3 +355,26 @@ of the synthetic packaged-host harness on that exact source and emulator,
 not full product parity, physical-device coverage, authenticated synchronization,
 or a current-WebView device matrix. The later Notes readiness repair needs a
 fresh remote run; it is not included in this APK.
+
+### Latest completed SDK 58 qualification
+
+Run [`39473146431`](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39473146431)
+passed all three jobs on `9aeb3ad1`, including the Notes readiness repair:
+
+- Complete regression job: full lint, strict types, 1,750 original unit tests,
+  618 Expo tests, Java 21 harness contracts and the retained domain regressions.
+- Both default and promoted web exports: 151 selected browser test executions
+  per export, including the previously failing WebKit imported-note journey,
+  plus the configured asset/worker checks.
+- Android: release compilation, JVM origin tests, APK assets/emitted worker,
+  native Library/font-manager journey, storage reload, force-stop/new-process
+  recovery and cleanup. API 35/WebView 124.0.6367.219 used process IDs 3118 and 3638. Release APK SHA-256:
+  `08b4b9548587681d914ab47e566589f298be6c68899c0cad21e6d1f22e314164`.
+
+No artifacts were uploaded and no remote caches were used. This was explicitly
+`qualification_scope=affected`: full parity, the complete shared/local
+data-safety dispatcher, wider physical-device/current-WebView coverage and
+authenticated synchronization remain separate gates. Four annotation and three
+scrubber quality journeys also passed locally in each browser engine, covering
+200% text, keyboard focus, export/import conflict recovery, saved-passage
+preview and unchanged resume position.

@@ -196,8 +196,8 @@ No real account or real library is used.
 
 **Runtime stays unqualified until that exact step passes.** Compilation, APK
 inspection or a Chromium worker pass cannot replace packaged-host execution.
-Both phases passed for SDK 58 source `71d0e5a0` in
-[run 39467753609](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39467753609/job/118783498761)
+Both phases passed for SDK 58 source `9aeb3ad1` in
+[run 39473146431](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39473146431/job/118802173201)
 on API 35/WebView 124.0.6367.219, with distinct process IDs and verified cleanup.
 Later commits need their own completed run.
 Passing this synthetic harness still does not establish complete Android product
