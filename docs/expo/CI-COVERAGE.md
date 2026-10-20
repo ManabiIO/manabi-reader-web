@@ -31,6 +31,16 @@ Evidence is ordinary logs and summaries from the disposable runner.
 cases and checks that the candidate cannot allocate legacy upload/cache jobs.
 No successful native result is implied by the workflow merely existing.
 
+The first candidate run
+([80723a1](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39445231505))
+failed before native compilation: the Windows pnpm shim returned without
+installing dependencies or invoking either build. Its nominally successful build
+steps are **not compile evidence**. The workflow now invokes pnpm's published
+`bin/pnpm.mjs` entry using Node, verifies the package-manager version and resolved
+dependency versions, and requires a fresh executable after each native build.
+Installed tools are not rewritten. Runtime acceptance still requires the UI
+probe to pass.
+
 ## Execution boundary
 
 - Only `ManabiIO/manabi-reader-web` and its own

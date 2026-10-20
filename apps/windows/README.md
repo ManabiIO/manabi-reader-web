@@ -87,6 +87,11 @@ resize). Per-step results determine acceptance; the workflow definition itself
 does not qualify the host. It prints evidence without uploading artifacts or
 remote caches. See [CI scope](../../docs/expo/CI-COVERAGE.md).
 
+The initial Windows run exposed a pnpm 12 shim that silently returned without
+running commands. CI uses its published `bin/pnpm.mjs` entry with Node and checks
+both dependency versions and fresh native outputs. A zero exit from the CLI
+alone is not build acceptance.
+
 Then implement a persistent WebView2 host with a stable local HTTPS origin and
 an app-owned writable profile. Exercise the existing DOM database owner, workers,
 WASM, bridge, offline relaunch and backup/restore before adding shared screens.

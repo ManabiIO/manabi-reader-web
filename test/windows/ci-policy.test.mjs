@@ -81,10 +81,17 @@ test('both native builds are required independently, with runtime evidence from 
   for (const id of ['debug', 'release']) {
     const step = job.steps.find((step) => step.id === id);
     assert.match(step.if, /steps\.dependencies\.outcome == 'success'/);
-    assert.match(step.run, /--arch x64 --no-deploy --no-launch/);
-    assert.match(step.run, /AppxPackageSigningEnabled=false/);
+    assert.equal(
+      step.run,
+      `./test/windows/native-build.ps1 -Configuration ${id === 'debug' ? 'Debug' : 'Release'}`
+    );
   }
-  assert.match(job.steps.find((step) => step.id === 'release').run, /--release/);
+  const build = readFileSync(new URL('./native-build.ps1', import.meta.url), 'utf8');
+  assert.match(build, /'--arch', 'x64', '--no-deploy', '--no-launch'/);
+  assert.match(build, /AppxPackageSigningEnabled=false/);
+  assert.match(build, /--release/);
+  assert.match(build, /LastWriteTimeUtc -lt \$started/);
+  assert.match(build, /\$executables\.Count -ne 1/);
   const runtime = job.steps.find((step) => step.id === 'runtime');
   assert.match(runtime.if, /steps\.release\.outcome == 'success'/);
   assert.equal(runtime.run, './test/windows/native-host.ps1');
@@ -95,4 +102,13 @@ test('both native builds are required independently, with runtime evidence from 
   assert.match(script, /ValuePattern/);
   assert.match(script, /finally/);
   assert.doesNotMatch(script, /Remove-Item|Add-AppxPackage|Set-ItemProperty|Invoke-WebRequest/);
+});
+
+test('Windows commands bypass the extensionless shim and verify installation', () => {
+  assert.doesNotMatch(source, /^\s+(?:run: )?pnpm (?:install|--dir)/m);
+  assert.match(source, /node_modules\\pnpm\\bin\\pnpm\.mjs/);
+  assert.match(source, /"\$version"\.Trim\(\) -ne '12\.3\.4'/);
+  const install = job.steps.find((step) => step.id === 'dependencies');
+  assert.match(install.run, /node \$env:READER_PNPM_ENTRY install --frozen-lockfile/);
+  assert.match(install.run, /node test\/windows\/verify-install\.mjs/);
 });

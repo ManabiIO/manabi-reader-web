@@ -36,6 +36,7 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - uses: pnpm/action-setup@v6.1.0
+        id: pnpm
         with:
           version: '12.3.4'
           cache: false
@@ -43,6 +44,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.21.0'
+      - name: Verify package manager entry point
+        env:
+          READER_PNPM_ROOT: ${{ steps.pnpm.outputs.dest }}
+        run: |
+          # pnpm 12's extensionless npm shim can return without executing on
+          # Windows. Use its published Node entry; do not rewrite installed tools.
+          $entry = Join-Path $env:READER_PNPM_ROOT 'node_modules\pnpm\bin\pnpm.mjs'
+          $version = & node $entry --version
+          if ($LASTEXITCODE -ne 0 -or "$version".Trim() -ne '12.3.4') {
+            throw "Expected pnpm 12.3.4, received: $version"
+          }
+          "pnpm $version via $entry"
+          "READER_PNPM_ENTRY=$entry" | Add-Content $env:GITHUB_ENV
       - name: Record source and validate Windows toolchain
         run: |
           $ErrorActionPreference = 'Stop'
@@ -56,10 +70,14 @@ jobs:
           "Bootstrap qualification only: no Reader library, persistence, installer or product parity acceptance." | Add-Content $env:GITHUB_STEP_SUMMARY
       - name: Install exact dependency graph without remote cache
         id: dependencies
-        run: pnpm install --frozen-lockfile
+        run: |
+          node $env:READER_PNPM_ENTRY install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node test/windows/verify-install.mjs
+          exit $LASTEXITCODE
       - name: Windows types, CLI patch and CI admission contracts
         run: |
-          pnpm --dir apps/windows check
+          node $env:READER_PNPM_ENTRY --dir apps/windows check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node --test patches/windows-cli/contract.test.mjs test/windows/ci-policy.test.mjs
           exit $LASTEXITCODE
@@ -71,11 +89,11 @@ jobs:
       - name: Compile Debug native host
         id: debug
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
-        run: pnpm --dir apps/windows windows --arch x64 --no-deploy --no-launch --logging --msbuildprops AppxPackageSigningEnabled=false
+        run: ./test/windows/native-build.ps1 -Configuration Debug
       - name: Compile Release native host and bundled Hermes
         id: release
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
-        run: pnpm --dir apps/windows windows --release --arch x64 --no-deploy --no-launch --logging --msbuildprops AppxPackageSigningEnabled=false
+        run: ./test/windows/native-build.ps1 -Configuration Release
       - name: Exercise actual Release UI through Windows UI Automation
         id: runtime
         if: ${{ !cancelled() && steps.release.outcome == 'success' }}
