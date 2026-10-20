@@ -15,7 +15,14 @@ export interface SettingsThemeOption extends SettingsChoiceOption<string> {
 
 export function AddThemeButton({ disabled, onPress }: { disabled?: boolean; onPress(): void }) {
   return (
-    <ActionButton variant="outline" disabled={disabled} onPress={onPress} style={{ minHeight: 44 }}>
+    <ActionButton
+      variant="outline"
+      size="lg"
+      shape="rounded"
+      disabled={disabled}
+      onPress={onPress}
+      style={{ minHeight: 44, borderRadius: 8 }}
+    >
       Add custom theme
     </ActionButton>
   );

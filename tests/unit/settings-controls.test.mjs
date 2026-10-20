@@ -2,6 +2,18 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setImmediate } from 'node:timers';
 import { settingsScript } from './fixtures/settings-script.mjs';
+import { build } from 'esbuild';
+import { Buffer } from 'node:buffer';
+const { outputFiles } = await build({
+  entryPoints: ['apps/web/src/features/settings/dimension-editor.ts'],
+  bundle: true,
+  write: false,
+  format: 'esm',
+  platform: 'node'
+});
+const { createDimensionEditor } = await import(
+  'data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64')
+);
 
 const turn = () => new Promise((resolve) => setImmediate(resolve));
 const selected = { name: 'Custom', fileName: 'custom.ttf', path: '/userfonts/custom.ttf' };
@@ -14,25 +26,49 @@ function deferred() {
   return { promise, resolve };
 }
 
+// Exercise the production shared size model after moving it out of the browser
+// controller. The test owner accepts explicit choices; opening/resize never save.
 function size(initial = {}) {
   const viewport = { innerWidth: 1200, innerHeight: 900 };
-  const h = settingsScript(
-    'settings-dimension-content.svelte',
-    {
-      dimensionValue: 137,
-      isVertical: false,
-      isFirstDimension: true,
-      width: 1200,
-      height: 900,
-      ...initial
+  const values = {
+    dimensionValue: 137,
+    isVertical: false,
+    isFirstDimension: true,
+    width: 1200,
+    height: 900,
+    ...initial
+  };
+  const options = () => ({
+    value: values.dimensionValue,
+    vertical: values.isVertical,
+    first: values.isFirstDimension,
+    width: values.width,
+    height: values.height,
+    disabled: false
+  });
+  const model = createDimensionEditor(options());
+  return {
+    viewport,
+    mount: async () => {},
+    reactive: () => model.configure(options()),
+    dimensionValue: () => model.getSnapshot().value,
+    setToValue: () => (percentage) => {
+      const next = model.choose(percentage);
+      if (next !== null) {
+        values.dimensionValue = next;
+        model.configure(options());
+      }
     },
-    {
-      window: viewport
-    },
-    ['dimensionValue', 'setToValue'],
-    ['isVertical', 'isFirstDimension', 'width', 'height', 'dimensionValue']
-  );
-  return { ...h, viewport };
+    set: Object.fromEntries(
+      Object.keys(values).map((key) => [
+        key,
+        (value) => {
+          values[key] = value;
+          model.configure(options());
+        }
+      ])
+    )
+  };
 }
 
 test('opening size presets does not round and save an exact margin', async () => {
@@ -259,12 +295,19 @@ test('a dismissed form merges into the live font store, not its retired subscrip
 });
 
 test('settings scenarios execute the active React controllers and stop revision delivery on teardown', async () => {
-  const h = size();
+  const h = settingsScript(
+    'settings-dimension-content.svelte',
+    { dimensionValue: 137, isVertical: false, isFirstDimension: true },
+    {},
+    ['dimensionValue'],
+    ['dimensionValue']
+  );
   assert.match(h.sourcePath, /settings-react\/settings-dimension-content-controller\.ts$/);
   assert.equal(h.controller.constructor.name, 'ReaderController');
   let revisions = 0;
   h.controller.subscribe(() => revisions++);
   await h.mount();
+  h.set.dimensionValue(138);
   await turn();
   assert.ok(revisions > 0);
   const before = revisions;

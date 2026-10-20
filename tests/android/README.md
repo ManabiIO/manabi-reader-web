@@ -172,3 +172,12 @@ CacheStorage namespace, loads it through a Blob URL using the WebView FontFace A
 and repeats that load after reload and process restart. It removes only its own
 cache at cleanup. This qualifies cached-font loading in the host, not a document
 picker import, visual font comparison, or modifications to the user's font catalog.
+
+Size-editor qualification uses the actual Compose range accessibility action in
+both process phases. It checks a positive pixel save in the DOM owner, observes
+the saved range back in the native control, selects the named Automatic action,
+and verifies the zero sentinel. Cleanup restores the exact original raw local
+value (including absence). The evidence verifier requires `nativeDimensions` to
+be `slider-completion-and-automatic-local-save-with-exact-restore`. This exercises
+accessible range completion and the save bridge; it does not prove physical
+drag/rotation/cancellation, spoken TalkBack, or the device/large-text matrix.

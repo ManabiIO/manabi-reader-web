@@ -18,6 +18,10 @@ export function verifyEvidence(evidence, phase, id) {
   assert.equal(evidence.nativeFontManager, 'settings-typography-font-cache-read-and-close');
   assert.equal(evidence.nativeChoices, 'color-mode-selection-local-save-and-restore');
   assert.equal(evidence.nativeThemeChooser, 'add-dialog-back-and-close-without-save');
+  assert.equal(
+    evidence.nativeDimensions,
+    'slider-completion-and-automatic-local-save-with-exact-restore'
+  );
   assert.match(
     evidence.entry,
     /^https:\/\/appassets\.androidplatform\.net\/www\.bundle\/[a-f0-9]{32}\.html$/

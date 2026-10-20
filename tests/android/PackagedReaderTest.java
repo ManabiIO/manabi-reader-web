@@ -228,6 +228,7 @@ public final class PackagedReaderTest {
     clickAccessibleText("Settings");
     qualifyNativeChoices();
     qualifyNativeThemeChooser();
+    qualifyNativeDimensions();
     clickAccessibleText("Fonts & text");
     clickAccessibleText("Manage Primary / Serif font files");
     awaitAccessibleText("No stored custom fonts. Built-in fonts remain available in Settings.");
@@ -280,6 +281,75 @@ public final class PackagedReaderTest {
     assertEquals("Closing the editor must not save a theme", original,
         evaluate("localStorage.getItem('customThemes')"));
     evidence.put("nativeThemeChooser", "add-dialog-back-and-close-without-save");
+  }
+
+  private void qualifyNativeDimensions() throws Exception {
+    String original = evaluate("localStorage.getItem('secondDimensionMaxValue')");
+    String writingMode = evaluate("localStorage.getItem('writingMode') || 'vertical-rl'");
+    boolean vertical = "vertical-rl".equals(new JSONTokener(writingMode).nextValue());
+    String dimension = vertical ? "maximum page height" : "maximum page width";
+    String label = "Quick size for " + dimension;
+    try {
+      clickAccessibleText("Page layout");
+      float chosen = setAccessibleSizeProgress(label);
+      long deadline = SystemClock.uptimeMillis() + 45000;
+      String saved = original;
+      while (SystemClock.uptimeMillis() < deadline) {
+        saved = evaluate("localStorage.getItem('secondDimensionMaxValue')");
+        if (!saved.equals(original) && !saved.equals("null")) break;
+        SystemClock.sleep(100);
+      }
+      assertNotEquals("Finishing the actual native slider must save through the local owner", original, saved);
+      assertTrue("The percentage choice must save positive pixels", Double.parseDouble((String) new JSONTokener(saved).nextValue()) > 0);
+      awaitAccessibleSizeProgress(label, chosen);
+      clickAccessibleText("Automatic " + dimension);
+      deadline = SystemClock.uptimeMillis() + 45000;
+      while (SystemClock.uptimeMillis() < deadline && !evaluate("localStorage.getItem('secondDimensionMaxValue')").equals(JSONObject.quote("0"))) SystemClock.sleep(100);
+      assertEquals("Automatic must save the existing zero sentinel", JSONObject.quote("0"), evaluate("localStorage.getItem('secondDimensionMaxValue')"));
+    } finally {
+      evaluate(original.equals("null") ? "localStorage.removeItem('secondDimensionMaxValue'); true;"
+          : "localStorage.setItem('secondDimensionMaxValue', " + original + "); true;");
+      assertEquals("Restore the exact original local dimension", original, evaluate("localStorage.getItem('secondDimensionMaxValue')"));
+    }
+    evidence.put("nativeDimensions", "slider-completion-and-automatic-local-save-with-exact-restore");
+  }
+
+  /** Drive the real Compose range semantics, not a synthetic JS callback. */
+  private float setAccessibleSizeProgress(String label) throws Exception {
+    long deadline = SystemClock.uptimeMillis() + 45000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
+      if (root != null) {
+        for (AccessibilityNodeInfo match : findAccessibleText(root, label)) {
+          match.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+          AccessibilityNodeInfo.RangeInfo range = match.getRangeInfo();
+          if (!match.isVisibleToUser() || !match.isEnabled() || range == null) continue;
+          assertEquals(50f, range.getMin(), 0.01f);
+          assertEquals(95f, range.getMax(), 0.01f);
+          float chosen = Math.abs(range.getCurrent() - 50f) < 0.01f ? 75f : 50f;
+          Bundle value = new Bundle();
+          value.putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, chosen);
+          assertTrue("The named native slider must support accessible progress", match.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId(), value));
+          return chosen;
+        }
+        scrollNativeForward(root);
+      }
+      SystemClock.sleep(200);
+    }
+    throw new AssertionError("Actual native size slider was not reachable: " + label);
+  }
+
+  private void awaitAccessibleSizeProgress(String label, float chosen) throws Exception {
+    long deadline = SystemClock.uptimeMillis() + 45000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
+      if (root != null) for (AccessibilityNodeInfo match : findAccessibleText(root, label)) {
+        AccessibilityNodeInfo.RangeInfo range = match.getRangeInfo();
+        if (match.isVisibleToUser() && match.isEnabled() && range != null && Math.abs(range.getCurrent() - chosen) < 0.01f) return;
+      }
+      SystemClock.sleep(200);
+    }
+    throw new AssertionError("The saved dimension did not return to the native slider: " + label);
   }
 
   private void awaitSelectedChoice(String label) throws Exception {

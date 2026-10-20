@@ -350,3 +350,47 @@ captures were reviewed, including the fixed dialog actions after scrolling.
 The native text-focus leaf additionally passes strict types and the native build;
 these checks do not establish Android keyboard, focus or TalkBack behavior.
 The new theme dialog/editor source still needs its own packaged Android run.
+
+Reader margin/maximum-size presets now share `SettingsDimensionEditor` and its
+storage-free draft model. Both platforms expose the exact saved pixel value,
+quick-size percentage/pixel preview, two shortcut actions and the existing
+Automatic zero sentinel for maximum size. This replaces Android's ten-button
+preset list and the browser's controller-owned presentation with one composition.
+The browser retains its existing popover, fieldset and pixel-value input; native
+retains its numeric draft Apply/Cancel and disables presets while that draft is
+dirty. Existing owners still handle every save and native expected-value checks.
+
+Opening, previewing, canceling and resizing never save. An in-progress gesture is
+admitted to its original viewport, writing direction, saved value and enabled
+state; a changed context rejects its late finish, even if the original values
+later return. Only an explicit completion/shortcut reaches the owner. Incoming
+saved values are not normalized to the nearest displayed quick-size step.
+Automatic remains available without a measured viewport, but never for margins.
+No persistence schema or backup/restore format changes.
+
+The bounded browser slider leaf keeps native input/change/blur/pointercancel
+events: React's range onChange fires while dragging and cannot represent the
+existing completion contract. The native leaf uses Expo UI's Compose Slider,
+whose installed API and Kotlin implementation provide `onValueChangeFinished`;
+the universal Slider currently omits that callback. Labels, range steps and
+semantic theme colors are supplied at this boundary. The shared model—not the
+control—admits a completion and prevents a retired editor from saving.
+
+The Android harness adds an actual accessible range interaction in both process
+phases, verifies a positive local pixel save and the returned native range,
+selects Automatic through its named action, then restores the exact raw original
+value, including an absent key. Evidence must include
+`nativeDimensions: slider-completion-and-automatic-local-save-with-exact-restore`.
+Java compilation and model/import tests are not execution of this gate. Physical
+touch/IME/rotation/TalkBack and native large-text layouts still require runtime
+qualification.
+
+Local dimension-editor qualification passes all 1,758 original unit tests, 623
+Expo tests and 49 Android-harness/CI-policy checks. Full lint, strict types,
+appearance generation, native import-boundary build, production web export and
+API 35 / Java 21 compilation of both instrumentation sources pass. The final
+export passes 29 Settings journeys, the retained Rhea theme-dialog geometry/focus
+case and five retained theme journeys in each browser engine (70 executions).
+Phone/desktop and 320×480 at 200% light/dark captures were inspected. The Rhea
+case also verifies the restored large, 8px rounded Add theme action identified by
+the earlier CI failure. Full native size/editor qualification remains pending.

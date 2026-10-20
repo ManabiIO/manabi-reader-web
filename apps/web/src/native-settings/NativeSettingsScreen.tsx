@@ -19,14 +19,14 @@ import {
   StyleSheet,
   Text,
   View,
-  useColorScheme,
-  useWindowDimensions
+  useColorScheme
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import { Host, Picker, TextInput, useNativeState } from '@expo/ui';
 import { SettingsThemeEditor } from '../features/settings/SettingsThemeEditor';
 import { themeCopyOptions } from '../features/settings/theme-editor';
+import { SettingsDimensionEditor } from '../features/settings/SettingsDimensionEditor';
 import { SettingsSwitch } from '../features/settings/SettingsSwitch';
 import { SettingsChoices } from '../features/settings/SettingsChoices';
 import { SettingsThemeChoices, AddThemeButton } from '../features/settings/SettingsThemeChoices';
@@ -36,12 +36,7 @@ import { ScreenStatusBar } from '../shared-ui/ScreenStatusBar';
 import { Dialog } from '../shared-ui/ModalSurface';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
 import { themeForMode, type ThemeOption } from '../lib/data/theme-option';
-import {
-  dimensionExtent,
-  dimensionLabel,
-  dimensionLimits,
-  dimensionPixels
-} from '../lib/components/settings/dimension-presets';
+import { dimensionLabel } from '../lib/components/settings/dimension-presets';
 import { matchesNativeSetting, parseSettingDraft, type SettingValue } from './schema';
 import { NativeSettingsSession, type SettingsViewState } from './lifecycle';
 import type {
@@ -182,7 +177,6 @@ function FieldEditor({
   const [base, setBase] = useState(field.value);
   const [error, setError] = useState('');
   const editRevision = useRef(0);
-  const dimensions = useWindowDimensions();
   useEffect(() => {
     if (!dirty) {
       setDraft(initial);
@@ -367,34 +361,15 @@ function FieldEditor({
             </Text>
           )}
           {isDimension && (
-            <View style={styles.row}>
-              {(() => {
-                const limits = dimensionLimits(firstDimension);
-                const extent = dimensionExtent(
-                  vertical,
-                  firstDimension,
-                  dimensions.width,
-                  dimensions.height
-                );
-                return Array.from(
-                  { length: (limits.max - limits.min) / limits.step + 1 },
-                  (_, index) => limits.min + index * limits.step
-                ).map((percentage) => {
-                  const pixels = dimensionPixels(percentage, extent, firstDimension);
-                  return (
-                    <Action
-                      key={percentage}
-                      label={`${percentage}% (${pixels ?? '—'} px)`}
-                      colors={colors}
-                      disabled={disabled || pixels === null || dirty}
-                      onPress={() => {
-                        if (pixels !== null) void save(pixels);
-                      }}
-                    />
-                  );
-                });
-              })()}
-            </View>
+            <SettingsDimensionEditor
+              value={Number(field.value)}
+              vertical={vertical}
+              first={firstDimension}
+              disabled={disabled || dirty}
+              onValueChange={(value) => {
+                void save(value);
+              }}
+            />
           )}
         </>
       )}

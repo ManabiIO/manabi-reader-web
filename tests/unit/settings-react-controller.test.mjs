@@ -93,35 +93,31 @@ test('React settings field initializes context stores before evaluating its filt
 
 test('React dimension presets keep opening, previewing and resizing read-only until a chosen value is committed', () => {
   const presets = load('lib/components/settings/dimension-presets.ts');
-  const { createSettingsDimensionContent } = load(
-    'settings-react/settings-dimension-content-controller.ts',
-    {
-      '../lib/components/settings/dimension-presets': presets,
-      '../reader-react/controller': runtime
-    }
-  );
-  const c = createSettingsDimensionContent(
-    { dimensionValue: 160, isVertical: true, isFirstDimension: true },
-    undefined,
-    settingsContext()
-  );
-  c.width = 1200;
-  c.height = 800;
-  c.controller.prepare();
-  assert.equal(c.dimensionValue, 160);
-  assert.equal(c.label, 'Left and right margins');
-  c.preview = { context: c.context, percentage: 50 };
-  c.controller.prepare();
-  assert.equal(c.shownPercentage, 50);
-  assert.equal(c.dimensionValue, 160);
-  c.width = 800;
-  c.controller.prepare();
-  assert.equal(c.dimensionValue, 160);
-  assert.equal(c.shownPercentage, 40);
-  c.setToValue(25);
-  c.controller.prepare();
-  assert.equal(c.dimensionValue, 100);
-  c.controller.destroy();
+  const { createDimensionEditor } = load('features/settings/dimension-editor.ts', {
+    '../../lib/components/settings/dimension-presets': presets
+  });
+  const options = {
+    value: 160,
+    vertical: true,
+    first: true,
+    width: 1200,
+    height: 800,
+    disabled: false
+  };
+  const c = createDimensionEditor(options);
+  assert.equal(c.getSnapshot().value, 160);
+  assert.equal(c.getSnapshot().label, 'Left and right margins');
+  c.preview(50);
+  assert.equal(c.getSnapshot().percentage, 50);
+  assert.equal(c.getSnapshot().value, 160);
+  c.configure({ ...options, width: 800 });
+  assert.equal(c.getSnapshot().value, 160);
+  assert.equal(c.getSnapshot().percentage, 40);
+  const chosen = c.choose(25);
+  assert.equal(chosen, 100);
+  assert.equal(c.getSnapshot().value, 160, 'only the caller can accept and save the chosen value');
+  c.configure({ ...options, width: 800, value: chosen });
+  assert.equal(c.getSnapshot().value, 100);
 });
 
 test('background option stores initialize before rendering and switch subscription with target', () => {

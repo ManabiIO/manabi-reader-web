@@ -353,3 +353,19 @@ emulator fixture mutation used an expired Library token and was rejected without
 changing series membership; a refreshed admission completed the assignment.
 All original logs remain in `test-results/collapsed-series-0n1yr6u5/` alongside
 qualified results. The full Library parity suites passed 17 cases in each engine.
+
+## Shared theme chooser: retained Add-button geometry
+
+[Run 39494543115](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39494543115)
+on `f495b47c67a6a757a30ed7e8616f3456ef8c6cdd` failed both web jobs on
+`RheaReader.test_dialog_traps_focus_and_escape_preserves_custom_theme`, in both
+browser engines. The shared Add button used default sizing and capsule rounding,
+while the retained product contract requires `lg` and an 8px rounded rectangle.
+The preceding focused Settings/theme selection did not include that case and
+therefore did not qualify this requirement. Completed job logs were retrieved
+directly while the independent Android job remained running.
+
+The shared Add action now retains `size="lg"`, rounded shape and the 8px radius.
+The original case and every assertion remain unchanged; it is included with the
+complete Settings selection during local qualification of this repair. An
+exact-source CI pass is still required; the failed older run is not reclassified.

@@ -34,6 +34,10 @@ for (const [name, entry, platform, external] of [
     assert.ok(paths.some((path) => path.endsWith('/features/settings/SettingsChoices.tsx')));
     assert.ok(paths.some((path) => path.endsWith('/features/settings/SettingsThemeChoices.tsx')));
     assert.ok(paths.some((path) => path.endsWith('/features/settings/SettingsThemeEditor.tsx')));
+    assert.ok(
+      paths.some((path) => path.endsWith('/features/settings/SettingsDimensionEditor.tsx'))
+    );
+    assert.ok(paths.some((path) => path.endsWith('/features/settings/dimension-editor.ts')));
     assert.ok(paths.some((path) => path.endsWith('/features/settings/theme-editor.ts')));
     assert.ok(paths.some((path) => path.endsWith('/shared-ui/ActionButton.tsx')));
   }
