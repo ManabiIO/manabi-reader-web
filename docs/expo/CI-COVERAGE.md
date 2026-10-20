@@ -175,6 +175,11 @@ The same Android job exports real DOM assets; performs Android-only prebuild;
 checks patched DOM autolinking and origin contracts; runs JVM tests; compiles the
 release and instrumentation APKs; verifies the APK's actual bytes; and executes
 its emitted pitch worker in Chromium. The latter is asset execution only.
+The job also logs resolved tracing dependencies for both release classpaths and
+inspects actual APK class definitions plus R8 mapping/usage records. These
+read-only diagnostics investigate the SDK 58 runner startup failure without
+changing production dependencies or shrinking rules; they are not runtime
+acceptance.
 
 The explicitly approved temporary-runner KVM setup uses exactly the three
 commands in [GitHub's hardware-acceleration guidance](https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/).

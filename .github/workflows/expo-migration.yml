@@ -497,10 +497,33 @@ jobs:
           node scripts/prepare-android-qualification.mjs
           node --test patches/reader-dom/contract.test.mjs
           cd apps/web/android
+          for configuration in releaseRuntimeClasspath releaseAndroidTestRuntimeClasspath; do
+            ./gradlew :app:dependencyInsight --configuration "$configuration" --dependency androidx.tracing --no-daemon --max-workers=2
+          done
           ./gradlew :expo-dom-webview:testDebugUnitTest :app:assembleRelease :app:assembleReleaseAndroidTest --no-daemon --max-workers=2
           cd ../../..
           node scripts/verify-expo-export.mjs --platform apk --output apps/web/android/app/build/outputs/apk/release/app-release.apk --report apps/web/dist-android/apk-qualification.json
           cat apps/web/dist-android/apk-qualification.json
+      - name: Inspect release instrumentation class packaging
+        if: ${{ !cancelled() && steps.apk.outcome == 'success' }}
+        # Diagnostics only: do not add production keep rules or change shrinking.
+        # DEX definitions distinguish packaged classes from unresolved references.
+        run: |
+          analyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          for variant in release androidTest/release; do
+            for apk in apps/web/android/app/build/outputs/apk/"$variant"/*.apk; do
+              echo "::group::DEX definitions: $apk"
+              "$analyzer" dex packages --defined-only "$apk" | awk '$NF ~ /^(androidx.tracing|androidx.test.runner.AndroidJUnitRunner)/'
+              echo '::endgroup::'
+            done
+          done
+          for report in apps/web/android/app/build/outputs/mapping/*/{mapping,usage}.txt; do
+            if [ -f "$report" ]; then
+              echo "::group::Tracing shrink report: $report"
+              awk '/^[^ #]/ { selected = ($0 ~ /^androidx\.tracing\./) } selected' "$report"
+              echo '::endgroup::'
+            fi
+          done
       - name: Execute the actual APK-emitted pitch worker in Chromium without Expo globals
         run: |
           pnpm exec playwright install --with-deps chromium

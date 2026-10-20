@@ -233,8 +233,14 @@ ESLint/TypeScript plugin peer warnings are not hidden with overrides.
 Current local evidence is recorded under the SDK 58 upgrade checkpoint. Web and
 Android production exports pass, with 501 web artifacts and 500 Android inventory artifacts. Android export is an
 inventory only: existing MD5-relocated worker/chunk warnings do not qualify an
-APK. No SDK 58 Android APK/device result is claimed; native compilation,
-packaged assets and offline process-restart acceptance must be rerun.
+APK. The first SDK 58 public CI run passed native compilation, patched-host JVM
+tests, release/instrumentation APK assembly, actual APK assets and emitted-worker
+execution. Its API 35 emulator booted, but AndroidJUnitRunner crashed during
+startup with missing `androidx.tracing.Trace`, before any Reader assertions.
+Offline process-restart acceptance remains unqualified. The next run records
+resolved app/test tracing dependencies, actual DEX definitions and R8 mappings /
+removed-class reports; the shared-dependency shrinking hypothesis is not yet
+proven. Production shrinking and release settings remain unchanged.
 
 Primary references: [SDK 58 release](https://expo.dev/changelog/sdk-58),
 [upgrade workflow](https://docs.expo.dev/workflow/upgrading-expo-sdk-walkthrough/),
