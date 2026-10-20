@@ -409,11 +409,13 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
         maxWidth={320}
         focusSelected
       >
-        {visibleDetails?.lines.map((detail) => (
-          <Text key={detail} style={{ color: colors.foreground, marginBottom: 8 }}>
-            {detail}
-          </Text>
-        ))}
+        <View style={{ gap: 8 }}>
+          {visibleDetails?.lines.map((detail) => (
+            <Text key={detail} style={{ color: colors.foreground }}>
+              {detail}
+            </Text>
+          ))}
+        </View>
       </AnchoredPopover>
       <AnchoredPopover
         visible={pagesOpen}

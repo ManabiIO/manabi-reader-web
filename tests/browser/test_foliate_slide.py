@@ -7,6 +7,7 @@ import zipfile
 from pathlib import Path
 import unittest
 from playwright.sync_api import expect, sync_playwright
+from browser_launch import launch_options
 from test_static_reader import ReaderBrowser, linked_epub, ThreadingHTTPServer, StaticHandler
 
 P = "document.querySelector('foliate-paginator')"
@@ -35,7 +36,8 @@ class FoliateSlide(ReaderBrowser):
         cls.thread.start()
         cls.origin = 'http://127.0.0.1:' + str(cls.server.server_port)
         cls.playwright = sync_playwright().start()
-        cls.browser = getattr(cls.playwright, os.environ.get('SLIDE_BROWSER', 'chromium')).launch()
+        engine = os.environ.get('SLIDE_BROWSER', 'chromium')
+        cls.browser = getattr(cls.playwright, engine).launch(**launch_options(engine))
 
     def setUp(self):
         super().setUp()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Built Svelte / real IndexedDB / shared ebook display settings. No ASR or cloud claim."""
+"""Built Expo web app / real IndexedDB / shared display settings. No ASR or cloud claim."""
 import argparse
 import json
 import os
@@ -11,6 +11,7 @@ from browser_poll import wait_for_async
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tests/browser'))
 from test_static_reader import StaticHandler, ThreadingHTTPServer
+from browser_launch import launch_options
 
 
 PERSISTED_SELECTION = """
@@ -124,8 +125,9 @@ def main():
     results = []
     errors = []
     p = sync_playwright().start()
+    browser = context = None
     try:
-        browser = p.chromium.launch(executable_path=os.environ.get('CHROMIUM'))
+        browser = p.chromium.launch(**launch_options(executable_path=os.environ.get('CHROMIUM')))
         context = browser.new_context(locale='en-CA', viewport={'width':1280,'height':900})
         context.add_init_script("localStorage.setItem('manabi-reader-dictionary-setup-v1','skip')")
         page = context.new_page()
@@ -156,7 +158,7 @@ def main():
         }""")
         assert select_box['width'] >= 43.5 and select_box['height'] >= 43.5, select_box
         assert select_box['hit'], select_box
-        # UNRUN: added selection assertions retain the native target/keyboard gate above.
+        # Selection controls retain the native target/keyboard gate above.
         batch = page.get_by_role('group', name='Video selection actions', exact=True)
         selection_status = batch.locator('.media-selection-status')
         select_visible = batch.get_by_role('button', name='Select visible videos', exact=True)
@@ -333,7 +335,7 @@ def main():
                 const r=child.getBoundingClientRect();
                 return {
                     tag:child.tagName, cls:String(child.className || '').slice(0,120),
-                    text:(child.textContent || '').trim().replace(/\s+/g,' ').slice(0,80),
+                    text:(child.textContent || '').trim().replace(/\\s+/g,' ').slice(0,80),
                     left:r.left, right:r.right, width:r.width
                 };
             }).filter(item => item.right > bounds.right + 1 || item.left < bounds.left - 1)
@@ -466,8 +468,36 @@ def main():
         page.evaluate("document.documentElement.style.fontSize=''")
         results.append('Library Books/Videos switcher scales and remains touch sized')
 
+        # Distinct generated MP4 bytes (with embedded captions) create a second
+        # real library entry; renaming identical bytes would correctly deduplicate.
+        page.get_by_role('link', name='Videos', exact=True).click()
+        page.locator('[data-testid=media-files]').set_input_files({
+            'name': 'second-video.mp4', 'mimeType': 'video/mp4',
+            'buffer': (args.fixture / 'embedded.mp4').read_bytes()})
+        checks = shelf.get_by_role('checkbox')
+        expect(checks).to_have_count(2)
+        select_visible.focus()
+        select_visible.press('Enter')
+        expect(selection_status).to_have_text('2 videos selected')
+        expect(clear_selection).to_be_focused()
+        for checkbox in checks.all():
+            expect(checkbox).to_be_checked()
+        checks.first.press('Space')
+        expect(selection_status).to_have_text('1 video selected')
+        selected_key = shelf.locator('input[type=checkbox]:checked').input_value()
+        page.get_by_label('Sort videos', exact=True).select_option('title')
+        expect(selection_status).to_have_text('1 video selected')
+        expect(shelf.locator('input[type=checkbox]:checked')).to_have_value(selected_key)
+        clear_selection.focus()
+        clear_selection.press('Enter')
+        expect(selection_status).to_have_text('No videos selected')
+        expect(select_visible).to_be_focused()
+        expect(shelf.locator('input[type=checkbox]:checked')).to_have_count(0)
+        expect(clear_selection).to_be_disabled()
+        expect(bulk_generate).to_be_disabled()
+        results.append('individual and batch selection survive shelf refresh and clear returns keyboard focus')
+
         assert not errors, errors
-        browser.close()
     except Exception:
         try:
             page.screenshot(path=str(args.output/"failure.png"))
@@ -485,9 +515,17 @@ def main():
             pass
         raise
     finally:
-        p.stop()
-        server.shutdown();server.server_close();thread.join()
-        (args.output/'results.json').write_text(json.dumps({'passed':len(results),'checks':results,'page_errors':errors,'boundary':'real Svelte app, local File and IndexedDB; no account/provider/ASR'},indent=2))
+        try:
+            if context is not None:
+                context.close()
+        finally:
+            try:
+                if browser is not None:
+                    browser.close()
+            finally:
+                p.stop()
+                server.shutdown();server.server_close();thread.join()
+                (args.output/'results.json').write_text(json.dumps({'passed':len(results),'checks':results,'page_errors':errors,'boundary':'real Expo web app, local File and IndexedDB; no account/provider/ASR'},indent=2))
     print(json.dumps(results))
 
 if __name__=='__main__':

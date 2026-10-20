@@ -10,6 +10,7 @@ import unittest
 from urllib.parse import urlsplit
 
 from playwright.sync_api import expect, sync_playwright
+from browser_launch import launch_options
 
 from test_books_library import book
 from test_static_reader import StaticHandler, ThreadingHTTPServer
@@ -114,10 +115,12 @@ class EditorsPicksBrowser(unittest.TestCase):
         PicksHandler.account_fixture = None
         PicksHandler.account_requests = []
         self.profile = tempfile.TemporaryDirectory()
+        self.addCleanup(self.profile.cleanup)
         self.engine = os.environ.get('PICKS_BROWSER', 'chromium')
         self.context = getattr(self.playwright, self.engine).launch_persistent_context(
             user_data_dir=self.profile.name,
-            viewport={'width': 390, 'height': 844})
+            **launch_options(self.engine, viewport={'width': 390, 'height': 844}))
+        self.addCleanup(self.context.close)
         self.page = self.context.pages[0]
         self.page.set_default_timeout(30000)
         self.errors = []

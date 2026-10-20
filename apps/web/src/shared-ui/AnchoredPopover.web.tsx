@@ -130,26 +130,14 @@ export function AnchoredPopover({
         <div
           className="heatmap-details-header"
           style={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1fr) 44px',
-            alignItems: 'start',
+            display: 'flex',
+            flexDirection: 'row-reverse',
+            flexWrap: 'wrap',
+            alignItems: 'flex-start',
             gap: 12,
             marginBottom: 12
           }}
         >
-          {showHeading && (
-            <Heading
-              level={2}
-              style={{
-                fontSize: '1rem' as unknown as number,
-                lineHeight: '1.5rem' as unknown as number,
-                alignSelf: 'center',
-                margin: 0
-              }}
-            >
-              {title}
-            </Heading>
-          )}
           {showClose && (
             <ActionButton
               variant="ghost"
@@ -161,6 +149,22 @@ export function AnchoredPopover({
             >
               <UiIcon name="close" size={18} />
             </ActionButton>
+          )}
+          {showHeading && (
+            <Heading
+              level={2}
+              style={{
+                fontSize: '1rem' as unknown as number,
+                lineHeight: '1.5rem' as unknown as number,
+                // At enlarged text the close action keeps its own top row;
+                // the heading can then use the full width without splitting words.
+                flex: '1 1 12rem' as unknown as number,
+                alignSelf: 'center',
+                margin: 0
+              }}
+            >
+              {title}
+            </Heading>
           )}
         </div>
       )}

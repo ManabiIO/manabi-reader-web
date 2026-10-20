@@ -14,6 +14,7 @@ import zlib
 from layout_diagnostics import report_layout_failure
 from lifecycle_evidence import close_context_with_evidence
 from playwright.sync_api import sync_playwright, expect
+from browser_launch import launch_options
 
 class ThreadingHTTPServer(BaseThreadingHTTPServer):
     # Browser pages request many hashed modules concurrently. The default
@@ -278,7 +279,7 @@ class ReaderBrowser(unittest.TestCase):
         cls.thread.start()
         cls.origin = 'http://127.0.0.1:' + str(cls.server.server_port)
         cls.playwright = sync_playwright().start()
-        cls.browser = cls.playwright.chromium.launch()
+        cls.browser = cls.playwright.chromium.launch(**launch_options())
 
     @classmethod
     def tearDownClass(cls):
@@ -293,6 +294,7 @@ class ReaderBrowser(unittest.TestCase):
 
     def setUp(self):
         self.context = self.new_context()
+        self.addCleanup(self.context.close)
         self.context.add_init_script(
             "try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}")
         self.page = self.context.new_page()

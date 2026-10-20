@@ -1,5 +1,11 @@
 # Offline status and Windows direction
 
+**October 20 update:** the user requires the newest shared Expo / React Native
+version for native Windows desktop and regular Expo. The Edge PWA decision below
+is the historical October 18 checkpoint, not fulfillment of that requirement.
+RN Windows 0.85.0 was released October 19; SDK 56 / RN 0.85 is now the newest
+version-intersection candidate. See [Windows SDK qualification](WINDOWS-SDK-COMPATIBILITY.md).
+
 Research and implementation checkpoint: October 18, 2026. This open-source Reader
 targets web, Android, and Windows. It is distinct from the native Apple Reader
 and the Flashcards rewrite. This increment builds on the combined Expo candidate
@@ -139,3 +145,66 @@ Picks and EPUB RTL acceptance packets still need their combined-head run.
 Physical Android, Windows installation/Narrator, real model inference and a
 Legend benchmark remain unrun. No deployment, merge, native build or production
 data changes were made.
+
+## October 20 browser qualification and layout correction
+
+The combined candidate's search, media selection, sparse transcription,
+statistics privacy, Picks and selected EPUB RTL browser packets now have local
+execution evidence. This remains affected-route qualification, not the complete
+retained suite or native Windows/Android release acceptance.
+
+Screenshot review found measurement details running together and an enlarged
+popover heading splitting inside a word. Details now use a shared vertical
+container with spacing; the web popover lets Close occupy its own row when text
+is enlarged. The same change keeps heatmap dismissal targets separate from their
+heading. No persisted schema, settings format, backup format or sync semantics
+changed.
+
+Coverage on the SDK 57 working candidate:
+
+- Statistics: 21 cases in Chromium and WebKit against both default-off and
+  video-enabled production exports. The new real-browser privacy case checks
+  hidden numeric descendants/accessibility names, reveal before details,
+  keyboard/Close focus return, snapshot retirement and persisted privacy after
+  reload at desktop size and 320px/200% text. Existing heatmap, filtering,
+  appearance, editing and export cases remain in the selection.
+- Video-enabled search/Picks/RTL: 35 cases in Chromium; 34 passes and one
+  expected WebKit skip for trusted touch dragging that requires Chromium CDP.
+  Japanese composition events are synthetic, not a physical IME test.
+- Built-app media: 10 checks including two distinct local videos, individual
+  versus batch selection, sort refresh, Clear focus return, local caption
+  persistence/export, appearance and 320px/200% layout. No model inference.
+- Sparse media: seven Chromium/native IndexedDB checks against compiled
+  production controllers with scripted recognition hypotheses. Includes failed
+  transaction recovery, checkpoint reopen, provisional captions, buffering and
+  saved digital-silence evidence. Silence contributes coverage without an ASR
+  timing sample; a later genuine timing sample enables ETA.
+- Media domain tests: 928 passes initially, with three fixture-dependent cases
+  skipped. The two affected files then passed all 73 cases with real generated
+  MP4/Matroska fixtures, including those three cases: 931 distinct cases covered.
+- Shared statistics/components, native presentation and harness checks pass;
+  application TypeScript, scoped ESLint/Prettier and both web exports pass.
+  Native presentation tests are not an Android binary/device result.
+
+Original failures remain in sibling evidence folder
+`combined-qualification-mzz79u28/`: the first privacy fixture assumed two
+virtualized rows were simultaneously mounted at phone size; the revised fixture
+uses one row while the retained route cases still cover multiple rows. A
+keyboard query-refresh check avoids attempting a pointer click through an open
+nonmodal popover. The old heatmap geometry assertion assumed side-by-side
+heading/Close; it now also accepts the verified stacked layout with a real gap
+and retains hit testing. Sparse startup initially timed out before module load;
+using the shared test server's larger request queue resolved it. Test expectations
+also retain the two-second sparse overlap and test ETA where caption coverage is
+actually insufficient.
+
+Python harnesses used here now share the macOS Chromium launch safeguard,
+preserve existing disabled features, and close contexts on setup failures.
+Media harnesses explicitly close contexts and browsers in cleanup. Other
+unexecuted legacy launch sites still need the same audit before use.
+
+Screenshots from both engines were inspected. The final default production
+export is left in `apps/web/build`; prior generated builds were moved to Trash.
+See `statistics-default-final-*`, `statistics-gated-final-*` plus
+`popover-gated-verified-*`, `gated-*`, `media-app-verified/` and
+`media-sparse-qualified/` for the corresponding reports and retained failures.
