@@ -149,6 +149,7 @@ export function ReaderScreen(props: Partial<SessionProps> & ReaderViewProps) {
               fullscreenBusy={c.fullscreenBusy}
               autoScrollMultiplier={c.$multiplier$}
               hasBookmarkData={c.hasBookmarkData}
+              annotationsReady={!!c.bookReaderComponent && !!c.readerBookKey}
               events={{
                 appearanceClick: () => (c.showAppearance = true),
                 tocClick: () => {

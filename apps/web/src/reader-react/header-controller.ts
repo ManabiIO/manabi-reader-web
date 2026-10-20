@@ -19,6 +19,7 @@ export interface HeaderProps {
   fullscreenActive?: boolean;
   fullscreenBusy?: boolean;
   hasBookmarkData: boolean;
+  annotationsReady: boolean;
 }
 
 export function createHeader(

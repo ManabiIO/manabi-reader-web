@@ -309,3 +309,28 @@ APK job already did; an ordering/version contract protects both jobs. All eight
 harness checks pass locally under an isolated, checksum-verified Temurin 21,
 and both instrumentation sources compile with that JDK and the official API 35
 SDK stub. The combined CI-policy/harness selection passes all 49 cases.
+
+### Notes readiness follow-up
+
+Run [`39467753609`](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39467753609)
+at `71d0e5a0` passed the complete regression/default-web job. Its separate web
+job failed one WebKit imported-note journey because the annotations panel was
+absent after clicking Notes. Seventeen local repetitions passed on the prior
+app export, including eight with read-only click-state inspection; they do not
+establish why that CI interaction failed.
+
+Investigation found a concrete startup gap: Notes was enabled before the
+reader component and durable book identity were ready, while its action silently
+returned in that state. The control now stays disabled until both prerequisites
+exist. The active-reader Strict Mode test delays the real identity lookup,
+checks the disabled state, then releases it and requires the first enabled
+click to open Notes. That test fails before the repair and passes afterward.
+The repair changes no persistence, schema, backup format or note assertions.
+
+Local qualification passes all 1,750 original unit tests (including the 24
+reader/primitives/controller tests), strict application types, full lint and
+the production web export.
+The unchanged retained browser selection passes 15 Chromium and 11 WebKit
+journeys against that new export; the saved imported-note screenshot was also
+reviewed. Fresh remote acceptance remains necessary, and this bounded selection
+does not establish full product parity.

@@ -85,6 +85,7 @@ export function BookReaderHeader(props: Partial<HeaderProps> & ReaderViewProps) 
           <Button
             variant={'ghost'}
             onClick={() => c.dispatch('annotationsClick')}
+            disabled={!props.annotationsReady}
             title={'Bookmarks and Notes'}
             aria-label={'Bookmarks and Notes'}
             size={'icon'}
