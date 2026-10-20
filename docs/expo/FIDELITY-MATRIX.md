@@ -9,7 +9,7 @@ files remain available for comparison. A route is not complete merely because
 its JSX compiles, its controller tests pass, or an Android APK can be assembled.
 
 The intended architecture is one nonreader screen composition and interaction
-model, owned branded RN/RNW tokens and geometry, suitable SDK 57 Expo UI controls,
+model, owned branded RN/RNW tokens and geometry, suitable SDK 58 Expo UI controls,
 and small platform/system leaves. The reader and Yomitan are intentionally DOM
 surfaces. Android and web are the only Expo targets.
 
@@ -90,20 +90,20 @@ packaged-host execution remain required evidence. The three-job policy and
 explicit **affected versus full** scopes are recorded in [CI-COVERAGE.md](CI-COVERAGE.md).
 No affected-only pass replaces the full final web parity gate.
 
-## SDK 57 component policy and research gates
+## SDK 58 component policy and research gates
 
 Official universal APIs and the pinned installed implementation must both be
 checked. The common style surface is intentionally smaller than RN styles; use
 RN/RNW for branded screen layout rather than forcing every row into Compose.
-[Expo UI universal](https://docs.expo.dev/versions/v57.0.0/sdk/ui/universal/),
-[Host boundary](https://docs.expo.dev/versions/v57.0.0/sdk/ui/universal/host/)
+[Expo UI universal](https://docs.expo.dev/versions/v58.0.0/sdk/ui/universal/),
+[Host boundary](https://docs.expo.dev/versions/v58.0.0/sdk/ui/universal/host/)
 
 - `Host` embeds Compose in RN; `RNHostView` embeds a single RN root inside Compose
   layout. Avoid unnecessary boundary crossings, particularly per Library row
 - Browser form, dialog/menu/popover, date and focus leaves remain justified where
   universal APIs do not preserve the existing contract. No wholesale new UI
   framework is required
-- The installed universal and community Slider do not expose a commit callback.
+- The installed universal Slider does not expose a commit callback.
   The Android Compose Slider exposes `onValueChangeFinished`; an Android leaf may
   pair that event with the latest draft while the common controller owns commit,
   cancel and account/route lifetime. Web pointer/key completion remains explicit

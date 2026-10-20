@@ -119,8 +119,8 @@ The existing web app uses same-origin Django session cookies and CSRF/account-ge
 ## Future desktop direction
 
 **October 20 decision:** native Windows is deferred until Expo UI supports it.
-The experimental host and dependencies have been removed, and the SDK 57
-web/Android baseline is restored. Do not resume native desktop implementation
+The experimental host and dependencies have been removed. After restoring the
+SDK 57 baseline, web/Android advanced to SDK 58 / RN 0.88. Do not resume native desktop implementation
 without a new product decision. Browser use remains supported.
 
 Windows/Linux are architecture considerations only, not build targets in this PR. Keep portable controllers/data contracts separate from Android-specific modules and DOM geometry. React Native Windows and community Linux renderer efforts have different module/toolchain support; they must be evaluated independently before adding a host. A web/PWA distribution remains available on those desktops. No future desktop choice changes the decision to keep iOS/macOS as separate native applications.
@@ -132,12 +132,12 @@ Windows/Linux are architecture considerations only, not build targets in this PR
 - Expo UI's documented universal targets are Android, iOS and web; this project admits only Android and web, while iOS/macOS remain separate native codebases. Windows/Linux native controls require a separately qualified host/presentation plan. Browser/PWA use remains the immediate desktop path. [Expo UI platform scope](https://docs.expo.dev/versions/latest/sdk/ui/universal/)
 - Preserve portable domain/controller contracts now. A future authorized desktop slice must qualify its secure local origin, reader selection/vertical layout, module workers/WASM, origin-owned storage, filesystem permissions, native navigation and packaging. It must not reuse Android-specific assumptions or introduce iOS/macOS Expo projects.
 
-## Primary implementation references (checked 2026-10-02)
+## Primary implementation references (SDK 58 links refreshed October 20)
 
 - [Expo SDK release catalog](https://expo.dev/changelog)
 - [Expo universal UI](https://docs.expo.dev/versions/latest/sdk/ui/universal/)
 - [Expo DOM components: asynchronous actions, public assets, native execution boundary](https://docs.expo.dev/guides/dom-components/)
-- [SDK 57 Metro: CSS/Sass, asset imports and alpha web-worker support](https://docs.expo.dev/versions/v57.0.0/config/metro/)
+- [SDK 58 Metro: CSS/Sass, asset imports and alpha web-worker support](https://docs.expo.dev/versions/v58.0.0/config/metro/)
 - [Expo FileSystem: bounded FileHandle reads](https://docs.expo.dev/versions/latest/sdk/filesystem/)
 
 ### Follow-up after the shared Statistics checkpoint
@@ -166,7 +166,7 @@ establish that the observed crash is resolved. No broad Intl polyfill is added.
 Current Expo UI Host documentation confirms that an RN View inside a native Host
 switches rendering back to RN; universal children need a fresh nested Host. The
 existing bounded control leaves retain this boundary. Official API reference:
-https://docs.expo.dev/versions/v57.0.0/sdk/ui/universal/host/
+https://docs.expo.dev/versions/v58.0.0/sdk/ui/universal/host/
 
 ### Retained browser-entry ownership repair
 
@@ -237,10 +237,13 @@ APK. The first SDK 58 public CI run passed native compilation, patched-host JVM
 tests, release/instrumentation APK assembly, actual APK assets and emitted-worker
 execution. Its API 35 emulator booted, but AndroidJUnitRunner crashed during
 startup with missing `androidx.tracing.Trace`, before any Reader assertions.
-Offline process-restart acceptance remains unqualified. The next run records
-resolved app/test tracing dependencies, actual DEX definitions and R8 mappings /
-removed-class reports; the shared-dependency shrinking hypothesis is not yet
-proven. Production shrinking and release settings remain unchanged.
+Offline process-restart acceptance remains unqualified. The diagnostic run
+[`39458692553`](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39458692553)
+confirmed that both classpaths resolve tracing 1.2.0; the test version is constrained
+to the app's version. Neither APK defines `androidx.tracing.Trace`, and the release
+R8 usage report lists removed Trace members. AndroidJUnitRunner is present in the
+test APK and still crashes on the missing class. Production shrinking and release
+settings remain unchanged.
 
 Primary references: [SDK 58 release](https://expo.dev/changelog/sdk-58),
 [upgrade workflow](https://docs.expo.dev/workflow/upgrading-expo-sdk-walkthrough/),
@@ -275,7 +278,17 @@ It retains all original Reader, storage, native-reply, font and origin assertion
 JUnit is used only for its assertion methods; AndroidX Test is no longer a
 runtime dependency of the test APK. This removes the failing runner's tracing
 dependency without adding production keep rules or changing app dependencies.
-The diagnostic CI run still establishes what was packaged by the old harness.
+The diagnostic CI run above records the old harness's dependency and DEX evidence.
+Both its web and regression jobs pass, including full lint, strict types and all
+1,750 original unit tests. The runner repair is being qualified separately in
+[`39463339775`](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39463339775),
+source `0ba47a7a`. That APK launched through the repaired runner, mounted its
+canonical HTTPS WebView and returned the real empty-library pagination. It then
+failed a stale test expectation for the wide-sidebar "Library" heading on a
+compact screen, whose app title is "Manabi Reader". The follow-up requires that
+actual title, the empty-library explanation and the same non-fallback pagination;
+it also opens Settings through Library actions and returns with Back, matching
+the current navigation. Storage/restart acceptance is still pending.
 
 The runner reports standard instrumentation start/success/failure statuses,
 rejects another requested test class, and reports success only after test cleanup.
@@ -287,3 +300,12 @@ both Java sources also compile against the official API 35 SDK stub and JUnit
 
 The complete original unit suite passes locally at `01c6bcd6`: 1,750 tests, zero
 failures or skips. The runner update's 48 CI-policy/harness checks also pass.
+
+The `0ba47a7a` regression run exposed one CI toolchain omission: the stock
+Ubuntu image selects Java 17, so the new `javac --release 21` runner contract
+failed before execution. All other regression steps and the web job passed.
+Commit `8b9cd45a` explicitly selects Temurin 21 before the harness, as the Android
+APK job already did; an ordering/version contract protects both jobs. All eight
+harness checks pass locally under an isolated, checksum-verified Temurin 21,
+and both instrumentation sources compile with that JDK and the official API 35
+SDK stub. The combined CI-policy/harness selection passes all 49 cases.

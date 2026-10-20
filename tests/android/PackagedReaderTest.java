@@ -208,7 +208,10 @@ public final class PackagedReaderTest {
     while (SystemClock.uptimeMillis() < deadline) {
       last.clear();
       onActivity(activity -> collectNativeText(activity.getWindow().getDecorView(), last));
-      if (last.contains("Library") && last.contains("0–0 of 0")) {
+      // Compact Library uses the app title; "Library" is a wide-sidebar heading.
+      // The exact pagination still requires a saved-state reply, never a fallback.
+      if (last.contains("Manabi Reader") && last.contains("0–0 of 0")
+          && last.contains("Import an EPUB, HTMLZ, or text file to start reading.")) {
         evidence.put("nativeRoundTrip", "snapshot-route-and-library-state-reply");
         return;
       }
@@ -220,12 +223,13 @@ public final class PackagedReaderTest {
   /** Read-only product UI smoke on the actual RN/Compose hierarchy. No real font
    * file is selected and no built-in preference is changed by this journey. */
   private void qualifyNativeFontManager() throws Exception {
+    clickAccessibleText("Manabi Reader actions");
     clickAccessibleText("Settings");
     clickAccessibleText("Fonts & text");
     clickAccessibleText("Manage Primary / Serif font files");
     awaitAccessibleText("No stored custom fonts. Built-in fonts remain available in Settings.");
     clickAccessibleText("Close font manager");
-    clickAccessibleText("Library");
+    clickAccessibleText("Back");
     awaitNativeLibraryReply();
     evidence.put("nativeFontManager", "settings-typography-font-cache-read-and-close");
   }

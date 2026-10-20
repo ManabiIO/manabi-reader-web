@@ -87,7 +87,7 @@ runner for that claim.
 
 ## Assertions made by a passing two-phase run
 
-- Real native Library heading and non-fallback empty-state pagination, requiring
+- Real native Library app heading, empty-library explanation and non-fallback pagination, requiring
   DOM `onSnapshot` → native routing and native `library.state` → DOM `onReply`;
   the existence of a JavaScript bridge shim alone is insufficient
 - Actual packaged HTTPS root, secure context, read-only Expo DOM bootstrap, no
@@ -138,7 +138,8 @@ offline gates remain separate before Android runtime readiness is declared.
 ### Native Settings font-manager journey
 
 Both process phases also traverse the actual RN/Compose accessibility hierarchy:
-Library → Settings → Fonts & text → primary font manager → Library. The test
+Library actions → Settings → Fonts & text → primary font manager → Close → Back
+to Library. The test
 requires the real cache-read empty state from the DOM owner. It selects no font
 file and changes no built-in preference. Evidence must include
 `settings-typography-font-cache-read-and-close`; importing a component or merely

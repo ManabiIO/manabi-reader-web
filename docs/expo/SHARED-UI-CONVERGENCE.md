@@ -27,16 +27,16 @@ interaction, accessibility, persistence, navigation and Android acceptance gates
 ## Component policy
 
 Use owned RN/RNW layout, text, surfaces and branded interactions with the existing
-semantic theme, typography, spacing, radius and state colors. Use SDK 57 Expo UI
+semantic theme, typography, spacing, radius and state colors. Use SDK 58 Expo UI
 universal controls where their actual API satisfies the required behavior.
 Universal controls share an API across Android Compose and web DOM/RNW; that is
 not a promise of identical default geometry or styling. Inspect the installed
-version and qualify both outputs. [Expo UI universal](https://docs.expo.dev/versions/v57.0.0/sdk/ui/universal/)
+version and qualify both outputs. [Expo UI universal](https://docs.expo.dev/versions/v58.0.0/sdk/ui/universal/)
 
 Keep `Host`/`RNHostView` boundaries explicit. An RN container inside an Expo UI host
 changes the rendering boundary; nested universal controls need their own host.
 Do not force the entire branded page into Compose or rely on native-only
-modifiers to reproduce web design. [Universal Host](https://docs.expo.dev/versions/v57.0.0/sdk/ui/universal/host/)
+modifiers to reproduce web design. [Universal Host](https://docs.expo.dev/versions/v58.0.0/sdk/ui/universal/host/)
 
 A small owned primitive layer supplies actions, fields, choices, navigation,
 modal/sheet/popover behavior, semantic headings and layout. A web leaf may retain
@@ -54,7 +54,7 @@ supply complete data and capabilities: the web port calls the existing DOM-owned
 domain in-process; Android uses the existing account/epoch-fenced bridge. Ports
 return data/outcomes, never old whole-page JSX.
 
-The shared source uses actual SDK 57 universal Checkbox, Switch, Picker and
+The shared source uses actual SDK 58 universal Checkbox, Switch, Picker and
 Android Icon controls within small `Host` boundaries. Branded layout, toolbar,
 summary, filters, settings, calendar and interaction state are common RN/RNW.
 Web form, focus, grid, link and nonmodal-popover semantics live in bounded leaves,
