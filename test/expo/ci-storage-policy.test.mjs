@@ -82,26 +82,26 @@ function trashTemporary(directory) {
 
 const cases = [
   [
-    'Windows candidate push',
+    'Retired experiment branch push',
     { event: 'push', head: 'codex/reader-windows-sdk56-20261020' },
     false,
     false
   ],
-  ['Windows candidate PR', { head: 'codex/reader-windows-sdk56-20261020' }, false, false],
+  ['Retired experiment branch PR', { head: 'codex/reader-windows-sdk56-20261020' }, false, false],
   [
-    'Windows candidate dispatch preserves legacy manual behavior',
+    'Retired experiment branch dispatch preserves legacy manual behavior',
     { event: 'workflow_dispatch', head: 'codex/reader-windows-sdk56-20261020' },
     false,
     true
   ],
   [
-    'Windows candidate fork PR',
+    'Retired experiment branch fork PR',
     { headRepo: 'contributor/reader', head: 'codex/reader-windows-sdk56-20261020' },
     false,
     true
   ],
   [
-    'Private Windows candidate push',
+    'Private retired experiment branch push',
     {
       event: 'push',
       head: 'codex/reader-windows-sdk56-20261020',
@@ -164,12 +164,7 @@ for (const [name, fixture, migrationExpected, legacyExpected] of cases) {
       assert.equal(admits(definition.if, github), migrationExpected, `migration/${job}`);
     }
     for (const [file, workflow] of Object.entries(workflows)) {
-      if (
-        file === 'expo-migration.yml' ||
-        file === 'windows-bootstrap.yml' ||
-        Object.hasOwn(untouched, file)
-      )
-        continue;
+      if (file === 'expo-migration.yml' || Object.hasOwn(untouched, file)) continue;
       for (const [job, definition] of Object.entries(workflow.jobs)) {
         assert.equal(admits(definition.if, github), legacyExpected, `${file}/${job}`);
       }
@@ -265,12 +260,7 @@ test('the redundant lifetime workflow is removed while its assertions remain col
   ])
     assert.ok(commands.includes(suite), suite);
   for (const [name, workflow] of Object.entries(workflows)) {
-    if (
-      name === 'expo-migration.yml' ||
-      name === 'windows-bootstrap.yml' ||
-      Object.hasOwn(untouched, name)
-    )
-      continue;
+    if (name === 'expo-migration.yml' || Object.hasOwn(untouched, name)) continue;
     for (const job of Object.values(workflow.jobs))
       assert.doesNotMatch(job.if, /workflow_dispatch/);
   }

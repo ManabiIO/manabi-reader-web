@@ -5,46 +5,17 @@ outcomes and per-suite logs for the exact recorded source commit are the evidenc
 A skipped, timed-out, interrupted or never-started suite is **unqualified**. Green
 results from an older commit do not qualify this revision.
 
-## Windows candidate
+## Retired desktop experiment
 
-`windows-bootstrap.yml` is separate from the three-job migration workflow below.
-It admits only public `ManabiIO/manabi-reader-web` pushes/manual dispatches on
-`codex/reader-windows-sdk56-20261020`, using one stock `windows-2025-vs2026` runner.
-It validates VS 2026 >=18.6.1, installs the frozen graph, checks types/patches,
-bundles the Windows JS, compiles Debug and Release independently, and attempts
-the actual Release bootstrap through Windows UI Automation.
+Windows was removed at the user's request on October 20, 2026. Its app workspace,
+CLI patch, tests, and bootstrap workflow are gone. The active Windows run was
+cancelled. Web and Android are the only application build targets.
 
-The runtime probe checks native text, input/state updates, button activation and
-window-size updates. It does not establish Reader UI, persistence, IME, Narrator,
-ARM64, installation or upgrade acceptance. It launches only the fresh bootstrap
-executable and closes that process in cleanup. No production library is opened.
-
-Legacy workflows also suppress this exact candidate's pushes and same-repository
-PRs at job admission. Other branches, forks and legacy manual dispatch behavior
-remain unchanged; those manual jobs must not be dispatched for this qualification.
-The new job has read-only repository permissions, no secrets, artifact uploads,
-remote caches, larger runner, signing, package deployment or publication.
-Evidence is ordinary logs and summaries from the disposable runner.
-
-`test/windows/ci-policy.test.mjs` checks the new job's admission and scope;
-`test/expo/ci-storage-policy.test.mjs` retains all original migration routing
-cases and checks that the candidate cannot allocate legacy upload/cache jobs.
-No successful native result is implied by the workflow merely existing.
-
-The first candidate run
-([80723a1](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39445231505))
-failed before native compilation: the Windows pnpm shim returned without
-installing dependencies or invoking either build. Its nominally successful build
-steps are **not compile evidence**. The workflow now invokes pnpm's published
-`bin/pnpm.mjs` entry using Node, verifies the package-manager version and resolved
-dependency versions, and requires a fresh executable after each native build.
-Installed tools are not rewritten. Runtime acceptance still requires the UI
-probe to pass.
-
-The following run reached real installation but pnpm rejected patch headers after
-Windows checkout converted them to CRLF. `.gitattributes` now keeps dependency
-patches LF on every OS. This preserves the reviewed patch bytes and lockfile
-hashes instead of changing installed dependencies.
+The historical branch name `codex/reader-windows-sdk56-20261020` remains excluded
+from legacy automatic workflows while this cleanup is integrated. This is a CI
+storage boundary, not a Windows build target: removing that guard would enable
+legacy artifact/cache jobs on the same branch. The original migration workflow
+and its admission rules below are unchanged.
 
 ## Execution boundary
 

@@ -118,6 +118,11 @@ The existing web app uses same-origin Django session cookies and CSRF/account-ge
 
 ## Future desktop direction
 
+**October 20 decision:** native Windows is deferred until Expo UI supports it.
+The experimental host and dependencies have been removed, and the SDK 57
+web/Android baseline is restored. Do not resume native desktop implementation
+without a new product decision. Browser use remains supported.
+
 Windows/Linux are architecture considerations only, not build targets in this PR. Keep portable controllers/data contracts separate from Android-specific modules and DOM geometry. React Native Windows and community Linux renderer efforts have different module/toolchain support; they must be evaluated independently before adding a host. A web/PWA distribution remains available on those desktops. No future desktop choice changes the decision to keep iOS/macOS as separate native applications.
 
 ### Desktop compatibility checkpoints (research only, 2026-10-02)

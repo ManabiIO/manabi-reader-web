@@ -20,9 +20,6 @@ module.exports = (async () => {
         '**/.cache/**',
         // Expo copies dependencies/assets into these generated build outputs.
         'apps/web/.expo/**',
-        'apps/windows/.expo/**',
-        'apps/windows/artifacts/**',
-        'apps/windows/windows/**',
         'apps/web/expo-env.d.ts',
         'apps/web/android/**',
         'apps/web/build/**',
@@ -104,30 +101,15 @@ module.exports = (async () => {
     {
       files: [
         'apps/web/{babel,metro}.config.cjs',
-        'apps/windows/**/*.cjs',
         'apps/web/metro-source-resolver.cjs',
         'scripts/babel/**/*.cjs'
       ],
       languageOptions: {
         sourceType: 'commonjs',
         parserOptions: { project: false },
-        globals: {
-          __dirname: 'readonly',
-          module: 'readonly',
-          require: 'readonly',
-          process: 'readonly',
-          console: 'readonly'
-        }
+        globals: { __dirname: 'readonly', module: 'readonly', require: 'readonly' }
       },
       rules: { '@typescript-eslint/no-require-imports': 'off' }
-    },
-    {
-      files: ['apps/windows/src/**/*.{ts,tsx}', 'apps/windows/index.windows.js'],
-      languageOptions: { parserOptions: { project: false } }
-    },
-    {
-      files: ['test/windows/**/*.mjs'],
-      languageOptions: { globals: { fetch: 'readonly' } }
     },
     {
       // These modules run in browsers, browser-backed fixtures, or Node 24,
@@ -137,7 +119,7 @@ module.exports = (async () => {
         'test/**/*.{mjs,cjs,js}',
         'tests/unit/**/*.mjs',
         'tests/android/**/*.mjs',
-        'patches/{reader-dom,expo-ui,windows-cli}/**/*.mjs'
+        'patches/reader-dom/**/*.mjs'
       ],
       languageOptions: {
         globals: {
@@ -183,7 +165,7 @@ module.exports = (async () => {
         'tests/unit/**/*.mjs',
         'tests/android/**/*.mjs',
         'tools/appearance/**/*.mjs',
-        'patches/{reader-dom,expo-ui,windows-cli}/**/*.mjs'
+        'patches/reader-dom/**/*.mjs'
       ],
       languageOptions: {
         globals: { process: 'readonly', URL: 'readonly' }
@@ -214,7 +196,7 @@ module.exports = (async () => {
       }
     },
     {
-      files: ['patches/{reader-dom,expo-ui,windows-cli}/**/*.mjs', 'test/windows/**/*.mjs'],
+      files: ['patches/reader-dom/**/*.mjs'],
       languageOptions: { parserOptions: { project: false } }
     },
     {

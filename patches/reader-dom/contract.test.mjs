@@ -17,7 +17,7 @@ const installedRoot = path.dirname(require.resolve('@expo/dom-webview/package.js
 const installedPackage = JSON.parse(
   await readFile(path.join(installedRoot, 'package.json'), 'utf8')
 );
-const patch = path.join(here, 'expo-dom-webview-56.0.6.patch');
+const patch = path.join(here, 'expo-dom-webview-57.0.1.patch');
 const work = await mkdtemp(path.join(tmpdir(), 'reader-dom-contract-'));
 const native = 'android/src/main/java/expo/modules/webview';
 // Reconstruct only the touched upstream files; accepts a clean or already-patched pnpm install.
@@ -39,7 +39,7 @@ if (installedView.includes('var manabiReaderHost: Boolean')) {
 }
 
 try {
-  await test('patch is limited to exactly reviewed Expo DOM WebView 56.0.6 sources', async () => {
+  await test('patch is limited to exactly reviewed Expo DOM WebView 57.0.1 sources', async () => {
     assert.equal(installedPackage.version, upstream.version);
     for (const [file, hash] of Object.entries(upstream.files)) {
       assert.equal(
@@ -134,7 +134,7 @@ try {
       assert.equal(evaluate(input).window.ReactNativeWebView, undefined);
     }
   });
-  await test('SDK 56 exporter preserves the packaged HTML, JS, worker, public and WASM directory topology', async () => {
+  await test('SDK 57 exporter preserves the packaged HTML, JS, worker, public and WASM directory topology', async () => {
     const expoRoot = path.dirname(require.resolve('expo/package.json'));
     const expoRequire = createRequire(path.join(expoRoot, 'package.json'));
     const cliRoot = path.dirname(expoRequire.resolve('@expo/cli/package.json'));
@@ -170,6 +170,5 @@ try {
     assert.ok(host.includes('"js", "mjs" -> "text/javascript"'));
   });
 } finally {
-  if (process.env.MANABI_RETAIN_TEST_WORK) console.log(`Retained native patch evidence: ${work}`);
-  else await rm(work, { recursive: true, force: true });
+  await rm(work, { recursive: true, force: true });
 }

@@ -12,8 +12,3 @@ apps/web/static/moss/single/moss.mjs
 apps/web/static/moss/threaded/moss.mjs
 
 apps/web/src/lib/appearance/palettes.scss
-
-# Windows generated binaries and upstream native template formatting
-apps/windows/.expo/
-apps/windows/artifacts/
-apps/windows/windows/

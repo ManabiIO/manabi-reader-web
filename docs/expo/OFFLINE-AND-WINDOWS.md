@@ -1,62 +1,36 @@
 # Offline status and Windows direction
 
-**October 20 update:** the user requires the newest shared Expo / React Native
-version for native Windows desktop and regular Expo. The Edge PWA decision below
-is the historical October 18 checkpoint, not fulfillment of that requirement.
-RN Windows 0.85.0 was released October 19; SDK 56 / RN 0.85 is now the newest
-version-intersection candidate. See [Windows SDK qualification](WINDOWS-SDK-COMPATIBILITY.md)
-and the [desktop research](DESKTOP-RESEARCH-2026-10.md). The latter distinguishes
-this candidate from the published community Expo Desktop template (SDK 55 /
-RN 0.83), and records the current native-module and WebView2 qualification gates.
+**October 20 decision:** this edition targets **web and Android**. Native Windows
+has been removed until Expo UI supports it; iOS and macOS remain separate native
+products. The desktop investigation is retained in
+[archived research](DESKTOP-RESEARCH-2026-10.md), with the active scope in
+[Windows deferral](WINDOWS-SDK-COMPATIBILITY.md).
 
-Research and implementation checkpoint: October 18, 2026. This open-source Reader
-targets web, Android, and Windows. It is distinct from the native Apple Reader
-and the Flashcards rewrite. This increment builds on the combined Expo candidate
-`5d8d088f` in draft PR #268; the dirty, preserved Svelte checkout is not the app
-being developed here.
+The offline implementation below began at the October 18 checkpoint, building
+on the combined Expo candidate `5d8d088f`. The dirty, preserved Svelte checkout
+is not the app being developed here.
 
 ## Platform decision
 
-| Target  | Current direction                                                                         | Qualification in this increment                                                   |
-| ------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Web     | Existing Expo Router / React Native Web app, rich DOM reading surface and IndexedDB owner | Production export, Chromium and WebKit browser scenarios                          |
-| Android | Existing Expo app, Expo UI where appropriate, one embedded DOM storage/reader owner       | Type checks, shared UI and bridge lifecycle tests; no device or native build      |
-| Windows | Install the Expo web app through Edge as a PWA first                                      | Manifest identity/assets and browser layout checks; Windows installation is unrun |
+| Target  | Current direction                                                             | Qualification boundary                                                    |
+| ------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Web     | Expo Router / React Native Web, rich DOM reading surface, one IndexedDB owner | Production export and real browser scenarios                              |
+| Android | Expo app, Expo UI controls, one embedded DOM storage/reader owner             | APK, device, accessibility and offline restart acceptance remain required |
 
-The pinned application remains Expo **57.0.26**, React Native **0.86.3**, React
-**19.2.3**. No dependencies changed. The current [Expo SDK reference](https://docs.expo.dev/versions/latest/)
-lists SDK 58 with RN 0.88. Microsoft's [React Native Windows support table](https://microsoft.github.io/react-native-windows/support/)
-lists 0.84 as active. An older Expo version is not proof that its native modules
-and this app's DOM host work on Windows. There is no verified common native
-version to select from these tables.
+The application returns to the pre-desktop Expo **57.0.26**, React Native
+**0.86.3**, React **19.2.3** baseline. SDK 58 is a separate upgrade to qualify on
+web and Android; there is no longer a native desktop version constraint.
 
-[Expo UI](https://docs.expo.dev/versions/latest/sdk/ui/) documents universal
-Android/iOS/web controls and native Compose/SwiftUI controls, without a Windows
-native implementation. Keep shared application components and platform adapters;
-use native Compose leaves where supported and accessible web controls elsewhere.
-The new connection explanation shares one component tree and the existing modal,
-typography and action primitives. Do not introduce an Apple build target.
+Expo UI documents universal Android/iOS/web controls, without a Windows native
+implementation. Use supported Compose controls and accessible web controls while
+sharing application components and domain logic.
+[Expo UI platform scope](https://docs.expo.dev/versions/v57.0.0/sdk/ui/universal/).
 
-An SDK 58 upgrade should be a separate, tested dependency change after the
-combined candidate's outstanding qualification, including Android DOM hosting,
-storage and required native modules. This checkpoint does not qualify SDK 58.
-
-Microsoft explicitly supports [installable Windows PWAs in Edge](https://learn.microsoft.com/en-us/microsoft-edge/progressive-web-apps/).
-That route preserves this Reader's EPUB DOM, selection, ruby, vertical writing,
-dictionary hit testing, browser storage and current Expo dependencies. It does
-not establish a native React Native Windows or MSIX release.
-
-The manifest now requests `standalone`, preserving ordinary window chrome
-instead of forced fullscreen. Its explicit `id: ./` resolves to the same identity
-as the previous implicit `start_url: ./`; start URL, scope and origin are
-unchanged. This works at root and nested deployment prefixes. The existing
-192/512px install icons are checked against their actual PNG dimensions.
-
-Windows release acceptance remains: install/update/uninstall in Edge on Windows,
-keyboard and Narrator navigation, text scaling and window resizing, offline
-process restart, save/read/export/restore, and data preservation through updates.
-Keep the production origin and app identity stable. A future packaged WebView
-would require an explicit storage migration and backup/restore boundary.
+The web manifest requests `standalone`, with `id: ./` preserving its previous
+implicit `start_url: ./` identity. Start URL, scope, and origin are unchanged.
+Browser/PWA use remains available on desktop operating systems, without a native
+Windows packaging or release commitment. Keep the production origin and app
+identity stable so existing browser data remains accessible.
 
 ## Connection and storage language
 

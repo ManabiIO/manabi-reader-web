@@ -1,12 +1,17 @@
 # Expo desktop research — October 20, 2026
 
-This Reader targets **Windows, Android, and web**. macOS is researched for
-comparison, not added as a target. This is a technical decision record based on
-published packages, upstream source, and the actual SDK 56 candidate. A package
-version match, successful bundle, and native runtime acceptance are separate
-results.
+**Current decision, October 20, 2026:** ship this edition for **web and Android**.
+The user deferred native Windows until Expo UI supports it. The Windows host,
+dependencies, patches, tests and CI workflow have been removed; the pre-experiment
+SDK 57 baseline is restored. macOS and iOS remain outside this edition's targets.
+See [current platform scope](WINDOWS-SDK-COMPATIBILITY.md).
 
-## Recommendation for this Reader
+The material below is an **archived research snapshot**, including the former
+Windows recommendation. It records the investigated packages and experiment, not
+work authorized to continue or a claim of native acceptance. A version match,
+successful bundle, and native runtime acceptance are separate results.
+
+## Archived recommendation before Windows was deferred
 
 Keep web/Android and Windows as separate application workspaces, sharing domain
 logic, screen composition, and explicit platform adapters. Continue qualifying
@@ -83,7 +88,7 @@ discovery. We reviewed both affected RNW CLI 0.85.0 files and adapted the lazy
 discovery patch through pnpm. Five regression tests verify original file hashes,
 real configuration import and diagnostic success/failure behavior. Missing
 PowerShell still fails an operation that needs it. See the
-[versioned patch](../../patches/windows-cli/README.md).
+[versioned patch](https://github.com/ManabiIO/manabi-reader-web/blob/395f4605086e7fe26c27f2c88c9017b04cb25fdc/patches/windows-cli/README.md).
 
 For this repository:
 
@@ -129,7 +134,7 @@ details were reproduced and repaired:
 The resulting bundle inventories contain the real RN Windows initialization and
 DevTools, one React instance, and no mobile RN internals or Expo native stubs.
 This qualifies the bootstrap's JS graph, not native rendering or full Expo
-module support. The [Windows workspace](../../apps/windows/README.md) records
+module support. The [Windows workspace](https://github.com/ManabiIO/manabi-reader-web/blob/395f4605086e7fe26c27f2c88c9017b04cb25fdc/apps/windows/README.md) records
 commands and exact scope.
 
 Expo Desktop's source catalogs contain an RN 0.85 entry, but the registry has no
