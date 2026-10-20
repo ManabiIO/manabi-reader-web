@@ -444,6 +444,10 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         if not self.page.evaluate('Boolean(navigator.serviceWorker.controller)'):
             self.page.reload()
         self.page.wait_for_function('() => navigator.serviceWorker.controller !== null')
+        # Finish the optional catalog in the current document before stopping
+        # the real WebKit origin. The offline reload below still makes its own
+        # real request; this avoids aborting a prior-document fetch on pagehide.
+        self.wait_for_optional_catalog(self.page)
         self.go_offline()
         self.page.reload()
         expect(self.page.locator('[data-background="library"]')).to_have_attribute(

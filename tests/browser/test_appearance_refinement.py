@@ -147,10 +147,9 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.page.get_by_role('button', name='Save', exact=True).click()
         expect(reader.locator('html')).to_have_attribute('data-theme', 'custom')
         self.page.get_by_role('button', name='Edit Midnight notes theme', exact=True).click()
-        self.page.get_by_label('Font color', exact=True).evaluate(
-            'e => {e.value = "#ffeecc"; '
-            'e.dispatchEvent(new Event("change", {bubbles: true}));}'
-        )
+        # Use a native input edit. Assigning the React-controlled value property
+        # updates its change tracker before the synthetic event reaches React.
+        self.page.get_by_label('Font color', exact=True).fill('#ffeecc')
         self.page.get_by_label('Font opacity', exact=True).fill('1')
         self.page.get_by_role('button', name='Save', exact=True).click()
         expect(reader.locator('.book-content')).to_have_css('color', 'rgb(255, 238, 204)')

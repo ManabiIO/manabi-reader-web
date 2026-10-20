@@ -414,3 +414,35 @@ Local logs and captures are under `settings-font-preferences-39r9h3gy` outside
 the checkout. Both web CI jobs at `3ac13264` also passed the preceding Add-theme
 geometry repair; that run remains failed because its independent Android slider
 gate failed.
+
+## Broader appearance qualification: cross-tab color input
+
+The full `test_appearance_refinement` collection reproduced one failure in both
+engines at `5622af9e`: `test_live_tabs_share_palette_custom_edits_and_fade_without_reloading_book`
+kept the original white font instead of the requested cream color. Its legacy
+fixture assigned the controlled HTML input's value property, then dispatched a
+synthetic change event. React's value tracker had already observed that value,
+so it did not deliver an edit to the shared theme owner. The existing new
+Settings tests use a native Playwright color-input fill and do not have this
+problem. Applying that same input action makes the retained cross-tab case pass
+against the unchanged production export in both engines. Its saved-color,
+existing-reader identity, fade and cross-tab assertions remain unchanged.
+
+The failed baseline logs, unchanged-export confirmation and subsequent guarded
+background-owner qualification live in local `appearance-native-followup-11nietjq`
+evidence. This was a fixture mismatch exposed by broadening coverage; no product
+color-change or cross-tab assertion was removed or suppressed.
+
+The guarded-owner export also exposed a WebKit teardown race in the offline
+wallpaper case: the test stopped its real origin while the previous Library
+page's optional catalog request was active, then immediately reloaded. Lifecycle
+evidence retained the resulting Playwright network pageerror, with no DOM error
+or unhandled-rejection event. The existing optional-catalog readiness helper now
+settles that current-document request before server shutdown. The subsequent
+real offline reload, unavailable-origin negative control, wallpaper persistence
+and layout assertions remain unchanged. No page-error exception was added.
+The unchanged export passes the isolated case after this readiness correction.
+
+After both fixture corrections, the fresh guarded-owner export passes all 31
+appearance cases in each engine. Baseline failures remain alongside the final
+logs; the original assertions remain active.

@@ -37,6 +37,17 @@ export interface BackgroundImageState {
 }
 export type BackgroundState = Record<BackgroundMode, BackgroundImageState>;
 
+/** Native callers keep the existing DOM database owner. Their captured reader
+ * lifetime must still own the operation after queued work and image decoding. */
+export interface BackgroundMutationAuthority {
+  signal: AbortSignal;
+  assertCurrent(): void;
+}
+function assertAuthority(authority?: BackgroundMutationAuthority) {
+  authority?.signal.throwIfAborted();
+  authority?.assertCurrent();
+}
+
 const modes: BackgroundMode[] = ['light', 'dark'];
 const emptyTarget = (): BackgroundState => ({
   light: { busy: false },
@@ -184,11 +195,18 @@ function bytesToDataUrl(bytes: Uint8Array, mime: string) {
   return `data:${mime};base64,${btoa(binary)}`;
 }
 
-async function decodeUrl(url: string): Promise<{ image: HTMLImageElement; url: string }> {
+async function decodeUrl(
+  url: string,
+  signal?: AbortSignal
+): Promise<{ image: HTMLImageElement; url: string }> {
+  signal?.throwIfAborted();
   const image = new Image();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let abort: (() => void) | undefined;
   try {
     await new Promise<void>((resolve, reject) => {
+      abort = () => reject(signal?.reason);
+      signal?.addEventListener('abort', abort, { once: true });
       image.onload = () => resolve();
       image.onerror = () => reject(new Error('The browser could not decode this image.'));
       timer = setTimeout(
@@ -197,6 +215,7 @@ async function decodeUrl(url: string): Promise<{ image: HTMLImageElement; url: s
       );
       image.src = url;
     });
+    signal?.throwIfAborted();
     if (
       !image.naturalWidth ||
       !image.naturalHeight ||
@@ -210,6 +229,7 @@ async function decodeUrl(url: string): Promise<{ image: HTMLImageElement; url: s
     image.src = '';
     throw error;
   } finally {
+    if (abort) signal?.removeEventListener('abort', abort);
     clearTimeout(timer);
     image.onload = null;
     image.onerror = null;
@@ -228,23 +248,30 @@ async function decodeDataUrl(url: string): Promise<{ image: HTMLImageElement; ur
   return decodeUrl(url);
 }
 
-async function decodeImage(blob: Blob): Promise<{ image: HTMLImageElement; url: string }> {
+async function decodeImage(
+  blob: Blob,
+  signal?: AbortSignal
+): Promise<{ image: HTMLImageElement; url: string }> {
+  signal?.throwIfAborted();
   if (!backgroundMimeTypes.includes(blob.type))
     throw new Error('Choose a PNG, JPEG, or WebP image. SVG and GIF are not supported.');
   if (!blob.size || blob.size > maxBackgroundBytes)
     throw new Error('Choose an image no larger than 8 MB.');
   const bytes = new Uint8Array(await blob.arrayBuffer());
+  signal?.throwIfAborted();
   imageDimensions(bytes, blob.type);
   // Data URLs are independent of a document's Blob registry. WebKit can
   // invalidate IndexedDB Blob wrappers during navigation while CSS is still
   // resolving them, producing access-control failures and lost backgrounds.
-  return decodeUrl(bytesToDataUrl(bytes, blob.type));
+  return decodeUrl(bytesToDataUrl(bytes, blob.type), signal);
 }
 
-async function prepare(file: File): Promise<SavedImage> {
-  const { image } = await decodeImage(file);
+async function prepare(file: File, authority?: BackgroundMutationAuthority): Promise<SavedImage> {
+  assertAuthority(authority);
+  const { image } = await decodeImage(file, authority?.signal);
   const canvas = document.createElement('canvas');
   try {
+    assertAuthority(authority);
     const scale = Math.min(1, 2560 / Math.max(image.naturalWidth, image.naturalHeight));
     canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
     canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
@@ -258,8 +285,10 @@ async function prepare(file: File): Promise<SavedImage> {
         0.88
       )
     );
+    assertAuthority(authority);
     if (blob.size > maxBackgroundBytes) throw new Error('The prepared image is too large to save.');
     const bytes = new Uint8Array(await blob.arrayBuffer());
+    assertAuthority(authority);
     imageDimensions(bytes, blob.type);
     return {
       dataUrl: bytesToDataUrl(bytes, blob.type),
@@ -276,18 +305,31 @@ async function prepare(file: File): Promise<SavedImage> {
 function mutate(
   target: BackgroundTarget,
   affectedModes: BackgroundMode[],
-  work: (database: IDBPDatabase<BackgroundDatabase>) => Promise<void>
+  work: (database: IDBPDatabase<BackgroundDatabase>) => Promise<void>,
+  authority?: BackgroundMutationAuthority
 ): Promise<void> {
   const operation = queues[target].then(async () => {
+    assertAuthority(authority);
     for (const mode of affectedModes) update(target, mode, { busy: true, error: undefined });
     ++versions[target];
     try {
-      await work(await db());
+      const database = await db();
+      assertAuthority(authority);
+      await work(database);
       ++versions[target];
       await refresh(target);
       channel?.postMessage(target);
     } catch (error) {
-      for (const mode of affectedModes) update(target, mode, { error: errorMessage(error) });
+      // An expired native editor cannot publish its failure into a replacement
+      // editor. Browser callers retain the original visible error/retry path.
+      let current = true;
+      try {
+        assertAuthority(authority);
+      } catch {
+        current = false;
+      }
+      if (current)
+        for (const mode of affectedModes) update(target, mode, { error: errorMessage(error) });
       throw error;
     } finally {
       for (const mode of affectedModes) update(target, mode, { busy: false });
@@ -297,37 +339,102 @@ function mutate(
   return operation;
 }
 
+/** Abort while the transaction is pending, including the interval after put but
+ * before commit. Once committed, refresh reflects the durable result even if
+ * the originating native screen has since gone away. No save is replayed. */
+async function changeSavedBackgrounds(
+  database: IDBPDatabase<BackgroundDatabase>,
+  target: BackgroundTarget,
+  change: (saved: SavedBackgrounds) => SavedBackgrounds,
+  authority?: BackgroundMutationAuthority
+) {
+  assertAuthority(authority);
+  const tx = database.transaction('backgrounds', 'readwrite');
+  const abort = () => {
+    try {
+      tx.abort();
+    } catch {
+      /* The transaction may already have committed. */
+    }
+  };
+  authority?.signal.addEventListener('abort', abort, { once: true });
+  // Attach a rejection handler immediately; abort may precede the awaited get.
+  const done = tx.done;
+  void done.catch(() => {});
+  try {
+    const saved = (await tx.store.get(target)) ?? {};
+    assertAuthority(authority);
+    const next = change(saved);
+    if (next.light || next.dark) await tx.store.put(next, target);
+    else await tx.store.delete(target);
+    await done;
+  } catch (error) {
+    abort();
+    await done.catch(() => {});
+    throw error;
+  } finally {
+    authority?.signal.removeEventListener('abort', abort);
+  }
+}
+
 export function chooseBackground(
   target: BackgroundTarget,
   mode: BackgroundMode,
-  file: File
+  file: File,
+  authority?: BackgroundMutationAuthority
 ): Promise<void> {
-  return mutate(target, [mode], async (database) => {
-    // Decode outside the transaction; keep read-modify-write atomic across tabs.
-    const image = await prepare(file);
-    const tx = database.transaction('backgrounds', 'readwrite');
-    const saved = (await tx.store.get(target)) ?? {};
-    saved[mode] = image;
-    await tx.store.put(saved, target);
-    await tx.done;
-  });
+  return mutate(
+    target,
+    [mode],
+    async (database) => {
+      // Decode outside the transaction; keep read-modify-write atomic across tabs.
+      const image = await prepare(file, authority);
+      await changeSavedBackgrounds(
+        database,
+        target,
+        (saved) => ({ ...saved, [mode]: image }),
+        authority
+      );
+    },
+    authority
+  );
 }
 
-export function removeBackground(target: BackgroundTarget, mode: BackgroundMode): Promise<void> {
-  return mutate(target, [mode], async (database) => {
-    const tx = database.transaction('backgrounds', 'readwrite');
-    const saved = (await tx.store.get(target)) ?? {};
-    delete saved[mode];
-    if (saved.light || saved.dark) await tx.store.put(saved, target);
-    else await tx.store.delete(target);
-    await tx.done;
-  });
+export function removeBackground(
+  target: BackgroundTarget,
+  mode: BackgroundMode,
+  authority?: BackgroundMutationAuthority
+): Promise<void> {
+  return mutate(
+    target,
+    [mode],
+    async (database) => {
+      await changeSavedBackgrounds(
+        database,
+        target,
+        (saved) => {
+          delete saved[mode];
+          return saved;
+        },
+        authority
+      );
+    },
+    authority
+  );
 }
 
-export function removeBackgrounds(target: BackgroundTarget): Promise<void> {
-  return mutate(target, modes, async (database) => {
-    await database.delete('backgrounds', target);
-  });
+export function removeBackgrounds(
+  target: BackgroundTarget,
+  authority?: BackgroundMutationAuthority
+): Promise<void> {
+  return mutate(
+    target,
+    modes,
+    async (database) => {
+      await changeSavedBackgrounds(database, target, () => ({}), authority);
+    },
+    authority
+  );
 }
 
 export function startBackgrounds(): () => void {

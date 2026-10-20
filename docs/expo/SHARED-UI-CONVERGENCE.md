@@ -476,3 +476,36 @@ an unreachable named size slider before font-manager navigation. Native size and
 font gates remain open. Bounded native accessibility snapshots now accompany
 failures so the next run can distinguish control naming, visibility and range
 semantics without relaxing the original assertions.
+
+### Background owner preparation
+
+Native background selection still needs its bridge, system picker and Library
+image renderer. The existing DOM-owned image database now accepts a captured
+mutation authority: queued operations recheck their reader lifetime before
+starting, decoding/encoding rechecks before a write, and cancellation aborts an
+in-flight IndexedDB transaction. Once a transaction commits, its durable result
+is retained and refreshed even if the originating editor disappears. A retired
+editor cannot publish its error into a replacement editor. Current browser
+callers retain their existing save behavior and error/retry handling.
+
+Nine owner tests exercise the actual IndexedDB transaction algorithm with a
+synthetic canvas boundary: independent modes, queue retirement, decoder cleanup,
+owner change during encoding, removal after a stale transaction read,
+abort-after-put/before-commit, retirement after commit and explicit retry after
+storage failure. Real browser appearance coverage separately exercises actual
+PNG/JPEG/WebP decoding, canvas, corruption recovery, independent slots,
+cross-tab changes and offline reopening. These contracts prepare native image
+integration; they do not make that capability available yet.
+
+The `manabi-reader-appearance` v1 schema and image record representation are
+unchanged. Existing book ZIP export does not include this appearance database;
+background-image backup/export coverage must remain explicit when wiring native
+selection. The native feature must use the same data owner and image limits,
+then qualify library rendering and process-restart persistence before removing
+its current capability gate.
+
+Local qualification of this preparation: 1,768 unit tests, lint, strict app
+types and a fresh production web export passed. The complete retained appearance
+collection passed 31 cases in each of Chromium and WebKit (62 journeys), including
+actual image reencoding and offline persistence. Native background selection is
+still unavailable and is not qualified by these web results.
