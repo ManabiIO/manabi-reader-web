@@ -46,6 +46,46 @@ class SettingsControlsBrowser(LibraryBase):
         self.assertLessEqual(box['x'] + box['width'], self.page.viewport_size['width'] + 1)
         self.assertTrue(button.evaluate('e => { const r=e.getBoundingClientRect(); const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2); return e===hit || e.contains(hit); }'))
 
+    def test_workspace_reflows_with_container_width_and_text_size_without_losing_search(self):
+        self.settings('Fonts & text')
+        workspace = self.page.locator('.settings-workspace')
+        search = self.page.get_by_role('searchbox', name='Search settings', exact=True)
+        search.fill('font')
+        original = search.element_handle()
+        try:
+            for width, scale, sidebar in (
+                (1200, 100, True), (800, 100, False),
+                (900, 200, False), (1200, 200, False), (1200, 100, True)
+            ):
+                self.page.set_viewport_size({'width': width, 'height': 900})
+                self.page.evaluate('scale => document.documentElement.style.fontSize = scale + "%"', scale)
+                expect(workspace).to_have_attribute('data-settings-layout', 'sidebar' if sidebar else 'compact')
+                expect(search).to_have_value('font')
+                expect(search).to_be_focused()
+                self.assertTrue(search.evaluate('(element, original) => element === original', original))
+                geometry = workspace.evaluate('''root => {
+                  const a = root.querySelector('aside').getBoundingClientRect();
+                  const m = root.querySelector('main').getBoundingClientRect();
+                  const r = root.getBoundingClientRect();
+                  return {below:m.top >= a.bottom, content:m.width, workspace:r.width,
+                    overflow:document.documentElement.scrollWidth-innerWidth};
+                }''')
+                self.assertEqual(not sidebar, geometry['below'], geometry)
+                self.assertLessEqual(geometry['overflow'], 1, geometry)
+                if not sidebar:
+                    self.assertAlmostEqual(geometry['workspace'], geometry['content'], delta=1)
+                self.capture(f'workspace-{width}-{scale}')
+            # A wide window can host a narrower pane. Container size owns layout.
+            workspace.evaluate('e => e.style.maxWidth = "600px"')
+            expect(workspace).to_have_attribute('data-settings-layout', 'compact')
+            workspace.evaluate('e => e.style.maxWidth = ""')
+            expect(workspace).to_have_attribute('data-settings-layout', 'sidebar')
+            search.fill('')
+            expect(self.page.get_by_role('navigation', name='Settings categories')
+                   .get_by_role('link', name='Fonts & text', exact=True)).to_have_attribute('aria-current', 'page')
+        finally:
+            original.dispose()
+
     def test_size_inspection_retains_exact_pixels_and_automatic(self):
         self.settings('Page layout', {'writingMode': 'horizontal-tb', 'firstDimensionMargin': '137', 'secondDimensionMaxValue': '0'})
         margin = self.page.get_by_role('spinbutton', name='Reader Top/bottom margin', exact=True)

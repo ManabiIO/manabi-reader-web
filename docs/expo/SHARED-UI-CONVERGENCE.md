@@ -152,3 +152,25 @@ not yet unify every scalar editor, action controller or specialized flow. Browse
 field/filter metadata and native account/blur mutation ownership remain at their
 existing boundaries. No new preference persistence or route-global filter is
 introduced. A common wrapper is not counted as complete screen parity.
+
+Settings now also shares its workspace geometry policy. Both renderers measure
+the available pane after outer padding and maximum-width constraints, then
+account for text scale. Sidebar navigation requires 800 nominal units: 224 for
+categories, 24 for the gap and at least 552 for editors. Smaller panes use
+horizontal category navigation. Android supplies its layout width/font scale;
+web observes the actual workspace and a rem-sized probe, including root text-size
+changes that do not resize the window. No device-idiom check is involved.
+
+This repairs a reproduced web layout at 900px and 200% text where the sidebar
+left only 340px for editors. The compact layout gives editors the full 836px
+workspace. Matched captures retain the normal 1200px and 390px geometry. Search
+query, the exact search input node, keyboard focus and selected category survive
+width/text-scale changes and a narrow pane within a wide window. Persistence,
+schema and backup/restore formats are unchanged.
+
+Local qualification passes strict application types, 1,750 original unit tests,
+619 Expo tests and all 19 Settings browser journeys in each of Chromium and
+WebKit. A mounted native-layout contract exercises the real workspace and
+navigation components with supplied layout/font-scale events. That contract is
+not Android rendering evidence; packaged compact Settings and the wider native
+large-text/device matrix remain separate runtime gates.

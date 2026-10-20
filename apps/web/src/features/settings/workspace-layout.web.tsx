@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import type { ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Dom, Button, Input } from '../../settings-react/primitives';
 import type {
   WorkspaceFrameProps,
@@ -12,20 +12,77 @@ import type {
   WorkspaceCategoryProps,
   WorkspaceIntroductionProps
 } from './workspace-layout';
+import {
+  SettingsGeometryContext,
+  settingsWorkspaceGeometry,
+  useSettingsGeometry
+} from './workspace-geometry';
 export function WorkspaceFrame({ children, rootRef }: WorkspaceFrameProps) {
+  const root = useRef<HTMLElement | null>(null);
+  const rem = useRef<HTMLSpanElement | null>(null);
+  const [geometry, setGeometry] = useState(() => settingsWorkspaceGeometry(0, 1));
+  useLayoutEffect(() => {
+    const node = root.current;
+    const probe = rem.current;
+    if (!node || !probe) return;
+    const measure = () => {
+      const next = settingsWorkspaceGeometry(
+        node.clientWidth,
+        probe.getBoundingClientRect().width / 16
+      );
+      setGeometry((previous) =>
+        previous.sidebar === next.sidebar && previous.gap === next.gap ? previous : next
+      );
+    };
+    measure();
+    // Observing a rem-sized element also catches text-only zoom without a
+    // window resize, including stylesheet changes to the root font size.
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    observer.observe(probe);
+    return () => observer.disconnect();
+  }, []);
   return (
-    <Dom
-      as="div"
-      elementRef={rootRef}
-      className="settings-workspace grid min-w-0 grid-cols-1 gap-6 md:grid-cols-[14rem_minmax(0,1fr)]"
-    >
-      {children}
-    </Dom>
+    <SettingsGeometryContext.Provider value={geometry}>
+      <Dom
+        as="div"
+        elementRef={(value: HTMLElement | null) => {
+          root.current = value;
+          rootRef?.(value);
+        }}
+        data-settings-layout={geometry.sidebar ? 'sidebar' : 'compact'}
+        className="settings-workspace relative grid min-w-0"
+        style={{
+          gridTemplateColumns: geometry.sidebar
+            ? `${geometry.sidebarWidth}px minmax(0,1fr)`
+            : 'minmax(0,1fr)',
+          gap: geometry.gap
+        }}
+      >
+        <span
+          ref={rem}
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            width: '1rem',
+            height: 0,
+            visibility: 'hidden',
+            pointerEvents: 'none'
+          }}
+        />
+        {children}
+      </Dom>
+    </SettingsGeometryContext.Provider>
   );
 }
 export function WorkspaceAside({ children }: { children?: ReactNode }) {
+  const { sidebar } = useSettingsGeometry();
   return (
-    <aside aria-label="Settings sections" className="min-w-0 self-start md:sticky md:top-20">
+    <aside
+      aria-label="Settings sections"
+      className="min-w-0 self-start"
+      style={sidebar ? { position: 'sticky', top: '5rem' } : undefined}
+    >
       {children}
     </aside>
   );
@@ -49,10 +106,7 @@ export function WorkspaceSearch({ query, onSearch }: WorkspaceSearchProps) {
 }
 export function WorkspaceNavigation({ children }: { children?: ReactNode }) {
   return (
-    <nav
-      aria-label="Settings categories"
-      className="section-navigation section-navigation-sidebar mt-3"
-    >
+    <nav aria-label="Settings categories" className="section-navigation mt-3">
       {children}
     </nav>
   );

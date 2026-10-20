@@ -96,21 +96,19 @@
   background: var(--background);
   border-radius: 8px;
 }
-@media (min-width: 768px) {
-  .settings-workspace .section-navigation-sidebar {
-    display: grid;
-    overflow: visible;
-    gap: 2px;
-  }
-  .settings-workspace .section-navigation-sidebar [data-section-link] {
-    justify-content: flex-start;
-    border-bottom: 0;
-    border-radius: 8px;
-  }
-  .settings-workspace .section-navigation-sidebar [aria-current='page'] {
-    background: var(--secondary);
-    color: var(--foreground);
-  }
+.settings-workspace[data-settings-layout='sidebar'] .section-navigation {
+  display: grid;
+  overflow: visible;
+  gap: 2px;
+}
+.settings-workspace[data-settings-layout='sidebar'] .section-navigation [data-section-link] {
+  justify-content: flex-start;
+  border-bottom: 0;
+  border-radius: 8px;
+}
+.settings-workspace[data-settings-layout='sidebar'] .section-navigation [aria-current='page'] {
+  background: var(--secondary);
+  color: var(--foreground);
 }
 @media (max-width: 767px) {
   :root .library-react .floating-library-header .library-header-inner {

@@ -4,11 +4,16 @@
  * All rights reserved.
  */
 
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { StyleSheet, Text, View, ScrollView, useWindowDimensions } from 'react-native';
 import { Host, TextInput, useNativeState } from '@expo/ui';
 import { ActionButton } from '../../shared-ui/ActionButton';
 import { useUiTheme } from '../../shared-ui/theme';
+import {
+  SettingsGeometryContext,
+  settingsWorkspaceGeometry,
+  useSettingsGeometry
+} from './workspace-geometry';
 export interface WorkspaceColors {
   text: string;
   muted: string;
@@ -39,23 +44,27 @@ export interface WorkspaceIntroductionProps {
   colors?: WorkspaceColors;
 }
 export function WorkspaceFrame({ children }: WorkspaceFrameProps) {
-  const { width, fontScale } = useWindowDimensions();
+  const { fontScale } = useWindowDimensions();
+  const [width, setWidth] = useState(0);
+  const geometry = settingsWorkspaceGeometry(width, fontScale);
   return (
-    <View
-      style={[
-        styles.frame,
-        width / fontScale >= 1024 && { flexDirection: 'row', alignItems: 'flex-start' }
-      ]}
-    >
-      {children}
-    </View>
+    <SettingsGeometryContext.Provider value={geometry}>
+      <View
+        onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+        style={[
+          styles.frame,
+          { gap: geometry.gap },
+          geometry.sidebar && { flexDirection: 'row', alignItems: 'flex-start' }
+        ]}
+      >
+        {children}
+      </View>
+    </SettingsGeometryContext.Provider>
   );
 }
 export function WorkspaceAside({ children }: { children?: ReactNode }) {
-  const { width, fontScale } = useWindowDimensions();
-  return (
-    <View style={[styles.aside, width / fontScale >= 1024 && { width: 224 }]}>{children}</View>
-  );
+  const { sidebar, sidebarWidth } = useSettingsGeometry();
+  return <View style={[styles.aside, sidebar && { width: sidebarWidth }]}>{children}</View>;
 }
 export function WorkspaceSearch({ query, onSearch, colors }: WorkspaceSearchProps) {
   const value = useNativeState(query);
@@ -88,8 +97,8 @@ export function WorkspaceSearch({ query, onSearch, colors }: WorkspaceSearchProp
   );
 }
 export function WorkspaceNavigation({ children }: { children?: ReactNode }) {
-  const { width, fontScale } = useWindowDimensions();
-  return width / fontScale >= 1024 ? (
+  const { sidebar } = useSettingsGeometry();
+  return sidebar ? (
     <View
       style={[styles.navigation, { flexDirection: 'column', flexWrap: 'nowrap', width: '100%' }]}
     >
@@ -102,9 +111,8 @@ export function WorkspaceNavigation({ children }: { children?: ReactNode }) {
   );
 }
 export function WorkspaceCategory({ label, selected, onActivate, colors }: WorkspaceCategoryProps) {
-  const { width, fontScale } = useWindowDimensions();
+  const { sidebar: wide } = useSettingsGeometry();
   const { colors: palette } = useUiTheme();
-  const wide = width / fontScale >= 1024;
   return (
     <ActionButton
       variant="ghost"
