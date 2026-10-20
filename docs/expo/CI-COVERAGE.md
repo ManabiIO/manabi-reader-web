@@ -41,6 +41,11 @@ dependency versions, and requires a fresh executable after each native build.
 Installed tools are not rewritten. Runtime acceptance still requires the UI
 probe to pass.
 
+The following run reached real installation but pnpm rejected patch headers after
+Windows checkout converted them to CRLF. `.gitattributes` now keeps dependency
+patches LF on every OS. This preserves the reviewed patch bytes and lockfile
+hashes instead of changing installed dependencies.
+
 ## Execution boundary
 
 - Only `ManabiIO/manabi-reader-web` and its own
