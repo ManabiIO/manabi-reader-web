@@ -15,6 +15,7 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -226,6 +227,7 @@ public final class PackagedReaderTest {
     clickAccessibleText("Manabi Reader actions");
     clickAccessibleText("Settings");
     qualifyNativeChoices();
+    qualifyNativeThemeChooser();
     clickAccessibleText("Fonts & text");
     clickAccessibleText("Manage Primary / Serif font files");
     awaitAccessibleText("No stored custom fonts. Built-in fonts remain available in Settings.");
@@ -261,6 +263,23 @@ public final class PackagedReaderTest {
           evaluate("localStorage.getItem('appearance')"));
     }
     evidence.put("nativeChoices", "color-mode-selection-local-save-and-restore");
+  }
+
+  private void qualifyNativeThemeChooser() throws Exception {
+    String original = evaluate("localStorage.getItem('customThemes')");
+    clickAccessibleText("Add custom theme");
+    awaitAccessibleText("New custom theme");
+    instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
+    awaitAccessibleText("Add custom theme");
+    assertEquals("Android Back must discard the unsaved theme", original,
+        evaluate("localStorage.getItem('customThemes')"));
+    clickAccessibleText("Add custom theme");
+    awaitAccessibleText("New custom theme");
+    clickAccessibleText("Close theme editor");
+    awaitAccessibleText("Add custom theme");
+    assertEquals("Closing the editor must not save a theme", original,
+        evaluate("localStorage.getItem('customThemes')"));
+    evidence.put("nativeThemeChooser", "add-dialog-back-and-close-without-save");
   }
 
   private void awaitSelectedChoice(String label) throws Exception {

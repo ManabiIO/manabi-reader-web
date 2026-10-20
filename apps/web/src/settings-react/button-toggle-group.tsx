@@ -6,14 +6,7 @@
 
 import React from 'react';
 import { useReaderController } from '../reader-react/controller';
-import {
-  Dom,
-  Button,
-  useLatest,
-  useReaderBindings,
-  slotContent,
-  type ReaderViewProps
-} from './primitives';
+import { useLatest, useReaderBindings, slotContent, type ReaderViewProps } from './primitives';
 import { SettingsContext, useSettingsContext } from './context';
 import {
   createButtonToggleGroup,
@@ -23,6 +16,7 @@ import {
 import { availableThemes } from '$lib/data/theme-option';
 import { SettingsSwitch } from '../features/settings/SettingsSwitch';
 import { SettingsChoices } from '../features/settings/SettingsChoices';
+import { SettingsThemeChoices } from '../features/settings/SettingsThemeChoices';
 export function ButtonToggleGroup(
   props: Partial<ButtonToggleGroupProps> &
     ReaderViewProps & {
@@ -56,76 +50,40 @@ export function ButtonToggleGroup(
             value={c.selectedOptionId === true}
             onValueChange={(value) => c.controller.changed((c.selectedOptionId = value))}
           />
-        ) : c.options.every((option) => !option.style && !option.showIcons) ? (
-          <div className={c.invertColors ? 'legacy-invert' : undefined}>
-            <SettingsChoices
-              label={c.fieldName()}
-              value={c.selectedOptionId}
-              options={c.options.map((option) => ({ value: option.id, label: option.text }))}
-              onValueChange={(value) => c.controller.changed((c.selectedOptionId = value))}
-            >
-              {slotContent(props.children, undefined)}
-            </SettingsChoices>
-          </div>
         ) : (
-          <>
-            {' '}
-            <Dom
-              as="div"
-              role={'group'}
-              aria-label={c.fieldName()}
-              className={['flex flex-wrap gap-2', c.invertColors && 'legacy-invert']
-                .filter(Boolean)
-                .join(' ')}
-            >
-              {(c.options ?? []).map((option, _index0) => (
-                <React.Fragment key={option.id}>
-                  <Dom
-                    as="div"
-                    className={['flex flex-wrap items-center gap-1'].filter(Boolean).join(' ')}
-                  >
-                    <Button
-                      title={String(option.id)}
-                      variant={option.id === c.selectedOptionId ? 'secondary' : 'outline'}
-                      aria-pressed={option.id === c.selectedOptionId}
-                      styleText={c.styles(option.style)}
-                      onClick={() => c.controller.changed((c.selectedOptionId = option.id))}
-                      className={[
-                        option.id === c.selectedOptionId
-                          ? 'border-2 border-primary'
-                          : 'border-border'
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                    >
-                      {option.text}
-                    </Button>
-                    {option.showIcons &&
-                    option.id === c.selectedOptionId &&
-                    !availableThemes.has(option.id) ? (
-                      <>
-                        <Button
-                          variant={'ghost'}
-                          aria-label={`Edit ${option.text} theme`}
-                          onClick={() => c.dispatch('edit', option.id)}
-                        >
-                          {'Edit'}
-                        </Button>
-                        <Button
-                          variant={'ghost'}
-                          aria-label={`Delete ${option.text} theme`}
-                          onClick={() => c.dispatch('delete', option.id)}
-                        >
-                          {'Delete'}
-                        </Button>
-                      </>
-                    ) : null}
-                  </Dom>
-                </React.Fragment>
-              ))}
-              {slotContent(props.children, undefined)}
-            </Dom>
-          </>
+          <div className={c.invertColors ? 'legacy-invert' : undefined}>
+            {c.options.some((option) => option.showIcons) ? (
+              <SettingsThemeChoices
+                label={c.fieldName()}
+                value={c.selectedOptionId}
+                options={c.options.map((option) => ({
+                  value: option.id,
+                  label: option.text,
+                  custom: !!option.showIcons && !availableThemes.has(option.id),
+                  colors: option.style
+                    ? {
+                        foreground: option.style.color,
+                        background: option.style['background-color']
+                      }
+                    : undefined
+                }))}
+                onValueChange={(value) => c.controller.changed((c.selectedOptionId = value))}
+                onEdit={(value) => c.dispatch('edit', value)}
+                onDelete={(value) => c.dispatch('delete', value)}
+              >
+                {slotContent(props.children, undefined)}
+              </SettingsThemeChoices>
+            ) : (
+              <SettingsChoices
+                label={c.fieldName()}
+                value={c.selectedOptionId}
+                options={c.options.map((option) => ({ value: option.id, label: option.text }))}
+                onValueChange={(value) => c.controller.changed((c.selectedOptionId = value))}
+              >
+                {slotContent(props.children, undefined)}
+              </SettingsChoices>
+            )}
+          </div>
         )}
       </div>
     </SettingsContext.Provider>

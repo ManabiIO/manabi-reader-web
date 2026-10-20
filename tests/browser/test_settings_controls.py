@@ -202,6 +202,48 @@ class SettingsControlsBrowser(LibraryBase):
             }''')
             self.assertEqual(colors['actual'], colors['expected'], mode)
 
+    def test_shared_theme_swatches_keep_colors_actions_and_delete_scope_at_large_text(self):
+        name = 'Evening reading palette'
+        palette = {
+            'fontColor': '#112233', 'backgroundColor': '#edf3ff',
+            'selectionFontColor': '#ffffff', 'selectionBackgroundColor': '#24506c',
+            'hintFuriganaFontColor': 'rgba(17, 34, 51, 0)',
+            'hintFuriganaShadowColor': '#778899', 'tooltipTextFontColor': '#334455'
+        }
+        themes = {name: palette, 'Keep this palette': palette}
+        self.settings('Appearance', {'appearance': 'light', 'theme': name, 'customThemes': json.dumps(themes)})
+        group = self.page.get_by_role('group', name='Theme', exact=True)
+        selected = group.get_by_role('button', name=name, exact=True)
+        edit = group.get_by_role('button', name=f'Edit {name} theme', exact=True)
+        delete = group.get_by_role('button', name=f'Delete {name} theme', exact=True)
+        for width, scale in ((1200, 100), (390, 100), (320, 200)):
+            self.page.set_viewport_size({'width': width, 'height': 900})
+            self.page.evaluate('scale => document.documentElement.style.fontSize = scale + "%"', scale)
+            for control in (selected, edit, delete, group.get_by_role('button', name='Add custom theme', exact=True)):
+                self.assert_reachable(control)
+            selected.hover()
+            expect(selected).to_have_attribute('aria-pressed', 'true')
+            self.assertEqual(selected.evaluate('e => getComputedStyle(e).backgroundColor'), 'rgb(237, 243, 255)')
+            self.assertEqual(selected.evaluate('e => getComputedStyle(e.firstElementChild).color'), 'rgb(17, 34, 51)')
+            self.assertAlmostEqual(edit.bounding_box()['y'], delete.bounding_box()['y'], delta=1)
+            self.assertLessEqual(self.page.locator('html').evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+            selected.scroll_into_view_if_needed()
+            self.capture(f'theme-chooser-{width}-{scale}', animations='disabled')
+        # Cancel returns to the same selected swatch action without changing its palette.
+        edit.click()
+        expect(self.dialog().get_by_label('Font color', exact=True)).to_have_value('#112233')
+        self.dialog().get_by_role('button', name='Cancel', exact=True).click()
+        expect(edit).to_be_focused()
+        self.assertEqual(self.page.evaluate('JSON.parse(localStorage.getItem("customThemes"))'), themes)
+        self.page.reload()
+        expect(selected).to_have_attribute('aria-pressed', 'true')
+        delete.click()
+        expect(selected).to_have_count(0)
+        expect(group.get_by_role('button', name='Manabi', exact=True)).to_have_attribute('aria-pressed', 'true')
+        self.assertEqual(self.page.evaluate('localStorage.getItem("theme")'), 'manabi-theme')
+        self.assertEqual(self.page.evaluate('JSON.parse(localStorage.getItem("customThemes"))'), {'Keep this palette': palette})
+        expect(group.get_by_role('button', name='Edit Keep this palette theme', exact=True)).to_have_count(0)
+
     def test_size_inspection_retains_exact_pixels_and_automatic(self):
         self.settings('Page layout', {'writingMode': 'horizontal-tb', 'firstDimensionMargin': '137', 'secondDimensionMaxValue': '0'})
         margin = self.page.get_by_role('spinbutton', name='Reader Top/bottom margin', exact=True)

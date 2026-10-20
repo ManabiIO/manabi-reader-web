@@ -27,9 +27,11 @@ import { router, useFocusEffect } from 'expo-router';
 import { Host, Picker, TextInput, useNativeState } from '@expo/ui';
 import { SettingsSwitch } from '../features/settings/SettingsSwitch';
 import { SettingsChoices } from '../features/settings/SettingsChoices';
+import { SettingsThemeChoices, AddThemeButton } from '../features/settings/SettingsThemeChoices';
 import { ExpoButton as Button } from '../shared-ui/ExpoButton';
 import { MenuAction, NativeScreenHeader } from '../screens/NativeScreens';
 import { ScreenStatusBar } from '../shared-ui/ScreenStatusBar';
+import { Dialog } from '../shared-ui/ModalSurface';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
 import { themeForMode, type ThemeOption } from '../lib/data/theme-option';
 import {
@@ -155,7 +157,8 @@ function FieldEditor({
   act,
   busy,
   colors,
-  refresh
+  refresh,
+  themeActions
 }: {
   field: NativeSettingField;
   refresh(): void;
@@ -163,6 +166,12 @@ function FieldEditor({
   act: Act;
   busy: boolean;
   colors: Colors;
+  themeActions: {
+    disabled: boolean;
+    add(): void;
+    edit(id: string): void;
+    remove(id: string): void;
+  };
 }) {
   const [fontsOpen, setFontsOpen] = useState(false);
   const initial = field.value === null ? '' : String(field.value);
@@ -213,7 +222,6 @@ function FieldEditor({
         ? data.fonts.secondary
         : undefined;
   const shownChoices = field.choices ?? [];
-  const availableChoice = shownChoices.some((choice) => choice.value === field.value);
   return (
     <SettingsFieldGroup
       layout={settingsFieldLayout}
@@ -243,30 +251,32 @@ function FieldEditor({
           }}
         />
       ) : field.kind === 'choice' ? (
-        <Host
-          matchContents
-          colorScheme={colors.mode}
-          seedColor={colors.seedColor}
-          accessibilityLabel={field.label}
+        <SettingsThemeChoices
+          label={field.label}
+          value={String(field.value)}
+          options={data.themes.map((theme) => {
+            const palette = themeForMode(
+              theme.id,
+              colors.mode,
+              theme.custom ? { [theme.id]: theme.colors } : {}
+            );
+            return {
+              value: theme.id,
+              label: theme.label,
+              custom: theme.custom,
+              colors: { foreground: palette.fontColor, background: palette.backgroundColor }
+            };
+          })}
+          disabled={disabled}
+          actionsDisabled={disabled || themeActions.disabled}
+          onValueChange={(value) => {
+            void save(value);
+          }}
+          onEdit={themeActions.edit}
+          onDelete={themeActions.remove}
         >
-          <Picker
-            selectedValue={typeof field.value === 'string' ? field.value : ''}
-            enabled={!disabled}
-            onValueChange={(value) => {
-              void save(String(value));
-            }}
-          >
-            {!availableChoice && (
-              <Picker.Item
-                label={`Saved value: ${String(field.value)}`}
-                value={typeof field.value === 'string' ? field.value : ''}
-              />
-            )}
-            {shownChoices.map((choice) => (
-              <Picker.Item key={choice.value} label={choice.label} value={choice.value} />
-            ))}
-          </Picker>
-        </Host>
+          <AddThemeButton disabled={disabled || themeActions.disabled} onPress={themeActions.add} />
+        </SettingsThemeChoices>
       ) : (
         <>
           {fontNames && (
@@ -431,7 +441,8 @@ function ThemeEditor({
   act,
   busy,
   colors,
-  close
+  close,
+  error
 }: {
   original: NativeTheme | null;
   seed: ThemeOption;
@@ -440,15 +451,13 @@ function ThemeEditor({
   busy: boolean;
   colors: Colors;
   close(): void;
+  error?: string;
 }) {
   const [name, setName] = useState(original?.id ?? '');
   const [palette, setPalette] = useState(seed);
   const [copyId, setCopyId] = useState(data.themes[0]?.id ?? '');
   return (
-    <Card colors={colors}>
-      <Text accessibilityRole="header" style={[styles.label, { color: colors.text }]}>
-        {original ? 'Edit custom theme' : 'New custom theme'}
-      </Text>
+    <View style={{ gap: 12 }}>
       <Text style={{ color: colors.muted }}>
         Theme colors accept #RRGGBB, rgb(…), or rgba(…). Nothing is saved until you choose Save
         theme.
@@ -513,7 +522,12 @@ function ThemeEditor({
         />
         <Action label="Cancel theme edit" colors={colors} disabled={busy} onPress={close} />
       </View>
-    </Card>
+      {error ? (
+        <Text accessibilityRole="alert" style={{ color: colors.error }}>
+          {error}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 export function NativeSettingsScreen() {
@@ -595,6 +609,34 @@ export function NativeSettingsScreen() {
   // Capture this render's capability so delayed alerts cannot act through a newer session.
   const activeSession = sessionRef.current;
   const act: Act = (action) => activeSession?.act(action) ?? Promise.resolve(false);
+  const themeActions = {
+    disabled: busy || !!editor,
+    add: () => setEditor({ original: null, seed: { ...resolved } }),
+    edit: (id: string) => {
+      const theme = data?.themes.find((item) => item.id === id);
+      if (theme?.custom) setEditor({ original: theme, seed: { ...theme.colors } });
+    },
+    remove: (id: string) => {
+      const theme = data?.themes.find((item) => item.id === id);
+      if (!theme?.custom) return;
+      // Capture both the existing palette and this render's admitted session
+      // before displaying the asynchronous platform confirmation.
+      Alert.alert(
+        `Delete ${theme.label}?`,
+        'This local custom theme will be removed. The existing Manabi preset will be selected.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: () => {
+              void act({ type: 'theme.delete', name: theme.id, expectedColors: theme.colors });
+            }
+          }
+        ]
+      );
+    }
+  };
   const fields =
     data?.fields.filter(
       (field) =>
@@ -680,68 +722,28 @@ export function NativeSettingsScreen() {
                   act={act}
                   busy={busy}
                   colors={colors}
+                  themeActions={themeActions}
                 />
               ))}
-            {data && (category === 'appearance' || category === 'all') && !query.trim() && (
-              <Card colors={colors}>
-                <Text style={[styles.label, { color: colors.text }]}>Custom themes</Text>
-                <View style={styles.row}>
-                  <Action
-                    label="Add custom theme"
-                    colors={colors}
-                    disabled={busy || !!editor}
-                    onPress={() => setEditor({ original: null, seed: { ...resolved } })}
-                  />
-                  {selectedTheme?.custom && (
-                    <>
-                      <Action
-                        label="Edit selected theme"
-                        colors={colors}
-                        disabled={busy || !!editor}
-                        onPress={() =>
-                          setEditor({ original: selectedTheme, seed: { ...selectedTheme.colors } })
-                        }
-                      />
-                      <Action
-                        label="Delete selected theme"
-                        colors={colors}
-                        disabled={busy || !!editor}
-                        onPress={() =>
-                          Alert.alert(
-                            `Delete ${selectedTheme.label}?`,
-                            'This local custom theme will be removed. The existing Manabi preset will be selected.',
-                            [
-                              { text: 'Cancel', style: 'cancel' },
-                              {
-                                text: 'Delete',
-                                style: 'destructive',
-                                onPress: () => {
-                                  void act({
-                                    type: 'theme.delete',
-                                    name: selectedTheme.id,
-                                    expectedColors: selectedTheme.colors
-                                  });
-                                }
-                              }
-                            ]
-                          )
-                        }
-                      />
-                    </>
-                  )}
-                </View>
-              </Card>
-            )}
             {editor && data && (
-              <ThemeEditor
-                original={editor.original}
-                seed={editor.seed}
-                data={data}
-                act={act}
-                busy={busy}
-                colors={colors}
-                close={() => setEditor(null)}
-              />
+              <Dialog
+                visible
+                title={editor.original ? 'Edit custom theme' : 'New custom theme'}
+                closeLabel="Close theme editor"
+                closeDisabled={view.pending}
+                onClose={() => setEditor(null)}
+              >
+                <ThemeEditor
+                  original={editor.original}
+                  seed={editor.seed}
+                  data={data}
+                  act={act}
+                  busy={busy}
+                  colors={colors}
+                  error={view.error}
+                  close={() => setEditor(null)}
+                />
+              </Dialog>
             )}
             {gates.map((gate) => (
               <Card key={gate.id} colors={colors}>

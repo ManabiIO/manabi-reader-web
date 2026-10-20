@@ -19,6 +19,7 @@ const { outputFiles } = await build({
       import { Dom } from './apps/web/src/settings-react/primitives';
       import { SettingsScreen } from './apps/web/src/settings-react/settings-screen';
       import { SettingsChoices } from './apps/web/src/features/settings/SettingsChoices';
+      import { SettingsThemeChoices, AddThemeButton } from './apps/web/src/features/settings/SettingsThemeChoices';
       import SettingsRoute from './apps/web/src/screens/routes/settings.web';
       import { ConnectionsScreen } from './apps/web/src/settings-react/connections-screen';
       import { startPreferenceSync, preferenceStatus } from './apps/web/src/lib/manabi/preferences';
@@ -41,6 +42,12 @@ const { outputFiles } = await build({
           events={binding ? {} : { change: event => update(event.currentTarget.checked) }} />;
       }
       window.controls = {
+        renderThemes: props => root.render(<React.StrictMode><SettingsThemeChoices {...props}
+          onValueChange={id => window.changes.push(['select', id])}
+          onEdit={id => window.changes.push(['edit', id])}
+          onDelete={id => window.changes.push(['delete', id])}>
+          <AddThemeButton disabled={props.disabled || props.actionsDisabled} onPress={() => window.changes.push(['add'])} />
+        </SettingsThemeChoices></React.StrictMode>),
         renderChoices: props => root.render(<React.StrictMode><SettingsChoices {...props}
           onValueChange={value => window.changes.push(value)} /></React.StrictMode>),
         goto, installRouter, beforeNavigate, afterNavigate, refreshAccount,
@@ -279,6 +286,81 @@ test('shared Settings choices preserve unknown and typed IDs, controlled selecti
       'string value remains distinct'
     );
     assert.equal(buttons[0].getAttribute('aria-pressed'), 'false');
+  });
+});
+
+test('shared theme chooser retains palettes, selected custom actions, child action and independent disabled states', async () => {
+  await fixture(async ({ window, api, until }) => {
+    const options = [
+      {
+        value: 'builtin',
+        label: 'Built in',
+        custom: false,
+        colors: { foreground: '#112233', background: '#ddeeff' }
+      },
+      {
+        value: 'custom-value',
+        label: 'Personal',
+        custom: true,
+        colors: { foreground: '#334455', background: 'rgba(240, 245, 255, 0.5)' }
+      }
+    ];
+    const render = (value, extra = {}) => api.renderThemes({ value, options, ...extra });
+    const { document } = window;
+    const named = (name) => document.querySelector('button[aria-label="' + name + '"]');
+    await render('builtin');
+    await until(() => document.querySelector('button[title="builtin"]'), 'theme choices mount');
+    const builtin = document.querySelector('button[title="builtin"]');
+    const personal = document.querySelector('button[title="custom-value"]');
+    assert.equal(document.querySelector('[role="group"]').getAttribute('aria-label'), 'Theme');
+    assert.equal(builtin.style.backgroundColor, 'rgb(221, 238, 255)');
+    assert.equal(personal.style.backgroundColor, 'rgba(240, 245, 255, 0.5)');
+    assert.equal(personal.firstElementChild.style.color, 'rgb(51, 68, 85)');
+    assert.equal(named('Edit Personal theme'), null);
+    assert.equal(named('Edit Built in theme'), null);
+    personal.click();
+    await until(() => window.changes.length === 1, 'selection emits');
+    assert.deepEqual(Array.from(window.changes[0]), ['select', 'custom-value']);
+    assert.equal(named('Edit Personal theme'), null, 'selection waits for the owner');
+    await render('custom-value');
+    await until(() => named('Edit Personal theme'), 'custom actions appear');
+    const edit = named('Edit Personal theme');
+    edit.focus();
+    edit.click();
+    named('Delete Personal theme').click();
+    const add = [...document.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Add custom theme'
+    );
+    assert.ok(add);
+    add.click();
+    assert.deepEqual(
+      Array.from(window.changes, (value) => Array.from(value)),
+      [['select', 'custom-value'], ['edit', 'custom-value'], ['delete', 'custom-value'], ['add']]
+    );
+    await render('custom-value', { actionsDisabled: true });
+    await until(() => edit.getAttribute('aria-disabled') === 'true', 'editor disables management');
+    assert.notEqual(
+      builtin.getAttribute('aria-disabled'),
+      'true',
+      'selection can remain available'
+    );
+    edit.click();
+    named('Delete Personal theme').click();
+    add.click();
+    assert.equal(window.changes.length, 4);
+    await render('custom-value', { disabled: true, actionsDisabled: false });
+    await until(
+      () => builtin.getAttribute('aria-disabled') === 'true',
+      'pending save disables all controls'
+    );
+    edit.click();
+    builtin.click();
+    assert.equal(window.changes.length, 4);
+    await render('missing');
+    await until(() => !named('Edit Personal theme'), 'unknown value retires custom actions');
+    assert.match(document.body.textContent, /Saved value: missing/);
+    assert.equal(document.querySelectorAll('[aria-pressed="true"]').length, 0);
+    assert.equal(window.changes.length, 4, 'unknown value does not select or save a fallback');
   });
 });
 

@@ -250,3 +250,45 @@ missing interaction evidence. Both Java sources compile against the official
 API 35 stub under Java 21, and all eight harness contracts pass locally. Only a
 completed emulator run establishes this new gate; it still does not establish
 spoken TalkBack or the full native choice matrix.
+
+Theme selection now also uses a common `SettingsThemeChoices` composition. Both
+platforms show the resolved preset/custom palette, selected state and the same
+Add/Edit/Delete actions. Edit and Delete remain together when the chooser wraps.
+The earlier separate browser swatch tree and native theme dropdown/action card
+are removed. The browser child-action slot is retained, with a common Add button.
+Unknown saved IDs remain visible without selecting or saving a fallback.
+
+The chooser owns no theme records, confirmation state or persistence. Existing
+browser editor callbacks are unchanged. Android retains its captured session and
+expected palette across the system delete confirmation. Moving those actions
+beside the swatch would leave the former inline editor far down the page, so
+Android now opens that editor in the existing shared dialog surface. Pending
+saves prevent dismissal; completed errors appear inside the dialog, and the
+header Close action allows return to Refresh when reconciliation is required.
+Copying palettes, draft state and saving still belong to the existing editors.
+Their color-input composition remains platform-specific; this does not yet close
+the complete custom-theme editor or Settings fidelity gates.
+
+Mounted RNW tests cover actual swatch colors, controlled selection, selected-only
+custom actions, child Add actions, independent editor/pending disables, and
+unknown values. Browser journeys cover custom palettes, long names, 200% reflow,
+grouped actions, editor cancellation/focus return, reload and scoped deletion.
+Retained appearance tests continue to cover presets, forced colors, palette
+copying, alpha/hex values, duplicate names, renaming and prototype-like names.
+Neither the theme schema nor backup/restore format changes.
+
+The Android harness now requires opening the new theme dialog, canceling once
+with system Back and once with Close, and observing the exact unchanged local
+theme catalog in both process phases. The strict evidence verifier rejects a
+missing journey. Java compilation and harness contracts do not substitute for
+that new exact-source emulator run, nor for native editing/IME/TalkBack coverage.
+
+Local theme-chooser qualification passes the complete 1,752-test original unit
+suite and 620 Expo tests. After grouping actions and moving the Android editor
+into the dialog, the 90 affected mounted/domain/harness/CI-policy checks pass,
+along with strict types, full lint, appearance generation, native import-boundary
+build and API 35/Java 21 compilation of both instrumentation sources. The final
+production web export passes all 25 Settings journeys and five retained theme
+journeys in each browser engine (60 executions); desktop, phone, light/dark and
+200% captures were reviewed. The broad unit runs precede those final layout-only
+changes; affected tests and the browser journeys qualify their final source.

@@ -32,6 +32,7 @@ for (const [name, entry, platform, external] of [
   const paths = Object.keys(output.metafile.inputs);
   if (name === 'Android native UI') {
     assert.ok(paths.some((path) => path.endsWith('/features/settings/SettingsChoices.tsx')));
+    assert.ok(paths.some((path) => path.endsWith('/features/settings/SettingsThemeChoices.tsx')));
     assert.ok(paths.some((path) => path.endsWith('/shared-ui/ActionButton.tsx')));
   }
   assert.ok(paths.some((path) => path.endsWith('native-settings/schema.ts')));

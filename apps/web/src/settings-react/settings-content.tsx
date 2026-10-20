@@ -48,6 +48,7 @@ import { MessageDialog } from '../ui/dialogs';
 import { SettingsItemGroup } from './settings-item-group';
 import { AppearanceSettings } from './appearance-settings';
 import { ButtonToggleGroup } from './button-toggle-group';
+import { AddThemeButton } from '../features/settings/SettingsThemeChoices';
 import { SettingsFontSelector } from './settings-font-selector';
 import { SettingsDimensionPopover } from './settings-dimension-popover';
 import { SettingsStorageSourceList } from './settings-storage-source-list';
@@ -130,11 +131,8 @@ export function SettingsContent(
                 >
                   {browser ? (
                     <>
-                      <Button
-                        aria-label={'Add custom theme'}
-                        variant={'outline'}
-                        size={'lg'}
-                        onClick={() =>
+                      <AddThemeButton
+                        onPress={() =>
                           dialogManager.dialogs$.next([
                             {
                               component: SettingsCustomTheme,
@@ -142,10 +140,7 @@ export function SettingsContent(
                             }
                           ])
                         }
-                        className={['m-1 text-lg'].filter(Boolean).join(' ')}
-                      >
-                        {' Add custom theme '}
-                      </Button>
+                      />
                     </>
                   ) : null}
                 </ButtonToggleGroup>

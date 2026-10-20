@@ -160,6 +160,13 @@ merely mounting the component cannot satisfy this gate. This is one native
 interaction with storage verification, not spoken TalkBack or full Settings
 coverage. Its result is only established by a completed run on this source.
 
+Theme chooser qualification additionally opens Add custom theme in the shared
+native dialog, cancels with Android Back, reopens it and uses Close. Both exits
+must restore access to the chooser while leaving the exact `customThemes` local
+value unchanged. The verifier requires `add-dialog-back-and-close-without-save`
+in both process phases. This exercises dialog entry and dismissal, not native
+color entry, IME, editing/saving a palette or spoken TalkBack.
+
 The storage probe also copies one actual packaged font into its random, test-owned
 CacheStorage namespace, loads it through a Blob URL using the WebView FontFace API,
 and repeats that load after reload and process restart. It removes only its own

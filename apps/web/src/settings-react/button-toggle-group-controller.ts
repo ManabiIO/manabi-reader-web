@@ -40,17 +40,8 @@ export function createButtonToggleGroup(
       );
     }
   );
-  function styles(style: Record<string, any> | undefined) {
-    return style
-      ? Object.entries(style)
-          .map(([key, value]) => `${key}: ${value}`)
-          .join(';')
-      : '';
-  }
-
   const api = {
     controller: __readerController,
-    styles,
     get options() {
       return options;
     },
