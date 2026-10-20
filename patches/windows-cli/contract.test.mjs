@@ -27,7 +27,9 @@ test('lazy discovery applies to exactly the reviewed RNW CLI bytes', async () =>
     await mkdir(path.dirname(path.join(work, name)), { recursive: true });
     await copyFile(path.join(installed, name), path.join(work, name));
   }
-  execFileSync('git', ['apply', '--reverse', patch], { cwd: work });
+  // Inspect npm tarball bytes, independent of the host's checkout policy.
+  const git = ['-c', 'core.autocrlf=false', 'apply'];
+  execFileSync('git', [...git, '--reverse', patch], { cwd: work });
   for (const [name, hash] of Object.entries(upstream.files)) {
     assert.equal(
       createHash('sha256')
@@ -37,8 +39,8 @@ test('lazy discovery applies to exactly the reviewed RNW CLI bytes', async () =>
       name
     );
   }
-  execFileSync('git', ['apply', '--check', patch], { cwd: work });
-  execFileSync('git', ['apply', patch], { cwd: work });
+  execFileSync('git', [...git, '--check', patch], { cwd: work });
+  execFileSync('git', [...git, patch], { cwd: work });
 });
 
 async function loadHealth(platform, discovery) {

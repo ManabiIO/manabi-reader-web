@@ -4,6 +4,7 @@
   <PropertyGroup>
     <ProjectGuid>{6e551eee-4065-4a96-b5f0-d9e2a82e554b}</ProjectGuid>
     <DefaultLanguage>en-US</DefaultLanguage>
+    <TargetPlatformVersion>10.0.26100.0</TargetPlatformVersion>
     <EntryPointProjectUniqueName>..\ManabiReaderWindows\ManabiReaderWindows.vcxproj</EntryPointProjectUniqueName>
     <DebuggerType>NativeOnly</DebuggerType>
     <BackgroundTaskDebugEngines>NativeOnly</BackgroundTaskDebugEngines>

@@ -67,6 +67,11 @@ jobs:
           $vs = & $vswhere -latest -products '*' -version '[18.6.1,19.0)' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
           if (!$vs) { throw 'RNW 0.85 requires Visual Studio 2026 >= 18.6.1 with C++ tools.' }
           & $vswhere -latest -products '*' -version '[18.6.1,19.0)' -format json
+          $sdk = "${env:ProgramFiles(x86)}\Windows Kits\10"
+          foreach ($component in @('Include\10.0.26100.0\um\Windows.h', 'Lib\10.0.26100.0\um\x64\kernel32.lib', 'bin\10.0.26100.0\x64\rc.exe')) {
+            if (!(Test-Path (Join-Path $sdk $component))) { throw "Missing Windows SDK component: $component" }
+          }
+          'Windows SDK: 10.0.26100.0'
           "Bootstrap qualification only: no Reader library, persistence, installer or product parity acceptance." | Add-Content $env:GITHUB_STEP_SUMMARY
       - name: Install exact dependency graph without remote cache
         id: dependencies

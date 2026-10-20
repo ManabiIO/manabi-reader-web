@@ -35,7 +35,9 @@ Qualification refuses to replace an earlier evidence directory. Its JSON report
 records bundle/map hashes and labels native runtime unqualified.
 
 On Windows, the **installed RNW 0.85 prerequisites** require Visual Studio 2026
-18.6.1 or newer and C++ toolset v145. Inspect `react-native-windows/Scripts/rnw-dependencies.ps1`
+18.6.1 or newer and C++ toolset v145. This host targets Windows SDK **10.0.26100.0**,
+which is installed on the VS 2026 CI image; the generated 22621 target is not.
+The minimum supported OS setting is unchanged. Inspect `react-native-windows/Scripts/rnw-dependencies.ps1`
 for the required components; older online setup guides may describe an earlier
 RNW release. Install a fresh dependency graph on Windows, rather than copying
 macOS `node_modules`.
@@ -53,8 +55,8 @@ project overrides the upstream MakeBundle target to use this SDK's Expo Metro
 and stop on bundling failure. Source maps remain outside the installed Bundle.
 
 `windows/` is tracked native source. Its changes from the generated template are:
-the debug URL, initial window title/size, development publisher label, and the
-MakeBundle target. `template-provenance.json` records the original template
+the debug URL, initial window title/size, development publisher label, Windows
+SDK target, and the MakeBundle target. `template-provenance.json` records the original template
 file hashes; `THIRD-PARTY-NOTICES.txt` retains Microsoft's MIT license. Template
 icons and package identity are qualification placeholders, not release branding.
 
