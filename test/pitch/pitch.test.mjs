@@ -1,4 +1,4 @@
-// Source-authored regressions; not executed in the 2026-10-13 code-only reconciliation.
+// The default worker double returns the captured window duration, as SwiftF0 does.
 import process from 'node:process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,9 +17,7 @@ const { createPitchController } = await import(new URL('browser.mjs', process.en
 const { runSwiftF0Inference, swiftF0ModelGain } = await import(
   new URL('swift-f0-runtime.mjs', process.env.PITCH_COMPILED)
 );
-const { LatestEpochQueue } = await import(
-  new URL('worker-queue.mjs', process.env.PITCH_COMPILED)
-);
+const { LatestEpochQueue } = await import(new URL('worker-queue.mjs', process.env.PITCH_COMPILED));
 
 test('pitch requests a 48 kHz context and falls back when the device rejects it', () => {
   const original = globalThis.AudioContext;
@@ -187,12 +185,21 @@ function swiftF0RuntimeFixture(options = {}) {
       const confidence = new Float32Array(malformed ? Math.max(0, count - 1) : count).fill(0.9);
       if (invalid) pitch[0] = NaN;
       const outputs = {
-        pitch: new Tensor(options.wrongType ? 'float32' : 'float64', pitch, options.wrongShape ? [count] : [1, count]),
+        pitch: new Tensor(
+          options.wrongType ? 'float32' : 'float64',
+          pitch,
+          options.wrongShape ? [count] : [1, count]
+        ),
         confidence: new Tensor('float32', confidence, [1, confidence.length])
       };
       if (options.extra) outputs.extra = new Tensor('float32', new Float32Array(1), [1]);
       if (options.alias) outputs.alias = feeds.audio;
-      if (options.throwData) Object.defineProperty(outputs.pitch, 'data', { get() { throw new Error('synthetic data failure'); } });
+      if (options.throwData)
+        Object.defineProperty(outputs.pitch, 'data', {
+          get() {
+            throw new Error('synthetic data failure');
+          }
+        });
       return outputs;
     }
   };
@@ -251,18 +258,29 @@ test('SwiftF0 worker queue serializes inference and skips stale queued epochs', 
 });
 
 for (const options of [
-  { failAllocation: 2 }, { failAllocation: 3 }, { wrongType: true },
-  { wrongShape: true }, { throwData: true }, { malformed: true, extra: true }
+  { failAllocation: 2 },
+  { failAllocation: 3 },
+  { wrongType: true },
+  { wrongShape: true },
+  { throwData: true },
+  { malformed: true, extra: true }
 ]) {
   test(`SwiftF0 cleans partial inputs and malformed output ownership: ${JSON.stringify(options)}`, async () => {
     const { runtime, stats } = swiftF0RuntimeFixture(options);
     await assert.rejects(runSwiftF0Inference(tone(220, 16000), 85, 520, runtime));
     assert.equal(stats.live, 0);
-    assert.equal(stats.disposed, options.failAllocation ? options.failAllocation - 1 : options.extra ? 6 : 5);
+    assert.equal(
+      stats.disposed,
+      options.failAllocation ? options.failAllocation - 1 : options.extra ? 6 : 5
+    );
   });
 }
 test('SwiftF0 releases all outputs once even when tensors alias and disposal throws', async () => {
-  const { runtime, stats } = swiftF0RuntimeFixture({ extra: true, alias: true, throwDispose: true });
+  const { runtime, stats } = swiftF0RuntimeFixture({
+    extra: true,
+    alias: true,
+    throwDispose: true
+  });
   const result = await runSwiftF0Inference(tone(220, 16000), 85, 520, runtime);
   assert.equal(stats.live, 0);
   assert.equal(stats.disposed, 6);
@@ -270,10 +288,13 @@ test('SwiftF0 releases all outputs once even when tensors alias and disposal thr
 });
 test('retirement without a replacement request suppresses running and queued work', async () => {
   let release;
-  const started = [], published = [];
+  const started = [],
+    published = [];
   const queue = new LatestEpochQueue(async (request, current) => {
     started.push(request.id);
-    await new Promise(resolve => { release = resolve; });
+    await new Promise((resolve) => {
+      release = resolve;
+    });
     if (current()) published.push(request.id);
   });
   const running = queue.submit({ id: 1, epoch: 1 });
@@ -473,7 +494,7 @@ function fixture(options = {}) {
         confidence: 1,
         rms: 0.5,
         offsetSeconds: 0.32,
-        windowSeconds: ANALYSIS_WINDOW_SECONDS
+        windowSeconds: worker.sent.at(-1).samples.length / worker.sent.at(-1).rate
       }
     ) {
       const request = worker.sent.at(-1);
@@ -481,7 +502,13 @@ function fixture(options = {}) {
     },
     analysisError(worker = workers.at(-1), id = worker.sent.at(-1)?.id) {
       worker.onmessage({
-        data: { type: 'error', phase: 'analysis', id, epoch: worker.sent.find(request => request.id === id)?.epoch, error: 'synthetic analysis failure' }
+        data: {
+          type: 'error',
+          phase: 'analysis',
+          id,
+          epoch: worker.sent.find((request) => request.id === id)?.epoch,
+          error: 'synthetic analysis failure'
+        }
       });
     },
     play() {
@@ -585,6 +612,31 @@ test('show/hide and off/on stop analysis but retain the playback destination', a
   assert.equal(f.context.closes, 1);
   assert.equal(source.connections.size, 0);
 });
+for (const rate of [44100, 48000, 88200]) {
+  test(`worker duration follows captured samples at ${rate} Hz and mismatched replies still fail`, async () => {
+    const f = await running(fixture({ sampleRates: [rate] }));
+    try {
+      f.frame();
+      f.result();
+      assert.equal(f.state.points.length, 1);
+      f.a.currentTime += 0.1;
+      f.frame(800);
+      f.result(undefined, {
+        hz: 220,
+        amplitude: 0.5,
+        confidence: 1,
+        rms: 0.5,
+        offsetSeconds: 0.32,
+        windowSeconds: 0.65
+      });
+      assert.equal(f.state.status, 'error');
+      assert.equal(f.state.points.length, 1);
+    } finally {
+      f.controller.dispose();
+    }
+  });
+}
+
 test('bounded work: one in-flight request, timestamp at selected frame, no duplicate stalled samples', async () => {
   const f = await running();
   f.frame(600);
@@ -934,8 +986,8 @@ test('cue entry masks pre-cue sound, projects rate-scaled time and starts a brok
   const request = f.workers[0].sent.at(-1);
   const start = 1.8 - request.samples.length / request.rate;
   const boundary = Math.ceil((1.5 - start) * request.rate);
-  assert.ok(request.samples.slice(0, boundary).every(value => value === 0));
-  assert.ok(request.samples.slice(boundary).some(value => value !== 0));
+  assert.ok(request.samples.slice(0, boundary).every((value) => value === 0));
+  assert.ok(request.samples.slice(boundary).some((value) => value !== 0));
   f.result();
   assert.equal(f.state.points.length, completed.length + 1);
   assert.ok(f.state.points.at(-1).time >= 1.5);
@@ -981,10 +1033,10 @@ test('early-media windows keep negative origins instead of shifting cue samples 
   f.controller.setSpeechWindow({ start: 0, end: 1 });
   f.frame();
   const request = f.workers[0].sent.at(-1);
-  const origin = 0.2 - request.samples.length / request.rate * 0.5;
+  const origin = 0.2 - (request.samples.length / request.rate) * 0.5;
   assert.ok(origin < 0);
   const boundary = Math.ceil(-origin / (0.5 / request.rate));
-  assert.ok(request.samples.slice(0, boundary).every(value => value === 0));
+  assert.ok(request.samples.slice(0, boundary).every((value) => value === 0));
   f.result();
   assert.ok(Math.abs(f.state.points[0].time - (origin + 0.32 * 0.5)) < 1e-9);
   f.controller.dispose();
@@ -1013,7 +1065,11 @@ for (const mode of ['ended', 'seeking', 'gap', 'rate', 'not-ready']) {
 
 test('invalid cue intervals fail closed and an expired cue never dispatches analysis', async () => {
   const f = await running();
-  for (const bounds of [{ start: -1, end: 2 }, { start: 1, end: 1 }, { start: NaN, end: 2 }]) {
+  for (const bounds of [
+    { start: -1, end: 2 },
+    { start: 1, end: 1 },
+    { start: NaN, end: 2 }
+  ]) {
     f.controller.setSpeechWindow(bounds);
     assert.equal(f.state.speechActive, false);
   }

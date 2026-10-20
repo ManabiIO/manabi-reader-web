@@ -188,6 +188,7 @@ export default function ReaderRuntime({
     return {
       ...scope(),
       revision,
+      online: reader.isOnline$.getValue(),
       loading: current.status === 'loading',
       books,
       lastBookId: last?.dataId,
@@ -749,6 +750,7 @@ export default function ReaderRuntime({
     const changed = reader.database.dataListChanged$.subscribe(emit);
     const bookmarks = reader.database.bookmarksChanged$.subscribe(emit);
     const accountStop = account.subscribe(observeOwnership);
+    const connectivity = reader.isOnline$.subscribe(emit);
     const navigate = (path: string) => {
       const nativePath = nativeNavigationPath(path, base);
       if (!nativePath) return;
@@ -781,6 +783,7 @@ export default function ReaderRuntime({
       changed.unsubscribe();
       bookmarks.unsubscribe();
       accountStop();
+      connectivity.unsubscribe();
       stopRouter();
       state.mounted = false;
       queueMicrotask(() => {

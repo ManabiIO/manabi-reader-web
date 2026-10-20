@@ -47,6 +47,22 @@ test('the persistent DOM forwards resolved appearance and custom chrome without 
   for (const store of Object.values(f.appearanceStores)) assert.equal(store.listeners.size, 0);
 });
 
+test('device connectivity reaches the native snapshot without changing account ownership', async (t) => {
+  const f = await runtimeOwner(t);
+  const before = f.snapshots.at(-1);
+  assert.equal(before.online, true);
+  await f.settle(() => f.online.next(false));
+  const offline = f.snapshots.at(-1);
+  assert.equal(offline.online, false);
+  assert.equal(offline.epoch, before.epoch);
+  assert.equal(offline.session, before.session);
+  assert.deepEqual(offline.account, before.account);
+  await f.settle(() => f.online.next(true));
+  assert.equal(f.snapshots.at(-1).online, true);
+  await f.unmount();
+  assert.equal(f.online.observed, false);
+});
+
 test('the DOM owner retains a real book authority beyond its bridge reply and retires it only on replacement or allowed close', async (t) => {
   const f = await runtimeOwner(t);
   assert.deepEqual(success(await f.command('open', openPayload(1))), { bookId: 1 });

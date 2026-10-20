@@ -21,6 +21,7 @@ import zlib
 from xml.sax.saxutils import escape
 from layout_diagnostics import report_layout_failure
 from playwright.sync_api import sync_playwright, expect
+from browser_launch import launch_options
 from test_static_reader import StaticHandler, ThreadingHTTPServer
 
 
@@ -120,11 +121,13 @@ class LibraryBase(unittest.TestCase):
 
     def setUp(self):
         self.profile = tempfile.TemporaryDirectory()
+        self.addCleanup(self.profile.cleanup)
         self.engine = os.environ.get('LIBRARY_BROWSER', 'chromium')
         self.context = getattr(self.playwright, self.engine).launch_persistent_context(
-            self.profile.name, viewport={'width': 1200, 'height': 900},
+            self.profile.name, **launch_options(self.engine, viewport={'width': 1200, 'height': 900},
             has_touch=getattr(self, 'touch', False),
-            executable_path=os.environ.get('LIBRARY_EXECUTABLE_PATH') or None)
+            executable_path=os.environ.get('LIBRARY_EXECUTABLE_PATH') or None))
+        self.addCleanup(self.context.close)
         self.context.add_init_script(
             "try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}")
         self.page = self.context.pages[0]
@@ -617,8 +620,8 @@ class BooksLibraryBrowser(LibraryBase):
         # store. Match LibraryBase's regular-profile storage in touch mode too.
         touch = getattr(self.playwright, self.engine).launch_persistent_context(
             profile.name,
-            viewport={'width': 390, 'height': 844}, device_scale_factor=3,
-            is_mobile=True, has_touch=True, color_scheme='dark', reduced_motion='reduce')
+            **launch_options(self.engine, viewport={'width': 390, 'height': 844}, device_scale_factor=3,
+            is_mobile=True, has_touch=True, color_scheme='dark', reduced_motion='reduce'))
         original = self.page
         self.page = touch.pages[0]
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
@@ -1602,7 +1605,8 @@ class BooksLibraryBrowser(LibraryBase):
                 self.assertEqual([{'name':'Portable Author'}], static['creators'])
         original = self.page
         with tempfile.TemporaryDirectory() as profile:
-            destination = getattr(self.playwright, self.engine).launch_persistent_context(profile)
+            destination = getattr(self.playwright, self.engine).launch_persistent_context(
+                profile, **launch_options(self.engine))
             self.page = destination.pages[0]
             self.page.on('pageerror', lambda e: self.errors.append(str(e)))
             try:

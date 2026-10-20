@@ -44,6 +44,9 @@ import { DialogHost } from '../ui/dialogs';
 import { bundledFontCSS } from './font-assets';
 import { embeddedFontStyleSheet } from './embedded-fonts';
 import { SnippetCapture } from '../snippets-react';
+import { ConnectionNotice } from '../shared-ui/ConnectionNotice';
+import { observeBrowserConnectivity } from './browser-connectivity';
+import './connection-notice.css';
 
 export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
   const appearance = useStore(appearance$);
@@ -58,7 +61,13 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
   useEffect(retireImportBootstrapOutsideRoute, [location.url.pathname]);
   const personal = useStore(personalSyncStatus);
   const books = useStore(bookSyncStatus);
+  const online = useStore(isOnline$);
   useEffect(() => {
+    const stopConnectivity = observeBrowserConnectivity((value) => isOnline$.next(value), {
+      window,
+      document,
+      navigator
+    });
     const fontStyle = document.createElement('style');
     fontStyle.id = 'manabi-packaged-fonts';
     fontStyle.textContent = bundledFontCSS;
@@ -84,14 +93,11 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
       void refreshAccount(force);
     };
     const online = () => {
-      isOnline$.next(navigator.onLine);
       refresh(true);
     };
-    const offline = () => isOnline$.next(false);
     const focus = () => refresh();
     refresh();
     window.addEventListener('online', online);
-    window.addEventListener('offline', offline);
     window.addEventListener('focus', focus);
     if (!embedded && 'serviceWorker' in navigator && process.env.NODE_ENV === 'production')
       void navigator.serviceWorker
@@ -101,8 +107,8 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
       fontStyle.remove();
       active = false;
       stops.forEach((stop) => stop());
+      stopConnectivity();
       window.removeEventListener('online', online);
-      window.removeEventListener('offline', offline);
       window.removeEventListener('focus', focus);
     };
   }, [embedded]);
@@ -195,6 +201,11 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
             Reading sync needs attention. Your local reading data is safe.
           </a>
         </aside>
+      )}
+      {!embedded && (
+        <div className="connection-notice-dock" data-sync-attention={attention || undefined}>
+          <ConnectionNotice online={online} />
+        </div>
       )}
       <SnippetCapture />
       <DialogHost />

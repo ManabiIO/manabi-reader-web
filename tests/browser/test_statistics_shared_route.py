@@ -5,6 +5,7 @@ filter, appearance, recovery-export and controller-ownership acceptance cases.
 No request interception, substitute UI, mocked database, or mocked renderer.
 """
 import json
+from pathlib import Path
 import re
 import unittest
 from playwright.sync_api import expect
@@ -12,8 +13,8 @@ from test_books_library import LibraryBase
 
 
 class SharedStatisticsBrowser(LibraryBase):
-    def seed(self):
-        self.page.evaluate('''async () => {
+    def seed(self, count=2):
+        self.page.evaluate('''async count => {
           const db = await new Promise((resolve, reject) => {
             const r = indexedDB.open('books');
             r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
@@ -23,7 +24,7 @@ class SharedStatisticsBrowser(LibraryBase):
               const tx = db.transaction('statistic', 'readwrite');
               for (const [title, seconds, characters] of [
                 ['Shared Statistics Alpha', 120, 50], ['Shared Statistics Beta', 60, 25]
-              ]) tx.objectStore('statistic').put({
+              ].slice(0, count)) tx.objectStore('statistic').put({
                 title, dateKey: '2026-09-25', readingTime: seconds,
                 charactersRead: characters, minReadingSpeed: 1000,
                 altMinReadingSpeed: 1200, lastReadingSpeed: 1500,
@@ -32,7 +33,7 @@ class SharedStatisticsBrowser(LibraryBase):
               tx.oncomplete = resolve; tx.onabort = tx.onerror = () => reject(tx.error);
             });
           } finally { db.close(); }
-        }''')
+        }''', count)
         self.page.goto(self.origin + '/reader-web/statistics')
         expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         expect(self.page.get_by_role('button', name='Filter books', exact=True)).to_be_enabled()
@@ -176,6 +177,85 @@ class SharedStatisticsBrowser(LibraryBase):
         self.assertLessEqual(panel.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
         close.click()
         expect(panel).to_have_count(0)
+
+    def test_private_measurements_reveal_before_details_and_rehide_after_reload(self):
+        # One record keeps every measurement mounted in the compact virtualized
+        # list; the separate route cases exercise multiple rows and pagination.
+        self.seed(count=1)
+        hidden = ['readingTime', 'charactersRead', 'lastReadingSpeed']
+        self.page.evaluate(
+            "values => localStorage.setItem('lastBlurredTrackerItems', JSON.stringify(values))",
+            hidden)
+        self.page.reload()
+        panel = self.options()
+        self.set_range(panel)
+        panel.get_by_label('Primary Aggregation', exact=True).select_option('none')
+        panel.get_by_role('button', name='Close statistics options', exact=True).click()
+        self.page.get_by_role('button', name='Summary', exact=True).click()
+        summary = self.page.get_by_test_id('statistics-summary')
+        details = self.page.get_by_role('dialog', name='Measurement details', exact=True)
+        for width, height, size in [(1200, 900, '100%'), (320, 568, '200%')]:
+            with self.subTest(width=width, text=size):
+                self.page.reload()
+                expect(summary).to_be_visible()
+                self.page.set_viewport_size({'width': width, 'height': height})
+                self.page.evaluate('size => document.documentElement.style.fontSize = size', size)
+                private = summary.get_by_role('button', name=re.compile('value hidden.*reveal'))
+                expect(private).to_have_count(3)
+                for metric in private.all():
+                    expect(metric).to_have_text('••••')
+                    expect(metric.locator('[aria-hidden=true]')).to_have_count(1)
+                    self.assertNotRegex(metric.aria_snapshot(), r'\b(?:120|1500|1800|50|25)\b')
+                for label in ['Total Time', 'Characters', 'Speed']:
+                    metric = summary.get_by_role(
+                        'button', name=re.compile('^' + label + ' for Shared Statistics Alpha'))
+                    metric.scroll_into_view_if_needed()
+                    metric.focus()
+                    self.page.keyboard.press('Enter')
+                    expect(metric).to_be_focused()
+                    expect(metric).to_have_attribute('aria-label', re.compile('Activate to view details'))
+                    expect(details).to_have_count(0)
+                    expect(metric).not_to_have_text('••••')
+                    for dismiss in ['button', 'escape']:
+                        self.page.keyboard.press('Enter')
+                        expect(details).to_be_visible()
+                        close = details.get_by_role('button', name='Close measurement details', exact=True)
+                        expect(close).to_be_focused()
+                        expect(close).to_be_in_viewport()
+                        self.assertLessEqual(details.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+                        self.assertTrue(close.evaluate('''e => {
+                          const r = e.getBoundingClientRect();
+                          const hit = document.elementFromPoint(r.left + r.width/2, r.top + r.height/2);
+                          return !!hit && (hit === e || e.contains(hit));
+                        }'''))
+                        if label == 'Total Time' and dismiss == 'button':
+                            first = details.get_by_text('Time: 2 min', exact=True).bounding_box()
+                            second = details.get_by_text('Average Time: 2 min', exact=True).bounding_box()
+                            self.assertGreaterEqual(second['y'], first['y'] + first['height'] + 7)
+                            heading = details.get_by_role('heading', name='Measurement details', exact=True)
+                            self.assertEqual(1, heading.evaluate('''e => {
+                              const text = document.createTreeWalker(e, NodeFilter.SHOW_TEXT).nextNode();
+                              const range = document.createRange();
+                              range.setStart(text, 0); range.setEnd(text, 'Measurement'.length);
+                              return range.getClientRects().length;
+                            }'''))
+                            self.page.screenshot(path=str(Path('test-results') /
+                                f'{self.engine}-private-measurement-{width}.png'))
+                        if dismiss == 'button':
+                            close.click()
+                        else:
+                            self.page.keyboard.press('Escape')
+                        expect(details).to_have_count(0)
+                        expect(metric).to_be_focused()
+                self.assertEqual(hidden, self.page.evaluate(
+                    "JSON.parse(localStorage.getItem('lastBlurredTrackerItems'))"))
+                # Query refresh retires all transient reveals, including an open
+                # detail surface, while retaining the saved privacy preference.
+                metric.press('Enter')
+                expect(details).to_be_visible()
+                self.page.get_by_role('button', name='Sort by Total Time', exact=True).press('Enter')
+                expect(details).to_have_count(0)
+                expect(private).to_have_count(3)
 
 
 if __name__ == '__main__':

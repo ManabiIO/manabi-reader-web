@@ -224,7 +224,12 @@ class PanelUsabilityBrowser(LibraryBase):
             h, c = heading.bounding_box(), close.bounding_box()
             self.assertGreaterEqual(c['width'], 43.99)
             self.assertGreaterEqual(c['height'], 43.99)
-            self.assertLessEqual(h['x'] + h['width'], c['x'] + 1)
+            # Enlarged headings move below the close action so whole words fit.
+            # Either layout must reserve separate space, never overlap targets.
+            self.assertTrue(
+                h['x'] + h['width'] <= c['x'] + 1 or
+                h['y'] >= c['y'] + c['height'] + 7,
+                {'heading': h, 'close': c})
             self.assertLessEqual(panel.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
             self.assert_unoccluded(close)
             self.capture(f'heatmap-details-{mode}-200')
