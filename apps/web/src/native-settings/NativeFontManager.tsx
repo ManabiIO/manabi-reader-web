@@ -5,10 +5,16 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert } from 'react-native';
 import { Host, TextInput, useNativeState } from '@expo/ui';
 import { ExpoButton as Button } from '../shared-ui/ExpoButton';
+import { Dialog } from '../shared-ui/ModalSurface';
+import { ActionButton } from '../shared-ui/ActionButton';
+import {
+  SettingsFontManager,
+  SettingsFontImportFields,
+  type FontManagerView
+} from '../features/settings/SettingsFontManager';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
 import { isNativeFontState, type FontFamily, type NativeFontState } from './font-contract';
 interface FontColors {
@@ -43,6 +49,7 @@ export function NativeFontManager({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [needsRefresh, setNeedsRefresh] = useState(false);
+  const [view, setView] = useState<FontManagerView>('Stored');
   const name = useNativeState('');
   const [nameText, setNameText] = useState('');
   const nameRevision = useRef(0);
@@ -86,6 +93,7 @@ export function NativeFontManager({
       nameRevision.current++;
       name.value = '';
       setNameText('');
+      setView('Stored');
       setData(undefined);
       setNeedsRefresh(false);
       lease.current = undefined;
@@ -105,122 +113,88 @@ export function NativeFontManager({
     onClose();
   };
   const disabled = busy || needsRefresh || !data;
-  const action = (label: string, onPress: () => void, off = false) => (
-    <Host matchContents colorScheme={colors.mode} seedColor={colors.seedColor}>
-      <Button label={label} onPress={onPress} disabled={off} />
-    </Host>
-  );
   return (
-    <Modal visible animationType="slide" onRequestClose={close}>
-      <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]}>
-        <View style={styles.header}>
-          <Text accessibilityRole="header" style={[styles.heading, { color: colors.text }]}>
-            {family === 'primary' ? 'Primary font files' : 'Sans-serif font files'}
-          </Text>
-          {action('Close font manager', close)}
-        </View>
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
-          <Text style={{ color: colors.muted }}>
-            Fonts are stored by the local reader. Importing a file does not change the selected
-            font.
-          </Text>
-          {busy ? (
-            <ActivityIndicator accessibilityLabel="Loading or saving fonts" color={colors.text} />
-          ) : null}
-          {error ? (
-            <Text accessibilityRole="alert" style={{ color: colors.error }}>
-              {error}
-            </Text>
-          ) : null}
-          {needsRefresh ? (
-            <Text style={{ color: colors.muted }}>
-              Refresh saved fonts before retrying. An interrupted save is never replayed
-              automatically.
-            </Text>
-          ) : null}
-          {action(
-            'Refresh stored fonts',
-            () => {
-              void run(() => command('settings.fonts.read', {}));
-            },
-            busy
-          )}
-          {data?.fonts.length === 0 ? (
-            <Text style={{ color: colors.text }}>
-              No stored custom fonts. Built-in fonts remain available in Settings.
-            </Text>
-          ) : null}
-          {data?.fonts.map((font) => (
-            <View
-              key={font.key}
-              style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-            >
-              <Text style={[styles.label, { color: colors.text }]}>{font.name}</Text>
-              <Text style={{ color: colors.muted }}>{font.fileName}</Text>
-              <Text style={{ color: colors.muted }}>
-                {font.available
-                  ? 'Stored on this device'
-                  : 'File missing; import it again to use it'}
-                {data.selected[family] === font.name ? ' · Selected' : ''}
-              </Text>
-              <View style={styles.row}>
-                {action(
-                  `Use ${font.name}`,
-                  () => {
-                    void run(
-                      () =>
-                        command('settings.fonts.action', {
-                          type: 'select',
-                          token: data.token,
-                          key: font.key,
-                          family
-                        }),
-                      true
-                    ).then((saved) => {
-                      if (saved && current()) close();
-                    });
-                  },
-                  disabled || !font.available
-                )}
-                {action(
-                  `Remove ${font.name}`,
-                  () =>
-                    Alert.alert(
-                      `Remove ${font.name}?`,
-                      'Remove this stored font file. Only this exact font can reset the selected family.',
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        {
-                          text: 'Remove',
-                          style: 'destructive',
-                          onPress: () => {
-                            void run(
-                              () =>
-                                command('settings.fonts.action', {
-                                  type: 'remove',
-                                  token: data.token,
-                                  key: font.key,
-                                  family
-                                }),
-                              true
-                            );
-                          }
-                        }
-                      ]
-                    ),
-                  disabled
-                )}
-              </View>
-            </View>
-          ))}
-          <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text accessibilityRole="header" style={[styles.label, { color: colors.text }]}>
-              Add font file
-            </Text>
-            <Text style={{ color: colors.muted }}>
-              WOFF2, WOFF, TTF or OTF. Native transfers are limited to 256 MB. Your original file is
-              not changed.
-            </Text>
+    <Dialog
+      visible
+      title={family === 'primary' ? 'Primary font files' : 'Sans-serif font files'}
+      closeLabel="Close font manager"
+      onClose={close}
+      footer={
+        <ActionButton variant="ghost" style={{ minHeight: 44 }} onPress={close}>
+          Done
+        </ActionButton>
+      }
+    >
+      <SettingsFontManager
+        description="Fonts are stored by the local reader. Importing a file does not change the selected font."
+        fonts={
+          data?.fonts.map((font) => ({ ...font, selected: data.selected[family] === font.name })) ??
+          []
+        }
+        view={view}
+        onViewChange={setView}
+        checking={!data && !error}
+        available={!!data}
+        busy={busy}
+        error={error}
+        needsRefresh={needsRefresh}
+        recoveryHint={
+          needsRefresh
+            ? 'Refresh saved fonts before retrying. An interrupted save is never replayed automatically.'
+            : undefined
+        }
+        refresh={{
+          label: 'Refresh stored fonts',
+          onPress: () => {
+            void run(() => command('settings.fonts.read', {}));
+          }
+        }}
+        onSelect={(font) => {
+          if (!data) return;
+          void run(
+            () =>
+              command('settings.fonts.action', {
+                type: 'select',
+                token: data.token,
+                key: font.key,
+                family
+              }),
+            true
+          ).then((saved) => {
+            if (saved && current()) close();
+          });
+        }}
+        onRemove={(font) => {
+          if (!data) return;
+          Alert.alert(
+            `Remove ${font.name}?`,
+            'Remove this stored font file. Only this exact font can reset the selected family.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Remove',
+                style: 'destructive',
+                onPress: () => {
+                  void run(
+                    () =>
+                      command('settings.fonts.action', {
+                        type: 'remove',
+                        token: data.token,
+                        key: font.key,
+                        family
+                      }),
+                    true
+                  );
+                }
+              }
+            ]
+          );
+        }}
+      >
+        <SettingsFontImportFields
+          busy={busy}
+          help="WOFF2, WOFF, TTF or OTF. Native transfers are limited to 256 MB. Your original file is not changed."
+          nameInput={
             <Host
               matchContents={{ vertical: true }}
               colorScheme={colors.mode}
@@ -242,43 +216,32 @@ export function NativeFontManager({
                 }}
               />
             </Host>
-            {action(
-              'Choose font file and save',
-              () => {
-                const chosenName = nameText,
-                  revision = nameRevision.current;
-                void run(async () => {
-                  if (!(await importFont(chosenName, lifetime.signal)) || !current())
-                    return undefined;
-                  return command('settings.fonts.read', {});
-                }, true).then((saved) => {
-                  if (saved && current() && nameRevision.current === revision) {
-                    name.value = '';
-                    setNameText('');
-                  }
-                });
-              },
-              disabled || !nameText.trim()
-            )}
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-    </Modal>
+          }
+          submit={
+            <Host matchContents colorScheme={colors.mode} seedColor={colors.seedColor}>
+              <Button
+                label="Choose font file and save"
+                disabled={disabled || !nameText.trim()}
+                onPress={() => {
+                  const chosenName = nameText,
+                    revision = nameRevision.current;
+                  void run(async () => {
+                    if (!(await importFont(chosenName, lifetime.signal)) || !current())
+                      return undefined;
+                    return command('settings.fonts.read', {});
+                  }, true).then((saved) => {
+                    if (saved && current() && nameRevision.current === revision) {
+                      name.value = '';
+                      setNameText('');
+                      setView('Stored');
+                    }
+                  });
+                }}
+              />
+            </Host>
+          }
+        />
+      </SettingsFontManager>
+    </Dialog>
   );
 }
-const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  header: {
-    padding: 16,
-    gap: 12,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    justifyContent: 'space-between'
-  },
-  heading: { fontSize: 22, fontWeight: '600', flexShrink: 1 },
-  content: { padding: 16, gap: 16 },
-  card: { padding: 16, borderRadius: 16, borderWidth: 1, gap: 10 },
-  label: { fontSize: 16, fontWeight: '600' },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }
-});

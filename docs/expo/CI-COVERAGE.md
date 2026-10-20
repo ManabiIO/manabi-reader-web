@@ -113,7 +113,7 @@ no longer select different runtime code:
   cases. `--list --json` exposes the identical default/gated inventory without
   starting a browser; `--validate` resolves exact cases without inherited-suite
   discovery or duplicate whole-reader runs
-- All six original Settings controls and ten Settings editor-usability cases in
+- All current Settings controls (including the six original cases) and ten Settings editor-usability cases in
   both engines, covering dimension/font behavior, specialized storage/theme
   flows, enlarged-text reachability, category navigation and reader return
 - The real reader save/cancel/Back/Forward/fragment lifetime suite in both engines
@@ -264,3 +264,13 @@ Automatic pushes/PRs on that branch still do not enable the migration jobs or
 legacy cache/artifact jobs. Public visibility, exact repository, stock runners,
 and the no-cache/no-upload restrictions remain unchanged. Native Android
 acceptance must name the actual SDK 58 commit and completed run.
+
+### Shared font-manager gate
+
+The native font-manager smoke now requires common Stored/Add navigation,
+Android Back from Add, reopening at Stored, explicit Close, and unchanged raw
+`userfonts`, `fontFamilyGroupOne` and `fontFamilyGroupTwo` values. Both process
+phases must report `shared-font-list-add-back-and-close-without-save`; the
+verifier rejects the older read/close-only marker. Actual system font picking,
+font rendering, keyboard/IME, rotation, enlarged native text and TalkBack remain
+separate gates. No real user library or font is modified by this smoke.

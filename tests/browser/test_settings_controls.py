@@ -480,6 +480,36 @@ class SettingsControlsBrowser(LibraryBase):
         expect(dialog.get_by_role('button', name='Use ' + FONT['name'], exact=True)).to_be_visible()
         self.assertEqual(self.catalog(), [FONT])
 
+    def test_stored_font_rows_reflow_and_navigation_never_changes_saved_preferences(self):
+        missing = {'name': 'Missing' + 'LongName' * 16, 'fileName': 'missing' + 'file' * 30 + '.woff2', 'path': '/userfonts/missing.woff2'}
+        for mode in ('light', 'dark'):
+            self.settings('Fonts & text', {'appearance': mode, 'userfonts': json.dumps([missing]), 'fontFamilyGroupOne': 'System Sans'})
+            before = self.page.evaluate("[localStorage.getItem('userfonts'),localStorage.getItem('fontFamilyGroupOne')]")
+            for width, scale in ((1200, 100), (390, 100), (320, 200)):
+                self.page.set_viewport_size({'width': width, 'height': 568})
+                self.page.evaluate('v => document.documentElement.style.fontSize=v+"%"', scale)
+                dialog = self.fonts()
+                listing = dialog.get_by_role('list', name='Stored custom fonts', exact=True)
+                expect(listing.get_by_role('listitem')).to_have_count(1)
+                expect(listing.get_by_role('button', name='Use ' + missing['name'], exact=True)).to_be_disabled()
+                remove = listing.get_by_role('button', name='Remove ' + missing['name'], exact=True)
+                expect(remove).to_be_enabled()
+                self.assert_reachable(remove)
+                self.assertLessEqual(dialog.evaluate('e=>e.scrollWidth-e.clientWidth'), 1)
+                self.assertLessEqual(dialog.locator('[data-dialog-scroll]').evaluate('e=>e.scrollWidth-e.clientWidth'), 1)
+                self.capture(f'font-list-{mode}-{width}-{scale}')
+                dialog.get_by_role('button', name='Add font', exact=True).click()
+                name = dialog.get_by_label('Font name', exact=True)
+                # Shared FieldFrame retains native HTML label activation.
+                dialog.locator('label').filter(has_text='Font name').click()
+                expect(name).to_be_focused()
+                name.fill('Unsaved local font')
+                dialog.get_by_role('button', name='Stored fonts', exact=True).click()
+                expect(listing).to_be_visible()
+                dialog.get_by_role('button', name='Done', exact=True).click()
+                expect(dialog).to_have_count(0)
+                self.assertEqual(before, self.page.evaluate("[localStorage.getItem('userfonts'),localStorage.getItem('fontFamilyGroupOne')]"))
+
     def test_compact_large_text_panels_keep_targets_and_labels_reachable(self):
         for mode in ('light', 'dark'):
             with self.subTest(mode=mode):

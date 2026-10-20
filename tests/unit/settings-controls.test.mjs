@@ -4,6 +4,7 @@ import { setImmediate } from 'node:timers';
 import { settingsScript } from './fixtures/settings-script.mjs';
 import { build } from 'esbuild';
 import { Buffer } from 'node:buffer';
+import { BehaviorSubject } from 'rxjs';
 const { outputFiles } = await build({
   entryPoints: ['apps/web/src/features/settings/dimension-editor.ts'],
   bundle: true,
@@ -206,13 +207,7 @@ test('explicit Save can finish after dismissal without dispatching into another 
 });
 
 function manager(cache, currentFamily = 'YuKyokasho', entries = [selected], bindings = {}) {
-  let current = currentFamily;
-  const family = {
-    getValue: () => current,
-    next: (value) => {
-      current = value;
-    }
-  };
+  const family = new BehaviorSubject(currentFamily);
   const h = settingsScript(
     'settings-user-font-dialog.svelte',
     { fontFamily: family },
@@ -224,7 +219,7 @@ function manager(cache, currentFamily = 'YuKyokasho', entries = [selected], bind
     ['removeFont', '$userFonts$', 'cacheLoaded'],
     []
   );
-  return { ...h, family: () => current };
+  return { ...h, family: () => family.getValue(), familyStore: family };
 }
 
 test('opening font manager never prunes missing metadata or unknown cached files', async () => {
@@ -409,7 +404,9 @@ for (const interruption of ['dismissal', 'family change']) {
     if (interruption === 'dismissal') h.dispose();
     else
       h.instance.updateProps({
-        fontFamily: { next: () => assert.fail('Retargeted font selection') }
+        fontFamily: Object.assign(new BehaviorSubject('Other'), {
+          next: () => assert.fail('Retargeted font selection')
+        })
       });
     gate.resolve(new Response('font bytes'));
     await selecting;
@@ -466,7 +463,9 @@ test('an explicit pending font removal owns the original family and live catalog
   const removing = h.removeFont()(selected.path);
   await turn();
   h.instance.updateProps({
-    fontFamily: { next: () => assert.fail('Removal reset a different style') }
+    fontFamily: Object.assign(new BehaviorSubject('Other'), {
+      next: () => assert.fail('Removal reset a different style')
+    })
   });
   h.dispose();
   const other = { name: 'Other', fileName: 'other.ttf', path: '/userfonts/other.ttf' };
@@ -477,4 +476,25 @@ test('an explicit pending font removal owns the original family and live catalog
   assert.equal(h.family(), '');
   assert.equal(h.fonts.observers.length, 0);
   assert.deepEqual(h.events, []);
+});
+
+test('font selection display observes the current family and releases replaced subscriptions', async () => {
+  const h = manager({ keys: async () => [] });
+  await h.mount();
+  assert.equal(h.instance.selectedFont, 'YuKyokasho');
+  assert.equal(h.familyStore.observers.length, 1);
+  h.familyStore.next('Custom');
+  assert.equal(h.instance.selectedFont, 'Custom');
+  const replacement = new BehaviorSubject('Other');
+  h.instance.updateProps({ fontFamily: replacement });
+  h.reactive();
+  assert.equal(h.instance.selectedFont, 'Other');
+  assert.equal(h.familyStore.observers.length, 0);
+  assert.equal(replacement.observers.length, 1);
+  h.familyStore.next('Retired');
+  assert.equal(h.instance.selectedFont, 'Other');
+  h.dispose();
+  assert.equal(replacement.observers.length, 0);
+  replacement.next('After dismissal');
+  assert.equal(h.instance.selectedFont, 'Other');
 });

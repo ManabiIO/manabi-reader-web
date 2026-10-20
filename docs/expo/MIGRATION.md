@@ -399,3 +399,18 @@ regression/default web, promoted web and packaged Android, including reload and
 process restart. This qualifies the shared switch source under the affected CI
 scope. It does not include the later wrapping choice controls or the added native
 color-mode save check, and does not establish spoken TalkBack or full parity.
+
+### Theme editor Android checkpoint
+
+[Run 39494543115](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39494543115)
+finished on `f495b47c67a6a757a30ed7e8616f3456ef8c6cdd`. Android passed release
+compilation, origin tests, APK-worker qualification and both packaged-runtime
+phases on API 35/WebView 124.0.6367.219 (PIDs 3043 and 3792). The native theme
+editor opened and cancelled through both Back and Close without saving. Font
+cache read/close and local persistence after process restart also passed.
+The run uploaded zero artifacts.
+
+Both web jobs failed the retained Add-theme button size/radius assertion;
+`8ffd629c` repairs it and retains the original test. The run remains failed and
+is not an all-platform checkpoint. It predates the dimension slider gate and
+shared font-manager changes, which require a new exact-source qualification.

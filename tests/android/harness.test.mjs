@@ -291,7 +291,7 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     target: 'io.manabi.reader',
     targetDebuggable: false,
     nativeRoundTrip: 'snapshot-route-and-library-state-reply',
-    nativeFontManager: 'settings-typography-font-cache-read-and-close',
+    nativeFontManager: 'shared-font-list-add-back-and-close-without-save',
     nativeChoices: 'color-mode-selection-local-save-and-restore',
     nativeThemeChooser: 'add-dialog-back-and-close-without-save',
     nativeDimensions: 'slider-completion-and-automatic-local-save-with-exact-restore',

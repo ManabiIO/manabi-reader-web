@@ -369,3 +369,22 @@ The shared Add action now retains `size="lg"`, rounded shape and the 8px radius.
 The original case and every assertion remain unchanged; it is included with the
 complete Settings selection during local qualification of this repair. An
 exact-source CI pass is still required; the failed older run is not reclassified.
+
+## Shared font manager: inner scroll-area overflow
+
+The first shared font-list screenshots exposed 12px of horizontal overflow
+inside the dialog's scroll region at 320px and 200% text. The outer-dialog
+geometry check passed, but it did not cover that inner area. The new browser
+case now checks both the outer dialog and `[data-dialog-scroll]`, retains long
+unbroken font/file names, and verifies Use/Remove reachability, HTML label
+activation and unchanged raw preferences after navigation/dismissal. The shared
+action row is constrained to its container width so its actions wrap.
+
+Initial test-harness failures are retained in local
+`settings-font-manager-ymv_u67v` evidence: the new label-activation locator was
+incorrectly scoped to the dialog twice; the native mounted fixture needed the
+shared RN primitive/router boundaries; existing controller fixtures used
+get/next-only font-family objects and now use the actual BehaviorSubject API.
+Original storage, late-result and teardown assertions remain. Added subscription
+coverage verifies current-family updates and retirement. These setup failures
+are distinct from the reproduced inner-overflow product defect.

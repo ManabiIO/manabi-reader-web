@@ -19,6 +19,7 @@ const compiled = await build({
   platform: 'node',
   jsx: 'automatic',
   external: ['react', 'react/jsx-runtime'],
+  loader: { '.xml': 'text' },
   plugins: [
     {
       name: 'native-view-boundaries',
@@ -26,7 +27,7 @@ const compiled = await build({
         b.onResolve(
           {
             filter:
-              /^(react-native|react-native-safe-area-context|@expo\/ui(?:\/jetpack-compose)?)$/
+              /^(react-native|react-native-safe-area-context|expo-router|@expo\/ui(?:\/jetpack-compose)?)$/
           },
           (args) => ({ path: args.path, namespace: 'native-test' })
         );
@@ -41,15 +42,19 @@ const compiled = await build({
         b.onLoad({ filter: /.*/, namespace: 'native-test' }, ({ path }) => ({
           loader: 'js',
           contents:
-            path === 'theme'
-              ? `export const useUiTheme=()=>({colors:{primary:'#212121',primaryForeground:'#fff',foreground:'#212121',secondary:'#eee',mutedForeground:'#666'}});`
-              : path === '@expo/ui/jetpack-compose'
-                ? `import React from 'react';export const Button=({children,onClick,enabled,colors})=>React.createElement('button',{onClick,disabled:!enabled,'data-compose-colors':JSON.stringify(colors)},children);export const OutlinedButton=Button,TextButton=Button;export const Text=({children,color})=>React.createElement('span',{'data-compose-text':color},children);`
-                : path === 'runtime'
-                  ? `export const useReaderRuntime=()=>globalThis.__fontRuntime;`
-                  : path === '@expo/ui'
-                    ? `import React from 'react'; export const Host=({children})=>React.createElement('div',{},children);export const Button=({label,onPress,disabled})=>React.createElement('button',{onClick:onPress,disabled},label); export const TextInput=({value,onChangeText,placeholder,editable})=>React.createElement('input',{'aria-label':placeholder,value:value.value,disabled:editable===false,onInput:e=>onChangeText(e.currentTarget.value),onChange:()=>{}});export const useNativeState=value=>React.useRef({value}).current;`
-                    : `import React from 'react'; export const alerts=[]; export const Alert={alert:(...args)=>alerts.push(args)};export const View=({children})=>React.createElement('div',{},children);export const Text=({children})=>React.createElement('span',{},children);export const ScrollView=View,SafeAreaView=View,Modal=View,ActivityIndicator=()=>null;export const StyleSheet={create:v=>v};`
+            path === 'expo-router'
+              ? `export const Link=()=>null;`
+              : path === 'react-native-safe-area-context'
+                ? `export const useSafeAreaInsets=()=>({bottom:0,top:0,left:0,right:0});`
+                : path === 'theme'
+                  ? `export const useUiTheme=()=>({colors:{primary:'#212121',primaryForeground:'#fff',foreground:'#212121',secondary:'#eee',mutedForeground:'#666'}});`
+                  : path === '@expo/ui/jetpack-compose'
+                    ? `import React from 'react';export const Button=({children,onClick,enabled,colors})=>React.createElement('button',{onClick,disabled:!enabled,'data-compose-colors':JSON.stringify(colors)},children);export const OutlinedButton=Button,TextButton=Button;export const Text=({children,color})=>React.createElement('span',{'data-compose-text':color},children);`
+                    : path === 'runtime'
+                      ? `export const useReaderRuntime=()=>globalThis.__fontRuntime;`
+                      : path === '@expo/ui'
+                        ? `import React from 'react'; export const Icon=()=>null; export const Host=({children})=>React.createElement('div',{},children);export const Button=({label,onPress,disabled})=>React.createElement('button',{onClick:onPress,disabled},label); export const TextInput=({value,onChangeText,placeholder,editable})=>React.createElement('input',{'aria-label':placeholder,value:value.value,disabled:editable===false,onInput:e=>onChangeText(e.currentTarget.value),onChange:()=>{}});export const useNativeState=value=>React.useRef({value}).current;`
+                        : `import React from 'react'; export const alerts=[]; export const Alert={alert:(...args)=>alerts.push(args)};export const View=({children})=>React.createElement('div',{},children);export const Text=({children,style})=>React.createElement('span',{style},children);export const ScrollView=View,Modal=View;export const Platform={OS:'android'};export const StyleSheet={create:v=>v,flatten:v=>Array.isArray(v)?Object.assign({},...v.map(x=>StyleSheet.flatten(x))):v};export const Pressable=({children,onPress,disabled,accessibilityLabel,accessibilityState,style,ref})=>React.createElement('button',{ref,onClick:onPress,disabled,'aria-label':accessibilityLabel,'aria-pressed':accessibilityState?.selected,style:StyleSheet.flatten(typeof style==='function'?style({pressed:false}):style)},typeof children==='function'?children({pressed:false}):children);`
         }));
       }
     }
@@ -132,7 +137,9 @@ async function fixture(t, { read, importFont } = {}) {
     alerts.length = 0;
   });
   const button = (name) =>
-    [...document.querySelectorAll('button')].find((button) => button.textContent === name);
+    [...document.querySelectorAll('button')].find(
+      (button) => (button.getAttribute('aria-label') ?? button.textContent) === name
+    );
   return {
     calls,
     button,
@@ -182,6 +189,7 @@ test('unmount cancels the picker/upload and ignores its late response without is
       return true;
     }
   });
+  await act(async () => f.button('Custom font views: Add font').click());
   await f.input('Custom');
   await act(async () => f.button('Choose font file and save').click());
   assert.ok(signal);
@@ -206,16 +214,70 @@ test('failed mutations require an explicit successful refresh before a retry', a
   assert.equal(f.button('Use Face').disabled, false);
 });
 
-test('font manager utility actions use neutral unfilled Compose controls', async (t) => {
-  await fixture(t);
-  for (const label of ['Close font manager', 'Refresh stored fonts', 'Choose font file and save']) {
-    const button = [...document.querySelectorAll('button')].find(
-      (item) => item.textContent === label
-    );
-    assert.ok(button, label);
-    const colors = JSON.parse(button.getAttribute('data-compose-colors'));
-    assert.equal(colors.containerColor, 'transparent');
-    assert.equal(colors.contentColor, '#212121');
-    assert.equal(colors.disabledContentColor, '#666');
-  }
+test('shared manager opens the import form explicitly, with a neutral Compose picker action', async (t) => {
+  const f = await fixture(t);
+  assert.equal(document.querySelector('input'), null);
+  await act(async () => f.button('Custom font views: Add font').click());
+  const picker = f.button('Choose font file and save');
+  assert.ok(picker);
+  assert.equal(picker.disabled, true, 'name is required before choosing a file');
+  const colors = JSON.parse(picker.getAttribute('data-compose-colors'));
+  assert.equal(colors.containerColor, 'transparent');
+  assert.equal(colors.contentColor, '#212121');
+  assert.equal(colors.disabledContentColor, '#666');
+  await f.input('New font');
+  assert.equal(picker.disabled, false);
+  assert.equal(f.calls.length, 1, 'opening and typing never saves');
+});
+
+test('missing files remain listed and removable without enabling selection', async (t) => {
+  const f = await fixture(t, {
+    read: async () => ({
+      ...state('missing'),
+      fonts: [{ ...state('missing').fonts[0], available: false }]
+    })
+  });
+  assert.equal(f.button('Use Face').disabled, true);
+  assert.equal(f.button('Remove Face').disabled, false);
+  assert.match(document.body.textContent, /File unavailable/);
+  await act(async () => f.button('Use Face').click());
+  assert.equal(f.calls.length, 1);
+});
+
+test('a cancelled picker retains the name and Add view without selecting or refreshing', async (t) => {
+  const f = await fixture(t);
+  await act(async () => f.button('Custom font views: Add font').click());
+  await f.input('Cancelled draft');
+  await act(async () => f.button('Choose font file and save').click());
+  assert.equal(document.querySelector('input').value, 'Cancelled draft');
+  assert.equal(f.button('Custom font views: Add font').getAttribute('aria-pressed'), 'true');
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.changes, 0);
+});
+
+test('an acknowledged import returns to Stored without selecting the imported font', async (t) => {
+  const pending = deferred();
+  let imports = 0;
+  const f = await fixture(t, {
+    importFont: async () => {
+      imports++;
+      await pending.promise;
+      return true;
+    }
+  });
+  await act(async () => f.button('Custom font views: Add font').click());
+  await f.input('New font');
+  await act(async () => {
+    f.button('Choose font file and save').click();
+    f.button('Choose font file and save').click();
+  });
+  assert.equal(imports, 1);
+  assert.equal(f.button('Custom font views: Stored fonts').disabled, true);
+  assert.equal(document.querySelector('input').disabled, true);
+  await act(async () => pending.resolve());
+  assert.equal(document.querySelector('input'), null);
+  assert.equal(f.button('Custom font views: Stored fonts').getAttribute('aria-pressed'), 'true');
+  assert.equal(f.calls.filter((call) => call.method === 'settings.fonts.action').length, 0);
+  assert.equal(f.changes, 1);
+  assert.equal(f.closeCount, 0);
 });

@@ -39,6 +39,7 @@ for (const [name, entry, platform, external] of [
     );
     assert.ok(paths.some((path) => path.endsWith('/features/settings/dimension-editor.ts')));
     assert.ok(paths.some((path) => path.endsWith('/features/settings/theme-editor.ts')));
+    assert.ok(paths.some((path) => path.endsWith('/features/settings/SettingsFontManager.tsx')));
     assert.ok(paths.some((path) => path.endsWith('/shared-ui/ActionButton.tsx')));
   }
   assert.ok(paths.some((path) => path.endsWith('native-settings/schema.ts')));

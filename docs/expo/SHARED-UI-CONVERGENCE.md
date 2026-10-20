@@ -394,3 +394,49 @@ case and five retained theme journeys in each browser engine (70 executions).
 Phone/desktop and 320×480 at 200% light/dark captures were inspected. The Rhea
 case also verifies the restored large, 8px rounded Add theme action identified by
 the earlier CI failure. Full native size/editor qualification remains pending.
+
+Stored-font management now uses `SettingsFontManager` and
+`SettingsFontImportFields` on both platforms: common Stored/Add navigation,
+font rows, availability/selected states, Use/Remove actions, storage recovery,
+and import-form composition. Browser list semantics remain a small `ul`/`li`
+leaf. Common field frames preserve actual HTML label activation and native
+labels. Android now opens the shared responsive Dialog rather than a separate
+full-screen font manager. The shared action row wraps within the available
+width, including 320px at 200% text with long font/file names.
+
+The browser retains its real form and file input, required validation, IME
+Enter guard and explicit Save. Android retains Expo UI's native name field and
+its existing combined system-picker/import command, 200-character name limit
+and 256 MB transfer limit. A cancelled picker retains the draft. An acknowledged
+import returns to Stored; importing never selects a font. These differences are
+bounded file/system adapters, not separate catalog presentations.
+
+Storage owners and mutation contracts remain in place. The browser uses exact
+cache entries and the live catalog; native selection/removal uses the captured
+catalog token and key. Native single-flight leases, account/epoch lifetimes,
+late-confirmation rejection, abort on dismissal and explicit reconciliation
+remain. A browser Save already in progress may finish after dismissal without
+closing a replacement dialog. The new browser Selected indicator observes the
+current preference family and releases its subscription on replacement/teardown.
+No schema, stored preference, font-cache, backup or restore format changes.
+
+Mounted native coverage retains the original lifetime assertions and adds
+missing-file disabling, read-only Add navigation, cancelled-picker draft
+retention, duplicate-import coalescing and the acknowledged return to Stored.
+The actual packaged gate now requires
+`nativeFontManager: shared-font-list-add-back-and-close-without-save` in both
+process phases. It navigates Stored/Add, dismisses with Android Back, reopens,
+closes, and checks the exact raw catalog and both font-family preferences are
+unchanged. It does not import a real font, exercise IME/TalkBack, or qualify
+native large-text/rotation behavior.
+
+Local font-manager qualification passes all 1,759 original unit tests, 626 Expo
+tests and 49 Android-harness/CI-policy checks. Full lint, strict types, appearance
+generation, native import-boundary build (63 modules), production web export,
+and API 35 / Java 21 instrumentation compilation pass. The final export passes
+30 Settings journeys and the retained Rhea theme-dialog geometry/focus case in
+each browser engine: 62 executions. Desktop, phone and 320px/200% light/dark
+captures were inspected. The inner-overflow repair has an additional 39 focused
+controller, mounted-dialog and native-lifetime checks on its final source.
+Packaged Android execution for the new font and preceding size gates remains
+pending; earlier theme-editor APK results do not qualify these controls.

@@ -230,12 +230,25 @@ public final class PackagedReaderTest {
     qualifyNativeThemeChooser();
     qualifyNativeDimensions();
     clickAccessibleText("Fonts & text");
+    String fontPreferences = evaluate("JSON.stringify([localStorage.getItem('userfonts'), localStorage.getItem('fontFamilyGroupOne'), localStorage.getItem('fontFamilyGroupTwo')])");
     clickAccessibleText("Manage Primary / Serif font files");
-    awaitAccessibleText("No stored custom fonts. Built-in fonts remain available in Settings.");
+    awaitAccessibleText("No custom fonts yet. Add a font file to make it available here.");
+    clickAccessibleText("Custom font views: Add font");
+    awaitAccessibleText("Choose font file and save");
+    clickAccessibleText("Custom font views: Stored fonts");
+    awaitAccessibleText("No custom fonts yet. Add a font file to make it available here.");
+    clickAccessibleText("Custom font views: Add font");
+    awaitAccessibleText("Choose font file and save");
+    instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
+    awaitAccessibleText("Manage Primary / Serif font files");
+    clickAccessibleText("Manage Primary / Serif font files");
+    awaitAccessibleText("No custom fonts yet. Add a font file to make it available here.");
     clickAccessibleText("Close font manager");
+    assertEquals("Font navigation and dismissal must not save a font or change either family", fontPreferences,
+        evaluate("JSON.stringify([localStorage.getItem('userfonts'), localStorage.getItem('fontFamilyGroupOne'), localStorage.getItem('fontFamilyGroupTwo')])"));
     clickAccessibleText("Back");
     awaitNativeLibraryReply();
-    evidence.put("nativeFontManager", "settings-typography-font-cache-read-and-close");
+    evidence.put("nativeFontManager", "shared-font-list-add-back-and-close-without-save");
   }
 
   private void qualifyNativeChoices() throws Exception {

@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { SettingsFontImportFields } from '../features/settings/SettingsFontManager';
 import { useReaderController } from '../reader-react/controller';
 import {
   Dom,
@@ -58,96 +59,57 @@ export function SettingsUserFontAdd(
             }
           }}
         >
-          <Dom
-            as="label"
-            htmlFor={`${c.formId}-name`}
-            className={['block min-w-0 text-sm font-medium'].filter(Boolean).join(' ')}
-          >
-            {' Font name '}
-            <Input
-              id={`${c.formId}-name`}
-              type={'text'}
-              required={true}
-              maxLength={200}
-              disabled={c.isLoading}
-              value={c.fontName}
-              onInput={() => c.controller.changed((c.currentError = ''))}
-              onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
-                if (
-                  event.key === 'Enter' &&
-                  (event.nativeEvent.isComposing || event.keyCode === 229)
-                )
-                  event.preventDefault();
-              }}
-              className={['mt-2'].filter(Boolean).join(' ')}
-              bindings={{
-                value: (value: typeof c.fontName) => {
-                  c.controller.changed((c.fontName = value));
-                }
-              }}
-            ></Input>
-          </Dom>
-          <Dom
-            as="label"
-            htmlFor={`${c.formId}-file`}
-            className={['block min-w-0 text-sm font-medium'].filter(Boolean).join(' ')}
-          >
-            {' Font file '}
-            <Input
-              id={`${c.formId}-file`}
-              type={'file'}
-              required={true}
-              disabled={c.isLoading}
-              accept={'.woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf'}
-              ref={c.fileElement}
-              onChange={c.handleFileChange}
-              className={['mt-2'].filter(Boolean).join(' ')}
-              bindings={{
-                ref: (value: typeof c.fileElement) => {
-                  c.controller.changed((c.fileElement = value));
-                }
-              }}
-            ></Input>
-          </Dom>
-          <Dom as="p" className={['text-sm text-muted-foreground'].filter(Boolean).join(' ')}>
-            {
-              ' WOFF2, WOFF, TTF, or OTF. The file is saved only in this browser; it is not uploaded to your account. '
+          <SettingsFontImportFields
+            busy={c.isLoading}
+            error={c.currentError}
+            help="WOFF2, WOFF, TTF, or OTF. The file is saved only in this browser; it is not uploaded to your account."
+            nameInput={
+              <Input
+                id={`${c.formId}-name`}
+                aria-label="Font name"
+                type="text"
+                required
+                maxLength={200}
+                disabled={c.isLoading}
+                value={c.fontName}
+                onInput={() => c.controller.changed((c.currentError = ''))}
+                onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
+                  if (
+                    event.key === 'Enter' &&
+                    (event.nativeEvent.isComposing || event.keyCode === 229)
+                  )
+                    event.preventDefault();
+                }}
+                bindings={{
+                  value: (value: typeof c.fontName) => {
+                    c.controller.changed((c.fontName = value));
+                  }
+                }}
+              />
             }
-          </Dom>
-          {c.currentError ? (
-            <>
-              <Dom
-                as="p"
-                role={'alert'}
-                className={['text-sm break-words text-destructive'].filter(Boolean).join(' ')}
-              >
-                {c.currentError}
-              </Dom>
-            </>
-          ) : null}
-          <Dom
-            as="div"
-            className={['flex flex-wrap items-center justify-end gap-3'].filter(Boolean).join(' ')}
-          >
-            {c.isLoading ? (
-              <>
-                <Dom
-                  as="p"
-                  role={'status'}
-                  className={['text-sm text-muted-foreground'].filter(Boolean).join(' ')}
-                >
-                  {'Saving font…'}
-                </Dom>
-              </>
-            ) : null}
-            <Button
-              type={'submit'}
-              disabled={c.isLoading}
-              className={['min-h-11'].filter(Boolean).join(' ')}
-            >
-              {'Save font'}
-            </Button>
-          </Dom>
+            fileInput={
+              <Input
+                id={`${c.formId}-file`}
+                aria-label="Font file"
+                type="file"
+                required
+                disabled={c.isLoading}
+                accept=".woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf"
+                ref={c.fileElement}
+                onChange={c.handleFileChange}
+                bindings={{
+                  ref: (value: typeof c.fileElement) => {
+                    c.controller.changed((c.fileElement = value));
+                  }
+                }}
+              />
+            }
+            submit={
+              <Button type="submit" disabled={c.isLoading} className="min-h-11">
+                Save font
+              </Button>
+            }
+          />
         </Dom>
       </div>
     </SettingsContext.Provider>
