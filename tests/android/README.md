@@ -5,7 +5,7 @@ execution are separate required gates**. Do not report runtime qualification fro
 source checks or from the harness unit tests.
 
 This suite starts the generated Expo app's real launcher activity using
-AndroidX `ActivityScenario`, traverses its actual view hierarchy (including the
+the platform `Instrumentation.startActivitySync`, traverses its actual view hierarchy (including the
 persistent offscreen reader), and inspects that WebView. It does not construct a
 replacement host, load a fixture HTML page, enable release WebView debugging,
 replace the `WebViewClient`, install a JavaScript interface, or change the host's
@@ -29,8 +29,12 @@ cd ../../..
 ```
 
 The script adds an idempotent Gradle include and `src/androidTest` files only in
-the ignored generated Android project. Dependencies are test-scoped AndroidX
-`core:1.7.0`, `runner:1.7.0`, and `ext:junit:1.3.0`. The tested build type is the
+the ignored generated Android project. JUnit 4.13.2 assertions are the only
+test dependency. A small platform `Instrumentation` subclass runs this one
+qualification, reports normal instrumentation test status, and emits success
+only after assertions and cleanup complete. It rejects another requested test
+class. This avoids AndroidX Test's dependency on app-shared libraries that R8
+may remove from the release APK. The tested build type is the
 ordinary non-debuggable **release** target. The generated Expo template's local
 CI signing configuration must match the test APK; do not supply production keys.
 No test assets or probe hook are added to the target APK. Clean Expo prebuild
@@ -63,7 +67,7 @@ uninstalls an existing package. It installs the app and test APK on the fresh
 emulator, runs seed instrumentation, force-stops that synthetic app process,
 then runs verification with the same random identifier. Verification requires a
 new process ID, unchanged canonical entry, retained sentinels, and successful
-cleanup. Both JUnit's exact success summary and complete structured evidence are
+cleanup. Both the runner's exact success summary and complete structured evidence are
 required because `adb am instrument` can exit zero for failed tests.
 
 Keep `test-results/android/`, the APKs, and the original APK asset-qualification
@@ -76,8 +80,8 @@ attempts. A failed run is failure evidence, never a pass. If the seed process
 crashes, its synthetic namespace can remain in that disposable AVD; discard the
 AVD rather than clearing any general-purpose app profile.
 
-`connectedReleaseAndroidTest` is also supported for a single-process run. Its
-`full` default checks reload persistence and removes its random namespace, but it
+The instrumentation's `full` default checks reload persistence and removes its
+random namespace in a single process, but it
 does **not** establish force-stop/process-restart persistence. Use the two-phase
 runner for that claim.
 
@@ -124,9 +128,7 @@ offline gates remain separate before Android runtime readiness is declared.
 
 ## Official API references
 
-- [AndroidX instrumented-test setup](https://developer.android.com/training/testing/instrumented-tests/androidx-test-libraries/test-setup)
-- [AndroidX Test releases and stable dependency versions](https://developer.android.com/jetpack/androidx/releases/test)
-- [ActivityScenario](https://developer.android.com/reference/androidx/test/core/app/ActivityScenario)
+- [Platform Instrumentation lifecycle, activity launch and status reporting](https://developer.android.com/reference/android/app/Instrumentation)
 - [Instrumented tests from the command line](https://developer.android.com/studio/test/command-line)
 - [Official emulator command-line options](https://developer.android.com/studio/run/emulator-commandline)
 - [Local WebView content and HTTPS asset loading](https://developer.android.com/develop/ui/views/layout/webapps/load-local-content)

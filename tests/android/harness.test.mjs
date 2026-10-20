@@ -17,6 +17,12 @@ const id = 'abcdef0123456789abcdef0123456789';
 const name = `manabi-android-qualification-${id}`;
 const source = await fs.readFile(new URL('probe.js', import.meta.url), 'utf8');
 
+async function trashTemporary(directory) {
+  await fs.mkdir(path.join(os.homedir(), '.Trash'), { recursive: true });
+  const trash = await fs.realpath(path.join(os.homedir(), '.Trash'));
+  await fs.rename(directory, path.join(trash, path.basename(directory)));
+}
+
 function harness({ workerReply = 'not_open', secure = true } = {}) {
   const directories = new Map([['unrelated-user-data', new Map([['keep', 'untouched']])]]);
   const directory = (files) => ({
@@ -202,7 +208,12 @@ test('prepare is idempotent and confines additions to the generated test project
     assert.equal(await fs.readFile(path.join(android, 'app/build.gradle'), 'utf8'), first);
     const gradle = await fs.readFile(path.join(android, 'app/reader-qualification.gradle'), 'utf8');
     assert.match(gradle, /testBuildType "release"/);
-    assert.match(gradle, /androidTestImplementation "androidx.test:runner:1.7.0"/);
+    assert.match(gradle, /androidTestImplementation "junit:junit:4.13.2"/);
+    assert.match(
+      gradle,
+      /testInstrumentationRunner "io.manabi.reader.qualification.PackagedReaderInstrumentation"/
+    );
+    assert.doesNotMatch(gradle, /androidx\.test:|proguard|keepRules/);
     assert.doesNotMatch(gradle, /^\s*(?:debuggable|signingConfig|buildTypes|implementation\()/m);
     assert.deepEqual(await fs.readdir(path.join(android, 'app/src')), ['androidTest']);
     await fs.writeFile(
@@ -222,7 +233,7 @@ test('prepare is idempotent and confines additions to the generated test project
       /different instrumentation build type/
     );
   } finally {
-    await fs.rm(android, { recursive: true, force: true });
+    await trashTemporary(android);
   }
 });
 
@@ -340,6 +351,106 @@ test('the expression injected by Java accepts the formatted probe asset', () => 
   assert.equal(typeof invoke, 'function');
 });
 
+test('platform runner reports success only after the requested qualification completes', async () => {
+  // Compile the actual runner against small platform doubles. This checks its
+  // failure/argument/result boundary, not Android startup or Reader acceptance.
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-runner-contract-'));
+  try {
+    const sources = {
+      'android/app/Activity.java': `package android.app;
+public class Activity { public static final int RESULT_OK = -1, RESULT_CANCELED = 0; }`,
+      'android/os/Bundle.java': `package android.os;
+public class Bundle extends java.util.HashMap<String, String> {
+  public Bundle() {}
+  public Bundle(Bundle other) { super(other); }
+  public void putString(String key, String value) { put(key, value); }
+  public void putInt(String key, int value) { put(key, Integer.toString(value)); }
+  public String getString(String key, String fallback) { return getOrDefault(key, fallback); }
+}`,
+      'android/app/Instrumentation.java': `package android.app;
+import android.os.Bundle;
+public class Instrumentation {
+  public static final String REPORT_KEY_STREAMRESULT = "stream";
+  public int code, finishes; public Bundle result;
+  public String statuses = "";
+  public void onCreate(Bundle args) {}
+  public void onStart() {}
+  public void start() { onStart(); }
+  public void waitForIdleSync() {}
+  public void sendStatus(int code, Bundle status) {
+    if (!"1".equals(status.getString("numtests", "")) ||
+        !"1".equals(status.getString("current", "")) ||
+        !"packagedReaderRuntime".equals(status.getString("test", "")))
+      throw new AssertionError("Incomplete test status");
+    statuses += code + ",";
+  }
+  public void finish(int code, Bundle result) {
+    this.code = code; this.result = result; finishes++;
+  }
+}`,
+      'android/util/Log.java': `package android.util;
+public class Log {
+  public static String getStackTraceString(Throwable error) { return error.toString(); }
+}`,
+      'io/manabi/reader/qualification/PackagedReaderTest.java': `package io.manabi.reader.qualification;
+import android.app.Instrumentation;
+import android.os.Bundle;
+public class PackagedReaderTest {
+  public static int calls; public static boolean fail;
+  public PackagedReaderTest(Instrumentation runner, Bundle args) {
+    if (!"seed".equals(args.getString("qualificationPhase", "")) ||
+        !"sentinel-id".equals(args.getString("qualificationId", "")))
+      throw new AssertionError("Arguments were not forwarded");
+  }
+  public void packagedReaderRuntime() {
+    calls++;
+    if (fail) throw new AssertionError("sentinel failure");
+  }
+}`,
+      'RunnerContract.java': `import android.os.Bundle;
+import io.manabi.reader.qualification.*;
+public class RunnerContract {
+  public static void main(String[] args) {
+    check(null, false, true, 1);
+    check(PackagedReaderTest.class.getName(), false, true, 1);
+    check(PackagedReaderTest.class.getName(), true, false, 1);
+    check("unrelated.Test", false, false, 0);
+  }
+  static void check(String requested, boolean fail, boolean success, int calls) {
+    Bundle args = new Bundle();
+    args.putString("qualificationPhase", "seed");
+    args.putString("qualificationId", "sentinel-id");
+    if (requested != null) args.putString("class", requested);
+    PackagedReaderTest.calls = 0; PackagedReaderTest.fail = fail;
+    PackagedReaderInstrumentation runner = new PackagedReaderInstrumentation();
+    runner.onCreate(args);
+    String output = runner.result.getString("stream", "");
+    String statuses = calls == 0 ? "" : success ? "1,0," : "1,-2,";
+    if (runner.finishes != 1 || runner.code != (success ? -1 : 0) ||
+        !statuses.equals(runner.statuses) ||
+        PackagedReaderTest.calls != calls ||
+        output.contains("OK (1 test)") != success ||
+        output.contains("FAILURES!!!") == success ||
+        (fail && !output.contains("sentinel failure")))
+      throw new AssertionError("Invalid instrumentation outcome: " + output);
+  }
+}`
+    };
+    const files = [];
+    for (const [name, content] of Object.entries(sources)) {
+      const file = path.join(temp, name);
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await fs.writeFile(file, content);
+      files.push(file);
+    }
+    files.push(new URL('PackagedReaderInstrumentation.java', import.meta.url).pathname);
+    execFileSync('javac', ['--release', '21', '-d', temp, ...files], { encoding: 'utf8' });
+    execFileSync('java', ['-cp', temp, 'RunnerContract'], { encoding: 'utf8' });
+  } finally {
+    await trashTemporary(temp);
+  }
+});
+
 test('instrumentation Java parses with JDK 21 (syntax only, not Android compilation)', async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-java-syntax-'));
   try {
@@ -366,11 +477,12 @@ class ParseJava { public static void main(String[] args) throws Exception {
       [
         '--add-modules=jdk.compiler',
         parser,
-        new URL('PackagedReaderTest.java', import.meta.url).pathname
+        new URL('PackagedReaderTest.java', import.meta.url).pathname,
+        new URL('PackagedReaderInstrumentation.java', import.meta.url).pathname
       ],
       { encoding: 'utf8' }
     );
   } finally {
-    await fs.rm(temp, { recursive: true, force: true });
+    await trashTemporary(temp);
   }
 });

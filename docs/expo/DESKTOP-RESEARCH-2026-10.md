@@ -2,8 +2,10 @@
 
 **Current decision, October 20, 2026:** ship this edition for **web and Android**.
 The user deferred native Windows until Expo UI supports it. The Windows host,
-dependencies, patches, tests and CI workflow have been removed; the pre-experiment
-SDK 57 baseline is restored. macOS and iOS remain outside this edition's targets.
+dependencies, patches, tests and CI workflow have been removed. After restoring
+the pre-experiment SDK 57 baseline, the web/Android app advanced to
+[SDK 58 / RN 0.88](MIGRATION.md#october-20-sdk-58-upgrade). macOS and iOS remain
+outside this edition's targets.
 See [current platform scope](WINDOWS-SDK-COMPATIBILITY.md).
 
 The material below is an **archived research snapshot**, including the former

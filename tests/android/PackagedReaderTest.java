@@ -19,9 +19,6 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.TextView;
-import androidx.test.core.app.ActivityScenario;
-import androidx.test.ext.junit.runners.AndroidJUnit4;
-import androidx.test.platform.app.InstrumentationRegistry;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -31,26 +28,30 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONTokener;
-import org.junit.Test;
-import org.junit.runner.RunWith;
 
 /** Tests the actual Expo activity's packaged host, never a replacement WebView. */
-@RunWith(AndroidJUnit4.class)
 public final class PackagedReaderTest {
   private static final String ORIGIN = "https://appassets.androidplatform.net";
   private static final String RESULT = "__manabiAndroidQualificationResult";
-  private final Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+  private final Instrumentation instrumentation;
+  private final Bundle arguments;
   private final JSONObject evidence = new JSONObject();
-  private ActivityScenario<Activity> scenario;
+  private Activity activity;
   private WebView reader;
   private String entry;
   private String probe;
   private JSONObject config;
 
-  @Test public void packagedReaderRuntime() throws Exception {
+  public PackagedReaderTest(Instrumentation instrumentation, Bundle arguments) {
+    this.instrumentation = instrumentation;
+    this.arguments = new Bundle(arguments);
+  }
+
+  public void packagedReaderRuntime() throws Exception {
     Context target = instrumentation.getTargetContext();
     assertEquals("io.manabi.reader", target.getPackageName());
     assertEquals("Use the embedded, non-debuggable release APK", 0,
@@ -59,7 +60,7 @@ public final class PackagedReaderTest {
         Build.MODEL.contains("sdk_gphone") || Build.MODEL.contains("Emulator")
         || Build.MODEL.contains("Android SDK built for"));
     assertTrue("Qualification requires API 28 or later", Build.VERSION.SDK_INT >= 28);
-    Bundle args = InstrumentationRegistry.getArguments();
+    Bundle args = arguments;
     String phase = args.getString("qualificationPhase", "full");
     assertTrue("Unknown qualification phase", phase.equals("full") || phase.equals("seed") || phase.equals("verify"));
     String id = args.getString("qualificationId");
@@ -76,7 +77,7 @@ public final class PackagedReaderTest {
     try {
       Intent intent = target.getPackageManager().getLaunchIntentForPackage(target.getPackageName());
       assertNotNull("The generated Expo launcher activity is missing", intent);
-      scenario = ActivityScenario.launch(intent);
+      activity = instrumentation.startActivitySync(intent);
       reader = awaitReader();
       entry = readUrl();
       awaitReady();
@@ -108,14 +109,35 @@ public final class PackagedReaderTest {
           if (evidence.optBoolean("passed")) {
             evidence.put("passed", false);
             emitEvidence();
-            if (scenario != null) scenario.close();
+            closeActivity();
             throw new AssertionError("Test-owned sentinel cleanup failed", cleanupFailure);
           }
         }
       }
       emitEvidence();
-      if (scenario != null) scenario.close();
+      closeActivity();
     }
+  }
+
+  private void onActivity(Consumer<Activity> action) {
+    AtomicReference<Throwable> failure = new AtomicReference<>();
+    instrumentation.runOnMainSync(() -> {
+      try {
+        assertNotNull("The actual Expo activity has not launched", activity);
+        assertFalse("The actual Expo activity has been destroyed", activity.isDestroyed());
+        action.accept(activity);
+      } catch (Throwable error) {
+        failure.set(error);
+      }
+    });
+    if (failure.get() != null) throw new AssertionError("Activity inspection failed", failure.get());
+  }
+
+  private void closeActivity() {
+    if (activity == null) return;
+    instrumentation.runOnMainSync(() -> activity.finish());
+    instrumentation.waitForIdleSync();
+    activity = null;
   }
 
   private String readAsset(String name) throws Exception {
@@ -133,7 +155,7 @@ public final class PackagedReaderTest {
     List<String> seen = new ArrayList<>();
     while (SystemClock.uptimeMillis() < deadline) {
       AtomicReference<WebView> found = new AtomicReference<>();
-      scenario.onActivity(activity -> {
+      onActivity(activity -> {
         List<WebView> views = new ArrayList<>();
         collectWebViews(activity.getWindow().getDecorView(), views);
         for (WebView view : views) {
@@ -185,7 +207,7 @@ public final class PackagedReaderTest {
     List<String> last = new ArrayList<>();
     while (SystemClock.uptimeMillis() < deadline) {
       last.clear();
-      scenario.onActivity(activity -> collectNativeText(activity.getWindow().getDecorView(), last));
+      onActivity(activity -> collectNativeText(activity.getWindow().getDecorView(), last));
       if (last.contains("Library") && last.contains("0–0 of 0")) {
         evidence.put("nativeRoundTrip", "snapshot-route-and-library-state-reply");
         return;
@@ -376,6 +398,7 @@ public final class PackagedReaderTest {
     Log.i("ManabiQualification", line);
     Bundle status = new Bundle();
     status.putString("stream", "\n" + line + "\n");
-    instrumentation.sendStatus(0, status);
+    // In-progress output; only the runner reports test completion after cleanup.
+    instrumentation.sendStatus(2, status);
   }
 }

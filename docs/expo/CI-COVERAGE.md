@@ -186,10 +186,13 @@ commands in [GitHub's hardware-acceleration guidance](https://github.blog/change
 It is scoped to this public-repository stock Android job, with no other permission
 changes. The SDK emulator package is installed before invoking its acceleration
 probe; KVM device permission is checked first, with no software-emulation retry. A fresh disposable API 35 emulator consumes the APKs already built on
-that runner. The unchanged `tests/android/run-qualification.sh` rejects existing
+that runner. `tests/android/run-qualification.sh` rejects existing
 apps/non-emulator devices, uses synthetic randomly named records, verifies native
 replies, force-stops between phases and requires both instrumentation evidence
-phases. No real account or real library is used.
+phases. Its single test uses platform Instrumentation with JUnit assertions;
+AndroidX Test is excluded so test helpers cannot require app-shared code removed
+by production shrinking. Local runner contracts cover false-success prevention.
+No real account or real library is used.
 
 **Runtime stays unqualified until that exact step passes.** Compilation, APK
 inspection or a Chromium worker pass cannot replace packaged-host execution.

@@ -17,7 +17,7 @@ Manabi Reader for Web began as a fork of [ッツ Ebook Reader](https://github.co
 
 ## Expo Android and web draft
 
-The migration branch uses Expo SDK 57 and React Native 0.86 for Android and web. The native Apple apps remain separate; this project has no iOS or macOS target. See [architecture, verification and open parity gates](docs/expo/MIGRATION.md) before treating this draft as a release candidate.
+The migration branch uses Expo SDK 58 and React Native 0.88 for Android and web. Native Windows is deferred until Expo UI supports it; desktop browsers remain supported. The native Apple apps remain separate; this project has no iOS or macOS target. See [architecture, verification and open parity gates](docs/expo/MIGRATION.md) before treating this draft as a release candidate.
 
 Use Node 24.21.x and pnpm 12.3.4. `pnpm dev` starts web; `pnpm build` exports the existing `/reader-web` static deployment; `pnpm android` prepares/runs Android. `pnpm export:android` verifies the native/DOM bundle without deploying. `pnpm test:reader`, `pnpm test:whispersync`, and `pnpm test:expo` retain the core regression workflows.
 

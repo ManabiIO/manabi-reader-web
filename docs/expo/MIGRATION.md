@@ -265,3 +265,25 @@ its published JS entry while Expo modules use their shipped web sources.
 The repaired fixture passes its build contract and two real Chromium storage
 ownership journeys. Its shared browser launcher now uses the required macOS
 Chrome clone workaround, including persistent contexts.
+
+### Release instrumentation runner repair
+
+The SDK 58 release APK remains ordinarily optimized and non-debuggable. The
+single packaged-host qualification now runs through Android's platform
+`Instrumentation`, using `startActivitySync` and main-thread view inspection.
+It retains all original Reader, storage, native-reply, font and origin assertions.
+JUnit is used only for its assertion methods; AndroidX Test is no longer a
+runtime dependency of the test APK. This removes the failing runner's tracing
+dependency without adding production keep rules or changing app dependencies.
+The diagnostic CI run still establishes what was packaged by the old harness.
+
+The runner reports standard instrumentation start/success/failure statuses,
+rejects another requested test class, and reports success only after test cleanup.
+The shell still independently requires both complete structured evidence phases
+and a new process ID after force-stop. Local executable Java contracts cover
+runner success, assertion failure, argument forwarding and invalid test selection;
+both Java sources also compile against the official API 35 SDK stub and JUnit
+4.13.2. These checks do not substitute for the pending packaged emulator run.
+
+The complete original unit suite passes locally at `01c6bcd6`: 1,750 tests, zero
+failures or skips. The runner update's 48 CI-policy/harness checks also pass.

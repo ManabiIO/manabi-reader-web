@@ -21,17 +21,17 @@ export async function prepareAndroidQualification({
   if (/testBuildType\s+["'](?!release["'])/.test(build))
     throw new Error('Refusing to replace a different instrumentation build type.');
   if (
-    /testInstrumentationRunner\s+["'](?!androidx\.test\.runner\.AndroidJUnitRunner["'])/.test(build)
+    /testInstrumentationRunner\s+["'](?!io\.manabi\.reader\.qualification\.PackagedReaderInstrumentation["'])/.test(
+      build
+    )
   )
     throw new Error('Refusing to replace an existing instrumentation runner.');
   const javaDir = path.join(app, 'src/androidTest/java/io/manabi/reader/qualification');
   const assetDir = path.join(app, 'src/androidTest/assets/manabi-qualification');
   await fs.mkdir(javaDir, { recursive: true });
   await fs.mkdir(assetDir, { recursive: true });
-  await fs.copyFile(
-    path.join(fixtureDirectory, 'PackagedReaderTest.java'),
-    path.join(javaDir, 'PackagedReaderTest.java')
-  );
+  for (const name of ['PackagedReaderTest.java', 'PackagedReaderInstrumentation.java'])
+    await fs.copyFile(path.join(fixtureDirectory, name), path.join(javaDir, name));
   await fs.copyFile(path.join(fixtureDirectory, 'probe.js'), path.join(assetDir, 'probe.js'));
   const version = JSON.parse(
     await fs.readFile(path.join(root, 'apps/web/src/lib/search/manabitan-version.json'), 'utf8')
@@ -50,13 +50,11 @@ export async function prepareAndroidQualification({
 android {
     testBuildType "release"
     defaultConfig {
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner "io.manabi.reader.qualification.PackagedReaderInstrumentation"
     }
 }
 dependencies {
-    androidTestImplementation "androidx.test:core:1.7.0"
-    androidTestImplementation "androidx.test:runner:1.7.0"
-    androidTestImplementation "androidx.test.ext:junit:1.3.0"
+    androidTestImplementation "junit:junit:4.13.2"
 }
 `
   );
