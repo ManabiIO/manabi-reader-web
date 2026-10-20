@@ -1,8 +1,11 @@
 # Packaged Android reader smoke qualification
 
-Status: the harness has local Node tests; **Android compilation and emulator
-execution are separate required gates**. Do not report runtime qualification from
-source checks or from the harness unit tests.
+Status: both packaged instrumentation phases passed on SDK 58 source `71d0e5a0`
+in [run 39467753609](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39467753609/job/118783498761),
+on API 35 with WebView 124.0.6367.219. This qualifies the synthetic host checks
+below on that exact APK. New source and the wider device/product matrix still
+require their own qualification; local unit tests or compilation alone do not
+establish runtime acceptance.
 
 This suite starts the generated Expo app's real launcher activity using
 the platform `Instrumentation.startActivitySync`, traverses its actual view hierarchy (including the

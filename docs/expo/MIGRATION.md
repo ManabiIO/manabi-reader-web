@@ -334,3 +334,24 @@ The unchanged retained browser selection passes 15 Chromium and 11 WebKit
 journeys against that new export; the saved imported-note screenshot was also
 reviewed. Fresh remote acceptance remains necessary, and this bounded selection
 does not establish full product parity.
+
+### Packaged Android SDK 58 checkpoint
+
+The Android job in run
+[`39467753609`](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39467753609/job/118783498761)
+passed on `71d0e5a0`, including both instrumentation phases. The ordinary
+non-debuggable release APK ran on API 35 (`sdk_gphone64_x86_64`) with WebView
+`124.0.6367.219`. The seed and verification process IDs were 2859 and 3804.
+The canonical entry stayed unchanged, and IndexedDB, OPFS and the cached font
+survived reload and force-stop/relaunch. Native Library replies and the actual
+Settings/font-manager navigation passed in both processes. Packaged module
+worker response, SQLite WASM compilation, exclusive Web Locks, all nine blocked
+navigation targets and test-owned cleanup also passed.
+
+The release APK SHA-256 was
+`43a6d46cc6cf355cb16a21cb0401dd4a85101243bc7ba52ae2c236a4b4b5c3d9`.
+The run uploaded zero artifacts and used no remote caches. This is acceptance
+of the synthetic packaged-host harness on that exact source and emulator,
+not full product parity, physical-device coverage, authenticated synchronization,
+or a current-WebView device matrix. The later Notes readiness repair needs a
+fresh remote run; it is not included in this APK.
