@@ -32,7 +32,8 @@ export async function prepareAndroidQualification({
   await fs.mkdir(assetDir, { recursive: true });
   for (const name of ['PackagedReaderTest.java', 'PackagedReaderInstrumentation.java'])
     await fs.copyFile(path.join(fixtureDirectory, name), path.join(javaDir, name));
-  await fs.copyFile(path.join(fixtureDirectory, 'probe.js'), path.join(assetDir, 'probe.js'));
+  for (const name of ['probe.js', 'font-probe.js'])
+    await fs.copyFile(path.join(fixtureDirectory, name), path.join(assetDir, name));
   const version = JSON.parse(
     await fs.readFile(path.join(root, 'apps/web/src/lib/search/manabitan-version.json'), 'utf8')
   );

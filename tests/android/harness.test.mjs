@@ -10,7 +10,7 @@ import { execFileSync } from 'node:child_process';
 import { webcrypto, createHash } from 'node:crypto';
 import { IDBFactory } from 'fake-indexeddb';
 import { prepareAndroidQualification } from '../../scripts/prepare-android-qualification.mjs';
-import { readEvidence, verifyEvidence } from './verify-evidence.mjs';
+import { readEvidence, verifyEvidence, verifyEvidencePair } from './verify-evidence.mjs';
 
 const revision = '4db879b7b5bcb749f90042a313669526ef2f57f4';
 const id = 'abcdef0123456789abcdef0123456789';
@@ -284,6 +284,15 @@ test('instrumentation evidence parser rejects absent, duplicated, failed or inco
 });
 
 test('runtime evidence requires an actual native roundtrip in both process phases', () => {
+  const font = {
+    name: `Qualification font ${id}`,
+    fileName: `manabi-font-${id}.woff2`,
+    path: `/userfonts/manabi-font-${id}.woff2`,
+    bytes: 900,
+    sha256: 'a'.repeat(64),
+    selected: true,
+    productionCss: 'cached-blob-face-loaded'
+  };
   const base = {
     schema: 1,
     passed: true,
@@ -311,6 +320,10 @@ test('runtime evidence requires an actual native roundtrip in both process phase
   const seed = {
     ...base,
     phase: 'seed',
+    processId: 200,
+    nativeFontPicker: { font, picker: 'system-picker-cancel-import-and-select', removed: false },
+    nativeFontImported: { ...font, selected: false },
+    nativeFontAfterReload: { ...font },
     nativeBackgrounds: {
       ...base.nativeBackgrounds,
       removed: false,
@@ -333,6 +346,13 @@ test('runtime evidence requires an actual native roundtrip in both process phase
   const verify = {
     ...base,
     phase: 'verify',
+    processId: 300,
+    nativeFontPicker: {
+      font: { ...font },
+      picker: 'retained-from-previous-process',
+      removed: true
+    },
+    nativeFontCleanup: { removed: true, restored: true },
     nativeBackgrounds: {
       ...base.nativeBackgrounds,
       removed: true,
@@ -345,8 +365,27 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     },
     cleanup: { cleaned: name }
   };
+  verifyEvidencePair(seed, verify);
+  for (const mutate of [
+    (value) => (value.processId = seed.processId),
+    (value) => (value.nativeFontPicker.font.sha256 = 'b'.repeat(64)),
+    (value) => (value.nativeBackgrounds.records['library-light'].sha256 = 'b'.repeat(64)),
+    (value) => delete value.nativeFontCleanup
+  ]) {
+    const changed = structuredClone(verify);
+    mutate(changed);
+    assert.throws(() => verifyEvidencePair(seed, changed));
+  }
   for (const evidence of [seed, verify]) {
     assert.equal(verifyEvidence(evidence, evidence.phase, id), evidence);
+    for (const nativeFontPicker of [
+      undefined,
+      {},
+      { ...evidence.nativeFontPicker, picker: 'mock' },
+      { ...evidence.nativeFontPicker, font: { ...font, selected: false } },
+      { ...evidence.nativeFontPicker, font: { ...font, productionCss: 'test-face' } }
+    ])
+      assert.throws(() => verifyEvidence({ ...evidence, nativeFontPicker }, evidence.phase, id));
     for (const nativeBackgrounds of [
       undefined,
       {},
@@ -578,4 +617,129 @@ test('actual Java-injected image inspection reads real slot bytes without changi
   });
   assert.deepEqual(retained, original);
   db.close();
+});
+
+const fontSource = (await fs.readFile(new URL('font-probe.js', import.meta.url), 'utf8'))
+  .trim()
+  .replace(/;$/, '');
+function fontHarness() {
+  const stored = new Map([
+    ['unrelated-preference', 'keep'],
+    ['fontFamilyGroupTwo', 'Other family']
+  ]);
+  const files = new Map();
+  const bytes = new Uint8Array([119, 79, 70, 50, 1, 2, 3]);
+  const styles = new Map([
+    ['manabi-packaged-fonts', '@font-face{src:url("./assets/fixture.woff2")}']
+  ]);
+  const loaded = [];
+  const context = vm.createContext({
+    localStorage: {
+      getItem: (key) => stored.get(key) ?? null,
+      setItem: (key, value) => stored.set(key, String(value)),
+      removeItem: (key) => stored.delete(key)
+    },
+    caches: {
+      open: async (key) => {
+        assert.equal(key, 'ttu-userfonts');
+        return {
+          keys: async () => [...files.keys()].map((url) => ({ url })),
+          match: async (path) => files.get(path)?.clone()
+        };
+      }
+    },
+    document: {
+      getElementById: (id) => (styles.has(id) ? { textContent: styles.get(id) } : null),
+      fonts: {
+        load: async (query) => {
+          loaded.push(query);
+          return [{ family: `Qualification font ${id}`, status: 'loaded' }];
+        }
+      }
+    },
+    fetch: async (url) => {
+      assert.equal(
+        String(url),
+        'https://appassets.androidplatform.net/www.bundle/assets/fixture.woff2'
+      );
+      return new Response(bytes);
+    },
+    location: {
+      origin: 'https://appassets.androidplatform.net',
+      href: 'https://appassets.androidplatform.net/www.bundle/index.html'
+    },
+    crypto: webcrypto,
+    URL,
+    Uint8Array,
+    setTimeout,
+    Date
+  });
+  const invoke = (operation) =>
+    vm.runInContext(`(${fontSource})(${JSON.stringify({ id, operation })})`, context);
+  const importFixture = () => {
+    stored.set(
+      'userfonts',
+      JSON.stringify([
+        {
+          name: `Qualification font ${id}`,
+          fileName: `manabi-font-${id}.woff2`,
+          path: `/userfonts/manabi-font-${id}.woff2`
+        }
+      ])
+    );
+    files.set(
+      `/userfonts/manabi-font-${id}.woff2`,
+      new Response(bytes, { headers: { 'content-type': 'font/woff2' } })
+    );
+    styles.set(
+      'ttu-userfonts',
+      `@font-face{font-family:"Qualification font ${id}";src:url("blob:fixture")}`
+    );
+  };
+  return { invoke, stored, files, styles, loaded, importFixture, bytes };
+}
+test('font probe inspects actual catalog/cache bytes and production CSS without installing a test face', async () => {
+  const f = fontHarness();
+  const original = new Map(f.stored);
+  const prepared = await f.invoke('prepare');
+  assert.equal(prepared.sha256, createHash('sha256').update(f.bytes).digest('hex'));
+  assert.equal((await f.invoke('cancelled')).cancelled, true);
+  f.importFixture();
+  assert.equal((await f.invoke('imported')).selected, false);
+  f.stored.set('fontFamilyGroupOne', `Qualification font ${id}`);
+  const selected = await f.invoke('selected');
+  assert.equal(selected.selected, true);
+  assert.equal(f.loaded.length, 2);
+  assert.equal(selected.productionCss, 'cached-blob-face-loaded');
+  f.stored.set('userfonts', '[]');
+  f.stored.set('fontFamilyGroupOne', '');
+  f.files.clear();
+  f.styles.delete('ttu-userfonts');
+  assert.deepEqual(JSON.parse(JSON.stringify(await f.invoke('cleanup'))), {
+    removed: true,
+    restored: true
+  });
+  assert.deepEqual(f.stored, original);
+});
+test('font probe rejects picker mutation, changed bytes, implicit selection and incomplete removal', async () => {
+  const f = fontHarness();
+  await f.invoke('prepare');
+  f.importFixture();
+  await assert.rejects(f.invoke('cancelled'), /Cancelling the picker changed/);
+  await assert.rejects(f.invoke('selected'), /Import must not select/);
+  f.stored.set('fontFamilyGroupOne', `Qualification font ${id}`);
+  await assert.rejects(f.invoke('imported'), /Import must not select/);
+  f.files.set(
+    `/userfonts/manabi-font-${id}.woff2`,
+    new Response('different', { headers: { 'content-type': 'font/woff2' } })
+  );
+  await assert.rejects(f.invoke('selected'), /bytes differ/);
+  await assert.rejects(f.invoke('cleanup'), /catalog entry/);
+  f.stored.set('userfonts', '[]');
+  await assert.rejects(f.invoke('cleanup'), /cached bytes/);
+  f.files.clear();
+  await assert.rejects(f.invoke('cleanup'), /reset that family/);
+  f.stored.set('fontFamilyGroupOne', '');
+  f.stored.set('fontFamilyGroupTwo', 'changed');
+  await assert.rejects(f.invoke('cleanup'), /other family/);
 });

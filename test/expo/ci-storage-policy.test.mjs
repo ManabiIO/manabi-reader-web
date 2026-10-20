@@ -612,28 +612,35 @@ test('both production exports retain the same exact shared Library shelf/editor 
   );
 });
 
-test('background raster qualification executes both engines and retains the first failure', () => {
-  const step = stepNamed('Real local background decoding');
-  assert.match(step.if, /steps\.browsers\.outcome == 'success'/);
-  const temporary = mkdtempSync(path.join(tmpdir(), 'expo-background-ci-'));
-  try {
-    writeFileSync(
-      path.join(temporary, 'node'),
-      '#!/usr/bin/env bash\n' +
-        'printf "SELECTED|%s|%s\\n" "$BACKGROUND_BROWSER" "$*"\n' +
-        '[ "$BACKGROUND_BROWSER" != chromium ]\n',
-      { mode: 0o755 }
-    );
-    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
-      encoding: 'utf8',
-      env: { ...process.env, PATH: `${temporary}${path.delimiter}${process.env.PATH}` }
-    });
-    assert.equal(result.status, 1);
-    for (const engine of ['chromium', 'webkit'])
-      assert.ok(
-        result.stdout.includes(`SELECTED|${engine}|test/expo/native-background-browser.mjs`)
+for (const [kind, name, variable, script] of [
+  [
+    'background',
+    'Real local background decoding',
+    'BACKGROUND_BROWSER',
+    'native-background-browser.mjs'
+  ],
+  ['font', 'Real cached font decoding', 'FONT_BROWSER', 'native-font-browser.mjs']
+])
+  test(`${kind} raster qualification executes both engines and retains the first failure`, () => {
+    const step = stepNamed(name);
+    assert.match(step.if, /steps\.browsers\.outcome == 'success'/);
+    const temporary = mkdtempSync(path.join(tmpdir(), 'expo-background-ci-'));
+    try {
+      writeFileSync(
+        path.join(temporary, 'node'),
+        '#!/usr/bin/env bash\n' +
+          `printf "SELECTED|%s|%s\\n" "$${variable}" "$*"\n` +
+          `[ "$${variable}" != chromium ]\n`,
+        { mode: 0o755 }
       );
-  } finally {
-    trashTemporary(temporary);
-  }
-});
+      const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${temporary}${path.delimiter}${process.env.PATH}` }
+      });
+      assert.equal(result.status, 1);
+      for (const engine of ['chromium', 'webkit'])
+        assert.ok(result.stdout.includes(`SELECTED|${engine}|test/expo/${script}`));
+    } finally {
+      trashTemporary(temporary);
+    }
+  });

@@ -177,7 +177,7 @@ module.exports = (async () => {
     },
     {
       // This standalone expression is evaluated by the test APK in its actual WebView.
-      files: ['tests/android/probe.js'],
+      files: ['tests/android/probe.js', 'tests/android/font-probe.js'],
       languageOptions: {
         globals: {
           location: 'readonly',

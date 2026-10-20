@@ -320,6 +320,14 @@ jobs:
             BACKGROUND_BROWSER="$engine" node test/expo/native-background-browser.mjs || status=1
           done
           exit "$status"
+      - name: Real cached font decoding and embedded stylesheet
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
+        run: |
+          status=0
+          for engine in chromium webkit; do
+            FONT_BROWSER="$engine" node test/expo/native-font-browser.mjs || status=1
+          done
+          exit "$status"
       - name: Retained actual-app assertions on the same export
         if: ${{ !cancelled() && steps.export.outcome == 'success' && steps.browsers.outcome == 'success' }}
         run: |

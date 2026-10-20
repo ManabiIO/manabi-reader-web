@@ -134,7 +134,8 @@ and two offline-handoff cases in each browser engine. The promoted source must
 still pass both exact-head exports; older-head results do not qualify this edit.
 
 Actual emitted-worker/genuine SwiftF0/cover checks, local background raster and
-native-resource checks in both engines, and Android qualification are
+native-resource and cached-font/embedded-stylesheet decoding checks in both
+engines, and Android qualification are
 still separate, always-selected job steps. No scope changes runner classes,
 number of exports/jobs, artifacts, caches, assertions, failure aggregation or
 existing whole-job timeouts.

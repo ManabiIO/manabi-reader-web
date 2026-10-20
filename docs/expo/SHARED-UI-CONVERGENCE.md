@@ -579,3 +579,39 @@ and packaged Android passed. The native slider/font semantics repair is therefor
 qualified for that source, including the original save/restore requirements.
 That commit predates the background integration above; its green result does not
 qualify the new background system picker, renderer or restart assertions.
+
+### Actual Android font picker and production font loading gate
+
+The packaged instrumentation now has a font import/select/remove journey in
+addition to its retained read-only manager and font-draft checks. Seed copies
+one actual bundled WOFF2 face into a unique, test-owned Downloads entry, opens
+the Android document picker, verifies cancellation retains the name draft and
+unchanged catalog, and selects that file through the system picker. Import must
+leave both font-family preferences untouched; Use must select the exact new
+name. The ordinary CacheStorage owner must retain byte-identical contents.
+
+The inspection probe waits for BrowserRuntime's own embedded-font stylesheet
+and asks `document.fonts.load` to decode the face it registered. It never installs
+a test FontFace or stylesheet in the packaged app. A document reload and the
+second real process must retain the selected font identity and exact cached-byte
+hash. Verification cancels the native removal once, then confirms it, requires
+catalog/cache/stylesheet removal and the selected-primary reset, and verifies the
+other family never changed. Original raw preferences are restored by test cleanup.
+All source-file fixtures are scoped to the disposable emulator and removed after
+use; the existing suite still refuses installed app profiles and physical devices.
+
+Local harness tests exercise the injected probe, wrong bytes, implicit selection,
+incomplete removal, exact cleanup, and cross-process evidence rejection. Java
+21/API 35 compilation passes. A real browser codec fixture runs the actual
+save/remove and embedded stylesheet helpers with the bundled WOFF2 file in
+Chromium and persistent WebKit, including a document restart. The first temporary
+WebKit context lost its cached font entries on reload while retaining the catalog;
+that failure and an unchanged persistent-profile pass are retained in
+`native-font-picker-2MAtss7h`. Browser profiles close and move to Trash after use.
+This is browser storage/codec evidence, not an Android picker pass.
+
+The new font codec checks run in both CI browser engines and preserve any first
+failure while still running the second engine. The APK font journey remains
+unqualified until a new exact-source packaged run succeeds. This slice changes
+test tooling only; application schemas, font ownership and backup/restore formats
+are unchanged.

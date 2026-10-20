@@ -206,3 +206,26 @@ appearance store, initially required to be empty. It runs only on the runner's
 fresh disposable emulator, never an existing device profile. If it fails, test
 images may remain there until that emulator is discarded. Compilation and unit
 harness results do not establish a successful system-picker/native-image run.
+
+### Actual custom-font import and restart journey (runtime result pending)
+
+Seed now cancels the real font picker with a named draft, verifies the catalog,
+cache and family preferences remain untouched, and then selects a unique copy
+of a real bundled WOFF2 font from Android Downloads. The product's ordinary
+file-copy/chunk-import path must preserve its bytes. The test-owned source entry
+is deleted afterward. Import must not select a font; the native Use action must
+select it. The product's own `ttu-userfonts` stylesheet must materialize the
+cached face as a Blob URL, and `document.fonts.load` must decode that exact face.
+No test FontFace or CSS is installed into the APK's WebView.
+
+The font must survive both document reload and real process restart, with exact
+name/path/hash comparison across the two evidence records. The second process
+cancels removal once, then confirms it and requires the catalog, bytes and CSS
+to disappear. Only the selected primary family resets; the other family remains
+unchanged. A random test-only localStorage sentinel preserves exact original raw
+preferences for cleanup. The old read-only manager journey runs before seed
+import and after verification cleanup, retaining its empty-catalog assertions.
+
+`nativeFontPicker`, seed `nativeFontImported`/`nativeFontAfterReload`, and verify
+`nativeFontCleanup` are mandatory evidence. Probe unit tests and the separate
+real-browser font codec check do not establish native runtime acceptance.

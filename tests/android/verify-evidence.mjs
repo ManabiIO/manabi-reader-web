@@ -17,6 +17,23 @@ export function verifyEvidence(evidence, phase, id) {
   assert.equal(evidence.nativeRoundTrip, 'snapshot-route-and-library-state-reply');
   assert.equal(evidence.nativeFontManager, 'shared-font-list-add-back-and-close-without-save');
   assert.equal(
+    evidence.nativeFontPicker?.picker,
+    phase === 'seed' ? 'system-picker-cancel-import-and-select' : 'retained-from-previous-process'
+  );
+  assert.equal(evidence.nativeFontPicker.removed, phase === 'verify');
+  const font = evidence.nativeFontPicker.font;
+  assert.equal(font.name, `Qualification font ${id}`);
+  assert.equal(font.fileName, `manabi-font-${id}.woff2`);
+  assert.equal(font.path, `/userfonts/${font.fileName}`);
+  assert.ok(Number.isSafeInteger(font.bytes) && font.bytes > 0);
+  assert.match(font.sha256, /^[a-f0-9]{64}$/);
+  assert.equal(font.selected, true);
+  assert.equal(font.productionCss, 'cached-blob-face-loaded');
+  if (phase === 'seed') {
+    assert.deepEqual(evidence.nativeFontImported, { ...font, selected: false });
+    assert.deepEqual(evidence.nativeFontAfterReload, font);
+  } else assert.deepEqual(evidence.nativeFontCleanup, { removed: true, restored: true });
+  assert.equal(
     evidence.nativeFontPreferences,
     'explicit-font-draft-cancel-apply-and-exact-restore'
   );
@@ -71,19 +88,28 @@ export function verifyEvidence(evidence, phase, id) {
   }
   return evidence;
 }
+export function verifyEvidencePair(first, second) {
+  verifyEvidence(first, 'seed', first.id);
+  verifyEvidence(second, 'verify', first.id);
+  assert.equal(first.entry, second.entry, 'Entry changed unexpectedly between process launches');
+  assert.notEqual(first.processId, second.processId, 'Both phases used the same process');
+  assert.deepEqual(
+    first.nativeFontPicker.font,
+    second.nativeFontPicker.font,
+    'Selected font identity, cached bytes and production loading must survive a real process restart'
+  );
+  assert.deepEqual(
+    first.nativeBackgrounds.records,
+    second.nativeBackgrounds.records,
+    'Exact persisted background bytes must survive a real process restart'
+  );
+  return { first, second };
+}
 if (process.argv[1] && import.meta.url === new URL(process.argv[1], 'file:').href) {
   if (process.argv[2] === '--pair') {
     const first = readEvidence(await fs.readFile(process.argv[3], 'utf8'));
     const second = readEvidence(await fs.readFile(process.argv[4], 'utf8'));
-    verifyEvidence(first, 'seed', first.id);
-    verifyEvidence(second, 'verify', first.id);
-    assert.equal(first.entry, second.entry, 'Entry changed unexpectedly between process launches');
-    assert.notEqual(first.processId, second.processId, 'Both phases used the same process');
-    assert.deepEqual(
-      first.nativeBackgrounds.records,
-      second.nativeBackgrounds.records,
-      'Exact persisted background bytes must survive a real process restart'
-    );
+    verifyEvidencePair(first, second);
     console.log(
       'Packaged Android host smoke passed, including synthetic storage after process restart.'
     );

@@ -91,7 +91,9 @@ public final class PackagedReaderTest {
       entry = readUrl();
       awaitReady();
       awaitNativeLibraryReply();
+      if (phase.equals("verify")) qualifyNativeFontPicker(phase);
       qualifyNativeFontManager();
+      if (!phase.equals("verify")) qualifyNativeFontPicker(phase);
       qualifyNativeBackgrounds(phase);
       evidence.put("entry", entry).put("nativeSettings", nativeSettings());
       if (phase.equals("verify")) {
@@ -103,6 +105,7 @@ public final class PackagedReaderTest {
         instrumentation.runOnMainSync(() -> reader.reload());
         awaitReady(true);
         evidence.put("afterReload", runProbe("verify"));
+        if (phase.equals("seed")) evidence.put("nativeFontAfterReload", runFontProbe("selected"));
         evidence.put("navigation", navigationRestrictions());
         preserve = phase.equals("seed");
       }
@@ -305,6 +308,105 @@ public final class PackagedReaderTest {
       SystemClock.sleep(100);
     }
     throw new AssertionError("Native preference did not reach the local owner: " + key);
+  }
+
+  /** Real system picker and ordinary catalog/cache owner. No injected font CSS. */
+  private void qualifyNativeFontPicker(String phase) throws Exception {
+    String name = "Qualification font " + config.getString("id");
+    JSONObject fixture = phase.equals("verify") ? null : runFontProbe("prepare");
+    clickAccessibleText("Manabi Reader actions");
+    clickAccessibleText("Settings");
+    clickAccessibleText("Fonts & text");
+    if (phase.equals("verify")) awaitFontInput("Primary / Serif font", name);
+    clickAccessibleText("Manage Primary / Serif font files");
+    if (!phase.equals("verify")) {
+      awaitAccessibleText("No custom fonts yet. Add a font file to make it available here.");
+      clickAccessibleText("Custom font views: Add font");
+      setFontInput("Font name", name);
+      clickAccessibleText("Choose font file and save");
+      awaitDocumentPicker();
+      instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
+      awaitFontInput("Font name", name);
+      assertTrue(runFontProbe("cancelled").getBoolean("cancelled"));
+      pickPackagedFont(fixture);
+      awaitAccessibleText("Stored on this device");
+      evidence.put("nativeFontImported", runFontProbe("imported"));
+      clickAccessibleText("Use " + name);
+      awaitFontInput("Primary / Serif font", name);
+    } else {
+      awaitAccessibleText("Stored on this device · Selected");
+      clickAccessibleText("Close font manager");
+    }
+    JSONObject selected = runFontProbe("selected");
+    if (!phase.equals("seed")) {
+      clickAccessibleText("Manage Primary / Serif font files");
+      clickAccessibleText("Remove " + name);
+      awaitAccessibleText("Remove " + name + "?");
+      clickAccessibleText("Cancel");
+      assertEquals("Cancelling native removal preserves exact saved font", selected.toString(), runFontProbe("selected").toString());
+      clickAccessibleText("Remove " + name);
+      awaitAccessibleText("Remove " + name + "?");
+      clickAccessibleText("Remove");
+      awaitAccessibleText("No custom fonts yet. Add a font file to make it available here.");
+      evidence.put("nativeFontCleanup", runFontProbe("cleanup"));
+      clickAccessibleText("Close font manager");
+    }
+    clickAccessibleText("Back");
+    awaitNativeLibraryReply();
+    evidence.put("nativeFontPicker", new JSONObject().put("font", selected)
+        .put("picker", phase.equals("verify") ? "retained-from-previous-process" : "system-picker-cancel-import-and-select")
+        .put("removed", !phase.equals("seed")));
+  }
+
+  private void pickPackagedFont(JSONObject fixture) throws Exception {
+    Context target = instrumentation.getTargetContext();
+    String assetPath = fixture.getString("assetPath");
+    assertTrue("Only the reviewed embedded WOFF2 asset may be copied", assetPath.matches("www\\.bundle/[A-Za-z0-9_./-]+\\.woff2") && !assetPath.contains("/../"));
+    ContentValues values = new ContentValues();
+    values.put(MediaStore.Downloads.DISPLAY_NAME, fixture.getString("fileName"));
+    values.put(MediaStore.Downloads.MIME_TYPE, "font/woff2");
+    values.put(MediaStore.Downloads.RELATIVE_PATH, "Download/ManabiQualification");
+    values.put(MediaStore.Downloads.IS_PENDING, 1);
+    Uri uri = target.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+    assertNotNull("Cannot create test-owned font picker fixture", uri);
+    try {
+      try (InputStream source = target.getAssets().open(assetPath);
+           OutputStream out = target.getContentResolver().openOutputStream(uri)) {
+        assertNotNull(out);
+        byte[] buffer = new byte[8192];
+        int count, total = 0;
+        while ((count = source.read(buffer)) != -1) { out.write(buffer, 0, count); total += count; }
+        assertEquals("Copy the entire actual packaged font", fixture.getInt("bytes"), total);
+      }
+      values.clear();
+      values.put(MediaStore.Downloads.IS_PENDING, 0);
+      assertEquals(1, target.getContentResolver().update(uri, values, null, null));
+      clickAccessibleText("Choose font file and save");
+      awaitDocumentPicker();
+      clickAccessibleText(fixture.getString("fileName"));
+      awaitAccessibleText("Stored on this device");
+    } finally {
+      assertEquals("Clean up only our own source font fixture", 1, target.getContentResolver().delete(uri, null, null));
+    }
+  }
+
+  private JSONObject runFontProbe(String operation) throws Exception {
+    String script = readAsset("font-probe.js").trim();
+    if (script.endsWith(";")) script = script.substring(0, script.length() - 1);
+    JSONObject input = new JSONObject().put("id", config.getString("id")).put("operation", operation);
+    evaluate("window.__manabiFontQualification=null;(" + script + ")(" + input + ")"
+        + ".then(value=>window.__manabiFontQualification={value},error=>window.__manabiFontQualification={error:String(error?.stack||error)});true;");
+    long deadline = SystemClock.uptimeMillis() + 20000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      String raw = evaluate("window.__manabiFontQualification");
+      if (!raw.equals("null")) {
+        JSONObject reply = new JSONObject(raw);
+        assertFalse("Font qualification " + operation + " failed: " + reply, reply.has("error"));
+        return reply.getJSONObject("value");
+      }
+      SystemClock.sleep(100);
+    }
+    throw new AssertionError("Font qualification timed out: " + operation);
   }
 
   /** Actual document picker -> native chunk transfer -> existing image database ->
