@@ -25,6 +25,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import { Host, Picker, TextInput, useNativeState } from '@expo/ui';
+import { SettingsThemeEditor } from '../features/settings/SettingsThemeEditor';
+import { themeCopyOptions } from '../features/settings/theme-editor';
 import { SettingsSwitch } from '../features/settings/SettingsSwitch';
 import { SettingsChoices } from '../features/settings/SettingsChoices';
 import { SettingsThemeChoices, AddThemeButton } from '../features/settings/SettingsThemeChoices';
@@ -425,111 +427,6 @@ function FieldEditor({
     </SettingsFieldGroup>
   );
 }
-const colorLabels: Record<keyof ThemeOption, string> = {
-  fontColor: 'Text',
-  backgroundColor: 'Background',
-  selectionFontColor: 'Selected text',
-  selectionBackgroundColor: 'Selection background',
-  hintFuriganaShadowColor: 'Furigana hint shadow',
-  hintFuriganaFontColor: 'Furigana hint text',
-  tooltipTextFontColor: 'Tooltip text'
-};
-function ThemeEditor({
-  original,
-  seed,
-  data,
-  act,
-  busy,
-  colors,
-  close,
-  error
-}: {
-  original: NativeTheme | null;
-  seed: ThemeOption;
-  data: NativeSettingsState;
-  act: Act;
-  busy: boolean;
-  colors: Colors;
-  close(): void;
-  error?: string;
-}) {
-  const [name, setName] = useState(original?.id ?? '');
-  const [palette, setPalette] = useState(seed);
-  const [copyId, setCopyId] = useState(data.themes[0]?.id ?? '');
-  return (
-    <View style={{ gap: 12 }}>
-      <Text style={{ color: colors.muted }}>
-        Theme colors accept #RRGGBB, rgb(…), or rgba(…). Nothing is saved until you choose Save
-        theme.
-      </Text>
-      <DraftInput
-        label="Theme name"
-        value={name}
-        onChange={setName}
-        disabled={busy}
-        colors={colors}
-      />
-      <Host
-        matchContents
-        colorScheme={colors.mode}
-        seedColor={colors.seedColor}
-        accessibilityLabel="Theme to copy"
-      >
-        <Picker selectedValue={copyId} enabled={!busy} onValueChange={setCopyId}>
-          {data.themes.map((theme) => (
-            <Picker.Item key={theme.id} label={theme.label} value={theme.id} />
-          ))}
-        </Picker>
-      </Host>
-      <Action
-        label="Copy selected theme colors"
-        colors={colors}
-        disabled={busy}
-        onPress={() => {
-          const theme = data.themes.find((item) => item.id === copyId);
-          if (theme) setPalette({ ...theme.colors });
-        }}
-      />
-      {(Object.keys(colorLabels) as (keyof ThemeOption)[]).map((key) => (
-        <View key={key} style={styles.gap}>
-          <Text style={{ color: colors.text }}>{colorLabels[key]}</Text>
-          <DraftInput
-            label={colorLabels[key]}
-            value={palette[key]}
-            onChange={(value) => setPalette((previous) => ({ ...previous, [key]: value }))}
-            disabled={busy}
-            colors={colors}
-          />
-        </View>
-      ))}
-      <View style={styles.row}>
-        <Action
-          label="Save theme"
-          selected
-          colors={colors}
-          disabled={busy}
-          onPress={() => {
-            void act({
-              type: 'theme.save',
-              name: name.trim(),
-              previousName: original?.id ?? null,
-              expectedColors: original?.colors ?? null,
-              colors: palette
-            }).then((saved) => {
-              if (saved) close();
-            });
-          }}
-        />
-        <Action label="Cancel theme edit" colors={colors} disabled={busy} onPress={close} />
-      </View>
-      {error ? (
-        <Text accessibilityRole="alert" style={{ color: colors.error }}>
-          {error}
-        </Text>
-      ) : null}
-    </View>
-  );
-}
 export function NativeSettingsScreen() {
   const { snapshot, command } = useReaderRuntime();
   const currentOwner = useRef({ session: snapshot.session, epoch: snapshot.epoch });
@@ -733,15 +630,36 @@ export function NativeSettingsScreen() {
                 closeDisabled={view.pending}
                 onClose={() => setEditor(null)}
               >
-                <ThemeEditor
-                  original={editor.original}
-                  seed={editor.seed}
-                  data={data}
-                  act={act}
+                <SettingsThemeEditor
+                  initialPalette={editor.seed}
+                  previousName={editor.original?.id}
+                  activeTheme={String(
+                    data.fields.find((field) => field.key === 'theme')?.value ?? 'manabi-theme'
+                  )}
+                  options={themeCopyOptions(
+                    data.themes,
+                    mode,
+                    Object.fromEntries(
+                      data.themes
+                        .filter((theme) => theme.custom)
+                        .map((theme) => [theme.id, theme.colors])
+                    )
+                  )}
+                  existingNames={data.themes
+                    .filter((theme) => theme.custom)
+                    .map((theme) => theme.id)}
                   busy={busy}
-                  colors={colors}
                   error={view.error}
-                  close={() => setEditor(null)}
+                  onSave={(name, palette) =>
+                    act({
+                      type: 'theme.save',
+                      name,
+                      previousName: editor.original?.id ?? null,
+                      expectedColors: editor.original?.colors ?? null,
+                      colors: palette
+                    })
+                  }
+                  onClose={() => setEditor(null)}
                 />
               </Dialog>
             )}

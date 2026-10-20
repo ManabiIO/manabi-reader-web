@@ -195,6 +195,7 @@ export const ActionButton = forwardRef<ComponentRef<typeof View>, ActionButtonPr
                 {Children.map(children, (child) =>
                   typeof child === 'string' || typeof child === 'number' ? (
                     <UiText
+                      pointerEvents="none"
                       style={[
                         {
                           color,

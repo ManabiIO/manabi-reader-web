@@ -4,202 +4,47 @@
  * All rights reserved.
  */
 
-import React from 'react';
+import type { ReactNode } from 'react';
 import { useReaderController } from '../reader-react/controller';
-import {
-  Dom,
-  Button,
-  Input,
-  DialogTemplate,
-  useLatest,
-  useReaderBindings,
-  type ReaderViewProps
-} from './primitives';
-import { SettingsContext, useSettingsContext } from './context';
+import { Dom, DialogTemplate, useLatest, type ReaderViewProps } from './primitives';
 import {
   createSettingsCustomTheme,
   type SettingsCustomThemeProps
 } from './settings-custom-theme-controller';
+import { SettingsThemeEditor } from '../features/settings/SettingsThemeEditor';
 
-import { SettingsCustomThemeInput } from './settings-custom-theme-input';
 export function SettingsCustomTheme(
   props: Partial<SettingsCustomThemeProps> &
-    ReaderViewProps & {
-      children?: React.ReactNode;
-      onClose?: () => void;
-      slot?: string;
-    }
+    ReaderViewProps & { children?: ReactNode; onClose?: () => void; slot?: string }
 ) {
   const latest = useLatest(props);
-  const context = useSettingsContext();
-  const c = useReaderController(
-    () =>
-      createSettingsCustomTheme(
-        props as SettingsCustomThemeProps,
-        (name, detail) => {
-          latest.current.events?.[name]?.({ detail });
-          if (name === 'close') latest.current.onClose?.();
-        },
-        context
-      ),
-    props
-  );
-  useReaderBindings(c, props);
-  if (!c) return null;
+  const owner = useReaderController(() => createSettingsCustomTheme(props), props);
+  if (!owner) return null;
   return (
-    <SettingsContext.Provider value={context}>
-      <div className="react-settings-settings-custom-theme" style={{ display: 'contents' }}>
+    <SettingsThemeEditor
+      initialPalette={owner.initialPalette}
+      previousName={owner.previousName}
+      activeTheme={owner.activeTheme}
+      options={owner.options}
+      existingNames={owner.existingNames}
+      onSave={owner.save}
+      onClose={() => {
+        latest.current.events?.close?.({ detail: undefined });
+        latest.current.onClose?.();
+      }}
+      renderLayout={(body, actions) => (
         <DialogTemplate>
-          <Dom as="div" slot={'content'}>
-            <Dom
-              as="div"
-              className={[
-                'grid max-h-[60vh] grid-cols-1 items-center gap-2 overflow-auto sm:grid-cols-[auto_auto_5rem] sm:gap-4'
-              ]
-                .filter(Boolean)
-                .join(' ')}
-            >
-              <Dom
-                as="select"
-                aria-label={'Copy colors from theme'}
-                value={c.themeToCopy}
-                className={[
-                  'min-h-11 rounded-xl border border-input bg-background px-3 sm:col-span-2'
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                bindings={{
-                  value: (value: typeof c.themeToCopy) => {
-                    c.controller.changed((c.themeToCopy = value));
-                  }
-                }}
-              >
-                {(c.existingThemes ?? []).map((theme, _index0) => (
-                  <React.Fragment key={theme.id}>
-                    <Dom as="option" value={theme.id}>
-                      {theme.id}
-                    </Dom>
-                  </React.Fragment>
-                ))}
-              </Dom>
-              <Button
-                variant={'outline'}
-                onClick={c.handleCopyTheme}
-                className={['min-h-11'].filter(Boolean).join(' ')}
-              >
-                {'Copy'}
-              </Button>
-              <Dom as="span" className={['hidden sm:block'].filter(Boolean).join(' ')}>
-                {'Attribute'}
-              </Dom>
-              <Dom as="span" className={['hidden sm:block'].filter(Boolean).join(' ')}>
-                {'Color'}
-              </Dom>
-              <Dom as="span" className={['hidden sm:block'].filter(Boolean).join(' ')}>
-                {'Alpha'}
-              </Dom>
-              <SettingsCustomThemeInput
-                label={'Font'}
-                attribute={'fontColor'}
-                values={c.customTheme.fontColor}
-                events={{ color: c.handleColorValueChange, alpha: c.handleAlphaValueChange }}
-              ></SettingsCustomThemeInput>
-              <SettingsCustomThemeInput
-                label={'Background'}
-                attribute={'backgroundColor'}
-                values={c.customTheme.backgroundColor}
-                events={{ color: c.handleColorValueChange, alpha: c.handleAlphaValueChange }}
-              ></SettingsCustomThemeInput>
-              <SettingsCustomThemeInput
-                label={'Selected text'}
-                attribute={'selectionFontColor'}
-                values={c.customTheme.selectionFontColor}
-                events={{ color: c.handleColorValueChange, alpha: c.handleAlphaValueChange }}
-              ></SettingsCustomThemeInput>
-              <SettingsCustomThemeInput
-                label={'Selection background'}
-                attribute={'selectionBackgroundColor'}
-                values={c.customTheme.selectionBackgroundColor}
-                events={{ color: c.handleColorValueChange, alpha: c.handleAlphaValueChange }}
-              ></SettingsCustomThemeInput>
-              <SettingsCustomThemeInput
-                label={'Furigana Partial Hide Font'}
-                attribute={'hintFuriganaFontColor'}
-                values={c.customTheme.hintFuriganaFontColor}
-                events={{ color: c.handleColorValueChange, alpha: c.handleAlphaValueChange }}
-              ></SettingsCustomThemeInput>
-              <SettingsCustomThemeInput
-                label={'Furigana Partial/Full Hide Shadow'}
-                attribute={'hintFuriganaShadowColor'}
-                values={c.customTheme.hintFuriganaShadowColor}
-                events={{ color: c.handleColorValueChange, alpha: c.handleAlphaValueChange }}
-              ></SettingsCustomThemeInput>
-              <SettingsCustomThemeInput
-                label={'Footer Font'}
-                attribute={'tooltipTextFontColor'}
-                values={c.customTheme.tooltipTextFontColor}
-                events={{ color: c.handleColorValueChange, alpha: c.handleAlphaValueChange }}
-              ></SettingsCustomThemeInput>
-              <Input
-                type={'text'}
-                placeholder={'Theme Name'}
-                aria-label={'Theme name'}
-                aria-invalid={Boolean(c.nameError)}
-                aria-describedby={c.nameError ? 'custom-theme-name-error' : undefined}
-                onInput={c.clearNameError}
-                value={c.themeName}
-                ref={c.themeNameElm}
-                className={['min-h-11 sm:col-span-2'].filter(Boolean).join(' ')}
-                bindings={{
-                  value: (value: typeof c.themeName) => {
-                    c.controller.changed((c.themeName = value));
-                  },
-                  ref: (value: typeof c.themeNameElm) => {
-                    c.controller.changed((c.themeNameElm = value));
-                  }
-                }}
-              ></Input>
-              <Dom
-                as="div"
-                data-theme-preview={true}
-                aria-hidden={'true'}
-                styleText={c.themeStyle}
-                className={[
-                  'flex min-h-11 items-center justify-center rounded-xl border-2 border-border p-2 text-lg'
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-              >
-                {' ぁあ '}
-              </Dom>
-            </Dom>
-            {c.nameError ? (
-              <>
-                <Dom
-                  as="p"
-                  id={'custom-theme-name-error'}
-                  role={'alert'}
-                  className={['mt-3'].filter(Boolean).join(' ')}
-                >
-                  {c.nameError}
-                </Dom>
-              </>
-            ) : null}
+          <Dom as="span" slot="header">
+            {owner.previousName ? 'Edit custom theme' : 'New custom theme'}
           </Dom>
-          <Dom
-            as="div"
-            slot={'footer'}
-            className={['mt-2 flex grow justify-between gap-2'].filter(Boolean).join(' ')}
-          >
-            <Button variant={'ghost'} onClick={() => c.dispatch('close')}>
-              {'Cancel'}
-            </Button>
-            <Button variant={'secondary'} onClick={c.handleSave}>
-              {'Save'}
-            </Button>
+          <Dom as="div" slot="content">
+            {body}
+          </Dom>
+          <Dom as="div" slot="footer" style={{ width: '100%' }}>
+            {actions}
           </Dom>
         </DialogTemplate>
-      </div>
-    </SettingsContext.Provider>
+      )}
+    />
   );
 }

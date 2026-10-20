@@ -292,3 +292,61 @@ production web export passes all 25 Settings journeys and five retained theme
 journeys in each browser engine (60 executions); desktop, phone, light/dark and
 200% captures were reviewed. The broad unit runs precede those final layout-only
 changes; affected tests and the browser journeys qualify their final source.
+
+The short-choice native save gate is now qualified by
+[run 39488615430](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39488615430)
+for source `aaba7d06deaf1b4e6d83d30a7c8b6e4f3ed96271`. All three standard-runner
+jobs passed. API 35 / WebView 124.0.6367.219 changed and restored Color mode
+through the actual native controls in both process phases (PIDs 2767 and 3884).
+The verifier also retained the packaged origin, worker, storage, reload and
+process-restart checks. The run uploaded no artifacts. This source predates the
+theme chooser/dialog and shared editor below; it cannot qualify those changes.
+
+Custom-theme editing now uses `SettingsThemeEditor` on Android and web. One
+component owns the name, seven color expressions, copy selection, preview,
+validation, pending state and Save/Cancel composition. Web retains its existing
+dialog scroll region and fixed footer through a layout slot. Native retains the
+shared dialog and its session-owned dismissal restrictions. The old browser
+color-input controllers and native whole-editor implementation are removed.
+
+Only input leaves differ: browser color wells and opacity inputs, versus Expo UI
+native text inputs accepting the existing #RRGGBB/rgb/rgba expressions. Name
+fields preserve browser validity/focus semantics and use Expo's focus API on
+Android. The installed Expo UI 58.0.21 universal exports include Picker and
+TextInput but no color well. Both editors use the same universal Picker for
+copying; its browser leaf receives an explicit accessible name.
+
+Copy selection now starts at the active theme on both platforms, and copying
+resolves the palette for the current appearance. This fixes the former native
+first-catalog-entry/raw-preset behavior. Editing still starts from the original
+stored custom palette, preserving authored expressions and zero alpha until an
+individual color changes. Opposite-appearance copies derive their existing
+counterpart without rewriting the source palette. An unavailable copy ID is
+shown explicitly and cannot replace the draft.
+
+Common validation rejects empty/reserved/duplicate names and invalid colors.
+The browser owner rechecks the live catalog before writing. Native expected
+palettes, bounded transport/catalog/name validation and session retirement still
+run at the original owner boundary; these native restrictions are not imposed
+on browser names such as `constructor`. Pending submissions are single-flight,
+failures retain the editable draft, and a late successful result cannot close a
+replacement editor. No storage schema or backup/restore format changes.
+
+Actual browser qualification caught two integration defects before acceptance:
+the copy select needed an explicit accessible label, and the shared action's
+text child intercepted the retained exact button hit test. Plain ActionButton
+labels now leave hit testing to their owning action on both platforms. Mounted
+coverage exercises copying without writes, duplicate rejection and focus,
+prototype-like web names, pending disables, retry, exact expression round trips,
+unavailable copies and late results after unmount. Android IME, editing, native
+color-field focus/scrolling and TalkBack remain separate runtime gates.
+
+Local shared-editor qualification passes 1,754 original unit tests, 623 Expo
+tests, full lint, strict types, appearance generation, the native import-boundary
+build and a production web export. The final export passes 27 Settings, five
+retained appearance and all 21 shared-Statistics journeys in each of Chromium
+and WebKit: 106 browser executions. Desktop, phone and 320×480 at 200% text
+captures were reviewed, including the fixed dialog actions after scrolling.
+The native text-focus leaf additionally passes strict types and the native build;
+these checks do not establish Android keyboard, focus or TalkBack behavior.
+The new theme dialog/editor source still needs its own packaged Android run.

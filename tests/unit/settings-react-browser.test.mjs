@@ -18,6 +18,7 @@ const { outputFiles } = await build({
       import { createRoot } from 'react-dom/client';
       import { Dom } from './apps/web/src/settings-react/primitives';
       import { SettingsScreen } from './apps/web/src/settings-react/settings-screen';
+      import { SettingsThemeEditor } from './apps/web/src/features/settings/SettingsThemeEditor';
       import { SettingsChoices } from './apps/web/src/features/settings/SettingsChoices';
       import { SettingsThemeChoices, AddThemeButton } from './apps/web/src/features/settings/SettingsThemeChoices';
       import SettingsRoute from './apps/web/src/screens/routes/settings.web';
@@ -42,6 +43,9 @@ const { outputFiles } = await build({
           events={binding ? {} : { change: event => update(event.currentTarget.checked) }} />;
       }
       window.controls = {
+        renderThemeEditor: props => root.render(<React.StrictMode><SettingsThemeEditor {...props}
+          onSave={(name, palette) => { window.changes.push(['save',name,palette]); return new Promise(resolve => window.finishThemeSave = resolve); }}
+          onClose={() => window.changes.push(['close'])} /></React.StrictMode>),
         renderThemes: props => root.render(<React.StrictMode><SettingsThemeChoices {...props}
           onValueChange={id => window.changes.push(['select', id])}
           onEdit={id => window.changes.push(['edit', id])}
@@ -361,6 +365,116 @@ test('shared theme chooser retains palettes, selected custom actions, child acti
     assert.match(document.body.textContent, /Saved value: missing/);
     assert.equal(document.querySelectorAll('[aria-pressed="true"]').length, 0);
     assert.equal(window.changes.length, 4, 'unknown value does not select or save a fallback');
+  });
+});
+
+test('shared theme draft copies without writing, rejects duplicates and keeps pending saves single', async () => {
+  await fixture(async ({ window, api, until }) => {
+    const { document } = window;
+    const palette = {
+      fontColor: '#112233',
+      backgroundColor: 'rgba(240, 245, 255, 0)',
+      selectionFontColor: '#ffffff',
+      selectionBackgroundColor: '#24506c',
+      hintFuriganaFontColor: 'rgba(1, 2, 3, 0.2)',
+      hintFuriganaShadowColor: '#000000',
+      tooltipTextFontColor: '#112233'
+    };
+    const copied = { ...palette, fontColor: '#445566', backgroundColor: '#abcdef' };
+    await api.renderThemeEditor({
+      initialPalette: palette,
+      previousName: 'Original',
+      activeTheme: 'Active',
+      existingNames: ['Original', 'Other'],
+      options: [
+        { id: 'First', label: 'First', colors: palette },
+        { id: 'Active', label: 'Active', colors: copied }
+      ]
+    });
+    const input = (label) => document.querySelector(`input[aria-label="${label}"]`);
+    const button = (text) =>
+      [...document.querySelectorAll('button')].find((el) => el.textContent === text);
+    const fill = (element, value) => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(
+        element,
+        value
+      );
+      element.dispatchEvent(new window.Event('input', { bubbles: true }));
+    };
+    await until(() => input('Theme name'), 'editor mounts');
+    assert.equal(
+      document.querySelector('select').value,
+      'Active',
+      'copy starts at active theme, not catalog order'
+    );
+    assert.equal(input('Font color').value, '#112233');
+    assert.equal(input('Background opacity').value, '0');
+    button('Copy').click();
+    await until(() => input('Font color').value === '#445566', 'copy changes only draft');
+    assert.equal(window.changes.length, 0);
+    fill(input('Theme name'), 'Other');
+    await until(() => input('Theme name').value === 'Other', 'name changes');
+    button('Save').click();
+    await until(
+      () => input('Theme name').validationMessage.includes('already exists'),
+      'duplicate rejected'
+    );
+    assert.equal(document.activeElement, input('Theme name'));
+    assert.equal(window.changes.length, 0);
+    fill(input('Theme name'), '  constructor  ');
+    await until(() => !input('Theme name').validationMessage, 'name validation clears');
+    button('Save').click();
+    button('Save').click();
+    await until(() => window.changes.length === 1, 'save dispatched once');
+    assert.equal(window.changes[0][1], 'constructor', 'web-compatible names remain available');
+    assert.deepEqual(JSON.parse(JSON.stringify(window.changes[0][2])), copied);
+    assert.ok(input('Theme name').disabled);
+    assert.ok(input('Font color').disabled);
+    assert.equal(button('Cancel').getAttribute('aria-disabled'), 'true');
+    button('Cancel').click();
+    window.finishThemeSave(false);
+    await until(() => !input('Theme name').disabled, 'failed owner save leaves editable draft');
+    assert.equal(window.changes.length, 1);
+    assert.equal(input('Theme name').value, 'constructor');
+    button('Save').click();
+    await until(() => window.changes.length === 2, 'retry is explicit');
+    window.finishThemeSave(true);
+    await until(() => window.changes.length === 3, 'accepted save closes');
+    assert.equal(window.changes[2][0], 'close');
+  });
+});
+
+test('shared theme draft round-trips authored colors and ignores an accepted save after unmount', async () => {
+  await fixture(async ({ window, api, until }) => {
+    const palette = {
+      fontColor: '#112233',
+      backgroundColor: 'rgba(240, 245, 255, 0)',
+      selectionFontColor: '#ffffff',
+      selectionBackgroundColor: '#24506c',
+      hintFuriganaFontColor: 'rgba(1, 2, 3, 0.2)',
+      hintFuriganaShadowColor: '#000000',
+      tooltipTextFontColor: '#112233'
+    };
+    await api.renderThemeEditor({
+      initialPalette: palette,
+      previousName: 'Original',
+      activeTheme: 'missing',
+      existingNames: ['Original'],
+      options: []
+    });
+    const button = (text) =>
+      [...window.document.querySelectorAll('button')].find((el) => el.textContent === text);
+    await until(() => button('Save'), 'editor mounts');
+    assert.equal(button('Copy').getAttribute('aria-disabled'), 'true');
+    assert.match(window.document.querySelector('select').textContent, /Unavailable theme: missing/);
+    button('Save').click();
+    await until(() => window.changes.length === 1, 'save dispatched');
+    assert.deepEqual(JSON.parse(JSON.stringify(window.changes[0][2])), palette);
+    api.clear();
+    await until(() => !button('Save') && !button('Saving…'), 'draft unmounts');
+    window.finishThemeSave(true);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(window.changes.length, 1, 'retired editor cannot close its replacement');
   });
 });
 
