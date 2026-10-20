@@ -9,15 +9,6 @@
     font-size: 1.15rem;
     margin-bottom: 0.75rem;
   }
-  .modes {
-    display: inline-flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    padding: 4px;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--background);
-  }
   .description {
     color: var(--muted-foreground);
     max-width: 65ch;

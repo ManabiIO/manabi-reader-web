@@ -18,6 +18,7 @@ const { outputFiles } = await build({
       import { createRoot } from 'react-dom/client';
       import { Dom } from './apps/web/src/settings-react/primitives';
       import { SettingsScreen } from './apps/web/src/settings-react/settings-screen';
+      import { SettingsChoices } from './apps/web/src/features/settings/SettingsChoices';
       import SettingsRoute from './apps/web/src/screens/routes/settings.web';
       import { ConnectionsScreen } from './apps/web/src/settings-react/connections-screen';
       import { startPreferenceSync, preferenceStatus } from './apps/web/src/lib/manabi/preferences';
@@ -40,6 +41,8 @@ const { outputFiles } = await build({
           events={binding ? {} : { change: event => update(event.currentTarget.checked) }} />;
       }
       window.controls = {
+        renderChoices: props => root.render(<React.StrictMode><SettingsChoices {...props}
+          onValueChange={value => window.changes.push(value)} /></React.StrictMode>),
         goto, installRouter, beforeNavigate, afterNavigate, refreshAccount,
         location: () => get(page).url.href,
         renderRoute: (strict = true) => root.render(strict ? <React.StrictMode><SettingsRoute /></React.StrictMode> : <SettingsRoute />),
@@ -127,6 +130,7 @@ const { outputFiles } = await build({
       export const useLocalSearchParams = () => window.routeParams ?? {};
       export const usePathname = () => window.location.pathname.replace("/reader-web", "");
       export const useRoute = () => ({ key: window.routeKey ?? 'settings-visit-1', params: window.routeParams ?? {} });
+      export const Link = () => null;
     `,
           loader: 'js'
         }));
@@ -220,6 +224,63 @@ async function fixture(run, fetch = async () => new Response('', { status: 503 }
   }
   assert.deepEqual(errors, [], 'mounted Settings must not emit React or DOM errors');
 }
+
+test('shared Settings choices preserve unknown and typed IDs, controlled selection, focus and disabled behavior', async () => {
+  await fixture(async ({ window, api, until }) => {
+    const options = [
+      { value: 0, label: 'Zero' },
+      { value: '0', label: 'String zero' }
+    ];
+    const render = (value, disabled = false) =>
+      api.renderChoices({ label: 'Saved option', value, disabled, options });
+    await render('unknown');
+    const document = window.document;
+    await until(() => document.querySelector('[role="group"]'), 'choice group mounts');
+    const group = document.querySelector('[role="group"]');
+    assert.equal(group.getAttribute('aria-label'), 'Saved option');
+    assert.match(document.body.textContent, /Saved value: unknown/);
+    assert.equal(group.querySelectorAll('[aria-pressed="true"]').length, 0);
+    assert.equal(window.changes.length, 0, 'mounting must not replace an unknown saved value');
+    const buttons = [...group.querySelectorAll('[role="button"]')];
+    assert.equal(buttons.length, 2);
+    buttons[0].focus();
+    buttons[0].click();
+    await until(() => window.changes.length === 1, 'numeric choice emits');
+    assert.equal(window.changes[0], 0);
+    assert.equal(
+      group.querySelectorAll('[aria-pressed="true"]').length,
+      0,
+      'selection waits for the owner'
+    );
+    await render(0);
+    await until(
+      () => buttons[0].getAttribute('aria-pressed') === 'true',
+      'owner updates selection'
+    );
+    assert.equal(document.activeElement, buttons[0], 'saving retains the focused control');
+    assert.doesNotMatch(document.body.textContent, /Saved value:/);
+    buttons[0].click();
+    assert.equal(window.changes.length, 1, 'selecting the current value does not resave');
+    await render(0, true);
+    await until(
+      () => buttons[1].getAttribute('aria-disabled') === 'true',
+      'pending state disables choices'
+    );
+    buttons[1].click();
+    assert.equal(window.changes.length, 1);
+    await render(0);
+    await until(() => buttons[1].getAttribute('aria-disabled') !== 'true', 'choices reenable');
+    buttons[1].click();
+    await until(() => window.changes.length === 2, 'string choice emits');
+    assert.equal(window.changes[1], '0');
+    await render('0');
+    await until(
+      () => buttons[1].getAttribute('aria-pressed') === 'true',
+      'string value remains distinct'
+    );
+    assert.equal(buttons[0].getAttribute('aria-pressed'), 'false');
+  });
+});
 
 test('Settings category links keep one mounted screen and synchronize browser Back and Forward', async () => {
   for (const strict of [false, true])

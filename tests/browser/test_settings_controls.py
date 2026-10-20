@@ -135,6 +135,52 @@ class SettingsControlsBrowser(LibraryBase):
         expect(library).not_to_be_checked()
         expect(reader).to_be_checked()
 
+    def test_shared_choices_keep_keyboard_focus_and_saved_writing_mode(self):
+        self.page.set_viewport_size({'width': 320, 'height': 640})
+        self.settings('Page layout', {'writingMode': 'horizontal-tb'})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        group = self.page.get_by_role('group', name='Writing mode', exact=True)
+        horizontal = group.get_by_role('button', name='Horizontal', exact=True)
+        vertical = group.get_by_role('button', name='Vertical', exact=True)
+        expect(horizontal).to_have_attribute('aria-pressed', 'true')
+        self.assert_reachable(vertical)
+        vertical.press('Enter')
+        expect(vertical).to_have_attribute('aria-pressed', 'true')
+        expect(vertical).to_be_focused()
+        expect(horizontal).to_have_attribute('aria-pressed', 'false')
+        self.page.wait_for_function('() => localStorage.getItem("writingMode") === "vertical-rl"')
+        self.assertLessEqual(self.page.locator('html').evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        self.capture('choices-writing-320-200', animations='disabled')
+        horizontal.press('Space')
+        expect(horizontal).to_have_attribute('aria-pressed', 'true')
+        expect(horizontal).to_be_focused()
+        self.page.wait_for_function('() => localStorage.getItem("writingMode") === "horizontal-tb"')
+        self.page.reload()
+        self.page.get_by_role('navigation', name='Settings categories').get_by_role('link', name='Page layout', exact=True).click()
+        expect(horizontal).to_have_attribute('aria-pressed', 'true')
+
+    def test_shared_appearance_choices_wrap_and_preserve_theme_controls(self):
+        self.settings('Appearance', {'appearance': 'light'})
+        group = self.page.get_by_role('group', name='Appearance mode', exact=True)
+        for width, scale, mode in ((1200, 100, 'Light'), (390, 100, 'Dark'), (320, 200, 'Light'), (320, 200, 'Dark')):
+            self.page.set_viewport_size({'width': width, 'height': 900})
+            self.page.evaluate('scale => document.documentElement.style.fontSize = scale + "%"', scale)
+            choice = group.get_by_role('button', name=mode, exact=True)
+            choice.click()
+            expect(choice).to_have_attribute('aria-pressed', 'true')
+            self.page.wait_for_function('mode => localStorage.getItem("appearance") === mode', arg=mode.lower())
+            for name in ('System', 'Light', 'Dark'):
+                self.assert_reachable(group.get_by_role('button', name=name, exact=True))
+            self.assertLessEqual(self.page.locator('html').evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+            group.scroll_into_view_if_needed()
+            self.capture(f'choices-appearance-{width}-{scale}-{mode.lower()}', animations='disabled')
+        # The specialized theme editor remains alongside the common scalar controls.
+        add_theme = self.page.get_by_role('button', name='Add custom theme', exact=True)
+        add_theme.click()
+        expect(self.dialog()).to_be_visible()
+        self.dialog().get_by_role('button', name='Cancel', exact=True).click()
+        expect(add_theme).to_be_focused()
+
     def test_expo_switch_checked_thumb_uses_the_current_theme_foreground(self):
         self.page.set_viewport_size({'width': 320, 'height': 640})
         for mode in ('light', 'dark'):

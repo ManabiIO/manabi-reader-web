@@ -52,7 +52,23 @@ const { outputFiles } = await build({
     'process.env.NODE_ENV': '"development"',
     'import.meta.url': '"https://reader.example/fixture.js"'
   },
-  logLevel: 'warning'
+  logLevel: 'warning',
+  plugins: [
+    {
+      name: 'unused-navigation-boundary',
+      setup(builder) {
+        // This fixture mounts Settings editors, never a Router Link. Keep actual
+        // RNW controls while leaving the navigation runtime to its own tests.
+        builder.onResolve({ filter: /^expo-router$/ }, () => ({
+          path: 'router',
+          namespace: 'router'
+        }));
+        builder.onLoad({ filter: /.*/, namespace: 'router' }, () => ({
+          contents: 'export const Link = () => null;'
+        }));
+      }
+    }
+  ]
 });
 const javascript = outputFiles.find((file) => file.path.endsWith('.js')).text;
 

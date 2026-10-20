@@ -22,6 +22,7 @@ import {
 
 import { availableThemes } from '$lib/data/theme-option';
 import { SettingsSwitch } from '../features/settings/SettingsSwitch';
+import { SettingsChoices } from '../features/settings/SettingsChoices';
 export function ButtonToggleGroup(
   props: Partial<ButtonToggleGroupProps> &
     ReaderViewProps & {
@@ -55,6 +56,17 @@ export function ButtonToggleGroup(
             value={c.selectedOptionId === true}
             onValueChange={(value) => c.controller.changed((c.selectedOptionId = value))}
           />
+        ) : c.options.every((option) => !option.style && !option.showIcons) ? (
+          <div className={c.invertColors ? 'legacy-invert' : undefined}>
+            <SettingsChoices
+              label={c.fieldName()}
+              value={c.selectedOptionId}
+              options={c.options.map((option) => ({ value: option.id, label: option.text }))}
+              onValueChange={(value) => c.controller.changed((c.selectedOptionId = value))}
+            >
+              {slotContent(props.children, undefined)}
+            </SettingsChoices>
+          </div>
         ) : (
           <>
             {' '}

@@ -26,6 +26,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import { Host, Picker, TextInput, useNativeState } from '@expo/ui';
 import { SettingsSwitch } from '../features/settings/SettingsSwitch';
+import { SettingsChoices } from '../features/settings/SettingsChoices';
 import { ExpoButton as Button } from '../shared-ui/ExpoButton';
 import { MenuAction, NativeScreenHeader } from '../screens/NativeScreens';
 import { ScreenStatusBar } from '../shared-ui/ScreenStatusBar';
@@ -226,6 +227,16 @@ function FieldEditor({
         <SettingsSwitch
           label={field.label}
           value={field.value === true}
+          disabled={disabled}
+          onValueChange={(value) => {
+            void save(value);
+          }}
+        />
+      ) : field.kind === 'choice' && field.key !== 'theme' ? (
+        <SettingsChoices
+          label={field.label}
+          value={String(field.value)}
+          options={shownChoices}
           disabled={disabled}
           onValueChange={(value) => {
             void save(value);

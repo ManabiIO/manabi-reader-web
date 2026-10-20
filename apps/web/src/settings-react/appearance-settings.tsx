@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { useReaderController } from '../reader-react/controller';
-import { Dom, Button, useLatest, useReaderBindings, type ReaderViewProps } from './primitives';
+import { Dom, useLatest, useReaderBindings, type ReaderViewProps } from './primitives';
 import { SettingsContext, useSettingsContext } from './context';
 import {
   createAppearanceSettings,
@@ -15,6 +15,7 @@ import {
 import { appearance$ } from '../lib/appearance/state';
 
 import { BackgroundSettings } from './background-settings';
+import { SettingsChoices } from '../features/settings/SettingsChoices';
 export function AppearanceSettings(
   props: Partial<AppearanceSettingsProps> &
     ReaderViewProps & {
@@ -46,25 +47,12 @@ export function AppearanceSettings(
           <Dom as="h2" id={'appearance-heading'}>
             {'Color mode'}
           </Dom>
-          <Dom
-            as="div"
-            role={'group'}
-            aria-label={'Appearance mode'}
-            className={['modes'].filter(Boolean).join(' ')}
-          >
-            {(c.modes ?? []).map((mode, _index0) => (
-              <React.Fragment key={mode.value}>
-                <Button
-                  variant={c.$appearance$ === mode.value ? 'secondary' : 'ghost'}
-                  shape={'rounded'}
-                  aria-pressed={c.$appearance$ === mode.value}
-                  onClick={() => appearance$.next(mode.value)}
-                >
-                  {mode.label}
-                </Button>
-              </React.Fragment>
-            ))}
-          </Dom>
+          <SettingsChoices
+            label="Appearance mode"
+            value={c.$appearance$}
+            options={c.modes}
+            onValueChange={(value) => appearance$.next(value)}
+          />
           <Dom as="p" className={['description'].filter(Boolean).join(' ')}>
             {
               ' System follows your device’s light or dark appearance. Your theme applies to the whole app. '

@@ -378,3 +378,15 @@ authenticated synchronization remain separate gates. Four annotation and three
 scrubber quality journeys also passed locally in each browser engine, covering
 200% text, keyboard focus, export/import conflict recovery, saved-passage
 preview and unchanged resume position.
+
+### Settings responsive-layout qualification
+
+Run [`39480435138`](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39480435138)
+passed all three jobs on `a2a36817c61d877c691fc46fa107ed7d8657ace7`.
+This includes the shared Settings geometry policy: available pane width and text
+scale determine sidebar versus compact navigation. The regression/default web,
+promoted web and packaged Android storage reload/process-restart jobs all passed.
+The run used the affected scope with no artifact uploads or remote caches.
+This is an exact-source checkpoint, not evidence for later switch/choice changes
+or full screen parity. See [shared UI convergence](SHARED-UI-CONVERGENCE.md) for
+the later local coverage and remaining specialized-editor/runtime gates.

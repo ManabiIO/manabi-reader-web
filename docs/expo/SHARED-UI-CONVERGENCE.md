@@ -112,7 +112,7 @@ composition around it. Optional video requires domain/view separation before
 its route is counted as shared. File/auth/storage capability differences are
 explicit ports, not alternate complete pages.
 
-All work remains in the same unmerged draft PR. Reuse the existing three-job
+Work remains on the unmerged migration branch. Reuse the existing three-job
 standard-runner [zero-remote-storage CI plan](CI-COVERAGE.md), with no new artifact
 uploads/cache writes or paid resources. A successful export or source test is
 not full UI parity; report evidence for the exact source head.
@@ -205,3 +205,39 @@ sources; they retain their existing controller, storage and dialog assertions.
 Native import-boundary checks also pass. A fresh packaged Android run is still
 required for this source; neither these local results nor the prior layout
 commit's CI establish native switch rendering, TalkBack or full screen parity.
+
+Short scalar choices now use `SettingsChoices` and the existing branded
+`ActionButton` on both web and Android. Appearance mode uses the same composition.
+Choices remain visible and wrap with the available pane and enlarged text;
+selected borders reserve their space so selecting another choice does not move
+neighboring controls. Web retains a named button group and pressed states.
+Android names each action with its setting and option, retaining selected and
+disabled semantics. An unknown saved ID is displayed without selecting or saving
+a replacement. The owner supplies selection after saving; the component owns no
+draft or storage state.
+
+This is a deliberate control boundary, not a replacement UI framework. The
+installed Expo UI 58.0.21 universal Picker supports menu/wheel presentation, not
+visible wrapping choices. Its community segmented control's web implementation
+uses a fixed 32px height and equal-width segments. Neither satisfies these short
+Settings groups at enlarged text without a separate presentation. Font catalogs
+and native theme selection retain Expo Picker; web theme swatches, custom-theme
+Edit/Delete and the child action remain specialized. Page-turn's web select also
+remains a separate control, so this does not claim complete Settings convergence.
+
+The existing web controllers and native `save(value, expectedValue)` boundary
+still own writes, pending state and session retirement. IDs, persistence schemas,
+backup/restore formats and existing preference normalization are unchanged.
+Mounted RNW coverage checks unknown values, distinct numeric/string IDs,
+controlled selection, focus retention, repeated selection and disabled actions.
+Production browser coverage checks Enter/Space, saved-value reload, theme-editor
+availability and 320px/200% text in both light and dark appearance. These browser
+and import-graph checks do not establish Android rendering or TalkBack behavior.
+
+Local qualification for this choice-control slice passes 1,751 original unit
+tests (including the new mounted choice contract), 620 Expo tests, strict types,
+full lint, appearance generation and production web export. Both Chromium and
+WebKit pass all 24 Settings and 21 Statistics journeys on that export: 90 browser
+executions. Desktop, phone and 200% light/dark screenshots were reviewed. The
+existing packaged Android qualification remains necessary for the new source;
+native choice interaction and TalkBack still require their own runtime coverage.
