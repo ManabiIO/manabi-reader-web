@@ -150,6 +150,16 @@ finding a bridge shim is insufficient. This read-only UI journey complements
 the original synthetic storage/origin probes. It is not proof of the Android
 system file picker, physical-device typography, TalkBack or IME parity.
 
+The choice-control follow-up adds a color-mode interaction in Settings before
+opening Fonts & text. In both process phases it requires the actual accessible
+selected/enabled state, selects a different mode, reads the saved value from the
+real local owner, then restores the original choice through the native control.
+Cleanup restores the exact initial localStorage value, including an absent key.
+The evidence verifier requires `color-mode-selection-local-save-and-restore`;
+merely mounting the component cannot satisfy this gate. This is one native
+interaction with storage verification, not spoken TalkBack or full Settings
+coverage. Its result is only established by a completed run on this source.
+
 The storage probe also copies one actual packaged font into its random, test-owned
 CacheStorage namespace, loads it through a Blob URL using the WebView FontFace API,
 and repeats that load after reload and process restart. It removes only its own

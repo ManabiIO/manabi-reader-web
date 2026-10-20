@@ -241,3 +241,12 @@ WebKit pass all 24 Settings and 21 Statistics journeys on that export: 90 browse
 executions. Desktop, phone and 200% light/dark screenshots were reviewed. The
 existing packaged Android qualification remains necessary for the new source;
 native choice interaction and TalkBack still require their own runtime coverage.
+
+The packaged Android harness now requires one choice interaction in both process
+phases: the real accessible Color mode action changes selection, the local owner
+must contain that value, and selecting the original option must restore it.
+Cleanup also restores an initially absent preference key. The verifier rejects
+missing interaction evidence. Both Java sources compile against the official
+API 35 stub under Java 21, and all eight harness contracts pass locally. Only a
+completed emulator run establishes this new gate; it still does not establish
+spoken TalkBack or the full native choice matrix.

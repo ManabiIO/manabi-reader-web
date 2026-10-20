@@ -16,6 +16,7 @@ export function verifyEvidence(evidence, phase, id) {
   assert.equal(evidence.targetDebuggable, false);
   assert.equal(evidence.nativeRoundTrip, 'snapshot-route-and-library-state-reply');
   assert.equal(evidence.nativeFontManager, 'settings-typography-font-cache-read-and-close');
+  assert.equal(evidence.nativeChoices, 'color-mode-selection-local-save-and-restore');
   assert.match(
     evidence.entry,
     /^https:\/\/appassets\.androidplatform\.net\/www\.bundle\/[a-f0-9]{32}\.html$/

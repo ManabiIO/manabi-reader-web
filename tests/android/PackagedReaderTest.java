@@ -220,11 +220,12 @@ public final class PackagedReaderTest {
     throw new AssertionError("Native Library never received its empty saved-state reply: " + last);
   }
 
-  /** Read-only product UI smoke on the actual RN/Compose hierarchy. No real font
-   * file is selected and no built-in preference is changed by this journey. */
+  /** Product UI smoke on the actual RN/Compose hierarchy. Color mode is changed
+   * and restored on this disposable emulator; no real font file is selected. */
   private void qualifyNativeFontManager() throws Exception {
     clickAccessibleText("Manabi Reader actions");
     clickAccessibleText("Settings");
+    qualifyNativeChoices();
     clickAccessibleText("Fonts & text");
     clickAccessibleText("Manage Primary / Serif font files");
     awaitAccessibleText("No stored custom fonts. Built-in fonts remain available in Settings.");
@@ -232,6 +233,46 @@ public final class PackagedReaderTest {
     clickAccessibleText("Back");
     awaitNativeLibraryReply();
     evidence.put("nativeFontManager", "settings-typography-font-cache-read-and-close");
+  }
+
+  private void qualifyNativeChoices() throws Exception {
+    String original = evaluate("localStorage.getItem('appearance')");
+    String mode = original.equals("null") ? "system" : (String) new JSONTokener(original).nextValue();
+    assertTrue("Unexpected initial appearance", mode.equals("system") || mode.equals("light") || mode.equals("dark"));
+    String replacement = mode.equals("dark") ? "light" : "dark";
+    String originalLabel = "Color mode: " + Character.toUpperCase(mode.charAt(0)) + mode.substring(1);
+    String replacementLabel = "Color mode: " + Character.toUpperCase(replacement.charAt(0)) + replacement.substring(1);
+    try {
+      awaitSelectedChoice(originalLabel);
+      clickAccessibleText(replacementLabel);
+      awaitSelectedChoice(replacementLabel);
+      assertEquals("Native selection must reach the local owner", JSONObject.quote(replacement),
+          evaluate("localStorage.getItem('appearance')"));
+      clickAccessibleText(originalLabel);
+      awaitSelectedChoice(originalLabel);
+      assertEquals("Restoring through the native control must save", JSONObject.quote(mode),
+          evaluate("localStorage.getItem('appearance')"));
+    } finally {
+      // Preserve the distinction between an implicit system default and a saved
+      // preference. This is test cleanup, never an alternative production save.
+      evaluate(original.equals("null") ? "localStorage.removeItem('appearance'); true;"
+          : "localStorage.setItem('appearance', " + original + "); true;");
+      assertEquals("Restore the exact original local value", original,
+          evaluate("localStorage.getItem('appearance')"));
+    }
+    evidence.put("nativeChoices", "color-mode-selection-local-save-and-restore");
+  }
+
+  private void awaitSelectedChoice(String label) throws Exception {
+    long deadline = SystemClock.uptimeMillis() + 45000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
+      if (root != null) for (AccessibilityNodeInfo match : findAccessibleText(root, label)) {
+        if (match.isVisibleToUser() && match.isEnabled() && match.isSelected()) return;
+      }
+      SystemClock.sleep(200);
+    }
+    throw new AssertionError("Actual native choice was not selected and enabled: " + label);
   }
 
   private void clickAccessibleText(String text) throws Exception {
