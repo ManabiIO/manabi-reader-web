@@ -293,6 +293,7 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     nativeRoundTrip: 'snapshot-route-and-library-state-reply',
     nativeFontManager: 'shared-font-list-add-back-and-close-without-save',
     nativeChoices: 'color-mode-selection-local-save-and-restore',
+    nativeFontPreferences: 'explicit-font-draft-cancel-apply-and-exact-restore',
     nativeThemeChooser: 'add-dialog-back-and-close-without-save',
     nativeDimensions: 'slider-completion-and-automatic-local-save-with-exact-restore',
     entry: 'https://appassets.androidplatform.net/www.bundle/' + 'a'.repeat(32) + '.html',
@@ -335,6 +336,10 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     );
     for (const nativeFontManager of [undefined, 'component-imported', false])
       assert.throws(() => verifyEvidence({ ...evidence, nativeFontManager }, evidence.phase, id));
+    for (const nativeFontPreferences of [undefined, 'component-mounted', false])
+      assert.throws(() =>
+        verifyEvidence({ ...evidence, nativeFontPreferences }, evidence.phase, id)
+      );
     for (const nativeChoices of [undefined, 'component-mounted', false])
       assert.throws(() => verifyEvidence({ ...evidence, nativeChoices }, evidence.phase, id));
     for (const nativeThemeChooser of [undefined, 'component-mounted', false])

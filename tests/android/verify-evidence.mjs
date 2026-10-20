@@ -16,6 +16,10 @@ export function verifyEvidence(evidence, phase, id) {
   assert.equal(evidence.targetDebuggable, false);
   assert.equal(evidence.nativeRoundTrip, 'snapshot-route-and-library-state-reply');
   assert.equal(evidence.nativeFontManager, 'shared-font-list-add-back-and-close-without-save');
+  assert.equal(
+    evidence.nativeFontPreferences,
+    'explicit-font-draft-cancel-apply-and-exact-restore'
+  );
   assert.equal(evidence.nativeChoices, 'color-mode-selection-local-save-and-restore');
   assert.equal(evidence.nativeThemeChooser, 'add-dialog-back-and-close-without-save');
   assert.equal(

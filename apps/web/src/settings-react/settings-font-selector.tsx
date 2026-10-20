@@ -6,7 +6,8 @@
 
 import React from 'react';
 import { useReaderController } from '../reader-react/controller';
-import { ActionMenu, Menu, useLatest, useReaderBindings, type ReaderViewProps } from './primitives';
+import { useLatest, useReaderBindings, type ReaderViewProps } from './primitives';
+import { SettingsFontChoices } from '../features/settings/SettingsFontChoices';
 import { SettingsContext, useSettingsContext } from './context';
 import {
   createSettingsFontSelector,
@@ -40,19 +41,13 @@ export function SettingsFontSelector(
   return (
     <SettingsContext.Provider value={context}>
       <div className="react-settings-settings-font-selector" style={{ display: 'contents' }}>
-        <ActionMenu label={'Choose font'} title={c.label}>
-          <Menu.Label>{'Available fonts'}</Menu.Label>
-          <Menu.RadioGroup
-            value={c.selectedFont ?? c.fontValue}
-            onValueChange={(value: string) => c.controller.changed((c.fontValue = value))}
-          >
-            {(c.availableFonts ?? []).map((font, _index0) => (
-              <React.Fragment key={font}>
-                <Menu.RadioItem value={font}>{font}</Menu.RadioItem>
-              </React.Fragment>
-            ))}
-          </Menu.RadioGroup>
-        </ActionMenu>
+        <SettingsFontChoices
+          label={c.label}
+          available={c.availableFonts}
+          value={c.fontValue}
+          effectiveValue={c.selectedFont}
+          onValueChange={(value) => c.controller.changed((c.fontValue = value))}
+        />
       </div>
     </SettingsContext.Provider>
   );

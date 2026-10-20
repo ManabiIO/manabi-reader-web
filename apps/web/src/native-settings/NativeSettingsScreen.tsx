@@ -23,7 +23,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
-import { Host, Picker, TextInput, useNativeState } from '@expo/ui';
+import { Host, TextInput, useNativeState } from '@expo/ui';
+import { semantics } from '@expo/ui/jetpack-compose/modifiers';
+import { SettingsFontChoices } from '../features/settings/SettingsFontChoices';
 import { SettingsThemeEditor } from '../features/settings/SettingsThemeEditor';
 import { themeCopyOptions } from '../features/settings/theme-editor';
 import { SettingsDimensionEditor } from '../features/settings/SettingsDimensionEditor';
@@ -126,6 +128,7 @@ function DraftInput({
       style={styles.input}
     >
       <TextInput
+        modifiers={[semantics({ contentDescription: label })]}
         value={nativeValue}
         editable={!disabled}
         placeholder={placeholder ?? label}
@@ -148,7 +151,7 @@ function Card({ colors, children }: { colors: Colors; children: ReactNode }) {
     </View>
   );
 }
-function FieldEditor({
+export function NativeSettingFieldEditor({
   field,
   data,
   act,
@@ -280,7 +283,7 @@ function FieldEditor({
               <Action
                 label={`Manage ${field.label} files`}
                 colors={colors}
-                disabled={disabled}
+                disabled={disabled || dirty}
                 onPress={() => setFontsOpen(true)}
               />
               {fontsOpen && (
@@ -297,62 +300,49 @@ function FieldEditor({
                   ? `Effective font: ${data.fonts.effectivePrimary}`
                   : 'Choose a packaged font, or manage imported fonts'}
               </Text>
-              <Host
-                matchContents
-                colorScheme={colors.mode}
-                seedColor={colors.seedColor}
-                accessibilityLabel={`Available ${field.label}`}
-              >
-                <Picker
-                  selectedValue={String(field.value ?? '')}
-                  enabled={!disabled}
-                  onValueChange={(value) => {
-                    void save(String(value));
-                  }}
-                >
-                  {!fontNames.includes(String(field.value)) && (
-                    <Picker.Item
-                      label={`Saved preference: ${String(field.value)}`}
-                      value={String(field.value ?? '')}
-                    />
-                  )}
-                  {fontNames.map((name) => (
-                    <Picker.Item key={name} label={name} value={name} />
-                  ))}
-                </Picker>
-              </Host>
-            </>
-          )}
-          {!fontNames && (
-            <>
-              <DraftInput
-                label={field.label}
-                value={draft}
-                onChange={edit}
-                disabled={disabled}
-                number={field.kind === 'number'}
-                colors={colors}
-                placeholder={field.nullable ? 'Default' : undefined}
+              <SettingsFontChoices
+                label={`Available ${field.label}`}
+                available={fontNames}
+                value={String(field.value ?? '')}
+                effectiveValue={
+                  field.key === 'fontFamilyGroupOne' ? data.fonts.effectivePrimary : undefined
+                }
+                disabled={disabled || dirty}
+                onValueChange={(value) => {
+                  void save(value);
+                }}
               />
-              <View style={styles.row}>
-                <Action
-                  label={`Apply ${field.label}`}
-                  colors={colors}
-                  disabled={disabled || !dirty}
-                  onPress={() => {
-                    try {
-                      void save(parseSettingDraft(field, draft), base);
-                    } catch (cause) {
-                      setError(cause instanceof Error ? cause.message : 'Check this value.');
-                    }
-                  }}
-                />
-                {dirty && (
-                  <Action label="Cancel edit" colors={colors} disabled={busy} onPress={cancel} />
-                )}
-              </View>
             </>
           )}
+          <>
+            <DraftInput
+              label={field.label}
+              value={draft}
+              onChange={edit}
+              disabled={disabled}
+              number={field.kind === 'number'}
+              colors={colors}
+              placeholder={field.nullable ? 'Default' : undefined}
+            />
+            <View style={styles.row}>
+              <Action
+                label={`Apply ${field.label}`}
+                colors={colors}
+                disabled={disabled || !dirty}
+                onPress={() => {
+                  try {
+                    void save(parseSettingDraft(field, draft), base);
+                  } catch (cause) {
+                    setError(cause instanceof Error ? cause.message : 'Check this value.');
+                  }
+                }}
+              />
+              {dirty && (
+                <Action label="Cancel edit" colors={colors} disabled={busy} onPress={cancel} />
+              )}
+            </View>
+          </>
+
           {field.kind === 'number' && (
             <Text style={{ color: colors.muted }}>
               {field.min !== undefined ? `Minimum ${field.min}` : ''}
@@ -584,7 +574,7 @@ export function NativeSettingsScreen() {
             )}
             {data &&
               fields.map((field) => (
-                <FieldEditor
+                <NativeSettingFieldEditor
                   key={`${ownerKey}:${field.key}`}
                   field={field}
                   refresh={() => {

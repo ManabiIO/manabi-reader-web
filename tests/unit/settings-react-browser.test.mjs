@@ -8,6 +8,7 @@ import { JSDOM, VirtualConsole } from 'jsdom';
 import * as fakeIndexedDB from 'fake-indexeddb';
 import { webcrypto } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { MessageChannel } from 'node:worker_threads';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const appRequire = createRequire(new URL('../../apps/web/package.json', import.meta.url));
@@ -43,6 +44,14 @@ const { outputFiles } = await build({
           events={binding ? {} : { change: event => update(event.currentTarget.checked) }} />;
       }
       window.controls = {
+        finishThemeSave: async result => {
+          // Flush the owner's reply and RNW's passive PressResponder configuration
+          // before the fixture can synthesize another click in the same JS task.
+          const previous = window.IS_REACT_ACT_ENVIRONMENT;
+          window.IS_REACT_ACT_ENVIRONMENT = true;
+          try { await React.act(async () => window.finishThemeSave(result)); }
+          finally { window.IS_REACT_ACT_ENVIRONMENT = previous; }
+        },
         renderThemeEditor: props => root.render(<React.StrictMode><SettingsThemeEditor {...props}
           onSave={(name, palette) => { window.changes.push(['save',name,palette]); return new Promise(resolve => window.finishThemeSave = resolve); }}
           onClose={() => window.changes.push(['close'])} /></React.StrictMode>),
@@ -166,6 +175,7 @@ async function fixture(run, fetch = async () => new Response('', { status: 503 }
     }
   );
   const { window } = dom;
+  const ports = [];
   Object.assign(window, {
     ...fakeIndexedDB,
     indexedDB: new fakeIndexedDB.IDBFactory(),
@@ -178,6 +188,12 @@ async function fixture(run, fetch = async () => new Response('', { status: 503 }
     Request,
     Headers,
     fetch,
+    MessageChannel: class extends MessageChannel {
+      constructor() {
+        super();
+        ports.push(this.port1, this.port2);
+      }
+    },
     CSS: {
       escape: (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, (character) => '\\' + character)
     },
@@ -230,8 +246,12 @@ async function fixture(run, fetch = async () => new Response('', { status: 503 }
   try {
     await run({ window, api, until });
   } finally {
-    await api.unmount();
-    window.close();
+    try {
+      await api.unmount();
+    } finally {
+      for (const port of ports) port.close();
+      window.close();
+    }
   }
   assert.deepEqual(errors, [], 'mounted Settings must not emit React or DOM errors');
 }
@@ -432,13 +452,13 @@ test('shared theme draft copies without writing, rejects duplicates and keeps pe
     assert.ok(input('Font color').disabled);
     assert.equal(button('Cancel').getAttribute('aria-disabled'), 'true');
     button('Cancel').click();
-    window.finishThemeSave(false);
+    await api.finishThemeSave(false);
     await until(() => !input('Theme name').disabled, 'failed owner save leaves editable draft');
     assert.equal(window.changes.length, 1);
     assert.equal(input('Theme name').value, 'constructor');
     button('Save').click();
     await until(() => window.changes.length === 2, 'retry is explicit');
-    window.finishThemeSave(true);
+    await api.finishThemeSave(true);
     await until(() => window.changes.length === 3, 'accepted save closes');
     assert.equal(window.changes[2][0], 'close');
   });
@@ -472,7 +492,7 @@ test('shared theme draft round-trips authored colors and ignores an accepted sav
     assert.deepEqual(JSON.parse(JSON.stringify(window.changes[0][2])), palette);
     api.clear();
     await until(() => !button('Save') && !button('Saving…'), 'draft unmounts');
-    window.finishThemeSave(true);
+    await api.finishThemeSave(true);
     await new Promise((resolve) => setTimeout(resolve, 30));
     assert.equal(window.changes.length, 1, 'retired editor cannot close its replacement');
   });

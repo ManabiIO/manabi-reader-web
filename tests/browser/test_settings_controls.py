@@ -480,6 +480,43 @@ class SettingsControlsBrowser(LibraryBase):
         expect(dialog.get_by_role('button', name='Use ' + FONT['name'], exact=True)).to_be_visible()
         self.assertEqual(self.catalog(), [FONT])
 
+    def test_shared_font_choices_preserve_explicit_families_and_keyboard_selection(self):
+        for mode in ('light', 'dark'):
+            custom = '"ReaderLocal' + 'Face' * 28 + '", serif'
+            self.settings('Fonts & text', {'appearance': mode, 'fontFamilyGroupOne': custom, 'fontFamilyGroupTwo': '"My Sans", sans-serif'})
+            for width, scale in ((1200, 100), (390, 100), (320, 200)):
+                self.page.set_viewport_size({'width': width, 'height': 640})
+                self.page.evaluate('v=>document.documentElement.style.fontSize=v+"%"', scale)
+                trigger = self.page.get_by_role('button', name='Show available primary / serif fonts', exact=True)
+                trigger.focus()
+                trigger.press('Enter')
+                menu = self.page.get_by_role('menu')
+                saved = menu.get_by_role('menuitemradio', name='Saved preference: ' + custom, exact=True)
+                expect(saved).to_have_attribute('aria-checked', 'true')
+                saved.scroll_into_view_if_needed()
+                self.assertLessEqual(menu.evaluate('e=>e.scrollWidth-e.clientWidth'), 1)
+                self.assertLess(saved.bounding_box()['height'], menu.bounding_box()['height'] * 0.5,
+                                'A long saved family must leave room for other font choices')
+                self.assertEqual(self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'), custom)
+                self.capture(f'font-choices-{mode}-{width}-{scale}')
+                saved.press('Escape')
+                expect(menu).to_have_count(0)
+                expect(trigger).to_be_focused()
+                self.assertEqual(self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'), custom)
+            trigger.press('Enter')
+            selected = self.page.get_by_role('menuitemradio', name='Noto Serif JP', exact=True)
+            selected.focus()
+            selected.press('Enter')
+            expect(trigger).to_be_focused()
+            expect(self.page.get_by_role('textbox', name='Primary / Serif font', exact=True)).to_have_value('Noto Serif JP')
+            self.assertEqual(self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'), 'Noto Serif JP')
+            secondary = self.page.get_by_role('button', name='Show available sans-serif fonts', exact=True)
+            secondary.press('Enter')
+            expect(self.page.get_by_role('menuitemradio', name='Saved preference: "My Sans", sans-serif', exact=True)).to_have_attribute('aria-checked', 'true')
+            self.page.get_by_role('menuitemradio', name='Noto Sans JP', exact=True).press('Enter')
+            expect(secondary).to_be_focused()
+            self.assertEqual(self.page.evaluate('localStorage.getItem("fontFamilyGroupTwo")'), 'Noto Sans JP')
+
     def test_stored_font_rows_reflow_and_navigation_never_changes_saved_preferences(self):
         missing = {'name': 'Missing' + 'LongName' * 16, 'fileName': 'missing' + 'file' * 30 + '.woff2', 'path': '/userfonts/missing.woff2'}
         for mode in ('light', 'dark'):

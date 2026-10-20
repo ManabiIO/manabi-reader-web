@@ -14,7 +14,7 @@ import { type ToggleOption } from '$lib/components/button-toggle-group/toggle-op
 
 import { BlurMode } from '$lib/data/blur-mode';
 import { dialogManager } from '$lib/data/dialog-manager';
-import { LocalFont } from '$lib/data/fonts';
+import { availablePrimaryFonts as readerPrimaryFonts, primaryPackagedFonts } from '$lib/data/fonts';
 import { effectivePrimaryReaderFont, YU_KYOKASHO } from '$lib/data/reader-typography';
 import { FuriganaStyle } from '$lib/data/furigana-style';
 import { ImportHTMLFixMode } from '$lib/data/import-html-fix-mode';
@@ -156,24 +156,11 @@ export function createSettingsContent(
   let fontFamilyGroupTwo: string = props.fontFamilyGroupTwo;
   let yuKyokashoAvailable: boolean | undefined =
     props.yuKyokashoAvailable !== undefined ? props.yuKyokashoAvailable : undefined;
-  const primaryFontsWithoutYuKyokasho = [
-    LocalFont.NOTOSERIFJP,
-    LocalFont.KZUDMINCHO,
-    LocalFont.GENEI,
-    LocalFont.SHIPPORIMINCHO,
-    LocalFont.KLEEONE,
-    LocalFont.KLEEONESEMIBOLD,
-    LocalFont.SERIF
-  ];
+  const primaryFontsWithoutYuKyokasho = primaryPackagedFonts;
   __readerController.effect(
-    () => [yuKyokashoAvailable, primaryFontsWithoutYuKyokasho],
+    () => [yuKyokashoAvailable],
     () => {
-      __readerController.changed(
-        (availablePrimaryFonts =
-          yuKyokashoAvailable === true
-            ? [LocalFont.YUKYOKASHO, ...primaryFontsWithoutYuKyokasho]
-            : primaryFontsWithoutYuKyokasho)
-      );
+      __readerController.changed((availablePrimaryFonts = readerPrimaryFonts(yuKyokashoAvailable)));
     }
   );
   let editingPrimaryFont = false;

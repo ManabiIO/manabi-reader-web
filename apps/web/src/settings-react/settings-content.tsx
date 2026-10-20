@@ -24,7 +24,7 @@ import { optionsForToggle } from '$lib/components/button-toggle-group/toggle-opt
 import { inputClasses } from '$lib/css-classes';
 
 import { dialogManager } from '$lib/data/dialog-manager';
-import { LocalFont } from '$lib/data/fonts';
+import { secondaryPackagedFonts } from '$lib/data/fonts';
 import { effectivePrimaryReaderFont } from '$lib/data/reader-typography';
 
 import { ImportHTMLFixMode } from '$lib/data/import-html-fix-mode';
@@ -245,12 +245,7 @@ export function SettingsContent(
                 >
                   <SettingsFontSelector
                     label={'Show available sans-serif fonts'}
-                    availableFonts={[
-                      LocalFont.SYSTEMSANS,
-                      LocalFont.NOTOSANSJP,
-                      LocalFont.KZUDGOTHIC,
-                      LocalFont.SANSSERIF
-                    ]}
+                    availableFonts={secondaryPackagedFonts}
                     fontValue={c.fontFamilyGroupTwo}
                     bindings={{
                       fontValue: (value: typeof c.fontFamilyGroupTwo) => {

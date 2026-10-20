@@ -388,3 +388,29 @@ get/next-only font-family objects and now use the actual BehaviorSubject API.
 Original storage, late-result and teardown assertions remain. Added subscription
 coverage verifies current-family updates and retirement. These setup failures
 are distinct from the reproduced inner-overflow product defect.
+
+## Font choices: long names and theme-fixture settlement
+
+A long saved CSS font family occupied almost the full browser menu at 320px and
+200% text. The shared selector's browser leaf now clamps only the visual label
+to three lines, preserving the full accessible name and original editable value.
+The new light/dark desktop/phone/enlarged-text case checks inner overflow, room
+for other choices, unchanged storage on Escape, focus return and explicit
+keyboard saves for both families. All 33 selected journeys pass on the final
+export in Chromium and WebKit.
+
+The full unit run also reproduced a theme-editor fixture race: a native input
+reported enabled before React Native Web's passive effect refreshed its button
+PressResponder, so an immediate synthetic Retry click reached the stale disabled
+handler. The fixture now settles the owner's asynchronous save reply inside
+React.act before clicking again. It supplies Node MessageChannel to JSDOM and
+closes both ports at teardown. Original duplicate-save, explicit-retry and
+error assertions remain strict. All 18 Settings fixture tests and all 1,759
+unit tests pass. The intermediate missing-MessageChannel failure and an initial
+full run missing Python on PATH are retained in local evidence rather than
+classified as product regressions.
+
+Local logs and captures are under `settings-font-preferences-39r9h3gy` outside
+the checkout. Both web CI jobs at `3ac13264` also passed the preceding Add-theme
+geometry repair; that run remains failed because its independent Android slider
+gate failed.

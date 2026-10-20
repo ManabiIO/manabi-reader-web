@@ -440,3 +440,39 @@ captures were inspected. The inner-overflow repair has an additional 39 focused
 controller, mounted-dialog and native-lifetime checks on its final source.
 Packaged Android execution for the new font and preceding size gates remains
 pending; earlier theme-editor APK results do not qualify these controls.
+
+### Shared font choices and explicit native preferences
+
+Both font selectors now consume one packaged catalog and one selection policy.
+YuKyokasho is advertised only after a positive availability probe. Saved strings
+and effective rendering choices remain distinct: opening a picker never writes
+a fallback; an explicit available choice can replace a saved unavailable family.
+Unknown, imported and CSS family lists remain visible as saved preferences.
+Android uses the Expo Picker leaf; web retains the released radio menu, keyboard
+navigation and trigger focus return. Browser labels are limited to three visual
+lines so long names at 200% text leave other choices reachable; the full name
+remains in the accessible label, title and editable preference field.
+
+Android now exposes explicit text drafts for both font families, with Apply and
+Cancel. Dirty drafts disable the picker and Manage action. Saves retain exact
+strings and the existing expected-value/revision guards; external updates and
+rejected or late replies cannot silently replace a newer draft. The actual
+Compose TextInput receives the field name through its semantics modifier.
+Browser freeform field/blur/IME behavior is unchanged. No storage schema, cache,
+backup or restore format changes.
+
+Local qualification: 1,759 unit tests, 634 Expo tests, 49 harness/policy checks,
+full lint/types/appearance checks, native import-boundary build (66 modules),
+production export and API 35 / Java 21 instrumentation compilation. The final
+export passes 33 selected journeys in each browser engine (66 executions),
+including every Settings controls/editor-usability case and retained Rhea font
+keyboard/theme-dialog cases. Desktop/phone and 320px/200% light/dark menu captures
+were inspected. This selected inventory does not establish whole-app parity.
+
+The new native gate requires explicit draft/cancel/apply/exact-restore for both
+families in both process phases. It has not yet executed remotely. The preceding
+source `3ac13264` passed both web jobs in run `39501226500` but failed Android on
+an unreachable named size slider before font-manager navigation. Native size and
+font gates remain open. Bounded native accessibility snapshots now accompany
+failures so the next run can distinguish control naming, visibility and range
+semantics without relaxing the original assertions.

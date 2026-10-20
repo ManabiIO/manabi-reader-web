@@ -274,3 +274,20 @@ phases must report `shared-font-list-add-back-and-close-without-save`; the
 verifier rejects the older read/close-only marker. Actual system font picking,
 font rendering, keyboard/IME, rotation, enlarged native text and TalkBack remain
 separate gates. No real user library or font is modified by this smoke.
+
+### Explicit native font-preference gate
+
+Both process phases must now report
+`nativeFontPreferences: explicit-font-draft-cancel-apply-and-exact-restore`.
+The harness locates the actual named, editable Expo TextInputs, uses Android
+`ACTION_SET_TEXT`, verifies typing and Cancel do not write, applies an explicit
+CSS family through the UI and observes the DOM owner's localStorage value. It
+restores through the UI, then restores the exact original raw key, including
+absence. Mounted tests separately cover dirty-draft conflicts and late replies.
+This is not evidence of physical typing, IME, TalkBack, real font picking or
+native font rendering. Failure logs contain bounded synthetic native hierarchy
+snapshots, excluding WebView contents; no artifact upload was added.
+
+Run `39501226500` on `3ac13264` passed both web jobs but failed before this new
+gate existed: the named native size slider was unreachable. The size and shared
+font-manager checks therefore remain unqualified by that run.

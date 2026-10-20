@@ -9,7 +9,7 @@ import { ReaderController } from '../reader-react/controller';
 import { type SettingsContextValue } from './context';
 
 export interface SettingsFontSelectorProps {
-  availableFonts?: LocalFont[];
+  availableFonts?: readonly LocalFont[];
   fontValue: string;
   selectedFont?: string | undefined;
   label?: string;
@@ -22,7 +22,7 @@ export function createSettingsFontSelector(
 ) {
   const __readerController = new ReaderController();
 
-  let availableFonts: LocalFont[] =
+  let availableFonts: readonly LocalFont[] =
     props.availableFonts !== undefined ? props.availableFonts : [LocalFont.NOTOSANSJP];
   let fontValue: string = props.fontValue;
   let selectedFont: string | undefined =

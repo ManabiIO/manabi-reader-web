@@ -414,3 +414,17 @@ Both web jobs failed the retained Add-theme button size/radius assertion;
 `8ffd629c` repairs it and retains the original test. The run remains failed and
 is not an all-platform checkpoint. It predates the dimension slider gate and
 shared font-manager changes, which require a new exact-source qualification.
+
+### Shared font-manager checkpoint and open size gate
+
+[Run 39501226500](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39501226500)
+finished on `3ac132645047e5b5404aa6782ccbe3199ac14cde`. Both web jobs passed,
+including the retained Add-theme geometry case. Android compiled and passed its
+origin/asset checks, then failed in the first packaged-runtime phase: the named
+size slider (`Quick size for maximum page height`) was not reachable through
+accessibility. Native choices/theme cancellation passed before that failure;
+size saving, shared font-manager navigation and process restart are not qualified
+by this run. The failure is preserved and the next harness logs bounded native
+hierarchy diagnostics without weakening reachability/range/save assertions.
+The later shared font-choice/explicit native text-preference changes require a
+new exact-source run and their own native gate.

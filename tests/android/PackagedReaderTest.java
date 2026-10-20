@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
+import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
@@ -100,6 +101,10 @@ public final class PackagedReaderTest {
       evidence.put("passed", true);
     } catch (Throwable failure) {
       evidence.put("passed", false).put("error", failure.toString());
+      // Synthetic emulator UI only. Keep bounded failure diagnostics in the job
+      // log so a native naming/geometry failure can be repaired without guessing.
+      try { evidence.put("nativeUiAtFailure", nativeAccessibilitySnapshot()); }
+      catch (Throwable diagnosticFailure) { evidence.put("nativeUiDiagnosticError", diagnosticFailure.toString()); }
       throw failure;
     } finally {
       if (reader != null && !preserve) {
@@ -230,6 +235,7 @@ public final class PackagedReaderTest {
     qualifyNativeThemeChooser();
     qualifyNativeDimensions();
     clickAccessibleText("Fonts & text");
+    qualifyNativeFontPreferences();
     String fontPreferences = evaluate("JSON.stringify([localStorage.getItem('userfonts'), localStorage.getItem('fontFamilyGroupOne'), localStorage.getItem('fontFamilyGroupTwo')])");
     clickAccessibleText("Manage Primary / Serif font files");
     awaitAccessibleText("No custom fonts yet. Add a font file to make it available here.");
@@ -249,6 +255,86 @@ public final class PackagedReaderTest {
     clickAccessibleText("Back");
     awaitNativeLibraryReply();
     evidence.put("nativeFontManager", "shared-font-list-add-back-and-close-without-save");
+  }
+
+  /** Explicit native font drafts must use the existing local preference owner. */
+  private void qualifyNativeFontPreferences() throws Exception {
+    for (String[] field : new String[][] {
+        {"fontFamilyGroupOne", "Primary / Serif font"},
+        {"fontFamilyGroupTwo", "Sans-serif font"}}) {
+      String key = field[0], label = field[1];
+      String original = evaluate("localStorage.getItem('" + key + "')");
+      String initialText = awaitFontInput(label, null);
+      String replacement = "\"Native qualification font\", serif";
+      assertNotEquals("Disposable fixture must differ from initial preference", initialText, replacement);
+      try {
+        setFontInput(label, replacement);
+        assertEquals("Typing a font must not save it", original, evaluate("localStorage.getItem('" + key + "')"));
+        clickAccessibleText("Cancel edit");
+        awaitFontInput(label, initialText);
+        assertEquals("Cancel must retain the original raw preference", original, evaluate("localStorage.getItem('" + key + "')"));
+        setFontInput(label, replacement);
+        clickAccessibleText("Apply " + label);
+        awaitRawPreference(key, JSONObject.quote(replacement));
+        awaitFontInput(label, replacement);
+        setFontInput(label, initialText);
+        clickAccessibleText("Apply " + label);
+        awaitRawPreference(key, JSONObject.quote(initialText));
+        awaitFontInput(label, initialText);
+      } finally {
+        evaluate(original.equals("null") ? "localStorage.removeItem('" + key + "'); true;"
+            : "localStorage.setItem('" + key + "', " + original + "); true;");
+        assertEquals("Restore exact raw font preference including absence", original, evaluate("localStorage.getItem('" + key + "')"));
+      }
+    }
+    evidence.put("nativeFontPreferences", "explicit-font-draft-cancel-apply-and-exact-restore");
+  }
+
+  private void awaitRawPreference(String key, String expected) throws Exception {
+    long deadline = SystemClock.uptimeMillis() + 45000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      if (evaluate("localStorage.getItem('" + key + "')").equals(expected)) return;
+      SystemClock.sleep(100);
+    }
+    throw new AssertionError("Native preference did not reach the local owner: " + key);
+  }
+
+  private String awaitFontInput(String label, String expected) throws Exception {
+    long deadline = SystemClock.uptimeMillis() + 45000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
+      if (root != null) {
+        for (AccessibilityNodeInfo node : findAccessibleText(root, label)) {
+          node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+          String value = node.getText() == null ? "" : node.getText().toString();
+          if (node.isVisibleToUser() && node.isEnabled() && node.isEditable() && (expected == null || expected.equals(value))) return value;
+        }
+        scrollNativeForward(root);
+      }
+      SystemClock.sleep(200);
+    }
+    throw new AssertionError("Named native font input did not display the expected saved/draft value: " + label);
+  }
+
+  private void setFontInput(String label, String value) throws Exception {
+    long deadline = SystemClock.uptimeMillis() + 45000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
+      if (root != null) {
+        for (AccessibilityNodeInfo node : findAccessibleText(root, label)) {
+          node.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+          if (!node.isVisibleToUser() || !node.isEnabled() || !node.isEditable()) continue;
+          Bundle arguments = new Bundle();
+          arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
+          assertTrue("The actual Expo text field must accept an accessible edit", node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments));
+          awaitFontInput(label, value);
+          return;
+        }
+        scrollNativeForward(root);
+      }
+      SystemClock.sleep(200);
+    }
+    throw new AssertionError("Named native font input could not be edited: " + label);
   }
 
   private void qualifyNativeChoices() throws Exception {
@@ -330,6 +416,7 @@ public final class PackagedReaderTest {
   /** Drive the real Compose range semantics, not a synthetic JS callback. */
   private float setAccessibleSizeProgress(String label) throws Exception {
     long deadline = SystemClock.uptimeMillis() + 45000;
+    JSONArray firstSnapshot = nativeAccessibilitySnapshot();
     while (SystemClock.uptimeMillis() < deadline) {
       AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
       if (root != null) {
@@ -349,6 +436,7 @@ public final class PackagedReaderTest {
       }
       SystemClock.sleep(200);
     }
+    evidence.put("nativeUiBeforeSizeSearch", firstSnapshot);
     throw new AssertionError("Actual native size slider was not reachable: " + label);
   }
 
@@ -418,6 +506,38 @@ public final class PackagedReaderTest {
     List<AccessibilityNodeInfo> matches = new ArrayList<>();
     collectAccessibleText(root, text, matches);
     return matches;
+  }
+
+  private JSONArray nativeAccessibilitySnapshot() throws Exception {
+    JSONArray nodes = new JSONArray();
+    collectNativeAccessibility(instrumentation.getUiAutomation().getRootInActiveWindow(), nodes, 0, new int[] {0});
+    return nodes;
+  }
+
+  private void collectNativeAccessibility(AccessibilityNodeInfo node, JSONArray nodes, int depth,
+      int[] visited) throws Exception {
+    if (node == null || depth > 30 || ++visited[0] > 500 || nodes.length() >= 160 ||
+        "android.webkit.WebView".contentEquals(node.getClassName() == null ? "" : node.getClassName())) return;
+    CharSequence text = node.getText(), description = node.getContentDescription();
+    AccessibilityNodeInfo.RangeInfo range = node.getRangeInfo();
+    if (text != null || description != null || range != null || node.isScrollable()) {
+      Rect bounds = new Rect();
+      node.getBoundsInScreen(bounds);
+      JSONObject item = new JSONObject().put("depth", depth).put("class", node.getClassName())
+          .put("text", boundedNativeText(text)).put("description", boundedNativeText(description))
+          .put("visible", node.isVisibleToUser()).put("enabled", node.isEnabled())
+          .put("editable", node.isEditable()).put("scrollable", node.isScrollable())
+          .put("bounds", bounds.toShortString());
+      if (range != null) item.put("range", new JSONArray(new float[] {range.getMin(), range.getMax(), range.getCurrent()}));
+      nodes.put(item);
+    }
+    for (int index = 0; index < node.getChildCount(); index++)
+      collectNativeAccessibility(node.getChild(index), nodes, depth + 1, visited);
+  }
+
+  private String boundedNativeText(CharSequence value) {
+    String text = value == null ? "" : value.toString();
+    return text.length() <= 180 ? text : text.substring(0, 180);
   }
 
   private void collectAccessibleText(AccessibilityNodeInfo node, String text,

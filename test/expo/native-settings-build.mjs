@@ -32,6 +32,8 @@ for (const [name, entry, platform, external] of [
   const paths = Object.keys(output.metafile.inputs);
   if (name === 'Android native UI') {
     assert.ok(paths.some((path) => path.endsWith('/features/settings/SettingsChoices.tsx')));
+    assert.ok(paths.some((path) => path.endsWith('/features/settings/SettingsFontChoices.tsx')));
+    assert.ok(paths.some((path) => path.endsWith('/features/settings/font-choices.ts')));
     assert.ok(paths.some((path) => path.endsWith('/features/settings/SettingsThemeChoices.tsx')));
     assert.ok(paths.some((path) => path.endsWith('/features/settings/SettingsThemeEditor.tsx')));
     assert.ok(
