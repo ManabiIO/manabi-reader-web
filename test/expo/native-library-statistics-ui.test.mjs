@@ -1,8 +1,8 @@
 /** @license BSD-3-Clause */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync, renameSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';
@@ -20,13 +20,17 @@ Object.assign(globalThis, {
 });
 const { createRoot } = require('react-dom/client');
 const output = mkdtempSync(join(tmpdir(), 'library-statistics-ui-'));
-process.on('exit', () => rmSync(output, { recursive: true, force: true }));
+process.on('exit', () => {
+  const trash = join(homedir(), '.Trash');
+  mkdirSync(trash, { recursive: true });
+  renameSync(output, join(mkdtempSync(join(trash, 'library-statistics-ui-')), 'output'));
+});
 const fixture = `import React,{useRef} from 'react';
 import {ActionButton as NativeMenuButton} from './apps/web/src/shared-ui/ActionButton';
-export const View=({children,style,accessibilityLabel,testID,onLayout})=>{if(onLayout&&testID)globalThis.libraryStatisticsUI.layouts[testID]=onLayout;return <div data-label={accessibilityLabel} data-testid={testID} data-style={JSON.stringify(StyleSheet.flatten(style))}>{children}</div>}; export const ScrollView=View,SafeAreaView=View,Host=View,Image=View;
+export const View=({children,style,accessibilityLabel,accessibilityRole,role,testID,onLayout})=>{if(onLayout&&testID)globalThis.libraryStatisticsUI.layouts[testID]=onLayout;return <div role={role??accessibilityRole} data-label={accessibilityLabel} data-testid={testID} data-style={JSON.stringify(StyleSheet.flatten(style))}>{children}</div>}; export const ScrollView=View,SafeAreaView=View,Host=View,Image=View;
 export const Text=({children,style,accessibilityRole})=><span role={accessibilityRole==='header'?'heading':undefined} data-color={StyleSheet.flatten(style).color}>{children}</span>; export const StyleSheet={create:x=>x,flatten:x=>Object.assign({},...(Array.isArray(x)?x.flat(Infinity):[x]).filter(Boolean))};
 export const Platform={OS:"android"}; export const useColorScheme=()=>"light"; export const useWindowDimensions=()=>globalThis.libraryStatisticsUI.dimensions;
-export const ActivityIndicator=()=>null; export const Modal=({visible,children})=>visible?<section>{children}</section>:null;
+export const useSafeAreaInsets=()=>({top:0,bottom:0,left:0,right:0}); export const ActivityIndicator=()=>null; export const Modal=({visible,children,onRequestClose})=>{if(visible)globalThis.libraryStatisticsUI.modalClose=onRequestClose;return visible?<section>{children}</section>:null;};
 export const Pressable=({children,onPress,disabled,accessibilityLabel,accessibilityState,role})=><button role={role} aria-label={accessibilityLabel} aria-selected={accessibilityState?.selected} disabled={disabled} onClick={onPress}>{typeof children==='function'?children({pressed:false}):children}</button>; export const UiIcon=()=>null;
 export const FlatList=({data,renderItem,numColumns,ListEmptyComponent,ListHeaderComponent,onViewableItemsChanged,accessibilityLabel,testID,onLayout,onScroll})=>{if(testID){globalThis.libraryStatisticsUI.layouts[testID]=onLayout;globalThis.libraryStatisticsUI.scrolls[testID]=onScroll;}if(onViewableItemsChanged)globalThis.libraryStatisticsUI.viewports[accessibilityLabel||'books']=onViewableItemsChanged;return <div data-label={accessibilityLabel} data-columns={numColumns}>{ListHeaderComponent}{data.length?data.map((item,index)=><div key={item.key}>{renderItem({item,index})}</div>):ListEmptyComponent}</div>};
 export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder})=><input value={value.value} onChange={event=>onChangeText?.(event.target.value)} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=({label,value,onValueChange,disabled})=><input type="checkbox" aria-label={label} checked={value} disabled={disabled} onChange={event=>onValueChange(event.target.checked)}/>;
@@ -1124,6 +1128,7 @@ test('retired series response clears old hero, selection and local Back without 
   await click(f, 'Open series Set, 1 books');
   await click(f, 'Select');
   await click(f, 'Select page');
+  await click(f, 'Selected book actions');
   await click(f, 'Set series');
   await click(f, 'Save series');
   assert.equal(f.container.querySelector('[data-testid="library-series-hero"]'), null);
@@ -1193,4 +1198,168 @@ test('collapsed series art follows visible rows, current admission and selection
     false,
     'cover taps open the series, never a hidden book'
   );
+});
+
+test('shared selection toolbar names the page scope and opens a dismissible action menu', async (t) => {
+  const f = await mount(t);
+  await click(f, 'Select');
+  const toolbar = () => f.container.querySelector('[role="toolbar"][data-label="Book selection"]');
+  assert.match(toolbar().textContent, /0 selected on this page/);
+  assert.equal(toolbar().querySelector('[aria-label="Selected book actions"]'), null);
+  await click(f, 'Select page');
+  assert.match(toolbar().textContent, /1 selected on this page/);
+  assert.equal(f.container.querySelector('[role="menu"]'), null);
+  await click(f, 'Selected book actions');
+  const menu = f.container.querySelector('[role="menu"]');
+  assert.equal(menu.dataset.label, 'Selected book actions');
+  assert.deepEqual(
+    [...menu.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent),
+    [
+      'Add to collection',
+      'Set series',
+      'Reading status',
+      'Want to Read',
+      'Remove from Want to Read',
+      'Blur covers',
+      'Reveal covers',
+      'Remove copies'
+    ]
+  );
+  await act(() => globalThis.libraryStatisticsUI.modalClose());
+  assert.equal(f.container.querySelector('[role="menu"]'), null);
+  assert.match(toolbar().textContent, /1 selected on this page/);
+  assert.equal(f.calls.filter((call) => call.method === 'library.action').length, 0);
+  await act(() => toolbar().querySelector('[aria-label="Cancel selection"]').click());
+  assert.equal(toolbar(), null);
+  await click(f, 'Select');
+  assert.match(toolbar().textContent, /0 selected on this page/);
+});
+
+test('selection action closes before saving, fences duplicates and keeps admitted page keys', async (t) => {
+  const pending = deferred();
+  const f = await mount(t, (method) => (method === 'library.action' ? pending.promise : undefined));
+  await click(f, 'Select');
+  await click(f, 'Select page');
+  await click(f, 'Selected book actions');
+  const blur = [...f.container.querySelectorAll('[role="menuitem"]')].find(
+    (item) => item.textContent === 'Blur covers'
+  );
+  await act(async () => {
+    blur.click();
+    blur.click();
+  });
+  assert.equal(f.container.querySelector('[role="menu"]'), null);
+  const writes = f.calls.filter((call) => call.method === 'library.action');
+  assert.equal(writes.length, 1);
+  assert.deepEqual(writes[0].payload, {
+    type: 'presentation',
+    token: 'library-1',
+    keys: ['book-key'],
+    change: { coverBlur: true }
+  });
+  const toolbar = f.container.querySelector('[role="toolbar"][data-label="Book selection"]');
+  assert.ok([...toolbar.querySelectorAll('button')].every((button) => button.disabled));
+  await act(() => pending.resolve({ changed: true }));
+  assert.equal(f.container.querySelector('[role="menu"]'), null);
+});
+
+test('selection menus retire with refreshed admissions, route departure and account replacement', async (t) => {
+  for (const retire of ['refresh', 'route', 'account']) {
+    const f = await mount(t);
+    await click(f, 'Select');
+    await click(f, 'Select page');
+    await click(f, 'Selected book actions');
+    assert.ok(f.container.querySelector('[role="menu"]'));
+    if (retire === 'refresh') await click(f, 'Refresh');
+    else await f.render(retire === 'route' ? '/settings' : '/manage', retire === 'account' ? 2 : 1);
+    assert.equal(f.container.querySelector('[role="menu"]'), null, retire);
+    assert.equal(f.calls.filter((call) => call.method === 'library.action').length, 0, retire);
+  }
+});
+
+test('Cancel and Android alert dismissal retire copy removal without mutating the selection', async (t) => {
+  for (const dismissal of ['cancel', 'dismiss']) {
+    const f = await mount(t);
+    await click(f, 'Select');
+    await click(f, 'Select page');
+    await click(f, 'Selected book actions');
+    await click(f, 'Remove copies');
+    assert.equal(f.container.querySelector('[role="menu"]'), null);
+    assert.match(f.confirmations.at(-1)[1], /cached copies.*statistics will be kept/i);
+    const stale = confirm(f);
+    await act(() =>
+      dismissal === 'cancel'
+        ? f.confirmations.at(-1)[2][0].onPress()
+        : f.confirmations.at(-1)[3].onDismiss()
+    );
+    await act(() => stale());
+    assert.equal(f.calls.filter((call) => call.method === 'delete').length, 0);
+    assert.match(f.container.textContent, /1 selected on this page/);
+  }
+});
+
+test('old copy-removal confirmations cannot cross selection ABA, refresh, route ABA or account changes', async (t) => {
+  for (const retire of ['selection', 'refresh', 'route', 'account']) {
+    const f = await mount(t);
+    await click(f, 'Select');
+    await click(f, 'Select page');
+    await click(f, 'Selected book actions');
+    await click(f, 'Remove copies');
+    const stale = confirm(f);
+    if (retire === 'selection') {
+      await click(f, 'Cancel selection');
+      await click(f, 'Select');
+      await click(f, 'Select page');
+    } else if (retire === 'refresh') await click(f, 'Refresh');
+    else if (retire === 'route') {
+      await f.render('/settings');
+      await f.render('/manage');
+    } else {
+      await f.render('/manage', 2);
+      await f.render('/manage', 1);
+    }
+    await act(() => stale());
+    assert.equal(f.calls.filter((call) => call.method === 'delete').length, 0, retire);
+  }
+});
+
+test('confirmed copy removal uses the exact admission once, keeps history and reports uncertain failure', async (t) => {
+  for (const outcome of ['success', 'error']) {
+    const pending = deferred();
+    const f = await mount(t, (method) => (method === 'delete' ? pending.promise : undefined));
+    await click(f, 'Select');
+    await click(f, 'Select page');
+    await click(f, 'Selected book actions');
+    await click(f, 'Remove copies');
+    assert.equal(f.calls.filter((call) => call.method === 'delete').length, 0);
+    const confirmed = confirm(f);
+    await act(() => {
+      confirmed();
+      confirmed();
+    });
+    assert.deepEqual(
+      f.calls.filter((call) => call.method === 'delete').map((call) => call.payload),
+      [
+        {
+          ids: [1],
+          keepStatistics: true,
+          libraryToken: 'library-1',
+          libraryKeys: ['book-key']
+        }
+      ]
+    );
+    await act(() =>
+      outcome === 'success'
+        ? pending.resolve({ deleted: true })
+        : pending.reject(new Error('Removal acknowledgment lost'))
+    );
+    await act(() => confirmed());
+    assert.equal(f.calls.filter((call) => call.method === 'delete').length, 1);
+    if (outcome === 'error') assert.match(f.container.textContent, /Removal acknowledgment lost/);
+    else
+      assert.equal(
+        f.container.querySelector('[role="toolbar"][data-label="Book selection"]'),
+        null
+      );
+  }
 });

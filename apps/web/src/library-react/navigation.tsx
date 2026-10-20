@@ -28,11 +28,13 @@ export function ActionMenu({
   label,
   title,
   iconOnly,
+  disabled,
   children
 }: {
   label: string;
   title?: string;
   iconOnly?: boolean;
+  disabled?: boolean;
   children?: ReactNode;
 }) {
   return (
@@ -42,6 +44,7 @@ export function ActionMenu({
           <Button
             {...props}
             variant="outline"
+            disabled={disabled}
             className={iconOnly ? 'size-[44px] min-h-[44px] rounded-full p-0' : 'min-h-9'}
             aria-label={title || label}
             title={title || label}

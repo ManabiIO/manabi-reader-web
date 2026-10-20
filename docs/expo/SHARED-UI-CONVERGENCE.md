@@ -615,3 +615,33 @@ failure while still running the second engine. The APK font journey remains
 unqualified until a new exact-source packaged run succeeds. This slice changes
 test tooling only; application schemas, font ownership and backup/restore formats
 are unchanged.
+
+### Shared Library selection toolbar
+
+Web and Android now execute `LibrarySelectionToolbar` for cancellation, the live
+selection count, select-all/page, optional export, grouped bulk actions and the
+saved-copy notice. The platform leaves supply controls and menu semantics; they
+do not own selection queries or persistence. Web retains its existing compact
+icon geometry, toolbar labels, focus restoration and saved-copy restrictions.
+Android replaces the horizontal strip of bulk actions with a named Actions menu,
+keeps “selected on this page” and Select page explicit, and exposes cancellation
+in the toolbar. Its Select page control remains Expo UI/Compose; branded menu
+items use the existing shared action primitive.
+
+Android's menu retires on a new Library admission or route/account departure.
+Busy operations disable the toolbar. Copy-removal confirmation now also retires
+on cancellation, Android dismissal, refresh, selection changes (including ABA),
+route departure/return and account replacement. A confirmed removal uses the
+captured Library token, keys and IDs once and keeps reading history. Uncertain
+failure is shown without replaying the destructive request. This changes no
+storage schema, backup content or restore behavior.
+
+Local evidence is in `../evidence/shared-selection-ix5swzj8/`: mounted native
+selection/removal tests, actual web/Android route graphs and production exports,
+TypeScript and lint. Eight actual-app browser journeys pass in each of Chromium
+and WebKit, covering compact/200%-text toolbar reachability and keyboard focus,
+scoped selection, same-title Statistics identities/deletion, bulk Want to Read,
+and real export/migration/repeat. Both enlarged-text screenshots were reviewed.
+These are local checks, not an installed Android interaction or TalkBack pass.
+The full shared Library workspace, common search, native export destinations and
+remaining device acceptance stay open.

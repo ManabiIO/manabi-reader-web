@@ -114,6 +114,12 @@ for (const platform of ['android', 'web'])
       inputs.some((file) => file.endsWith('/features/library/LibraryMetadataFields.tsx')),
       `${platform} must execute the common Library metadata editor`
     );
+    assert.ok(
+      inputs.some((file) => file.endsWith('/features/library/LibrarySelectionToolbar.tsx')),
+      `${platform} must execute the common selection toolbar`
+    );
+    const selectionLeaf = platform === 'web' ? 'selection-layout.web.tsx' : 'selection-layout.tsx';
+    assert.ok(inputs.some((file) => file.endsWith(`/features/library/${selectionLeaf}`)));
     for (const shared of ['SettingsFieldGroup.tsx', 'SettingsWorkspace.tsx', 'workspace-state.ts'])
       assert.ok(
         inputs.some((file) => file.endsWith(`/features/settings/${shared}`)),

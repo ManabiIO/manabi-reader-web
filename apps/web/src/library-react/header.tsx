@@ -27,7 +27,6 @@ import { readStore } from './observable-controller';
 import { Action, Button, Menu } from './primitives';
 import {
   ArrowLeft,
-  BookmarkSimple,
   BookOpen,
   Books,
   Bug,
@@ -44,10 +43,11 @@ import {
   TextAlignLeft as CollectionsList,
   SelectionAll,
   SquaresFour,
-  UserCircle,
-  X
+  UserCircle
 } from '@phosphor-icons/react';
 import { AppNav, ActionMenu } from './navigation';
+import { LibrarySelectionToolbar } from '../features/library/LibrarySelectionToolbar';
+import { selectionLayout } from '../features/library/selection-layout.web';
 export function HeaderView({
   c,
   children: _children
@@ -694,198 +694,98 @@ export function HeaderView({
               <>
                 {c.selectMode ? (
                   <>
-                    <div
-                      role={'toolbar'}
-                      aria-label={'Book selection'}
+                    <LibrarySelectionToolbar
+                      layout={selectionLayout}
+                      count={c.selectedCount}
+                      compact={c.compactLibrary}
+                      busy={c.libraryMenu?.selectedActions?.busy}
+                      selectLabel={c.modernLibrary ? 'Select All Visible' : 'Select all'}
                       onKeyDown={c.selectionKeydown}
-                      className={[
-                        c.compactLibrary ? 'compact-selection' : '',
-                        'library-selection-toolbar mx-auto flex min-h-14 max-w-6xl flex-wrap items-center gap-2 border-t border-border/60 px-[16px] py-[8px] sm:px-[24px]'
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                    >
-                      <Button
-                        variant={'ghost'}
-                        aria-label={'Cancel selection'}
-                        disabled={c.libraryMenu?.selectedActions?.busy}
-                        onClick={() => void c.exitSelectionMode()}
-                        className={['selection-action'].filter(Boolean).join(' ')}
-                      >
-                        {c.compactLibrary ? (
-                          <>
-                            <X
-                              aria-hidden={'true'}
-                              className={['size-[24px]'].filter(Boolean).join(' ')}
-                            />
-                          </>
-                        ) : (
-                          <>{'Cancel selection'}</>
-                        )}
-                      </Button>
-                      <span
-                        role={'status'}
-                        aria-live={'polite'}
-                        aria-atomic={'true'}
-                        className={['text-sm whitespace-nowrap'].filter(Boolean).join(' ')}
-                      >
-                        {c.selectedCount}
-                        {' selected'}
-                      </span>
-                      <Button
-                        variant={'outline'}
-                        aria-label={c.modernLibrary ? 'Select All Visible' : 'Select all'}
-                        disabled={c.libraryMenu?.selectedActions?.busy}
-                        onClick={() => c.dispatch('selectAllClick')}
-                        className={['selection-action'].filter(Boolean).join(' ')}
-                      >
-                        {c.compactLibrary ? (
-                          <>
-                            <SelectionAll
-                              aria-hidden={'true'}
-                              className={['size-[24px]'].filter(Boolean).join(' ')}
-                            />
-                          </>
-                        ) : (
-                          <>{c.modernLibrary ? 'Select All Visible' : 'Select all'}</>
-                        )}
-                      </Button>
-                      {c.selectedCount > 0 ? (
-                        <>
-                          <Button
-                            variant={'secondary'}
-                            disabled={
-                              c.libraryMenu?.selectedActions?.busy ||
-                              c.libraryMenu?.selectedActions?.savedCount === 0
-                            }
-                            aria-label={'Export'}
-                            onClick={() => c.dispatch('replicateData')}
-                            className={['selection-action'].filter(Boolean).join(' ')}
-                          >
-                            {c.compactLibrary ? (
-                              <>
-                                <FileArrowUp
-                                  aria-hidden={'true'}
-                                  className={['size-[24px]'].filter(Boolean).join(' ')}
-                                />
-                              </>
-                            ) : (
-                              <>{'Export'}</>
-                            )}
-                          </Button>
-                          <ActionMenu
-                            label={'Actions'}
-                            title={'Selected book actions'}
-                            iconOnly={c.compactLibrary}
-                          >
-                            {c.libraryMenu?.selectedActions ? (
-                              <>
-                                <Menu.Item
-                                  disabled={c.libraryMenu.selectedActions.busy}
-                                  onSelect={c.libraryMenu.selectedActions.collections}
-                                >
-                                  {'Add to Collection…'}
-                                </Menu.Item>
-                                <Menu.Item
-                                  disabled={c.libraryMenu.selectedActions.busy}
-                                  onSelect={c.libraryMenu.selectedActions.series}
-                                >
-                                  {'Add to Series…'}
-                                </Menu.Item>
-                                {c.libraryMenu.selectedActions.canBlur ? (
-                                  <>
-                                    <Menu.Item
-                                      disabled={c.libraryMenu.selectedActions.busy}
-                                      onSelect={c.libraryMenu.selectedActions.blur}
-                                    >
-                                      {'Blur Covers'}
-                                    </Menu.Item>
-                                  </>
-                                ) : null}
-                                {c.libraryMenu.selectedActions.canUnblur ? (
-                                  <>
-                                    <Menu.Item
-                                      disabled={c.libraryMenu.selectedActions.busy}
-                                      onSelect={c.libraryMenu.selectedActions.unblur}
-                                    >
-                                      {'Unblur Covers'}
-                                    </Menu.Item>
-                                  </>
-                                ) : null}
-                                <Menu.Separator />
-                              </>
-                            ) : null}
-                            {c.libraryMenu?.selectedWantToRead.canAdd ? (
-                              <>
-                                <Menu.Item
-                                  disabled={c.libraryMenu?.selectedActions?.busy}
-                                  onSelect={() => c.libraryMenu?.selectedWantToRead.set(true)}
-                                >
-                                  <BookmarkSimple aria-hidden={'true'} />
-                                  {'Add to Want to Read'}
-                                </Menu.Item>
-                              </>
-                            ) : null}
-                            {c.libraryMenu?.selectedWantToRead.canRemove ? (
-                              <>
-                                <Menu.Item
-                                  disabled={c.libraryMenu?.selectedActions?.busy}
-                                  onSelect={() => c.libraryMenu?.selectedWantToRead.set(false)}
-                                >
-                                  <BookmarkSimple weight={'fill'} aria-hidden={'true'} />
-                                  {'Remove from Want to Read'}
-                                </Menu.Item>
-                              </>
-                            ) : null}
-                            <Menu.Separator />
-                            <Menu.Item
-                              disabled={
-                                c.libraryMenu?.selectedActions?.busy ||
-                                c.libraryMenu?.selectedActions?.savedCount === 0
-                              }
-                              onSelect={() => c.dispatch('selectionToStatistics')}
-                            >
-                              {'Statistics for Selected Books'}
-                            </Menu.Item>
-                            <Menu.Item
-                              variant={'destructive'}
-                              disabled={
-                                c.libraryMenu?.selectedActions?.busy ||
-                                c.libraryMenu?.selectedActions?.savedCount === 0
-                              }
-                              onSelect={() => c.dispatch('deleteStatistics')}
-                            >
-                              {'Delete Selected Statistics'}
-                            </Menu.Item>
-                            <Menu.Separator />
-                            <Menu.Item
-                              variant={'destructive'}
-                              disabled={
-                                c.libraryMenu?.selectedActions?.busy ||
-                                c.libraryMenu?.selectedActions?.savedCount === 0
-                              }
-                              onSelect={() => c.dispatch('removeClick')}
-                            >
-                              {'Delete Selected Books'}
-                            </Menu.Item>
-                          </ActionMenu>
-                        </>
-                      ) : null}
-                      {c.selectedCount >
-                      (c.libraryMenu?.selectedActions?.savedCount ?? c.selectedCount) ? (
-                        <>
-                          <p
-                            className={['basis-full text-sm text-muted-foreground']
-                              .filter(Boolean)
-                              .join(' ')}
-                          >
-                            {
-                              ' Unopened previews can be organized without importing. Export, statistics and deletion apply only to saved browser copies. '
-                            }
-                          </p>
-                        </>
-                      ) : null}
-                    </div>
+                      onCancel={() => void c.exitSelectionMode()}
+                      onSelect={() => c.dispatch('selectAllClick')}
+                      exportAction={{
+                        label: 'Export',
+                        disabled: c.libraryMenu?.selectedActions?.savedCount === 0,
+                        onActivate: () => c.dispatch('replicateData')
+                      }}
+                      groups={[
+                        c.libraryMenu?.selectedActions
+                          ? [
+                              {
+                                label: 'Add to Collection…',
+                                onActivate: c.libraryMenu.selectedActions.collections
+                              },
+                              {
+                                label: 'Add to Series…',
+                                onActivate: c.libraryMenu.selectedActions.series
+                              },
+                              ...(c.libraryMenu.selectedActions.canBlur
+                                ? [
+                                    {
+                                      label: 'Blur Covers',
+                                      onActivate: c.libraryMenu.selectedActions.blur
+                                    }
+                                  ]
+                                : []),
+                              ...(c.libraryMenu.selectedActions.canUnblur
+                                ? [
+                                    {
+                                      label: 'Unblur Covers',
+                                      onActivate: c.libraryMenu.selectedActions.unblur
+                                    }
+                                  ]
+                                : [])
+                            ]
+                          : [],
+                        [
+                          ...(c.libraryMenu?.selectedWantToRead.canAdd
+                            ? [
+                                {
+                                  label: 'Add to Want to Read',
+                                  bookmark: 'outline' as const,
+                                  onActivate: () => c.libraryMenu?.selectedWantToRead.set(true)
+                                }
+                              ]
+                            : []),
+                          ...(c.libraryMenu?.selectedWantToRead.canRemove
+                            ? [
+                                {
+                                  label: 'Remove from Want to Read',
+                                  bookmark: 'filled' as const,
+                                  onActivate: () => c.libraryMenu?.selectedWantToRead.set(false)
+                                }
+                              ]
+                            : [])
+                        ],
+                        [
+                          {
+                            label: 'Statistics for Selected Books',
+                            disabled: c.libraryMenu?.selectedActions?.savedCount === 0,
+                            onActivate: () => c.dispatch('selectionToStatistics')
+                          },
+                          {
+                            label: 'Delete Selected Statistics',
+                            destructive: true,
+                            disabled: c.libraryMenu?.selectedActions?.savedCount === 0,
+                            onActivate: () => c.dispatch('deleteStatistics')
+                          }
+                        ],
+                        [
+                          {
+                            label: 'Delete Selected Books',
+                            destructive: true,
+                            disabled: c.libraryMenu?.selectedActions?.savedCount === 0,
+                            onActivate: () => c.dispatch('removeClick')
+                          }
+                        ]
+                      ]}
+                      notice={
+                        c.selectedCount >
+                        (c.libraryMenu?.selectedActions?.savedCount ?? c.selectedCount)
+                          ? 'Unopened previews can be organized without importing. Export, statistics and deletion apply only to saved browser copies.'
+                          : undefined
+                      }
+                    />
                   </>
                 ) : null}
               </>

@@ -146,7 +146,12 @@ first shared complete composition; the eight remaining screen closures are:
    scope and exact APK provenance are recorded in
    [navigation QA](NAVIGATION-ANDROID-PARITY.md). Native collapsed series now retain
    two scoped cover identities with viewport-bound loading in grid and list.
-   Series-level editing, common search/selection composition and full native
+   Selection toolbar/count/grouped-action composition now shares one component;
+   Android exposes a dismissible Actions menu with explicit current-page scope.
+   Copy removal retires stale/canceled confirmations and preserves reading history.
+   Mounted selection/removal and two-engine browser selection/backup checks pass;
+   actual Android menu interaction, focus and announcements remain unqualified.
+   Series-level editing, common search composition and full native
    accessibility acceptance remain open.
    Native backup/export destinations and
    provider/folder access remain open. This is the largest next everyday-screen
