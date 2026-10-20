@@ -25,7 +25,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 import { Host, Picker, TextInput, useNativeState } from '@expo/ui';
-import { Switch } from '../shared-ui/ExpoToggle';
+import { SettingsSwitch } from '../features/settings/SettingsSwitch';
 import { ExpoButton as Button } from '../shared-ui/ExpoButton';
 import { MenuAction, NativeScreenHeader } from '../screens/NativeScreens';
 import { ScreenStatusBar } from '../shared-ui/ScreenStatusBar';
@@ -223,21 +223,14 @@ function FieldEditor({
       colors={colors}
     >
       {field.kind === 'boolean' ? (
-        <Host
-          matchContents={{ vertical: true }}
-          style={{ width: '100%' }}
-          colorScheme={colors.mode}
-          seedColor={colors.seedColor}
-        >
-          <Switch
-            label={field.label}
-            value={field.value === true}
-            disabled={disabled}
-            onValueChange={(value) => {
-              void save(value);
-            }}
-          />
-        </Host>
+        <SettingsSwitch
+          label={field.label}
+          value={field.value === true}
+          disabled={disabled}
+          onValueChange={(value) => {
+            void save(value);
+          }}
+        />
       ) : field.kind === 'choice' ? (
         <Host
           matchContents

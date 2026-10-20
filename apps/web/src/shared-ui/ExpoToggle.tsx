@@ -24,11 +24,13 @@ export function Switch({
   value,
   onValueChange,
   label,
+  accessibilityLabel,
   disabled,
   testID,
   modifiers
-}: ComponentProps<typeof UniversalSwitch>) {
+}: ComponentProps<typeof UniversalSwitch> & { accessibilityLabel?: string }) {
   const { colors: c } = useUiTheme();
+  const name = accessibilityLabel ?? label;
   const toggle = (
     <ComposeSwitch
       value={value}
@@ -37,7 +39,7 @@ export function Switch({
       modifiers={[
         ...(modifiers ?? []),
         ...(testID ? [testIDModifier(testID)] : []),
-        ...(label != null ? [semantics({ contentDescription: label })] : [])
+        ...(name != null ? [semantics({ contentDescription: name })] : [])
       ]}
       colors={{
         checkedTrackColor: c.primary,

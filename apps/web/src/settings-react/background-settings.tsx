@@ -6,20 +6,14 @@
 
 import React from 'react';
 import { useReaderController } from '../reader-react/controller';
-import {
-  Dom,
-  Button,
-  Switch,
-  useLatest,
-  useReaderBindings,
-  type ReaderViewProps
-} from './primitives';
+import { Dom, Button, useLatest, useReaderBindings, type ReaderViewProps } from './primitives';
 import { SettingsContext, useSettingsContext } from './context';
 import {
   createBackgroundSettings,
   type BackgroundSettingsProps
 } from './background-settings-controller';
 import { removeBackground, removeBackgrounds } from '../lib/appearance/backgrounds';
+import { SwitchField } from '../shared-ui/Fields';
 
 export function BackgroundSettings(
   props: Partial<BackgroundSettingsProps> &
@@ -199,16 +193,12 @@ export function BackgroundSettings(
               </Button>
             </>
           ) : null}
-          <Dom as="div" className={['fade-toggle'].filter(Boolean).join(' ')}>
-            <Switch
-              id={`fade-enabled-${c.target}`}
-              checked={c.$options.fade}
-              onCheckedChange={(fade) => c.options.next({ ...c.$options, fade })}
-              aria-label={`Fade ${c.label.toLowerCase()}`}
-            ></Switch>
-            <Dom as="label" htmlFor={`fade-enabled-${c.target}`}>
-              {'Fade background'}
-            </Dom>
+          <Dom as="div" className="fade-toggle">
+            <SwitchField
+              label={`Fade ${c.label.toLowerCase()}`}
+              value={c.$options.fade}
+              onValueChange={(fade) => c.options.next({ ...c.$options, fade })}
+            />
           </Dom>
           <Dom
             as="label"

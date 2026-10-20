@@ -9,7 +9,6 @@ import { useReaderController } from '../reader-react/controller';
 import {
   Dom,
   Button,
-  Switch,
   useLatest,
   useReaderBindings,
   slotContent,
@@ -22,6 +21,7 @@ import {
 } from './button-toggle-group-controller';
 
 import { availableThemes } from '$lib/data/theme-option';
+import { SettingsSwitch } from '../features/settings/SettingsSwitch';
 export function ButtonToggleGroup(
   props: Partial<ButtonToggleGroupProps> &
     ReaderViewProps & {
@@ -50,21 +50,11 @@ export function ButtonToggleGroup(
     <SettingsContext.Provider value={context}>
       <div className="react-settings-button-toggle-group" style={{ display: 'contents' }}>
         {c.isBoolean ? (
-          <>
-            <Dom as="div" className={['flex min-h-9 items-center gap-3'].filter(Boolean).join(' ')}>
-              <Switch
-                aria-label={c.fieldName()}
-                checked={c.selectedOptionId === true}
-                onCheckedChange={(value) => c.controller.changed((c.selectedOptionId = value))}
-              ></Switch>
-              <Dom
-                as="span"
-                className={['text-sm text-muted-foreground'].filter(Boolean).join(' ')}
-              >
-                {c.selectedOptionId ? 'On' : 'Off'}
-              </Dom>
-            </Dom>
-          </>
+          <SettingsSwitch
+            label={c.fieldName()}
+            value={c.selectedOptionId === true}
+            onValueChange={(value) => c.controller.changed((c.selectedOptionId = value))}
+          />
         ) : (
           <>
             {' '}

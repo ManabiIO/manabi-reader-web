@@ -131,9 +131,12 @@ export function CheckboxField({ style, ...props }: ToggleFieldProps) {
     </View>
   );
 }
-export function SwitchField({ style, ...props }: ToggleFieldProps) {
+export function SwitchField({
+  style,
+  ...props
+}: ToggleFieldProps & { accessibilityLabel?: string }) {
   return (
-    <View style={style}>
+    <View style={[{ minWidth: 0, maxWidth: '100%', flexShrink: 1 }, style]}>
       <ControlHost kind="switch">
         <Switch {...props} />
       </ControlHost>

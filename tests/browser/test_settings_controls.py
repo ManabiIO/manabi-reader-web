@@ -33,10 +33,10 @@ class SettingsControlsBrowser(LibraryBase):
     def catalog(self):
         return self.page.evaluate('JSON.parse(localStorage.getItem("userfonts") || "[]")')
 
-    def capture(self, name):
+    def capture(self, name, animations='allow'):
         output = Path('test-results')
         output.mkdir(exist_ok=True)
-        self.page.screenshot(path=str(output / (self.engine + '-settings-' + name + '.png')))
+        self.page.screenshot(path=str(output / (self.engine + '-settings-' + name + '.png')), animations=animations)
 
     def assert_reachable(self, button):
         button.scroll_into_view_if_needed()
@@ -85,6 +85,76 @@ class SettingsControlsBrowser(LibraryBase):
                    .get_by_role('link', name='Fonts & text', exact=True)).to_have_attribute('aria-current', 'page')
         finally:
             original.dispose()
+
+    def test_expo_switch_keeps_keyboard_label_and_saved_preference_at_large_text(self):
+        self.page.set_viewport_size({'width': 320, 'height': 640})
+        self.settings('Reading controls', {'showPercentage': '0'})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        field = self.page.locator('[data-setting="show-percentage"]')
+        switch = field.get_by_role('switch', name='Show Percentage', exact=True)
+        expect(switch).not_to_be_checked()
+        self.assertEqual(switch.evaluate('e => e.tagName'), 'INPUT')
+        label = field.locator('[data-ui-toggle="switch"] label')
+        self.assert_reachable(label)
+        switch.press('Space')
+        expect(switch).to_be_checked()
+        expect(switch).to_be_focused()
+        self.page.wait_for_function('() => localStorage.getItem("showPercentage") === "1"')
+        self.capture('expo-switch-320-200', animations='disabled')
+        self.assertLessEqual(self.page.locator('html').evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        # The visible state label operates the same named input exactly once.
+        label.get_by_text('On', exact=True).click()
+        expect(switch).not_to_be_checked()
+        self.page.wait_for_function('() => localStorage.getItem("showPercentage") === "0"')
+        switch.press('Space')
+        self.page.wait_for_function('() => localStorage.getItem("showPercentage") === "1"')
+        self.page.reload()
+        self.page.get_by_role('navigation', name='Settings categories').get_by_role('link', name='Reading controls', exact=True).click()
+        expect(switch).to_be_checked()
+        self.page.set_viewport_size({'width': 1200, 'height': 900})
+        self.assert_reachable(label)
+        self.capture('expo-switch-desktop', animations='disabled')
+
+    def test_background_expo_switches_keep_separate_labels_and_saved_values(self):
+        self.settings('Appearance', {
+            'manabi.background.library': json.dumps({'fade': True, 'amount': 25}),
+            'manabi.background.reader': json.dumps({'fade': True, 'amount': 60})
+        })
+        self.page.get_by_text('Background images', exact=True).click()
+        library = self.page.get_by_role('switch', name='Fade book browser background', exact=True)
+        reader = self.page.get_by_role('switch', name='Fade book reader background', exact=True)
+        expect(library).to_be_checked()
+        expect(reader).to_be_checked()
+        library.press('Space')
+        expect(library).not_to_be_checked()
+        expect(reader).to_be_checked()
+        self.assertEqual(self.page.evaluate('JSON.parse(localStorage.getItem("manabi.background.library"))'), {'fade': False, 'amount': 25})
+        self.assertEqual(self.page.evaluate('JSON.parse(localStorage.getItem("manabi.background.reader"))'), {'fade': True, 'amount': 60})
+        self.page.reload()
+        self.page.get_by_text('Background images', exact=True).click()
+        expect(library).not_to_be_checked()
+        expect(reader).to_be_checked()
+
+    def test_expo_switch_checked_thumb_uses_the_current_theme_foreground(self):
+        self.page.set_viewport_size({'width': 320, 'height': 640})
+        for mode in ('light', 'dark'):
+            self.settings('Reading controls', {'appearance': mode, 'showPercentage': '1'})
+            self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+            switch = self.page.get_by_role('switch', name='Show Percentage', exact=True)
+            expect(switch).to_be_checked()
+            switch.scroll_into_view_if_needed()
+            self.capture('expo-switch-' + mode + '-200', animations='disabled')
+            colors = switch.evaluate('''input => {
+              const label = input.labels[0];
+              const thumb = label.lastElementChild.firstElementChild;
+              const probe = document.createElement('span');
+              probe.style.color = 'var(--primary-foreground)';
+              probe.style.position = 'fixed';
+              document.body.appendChild(probe);
+              try { return {actual:getComputedStyle(thumb).backgroundColor, expected:getComputedStyle(probe).color}; }
+              finally { probe.remove(); }
+            }''')
+            self.assertEqual(colors['actual'], colors['expected'], mode)
 
     def test_size_inspection_retains_exact_pixels_and_automatic(self):
         self.settings('Page layout', {'writingMode': 'horizontal-tb', 'firstDimensionMargin': '137', 'secondDimensionMaxValue': '0'})

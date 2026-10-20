@@ -31,6 +31,7 @@ export function UiPresentation() {
 [data-ui-toggle='checkbox'] label > div:last-child { font-size: 1rem; }
 [data-ui-toggle='switch'] label > div:first-of-type { font-size: 1rem; flex: 1; min-width: 0; }
 [data-ui-toggle='switch'] input { width: 36px; height: 22px; pointer-events: auto !important; z-index: 1; right: 0; top: 50%; transform: translateY(-50%); }
+[data-ui-toggle='switch'] input:checked ~ div:last-child > div { background-color: var(--primary-foreground); }
 [data-ui-modal]::backdrop { background: rgb(0 0 0 / 50%); }
 @media (pointer: coarse) { [data-ui-button]:not([data-date]) { min-width: 44px !important; min-height: 44px !important; } }
 @media (prefers-reduced-motion: reduce) { [data-ui-button] { transition: none; } }

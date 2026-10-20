@@ -174,3 +174,34 @@ WebKit. A mounted native-layout contract exercises the real workspace and
 navigation components with supplied layout/font-scale events. That contract is
 not Android rendering evidence; packaged compact Settings and the wider native
 large-text/device matrix remain separate runtime gates.
+
+Boolean settings now use the same `SettingsSwitch` composition and `SwitchField`
+on Android and web. Web background fading also uses that field. The separate
+button-based browser switch and its CSS are removed. Existing controllers still
+own every save, expected-value check and session lifetime; stored boolean values
+remain `1`/`0`, and background options retain their existing JSON. No persistence
+schema, backup or restore format changes.
+
+The shared setting displays a concise On/Off label because its enclosing card
+already names the setting. A bounded web adapter names Expo's real input;
+Android supplies the same name through Compose semantics. The web adapter owns
+no draft, selection or save state. Native TalkBack behavior still needs actual
+device qualification.
+
+Browser review found and repaired two concrete layout/theme issues: a switch
+beside a cleanup action could overflow its card at 200% text, and Expo's fixed
+white checked thumb had insufficient distinction from the light track in dark
+mode. The common field now constrains its flex width; the web thumb uses the same
+semantic primary foreground as the existing native control. Focus, hit testing,
+Space activation, state-label activation, disabled behavior, live accessible
+names and saved-value reload remain explicit acceptance checks.
+
+Local qualification passes all 1,750 original unit tests, 620 Expo tests, strict
+types, full lint and production web export. The final export passes 22 Settings
+and 21 shared-Statistics journeys in each browser engine. Phone/desktop and
+200% light/dark captures were inspected. The mounted Settings fixtures now resolve
+the installed RNW/Expo browser modules rather than trying to parse native RN
+sources; they retain their existing controller, storage and dialog assertions.
+Native import-boundary checks also pass. A fresh packaged Android run is still
+required for this source; neither these local results nor the prior layout
+commit's CI establish native switch rendering, TalkBack or full screen parity.
