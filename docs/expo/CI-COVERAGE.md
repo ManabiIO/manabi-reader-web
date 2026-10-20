@@ -116,6 +116,8 @@ no longer select different runtime code:
 - All current Settings controls (including the six original cases) and ten Settings editor-usability cases in
   both engines, covering dimension/font behavior, specialized storage/theme
   flows, enlarged-text reachability, category navigation and reader return
+- All 31 retained appearance cases in both engines, including independent image
+  modes, corrupt images, cross-tab updates and offline reopening
 - The real reader save/cancel/Back/Forward/fragment lifetime suite in both engines
 - The two corrected offline handoffs in both engines: Library bookmark reconnect
   and owned-book offline/signout. Worker activation and controller acquisition
@@ -131,7 +133,8 @@ silently passed or deleted. On c3b0c0ba the previous flag-enabled export passed 
 and two offline-handoff cases in each browser engine. The promoted source must
 still pass both exact-head exports; older-head results do not qualify this edit.
 
-Actual emitted-worker/genuine SwiftF0/cover checks and Android qualification are
+Actual emitted-worker/genuine SwiftF0/cover checks, local background raster and
+native-resource checks in both engines, and Android qualification are
 still separate, always-selected job steps. No scope changes runner classes,
 number of exports/jobs, artifacts, caches, assertions, failure aggregation or
 existing whole-job timeouts.

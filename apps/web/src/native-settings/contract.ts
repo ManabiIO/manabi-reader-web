@@ -51,13 +51,6 @@ export type SettingsCommand = (
 
 export const nativeSettingsGates: readonly NativeSettingsGate[] = [
   {
-    id: 'background-images',
-    category: 'appearance',
-    label: 'Background images',
-    reason:
-      'Native image selection and a bounded image transfer are not connected yet. Existing reader images are preserved; the native library does not display them.'
-  },
-  {
     id: 'persistent-storage',
     category: 'library',
     label: 'Storage protection and offline status',

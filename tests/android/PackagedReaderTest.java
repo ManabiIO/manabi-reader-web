@@ -6,10 +6,16 @@ import static org.junit.Assert.*;
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.content.Context;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.graphics.Rect;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.net.Uri;
+import android.provider.MediaStore;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
@@ -23,6 +29,7 @@ import android.webkit.WebView;
 import android.widget.TextView;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -61,7 +68,7 @@ public final class PackagedReaderTest {
     assertTrue("This synthetic-storage qualification is for a disposable emulator only",
         Build.MODEL.contains("sdk_gphone") || Build.MODEL.contains("Emulator")
         || Build.MODEL.contains("Android SDK built for"));
-    assertTrue("Qualification requires API 28 or later", Build.VERSION.SDK_INT >= 28);
+    assertTrue("Qualification requires API 29 or later for test-owned picker images", Build.VERSION.SDK_INT >= 29);
     Bundle args = arguments;
     String phase = args.getString("qualificationPhase", "full");
     assertTrue("Unknown qualification phase", phase.equals("full") || phase.equals("seed") || phase.equals("verify"));
@@ -85,6 +92,7 @@ public final class PackagedReaderTest {
       awaitReady();
       awaitNativeLibraryReply();
       qualifyNativeFontManager();
+      qualifyNativeBackgrounds(phase);
       evidence.put("entry", entry).put("nativeSettings", nativeSettings());
       if (phase.equals("verify")) {
         evidence.put("afterProcessRestart", runProbe("verify"));
@@ -297,6 +305,217 @@ public final class PackagedReaderTest {
       SystemClock.sleep(100);
     }
     throw new AssertionError("Native preference did not reach the local owner: " + key);
+  }
+
+  /** Actual document picker -> native chunk transfer -> existing image database ->
+   * native decoded image. Seed retains three synthetic slots for the restart phase. */
+  private void qualifyNativeBackgrounds(String phase) throws Exception {
+    String original = evaluate("localStorage.getItem('appearance')");
+    String mode = original.equals("null") ? "system" : (String) new JSONTokener(original).nextValue();
+    String prefix = "manabi-background-" + config.getString("id");
+    clickAccessibleText("Manabi Reader actions");
+    clickAccessibleText("Settings");
+    clickAccessibleText("Color mode: Light");
+    awaitSelectedChoice("Color mode: Light");
+    clickAccessibleText("Manage background images");
+    awaitAccessibleText("Images stay on this device and aren’t synced or included in book backups. Keep your originals to use them on another device.");
+    try {
+      if (!phase.equals("verify")) {
+        JSONObject empty = backgroundRecords();
+        assertEquals("Fresh emulator must have no background images", 0, empty.length());
+        // Cancellation must return to the same usable editor without a save.
+        clickAccessibleText("Choose light book browser background");
+        awaitDocumentPicker();
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
+        awaitAccessibleText("Refresh saved backgrounds");
+        assertEquals("Cancelling the system picker must not save", empty.toString(), backgroundRecords().toString());
+        pickBackground("Choose light book browser background", prefix + "-library-light.png", Color.rgb(174, 34, 112));
+        pickBackground("Choose dark book browser background", prefix + "-library-dark.png", Color.rgb(28, 148, 102));
+        pickBackground("Choose light book reader background", prefix + "-reader-light.png", Color.rgb(44, 92, 182));
+      }
+      JSONObject saved = backgroundRecords();
+      assertEquals("Exactly three independent saved modes", 3, saved.length());
+      for (String slot : new String[] {"library-light", "library-dark", "reader-light"}) {
+        JSONObject image = saved.getJSONObject(slot);
+        assertEquals(prefix + "-" + slot + ".png", image.getString("name"));
+        assertTrue("Saved raster has bytes", image.getInt("bytes") > 0);
+        assertTrue("Saved bytes have a real SHA-256", image.getString("sha256").matches("[a-f0-9]{64}"));
+      }
+      assertFalse("Unselected dark reader slot must remain empty", saved.has("reader-dark"));
+      clickAccessibleText("Close background images");
+      clickAccessibleText("Back");
+      awaitNativeLibraryReply();
+      awaitNativeBackgroundPixels(Color.rgb(174, 34, 112));
+      // Both modes must come from their independent persisted resource.
+      clickAccessibleText("Manabi Reader actions");
+      clickAccessibleText("Settings");
+      clickAccessibleText("Color mode: Dark");
+      awaitSelectedChoice("Color mode: Dark");
+      clickAccessibleText("Back");
+      awaitNativeLibraryReply();
+      awaitNativeBackgroundPixels(Color.rgb(28, 148, 102));
+      clickAccessibleText("Manabi Reader actions");
+      clickAccessibleText("Settings");
+      if (!phase.equals("seed")) {
+        clickAccessibleText("Manage background images");
+        clickAccessibleText("Remove light book browser background");
+        JSONObject removed = awaitBackgroundCount(2);
+        assertFalse("Remove only the chosen mode", removed.has("library-light"));
+        assertEquals(saved.getJSONObject("library-dark").toString(), removed.getJSONObject("library-dark").toString());
+        assertEquals(saved.getJSONObject("reader-light").toString(), removed.getJSONObject("reader-light").toString());
+        clickAccessibleText("Remove both book browser background images");
+        clickAccessibleText("Remove both book reader background images");
+        assertEquals("Remove both must clear the saved slots", 0, awaitBackgroundCount(0).length());
+        clickAccessibleText("Close background images");
+      }
+      clickAccessibleText("Color mode: " + Character.toUpperCase(mode.charAt(0)) + mode.substring(1));
+      awaitSelectedChoice("Color mode: " + Character.toUpperCase(mode.charAt(0)) + mode.substring(1));
+      clickAccessibleText("Back");
+      awaitNativeLibraryReply();
+      if (!phase.equals("seed")) awaitNoNativeBackground();
+      evidence.put("nativeBackgrounds", new JSONObject()
+          .put("picker", phase.equals("verify") ? "retained-from-previous-process" : "system-picker-cancel-and-three-imports")
+          .put("rendered", "native-light-and-dark-decoded-pixels")
+          .put("records", saved)
+          .put("removed", !phase.equals("seed")));
+    } finally {
+      evaluate(original.equals("null") ? "localStorage.removeItem('appearance'); true;"
+          : "localStorage.setItem('appearance', " + original + "); true;");
+      assertEquals("Restore exact appearance preference", original, evaluate("localStorage.getItem('appearance')"));
+    }
+  }
+
+  private void awaitDocumentPicker() {
+    long deadline = SystemClock.uptimeMillis() + 15000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
+      if (root != null && root.getPackageName() != null &&
+          root.getPackageName().toString().endsWith(".documentsui")) return;
+      SystemClock.sleep(100);
+    }
+    throw new AssertionError("Android system document picker never opened");
+  }
+
+  private void pickBackground(String label, String name, int color) throws Exception {
+    int expectedCount = backgroundRecords().length() + 1;
+    Context target = instrumentation.getTargetContext();
+    ContentValues values = new ContentValues();
+    values.put(MediaStore.Images.Media.DISPLAY_NAME, name);
+    values.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+    values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/ManabiQualification");
+    values.put(MediaStore.Images.Media.IS_PENDING, 1);
+    Uri uri = target.getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+    assertNotNull("Cannot create test-owned picker fixture", uri);
+    try {
+      Bitmap bitmap = Bitmap.createBitmap(128, 96, Bitmap.Config.ARGB_8888);
+      try (OutputStream out = target.getContentResolver().openOutputStream(uri)) {
+        assertNotNull(out);
+        bitmap.eraseColor(color);
+        assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, out));
+      } finally { bitmap.recycle(); }
+      values.clear();
+      values.put(MediaStore.Images.Media.IS_PENDING, 0);
+      assertEquals(1, target.getContentResolver().update(uri, values, null, null));
+      clickAccessibleText(label);
+      awaitDocumentPicker();
+      clickAccessibleText(name);
+      // Product data changes only after copying, transferring, decoding and saving.
+      awaitBackgroundCount(expectedCount);
+      awaitBackgroundEditorIdle();
+    } finally {
+      assertEquals("Clean up only our own picker fixture", 1, target.getContentResolver().delete(uri, null, null));
+    }
+  }
+
+  private void awaitBackgroundEditorIdle() {
+    long deadline = SystemClock.uptimeMillis() + 15000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
+      if (root != null) for (AccessibilityNodeInfo match : findAccessibleText(root, "Refresh saved backgrounds")) {
+        for (int depth = 0; match != null && depth < 6; depth++, match = match.getParent())
+          if (match.isEnabled() && match.isClickable()) return;
+      }
+      SystemClock.sleep(100);
+    }
+    throw new AssertionError("Background editor did not finish the save");
+  }
+
+  /** Read-only inspection of the product's real store; no injected product service. */
+  private JSONObject awaitBackgroundCount(int count) throws Exception {
+    long deadline = SystemClock.uptimeMillis() + 15000;
+    do {
+      JSONObject records = backgroundRecords();
+      if (records.length() == count) return records;
+      SystemClock.sleep(100);
+    } while (SystemClock.uptimeMillis() < deadline);
+    throw new AssertionError("Background slots did not reach expected count: " + count);
+  }
+
+  private JSONObject backgroundRecords() throws Exception {
+    evaluate("window.__manabiBackgroundQualification=null;(async()=>{"
+        + "const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('manabi-reader-appearance',1);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});"
+        + "try{const tx=db.transaction('backgrounds','readonly');const store=tx.objectStore('backgrounds');"
+        + "const read=key=>new Promise((resolve,reject)=>{const r=store.get(key);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});"
+        + "const entries=await Promise.all(['library','reader'].map(async target=>[target,await read(target)]));const result={};"
+        + "for(const [target,record] of entries)for(const mode of ['light','dark']){const image=record?.[mode];if(!image)continue;"
+        + "const bytes=image.dataUrl?Uint8Array.from(atob(image.dataUrl.split(',')[1]),c=>c.charCodeAt(0)):new Uint8Array(await image.blob.arrayBuffer());"
+        + "const hash=await crypto.subtle.digest('SHA-256',bytes);result[target+'-'+mode]={name:image.name,bytes:bytes.length,sha256:Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('')};}return result;"
+        + "}finally{db.close()}})().then(value=>window.__manabiBackgroundQualification={value},error=>window.__manabiBackgroundQualification={error:String(error)});true;");
+    long deadline = SystemClock.uptimeMillis() + 15000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      String raw = evaluate("window.__manabiBackgroundQualification");
+      if (!raw.equals("null")) {
+        JSONObject reply = new JSONObject(raw);
+        assertFalse("Background database read failed: " + reply, reply.has("error"));
+        return reply.getJSONObject("value");
+      }
+      SystemClock.sleep(100);
+    }
+    throw new AssertionError("Background database read timed out");
+  }
+
+  private View nativeBackgroundView(View view, int tag) {
+    if (!view.isShown() || view instanceof WebView) return null;
+    if ("library-background-image".equals(view.getTag(tag))) return view;
+    if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)view).getChildCount(); i++) {
+      View found = nativeBackgroundView(((ViewGroup)view).getChildAt(i), tag);
+      if (found != null) return found;
+    }
+    return null;
+  }
+
+  private void awaitNativeBackgroundPixels(int expected) {
+    long deadline = SystemClock.uptimeMillis() + 30000;
+    AtomicReference<Integer> pixel = new AtomicReference<>(0);
+    while (SystemClock.uptimeMillis() < deadline) {
+      onActivity(activity -> {
+        int tag = activity.getResources().getIdentifier("react_test_id", "id", activity.getPackageName());
+        assertTrue("Native test ID resource must exist", tag != 0);
+        View view = nativeBackgroundView(activity.getWindow().getDecorView(), tag);
+        if (view == null || view.getWidth() < 1 || view.getHeight() < 1) return;
+        // Draw the real native image, excluding its intentional fade overlay sibling.
+        Bitmap image = Bitmap.createBitmap(view.getWidth(), view.getHeight(), Bitmap.Config.ARGB_8888);
+        try { view.draw(new Canvas(image)); pixel.set(image.getPixel(image.getWidth()/2, image.getHeight()/2)); }
+        finally { image.recycle(); }
+      });
+      int actual = pixel.get();
+      if (Color.alpha(actual) == 255 && Math.abs(Color.red(actual)-Color.red(expected)) <= 6 &&
+          Math.abs(Color.green(actual)-Color.green(expected)) <= 6 && Math.abs(Color.blue(actual)-Color.blue(expected)) <= 6) return;
+      SystemClock.sleep(200);
+    }
+    throw new AssertionError("Native background did not decode expected pixels: " + Integer.toHexString(pixel.get()));
+  }
+
+  private void awaitNoNativeBackground() {
+    long deadline = SystemClock.uptimeMillis() + 15000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      AtomicReference<View> found = new AtomicReference<>();
+      onActivity(activity -> found.set(nativeBackgroundView(activity.getWindow().getDecorView(),
+          activity.getResources().getIdentifier("react_test_id", "id", activity.getPackageName()))));
+      if (found.get() == null) return;
+      SystemClock.sleep(100);
+    }
+    throw new AssertionError("Removed native background remains mounted");
   }
 
   private String awaitFontInput(String label, String expected) throws Exception {

@@ -236,7 +236,10 @@ async function decodeUrl(
   }
 }
 
-async function decodeDataUrl(url: string): Promise<{ image: HTMLImageElement; url: string }> {
+async function decodeDataUrl(
+  url: string,
+  signal?: AbortSignal
+): Promise<{ image: HTMLImageElement; url: string }> {
   const match = /^data:(image\/(?:png|jpeg|webp));base64,([a-z0-9+/]*={0,2})$/i.exec(url);
   if (!match)
     throw new Error('The saved background cannot be read. Remove it and choose another image.');
@@ -245,7 +248,7 @@ async function decodeDataUrl(url: string): Promise<{ image: HTMLImageElement; ur
     throw new Error('The saved background cannot be read. Remove it and choose another image.');
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   imageDimensions(bytes, match[1].toLowerCase());
-  return decodeUrl(url);
+  return decodeUrl(url, signal);
 }
 
 async function decodeImage(
@@ -463,5 +466,65 @@ export function startBackgrounds(): () => void {
     channel?.close();
     channel = undefined;
     backgrounds.set(empty());
+  };
+}
+
+/** Read the same durable mode slots without changing records or normalizing legacy data.
+ * Slot actions deliberately have the browser editor's replace/remove-slot semantics. */
+export async function readBackgroundMetadata(authority: BackgroundMutationAuthority) {
+  const result: {
+    target: BackgroundTarget;
+    mode: BackgroundMode;
+    present: boolean;
+    name: string;
+  }[] = [];
+  for (const target of ['library', 'reader'] as const) {
+    assertAuthority(authority);
+    const saved = await (await db()).get('backgrounds', target);
+    assertAuthority(authority);
+    for (const mode of modes) {
+      const value = saved?.[mode];
+      result.push({
+        target,
+        mode,
+        present: !!value,
+        name: value && typeof value.name === 'string' ? value.name.slice(0, 200) : ''
+      });
+    }
+  }
+  return result;
+}
+/** The decoded element never crosses the native bridge. The caller must release it. */
+export async function readBackgroundImage(
+  target: BackgroundTarget,
+  mode: BackgroundMode,
+  authority: BackgroundMutationAuthority
+) {
+  assertAuthority(authority);
+  const version = versions[target];
+  const saved = (await (await db()).get('backgrounds', target))?.[mode];
+  assertAuthority(authority);
+  if (!saved) return null;
+  validateSaved(saved);
+  const decoded = saved.dataUrl
+    ? await decodeDataUrl(saved.dataUrl, authority.signal)
+    : await decodeImage(saved.blob as Blob, authority.signal);
+  const check = () => {
+    assertAuthority(authority);
+    if (version !== versions[target])
+      throw new Error('This background changed. Refresh to load the saved image.');
+  };
+  try {
+    check();
+  } catch (error) {
+    decoded.image.src = '';
+    throw error;
+  }
+  return {
+    image: decoded.image,
+    check,
+    release: () => {
+      decoded.image.src = '';
+    }
   };
 }

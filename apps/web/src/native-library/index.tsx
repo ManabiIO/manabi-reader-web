@@ -50,6 +50,7 @@ import {
   type LibrarySort
 } from '../features/library/sort-options';
 import { NativeLibraryContentSearch } from './content-search';
+import { NativeSavedBackground } from '../native-settings/NativeSavedBackground';
 import { NativeBookCover } from './cover';
 import { formatCalendarDay } from '../lib/library/reading-state';
 import { LibraryBookFace } from '../features/library/LibraryBookFace';
@@ -808,6 +809,7 @@ function Library() {
   }, [seriesOverview]);
   const content = (
     <NativeLibraryFrame
+      background={<NativeSavedBackground target="library" mode={uiTheme.mode} active={focused} />}
       theme={uiTheme}
       onPaneWidth={(paneWidth) =>
         setPane((previous) =>

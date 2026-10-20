@@ -296,12 +296,26 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     nativeFontPreferences: 'explicit-font-draft-cancel-apply-and-exact-restore',
     nativeThemeChooser: 'add-dialog-back-and-close-without-save',
     nativeDimensions: 'slider-completion-and-automatic-local-save-with-exact-restore',
+    nativeBackgrounds: {
+      rendered: 'native-light-and-dark-decoded-pixels',
+      records: Object.fromEntries(
+        ['library-light', 'library-dark', 'reader-light'].map((slot) => [
+          slot,
+          { name: `manabi-background-${id}-${slot}.png`, bytes: 120, sha256: 'a'.repeat(64) }
+        ])
+      )
+    },
     entry: 'https://appassets.androidplatform.net/www.bundle/' + 'a'.repeat(32) + '.html',
     nativeSettings: { webViewVersion: 'fixture-version', fileOriginBypass: false }
   };
   const seed = {
     ...base,
     phase: 'seed',
+    nativeBackgrounds: {
+      ...base.nativeBackgrounds,
+      removed: false,
+      picker: 'system-picker-cancel-and-three-imports'
+    },
     initial: {
       secureContext: true,
       cachedFont: 'cached-packaged-face-loaded-via-blob',
@@ -319,6 +333,11 @@ test('runtime evidence requires an actual native roundtrip in both process phase
   const verify = {
     ...base,
     phase: 'verify',
+    nativeBackgrounds: {
+      ...base.nativeBackgrounds,
+      removed: true,
+      picker: 'retained-from-previous-process'
+    },
     afterProcessRestart: {
       indexedDB: 'read-committed-sentinel',
       opfs: 'read-committed-sentinel',
@@ -328,6 +347,15 @@ test('runtime evidence requires an actual native roundtrip in both process phase
   };
   for (const evidence of [seed, verify]) {
     assert.equal(verifyEvidence(evidence, evidence.phase, id), evidence);
+    for (const nativeBackgrounds of [
+      undefined,
+      {},
+      { ...evidence.nativeBackgrounds, rendered: 'component-mounted' },
+      { ...evidence.nativeBackgrounds, removed: !evidence.nativeBackgrounds.removed },
+      { ...evidence.nativeBackgrounds, records: {} },
+      { ...evidence.nativeBackgrounds, picker: 'mock-picker' }
+    ])
+      assert.throws(() => verifyEvidence({ ...evidence, nativeBackgrounds }, evidence.phase, id));
     for (const nativeRoundTrip of [undefined, 'shim-exists', false]) {
       assert.throws(() => verifyEvidence({ ...evidence, nativeRoundTrip }, evidence.phase, id));
     }
@@ -499,4 +527,55 @@ class ParseJava { public static void main(String[] args) throws Exception {
   } finally {
     await trashTemporary(temp);
   }
+});
+
+test('actual Java-injected image inspection reads real slot bytes without changing the store', async () => {
+  const java = await fs.readFile(new URL('PackagedReaderTest.java', import.meta.url), 'utf8');
+  const method = java.slice(java.indexOf('private JSONObject backgroundRecords()'));
+  const expression = method.match(/evaluate\(([\s\S]*?)\);\n {4}long deadline/)[1];
+  const script = [...expression.matchAll(/"(?:[^"\\]|\\.)*"/g)]
+    .map((m) => JSON.parse(m[0]))
+    .join('');
+  const indexedDB = new IDBFactory();
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open('manabi-reader-appearance', 1);
+    request.onupgradeneeded = () => request.result.createObjectStore('backgrounds');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const bytes = new Uint8Array([1, 2, 3, 4]);
+  const original = {
+    light: { name: 'light.png', blob: new Blob([bytes]) },
+    dark: { name: 'dark.png', dataUrl: 'data:image/png;base64,AQIDBA==' }
+  };
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction('backgrounds', 'readwrite');
+    tx.objectStore('backgrounds').put(original, 'library');
+    tx.oncomplete = resolve;
+    tx.onabort = () => reject(tx.error);
+  });
+  const window = {};
+  vm.runInNewContext(script, {
+    window,
+    indexedDB,
+    crypto: webcrypto,
+    Uint8Array,
+    atob: globalThis.atob
+  });
+  for (let i = 0; i < 200 && !window.__manabiBackgroundQualification; i++)
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  const result = window.__manabiBackgroundQualification;
+  assert.ok(result);
+  assert.equal(result.error, undefined);
+  assert.deepEqual(Object.keys(result.value), ['library-light', 'library-dark']);
+  for (const image of Object.values(result.value)) {
+    assert.equal(image.bytes, 4);
+    assert.equal(image.sha256, createHash('sha256').update(bytes).digest('hex'));
+  }
+  const retained = await new Promise((resolve) => {
+    const request = db.transaction('backgrounds').objectStore('backgrounds').get('library');
+    request.onsuccess = () => resolve(request.result);
+  });
+  assert.deepEqual(retained, original);
+  db.close();
 });

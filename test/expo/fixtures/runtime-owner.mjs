@@ -58,7 +58,8 @@ const documents = production('lib/snippets/document.ts');
 const { summarize } = production('lib/snippets/summary.ts', { './document': documents });
 const settings = production('platform/settings-fields.ts');
 const bridge = production('platform/bridge-contract.ts', {
-  '../native-settings/font-contract.ts': production('native-settings/font-contract.ts')
+  '../native-settings/font-contract.ts': production('native-settings/font-contract.ts'),
+  '../native-settings/background-contract.ts': production('native-settings/background-contract.ts')
 });
 const navigation = production('platform/native-navigation.ts');
 const editor = production('native-snippets/editor-model.ts', {
@@ -293,6 +294,9 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     })
   );
   Object.assign(reader, settingSubjects);
+  const backgroundState = observable({});
+  const libraryFade = new BehaviorSubject({ fade: true, amount: 40 }),
+    readerFade = new BehaviorSubject({ fade: true, amount: 40 });
   const appearanceStores = {
     mode: observable('light'),
     theme: observable('manabi-theme'),
@@ -392,7 +396,9 @@ export async function runtimeOwner(t, { strict = false } = {}) {
       appearance$: settingSubjects.appearance$,
       resolvedMode$: appearanceStores.mode,
       theme$: appearanceStores.theme,
-      customThemes$: appearanceStores.custom
+      customThemes$: appearanceStores.custom,
+      libraryBackgroundOptions$: libraryFade,
+      readerBackgroundOptions$: readerFade
     },
     '$lib/data/theme-option': production('lib/data/theme-option.ts'),
     '../runtime/use-store': production('runtime/use-store.ts'),
@@ -464,6 +470,13 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     },
     '../native-library/dom-service': { createNativeLibraryService: () => library },
     '../native-library/catalog-dom': { createNativeCatalogService: () => catalog },
+    '$lib/appearance/backgrounds': { backgrounds: backgroundState },
+    '../native-settings/background-service.dom': {
+      readNativeBackgroundState: (...args) => f.backgroundRead?.(...args) ?? {},
+      readNativeBackgroundResource: (...args) => f.backgroundResource?.(...args) ?? {},
+      changeNativeBackground: (...args) => f.backgroundChange?.(...args) ?? {},
+      importNativeBackground: (...args) => f.backgroundImport?.(...args) ?? {}
+    },
     '../native-settings/font-service.dom': {
       createNativeFontService: () => ({
         read: (...args) => f.fontRead?.(...args) ?? {},
@@ -516,6 +529,9 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     online,
     appearances,
     appearanceStores,
+    backgroundState,
+    libraryFade,
+    readerFade,
     replies,
     records,
     pages,

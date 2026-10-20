@@ -57,6 +57,14 @@ import { createNativeLibraryContentSearchService } from '../native-library/conte
 import { clearLibraryLocation, queueLibraryLocation } from '$lib/library/search-navigation';
 import type { BookAccessIdentity } from '$lib/data/database/books-db/book-identity';
 import { readNativeSettingsState, dispatchNativeSettingsAction } from '../native-settings/service';
+import { backgrounds as savedBackgrounds } from '$lib/appearance/backgrounds';
+import { libraryBackgroundOptions$, readerBackgroundOptions$ } from '$lib/appearance/state';
+import {
+  readNativeBackgroundState,
+  readNativeBackgroundResource,
+  changeNativeBackground,
+  importNativeBackground
+} from '../native-settings/background-service.dom';
 import { createNativeFontService } from '../native-settings/font-service.dom';
 import type { NativeStatisticsAction } from '../statistics-react/native-contract';
 import '../app.css';
@@ -134,12 +142,16 @@ export default function ReaderRuntime({
       epoch: 0,
       revision: 0,
       openSequence: 0,
+      backgroundRevision: 0,
       libraryQuery: { query: '', offset: 0, limit: 100 },
       mounted: false,
       accountLifetime: new AbortController(),
       lifetime: new AbortController(),
       transfer: new ImportTransfer(),
       bookImport: false,
+      backgroundSave: undefined as
+        | { id: string; key: string; controller: AbortController }
+        | undefined,
       fontSave: undefined as { id: string; key: string; controller: AbortController } | undefined,
       coverSave: undefined as { id: string; key: string; controller: AbortController } | undefined
     }),
@@ -188,6 +200,7 @@ export default function ReaderRuntime({
     return {
       ...scope(),
       revision,
+      backgroundRevision: state.backgroundRevision,
       online: reader.isOnline$.getValue(),
       loading: current.status === 'loading',
       books,
@@ -312,6 +325,12 @@ export default function ReaderRuntime({
                 return readNativeSettingsState(payload);
               case 'settings.action':
                 return dispatchNativeSettingsAction(payload);
+              case 'settings.backgrounds.read':
+                return readNativeBackgroundState(payload, libraryAuthority);
+              case 'appearance.background.read':
+                return readNativeBackgroundResource(payload, libraryAuthority);
+              case 'settings.backgrounds.action':
+                return changeNativeBackground(payload, libraryAuthority);
               case 'settings.fonts.read':
                 return fonts.read(payload, libraryAuthority);
               case 'settings.fonts.action':
@@ -498,6 +517,22 @@ export default function ReaderRuntime({
                 if (state.bookImport) throw new Error('Another book import is still in progress.');
                 if (payload.cover !== undefined && payload.font !== undefined)
                   throw new Error('A transfer cannot be both a font and a cover.');
+                if (
+                  [payload.cover, payload.font, payload.background].filter(
+                    (value) => value !== undefined
+                  ).length > 1
+                )
+                  throw new Error('A transfer must have one purpose.');
+                if (payload.background !== undefined) {
+                  state.transfer.beginBackground(
+                    scope(),
+                    payload.transferId as string,
+                    payload.name as string,
+                    payload.size as number,
+                    payload.background
+                  );
+                  return null;
+                }
                 if (payload.font !== undefined) {
                   state.transfer.beginFont(
                     scope(),
@@ -546,6 +581,11 @@ export default function ReaderRuntime({
                   throw new Error('A transfer identity is required to cancel an upload.');
                 state.transfer.retire(scope(), payload.transferId);
                 if (
+                  state.backgroundSave?.id === payload.transferId &&
+                  state.backgroundSave.key === libraryAuthority.key
+                )
+                  state.backgroundSave.controller.abort();
+                if (
                   state.fontSave?.id === payload.transferId &&
                   state.fontSave.key === libraryAuthority.key
                 )
@@ -561,8 +601,30 @@ export default function ReaderRuntime({
                 const file = new File(
                   transfer.chunks.map((chunk) => chunk.buffer as ArrayBuffer),
                   transfer.name,
-                  transfer.cover ? { type: transfer.cover.type } : undefined
+                  transfer.background
+                    ? { type: transfer.background.type }
+                    : transfer.cover
+                      ? { type: transfer.cover.type }
+                      : undefined
                 );
+                if (transfer.background) {
+                  if (state.backgroundSave)
+                    throw new Error('Another background is still being saved.');
+                  const pending = {
+                    id: payload.transferId as string,
+                    key: libraryAuthority.key,
+                    controller: new AbortController()
+                  };
+                  state.backgroundSave = pending;
+                  try {
+                    return await importNativeBackground(transfer.background, file, {
+                      ...libraryAuthority,
+                      signal: AbortSignal.any([libraryAuthority.signal, pending.controller.signal])
+                    });
+                  } finally {
+                    if (state.backgroundSave === pending) state.backgroundSave = undefined;
+                  }
+                }
                 if (transfer.font) {
                   if (state.fontSave) throw new Error('Another font is still being saved.');
                   const pending = {
@@ -746,6 +808,28 @@ export default function ReaderRuntime({
       authenticationGeneration = generation;
       emit();
     };
+    const backgroundChanged = () => {
+      state.backgroundRevision++;
+      emit();
+    };
+    let previousImages: string[] = [];
+    const backgroundStop = savedBackgrounds.subscribe((value) => {
+      const images = (['library', 'reader'] as const).flatMap((target) =>
+        (['light', 'dark'] as const).map((mode) => value[target]?.[mode]?.url ?? '')
+      );
+      if (images.some((url, index) => url !== (previousImages[index] ?? ''))) backgroundChanged();
+      previousImages = images;
+    });
+    const fadeObserver = () => {
+      let previous = '';
+      return (value: { fade: boolean; amount: number }) => {
+        const key = `${value.fade}:${value.amount}`;
+        if (previous && key !== previous) backgroundChanged();
+        previous = key;
+      };
+    };
+    const libraryFade = libraryBackgroundOptions$.subscribe(fadeObserver());
+    const readerFade = readerBackgroundOptions$.subscribe(fadeObserver());
     const stop = localUser.subscribe(observeOwnership);
     const changed = reader.database.dataListChanged$.subscribe(emit);
     const bookmarks = reader.database.bookmarksChanged$.subscribe(emit);
@@ -780,6 +864,9 @@ export default function ReaderRuntime({
     return () => {
       alive = false;
       stop();
+      backgroundStop();
+      libraryFade.unsubscribe();
+      readerFade.unsubscribe();
       changed.unsubscribe();
       bookmarks.unsubscribe();
       accountStop();

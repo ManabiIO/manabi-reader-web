@@ -527,3 +527,55 @@ confirm this correction; the failed run does not qualify size or font edits.
 The raw log and parsed hierarchy are retained in local
 `native-background-images-sf7gtuop` evidence. This diagnosis changes test lookup,
 not product preference semantics or the installed Expo implementation.
+
+### Shared background editor and native local images
+
+The editor now shares `SettingsBackgroundImages` on web and Android, with small
+HTML/RN layout leaves. Web retains its file inputs, fieldsets, independent mode
+previews and fade controls. Android uses the system document picker and bounded
+native file chunks, then the existing DOM-owned image decoder and transaction.
+Library rendering consumes a separately requested local image resource. Original
+files, native paths and image bytes never enter ordinary runtime snapshots.
+
+All four library/reader × light/dark slots remain in the same
+`manabi-reader-appearance` v1 database. No second native store or migration was
+introduced. The owner keeps its 8 MB, 24 MP and 8192px input limits. Native replies
+preserve aspect ratio and alpha, are reencoded as WebP or PNG, and are bounded to
+2048px and 384 KiB. Late mode/account/revision replies cannot replace a newer
+Library image. Failed native decoding hides the decorative image and can retry
+on a later revision. A picker cancelled or retired by its editor/account cannot
+replay a save; uncertain mutation results require explicit refresh.
+
+Book ZIP backups still omit this image database. Both editors explicitly say
+images stay locally, are not synced or included in book backups, and original
+files are needed on another device. Existing backup/restore formats are unchanged.
+
+Local checks in `native-background-images-sf7gtuop` and
+`background-closeout-cJwIc0S9`: 1,768 units; 651 Expo contracts; six mounted native manager/renderer tests; real
+IndexedDB/decoder/canvas/resource cases in Chromium and WebKit; application types,
+lint, Android graph/export, and Java 21/API 35 instrumentation compilation. The
+production web export passes all 31 retained appearance cases and 31 Settings
+controls/editor-usability cases in each engine (124 journeys). Narrow/wide,
+light/dark image-editor captures were reviewed. These are local results, not
+packaged Android acceptance or full application parity.
+
+The first browser run retained two failures per engine: the formatter removed a
+conditional class-name space, breaking dark previews. An explicit class list
+repairs the real stylesheet/DOM contract; the original assertions remain.
+The image-button label is also a single text child, preventing RN flex gaps
+between words. CI now selects the complete appearance collection for both export
+modes and engines, plus real native-resource raster cases in both engines.
+
+Packaged Android coverage now requires actual picker cancellation and three PNG
+imports, distinct light/dark native image pixels, persisted slot-byte hashes
+across a real process restart, isolated mode removal and complete cleanup. It
+uses only fresh disposable emulator data. This new gate has been compiled and
+its harness tested, but has not executed against the APK yet. The capability is
+implemented in current source; native release qualification remains open.
+
+Run [39511591350](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39511591350)
+completed successfully on `758d76e638f7fd113653b41a3496fdd108e15138`: both web jobs
+and packaged Android passed. The native slider/font semantics repair is therefore
+qualified for that source, including the original save/restore requirements.
+That commit predates the background integration above; its green result does not
+qualify the new background system picker, renderer or restart assertions.

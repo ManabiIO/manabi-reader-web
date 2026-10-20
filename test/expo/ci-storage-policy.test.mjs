@@ -458,6 +458,10 @@ for (const [label, mode] of [
               result.stdout.includes(`SELECTED|${engine}|tests/browser/${settingsSuite}.py`)
             );
           assert.ok(
+            result.stdout.includes(`SELECTED|${engine}|-m unittest -v test_appearance_refinement`),
+            'Real local-image persistence and preview cases must run in both engines and scopes'
+          );
+          assert.ok(
             result.stdout.includes(
               `SELECTED|${engine}|-m unittest test_library_sync.LibraryOrganizationSync.test_offline_bookmark_survives_reload_and_syncs_on_reconnect test_offline_account_profile.OfflineAccountProfile.test_owned_book_opens_offline_and_disappears_after_confirmed_signout -v`
             )
@@ -606,4 +610,30 @@ test('both production exports retain the same exact shared Library shelf/editor 
       value.endsWith('test_grid_title_and_author_contrast_across_real_theme_presets')
     )
   );
+});
+
+test('background raster qualification executes both engines and retains the first failure', () => {
+  const step = stepNamed('Real local background decoding');
+  assert.match(step.if, /steps\.browsers\.outcome == 'success'/);
+  const temporary = mkdtempSync(path.join(tmpdir(), 'expo-background-ci-'));
+  try {
+    writeFileSync(
+      path.join(temporary, 'node'),
+      '#!/usr/bin/env bash\n' +
+        'printf "SELECTED|%s|%s\\n" "$BACKGROUND_BROWSER" "$*"\n' +
+        '[ "$BACKGROUND_BROWSER" != chromium ]\n',
+      { mode: 0o755 }
+    );
+    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${temporary}${path.delimiter}${process.env.PATH}` }
+    });
+    assert.equal(result.status, 1);
+    for (const engine of ['chromium', 'webkit'])
+      assert.ok(
+        result.stdout.includes(`SELECTED|${engine}|test/expo/native-background-browser.mjs`)
+      );
+  } finally {
+    trashTemporary(temporary);
+  }
 });

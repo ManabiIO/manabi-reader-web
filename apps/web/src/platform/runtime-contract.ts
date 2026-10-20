@@ -39,6 +39,8 @@ export interface RuntimeSnapshot extends BridgeScope {
   online?: boolean;
   loading: boolean;
   revision: number;
+  /** Invalidation only; image bytes are requested separately and bounded. */
+  backgroundRevision?: number;
 }
 export const EMPTY_SNAPSHOT: RuntimeSnapshot = {
   session: '',

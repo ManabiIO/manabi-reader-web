@@ -40,6 +40,8 @@ import {
 } from './native-reader-navigation';
 import { nativeNavigationPath } from './native-navigation';
 import { selectNativeLibraryCover } from '../native-library/cover-selection';
+import { selectNativeBackground } from '../native-settings/background-selection';
+import type { BackgroundSlot } from '../native-settings/background-contract';
 import { selectNativeUserFont } from '../native-settings/font-selection';
 import { ConnectionNotice } from '../shared-ui/ConnectionNotice';
 import { UiThemeProvider } from '../shared-ui/theme';
@@ -60,6 +62,7 @@ interface RuntimeValue {
   command(method: BridgeMethod, payload?: Record<string, unknown>): Promise<unknown>;
   importBooks(): Promise<void>;
   importFont(name: string, signal: AbortSignal): Promise<boolean>;
+  importBackground(slot: BackgroundSlot, signal: AbortSignal): Promise<boolean>;
   changeCover(selection: { token: string; key: string }, signal: AbortSignal): Promise<boolean>;
   clearError(): void;
 }
@@ -344,6 +347,31 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
       if (mounted.current) setBusy(false);
     }
   }
+  async function importBackground(slot: BackgroundSlot, signal: AbortSignal) {
+    if (importActive.current) throw new Error('Another file transfer is in progress.');
+    importActive.current = true;
+    setBusy(true);
+    try {
+      return await selectNativeBackground(
+        {
+          scope: () => latest.current,
+          pick: () =>
+            DocumentPicker.getDocumentAsync({
+              type: ['image/png', 'image/jpeg', 'image/webp'],
+              multiple: false,
+              copyToCacheDirectory: true
+            }),
+          file: (uri) => new File(uri),
+          command
+        },
+        slot,
+        signal
+      );
+    } finally {
+      importActive.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
   const routeParams = JSON.stringify({ id: params.id, snippet: params.snippet });
   const retryReader = useCallback(() => {
     if (latest.current.session && !latest.current.loading)
@@ -410,6 +438,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         importBooks,
         changeCover,
         importFont,
+        importBackground,
         clearError: () => setError('')
       }}
     >

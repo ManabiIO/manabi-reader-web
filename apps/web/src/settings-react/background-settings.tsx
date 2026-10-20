@@ -6,13 +6,14 @@
 
 import React from 'react';
 import { useReaderController } from '../reader-react/controller';
-import { Dom, Button, useLatest, useReaderBindings, type ReaderViewProps } from './primitives';
+import { Dom, useLatest, useReaderBindings, type ReaderViewProps } from './primitives';
 import { SettingsContext, useSettingsContext } from './context';
 import {
   createBackgroundSettings,
   type BackgroundSettingsProps
 } from './background-settings-controller';
 import { removeBackground, removeBackgrounds } from '../lib/appearance/backgrounds';
+import { SettingsBackgroundImages } from '../features/settings/SettingsBackgroundImages';
 import { SwitchField } from '../shared-ui/Fields';
 
 export function BackgroundSettings(
@@ -42,157 +43,41 @@ export function BackgroundSettings(
   return (
     <SettingsContext.Provider value={context}>
       <div className="react-settings-background-settings" style={{ display: 'contents' }}>
-        <Dom
-          as="fieldset"
-          aria-busy={c.busy}
-          className={['background-setting'].filter(Boolean).join(' ')}
+        <SettingsBackgroundImages
+          target={c.target}
+          label={c.label}
+          fade={c.opacity}
+          slots={c.modes.map((mode) => ({
+            mode: mode.value,
+            present: !!c.state[mode.value].url || !!c.state[mode.value].error,
+            uri: c.state[mode.value].url,
+            name: c.state[mode.value].name,
+            busy: c.state[mode.value].busy,
+            error: c.state[mode.value].error,
+            input: (
+              <input
+                id={`background-${c.target}-${mode.value}`}
+                type="file"
+                className="sr-only"
+                aria-label={`Choose ${mode.value} ${c.label.toLowerCase()}`}
+                accept="image/png,image/jpeg,image/webp"
+                disabled={c.state[mode.value].busy}
+                onChange={(event) =>
+                  void c.select(mode.value, {
+                    currentTarget: event.currentTarget
+                  } as unknown as Event)
+                }
+              />
+            )
+          }))}
+          onChoose={(mode) => document.getElementById(`background-${c.target}-${mode}`)?.click()}
+          onRemove={(mode) => {
+            void removeBackground(c.target, mode).catch(() => undefined);
+          }}
+          onRemoveBoth={() => {
+            void removeBackgrounds(c.target).catch(() => undefined);
+          }}
         >
-          <Dom as="legend">{c.label}</Dom>
-          <Dom as="div" className={['mode-grid'].filter(Boolean).join(' ')}>
-            {(c.modes ?? []).map((mode, _index0) => (
-              <React.Fragment key={mode.value}>
-                {(() => {
-                  const image = c.state[mode.value];
-                  return (
-                    <>
-                      <Dom
-                        as="section"
-                        aria-labelledby={
-                          String(c.target ?? '') + '-' + String(mode.value ?? '') + '-heading'
-                        }
-                        className={['mode-image rounded-2xl bg-muted/40 p-3']
-                          .filter(Boolean)
-                          .join(' ')}
-                      >
-                        <Dom
-                          as="h3"
-                          id={String(c.target ?? '') + '-' + String(mode.value ?? '') + '-heading'}
-                        >
-                          {mode.label}
-                        </Dom>
-                        <Dom
-                          as="div"
-                          aria-hidden={'true'}
-                          className={['background-preview', mode.value === 'dark' && 'dark-preview']
-                            .filter(Boolean)
-                            .join(' ')}
-                          style={{
-                            backgroundImage: image.url ? `url("${image.url}")` : undefined,
-                            '--image-fade-color': mode.fadeColor,
-                            '--background-fade': c.opacity
-                          }}
-                        >
-                          {image.url ? (
-                            <>
-                              <Dom
-                                as="span"
-                                className={[c.target === 'reader' && 'reader-preview']
-                                  .filter(Boolean)
-                                  .join(' ')}
-                              >
-                                {'本を読む'}
-                                <Dom as="br" />
-                                <Dom as="small">{'Read comfortably'}</Dom>
-                              </Dom>
-                            </>
-                          ) : (
-                            <>
-                              {' '}
-                              <Dom as="span">{'No image'}</Dom>
-                            </>
-                          )}
-                        </Dom>
-                        <Button
-                          variant={'outline'}
-                          onClick={() =>
-                            document.getElementById(`background-${c.target}-${mode.value}`)?.click()
-                          }
-                          disabled={image.busy}
-                          className={['w-full'].filter(Boolean).join(' ')}
-                        >
-                          {'Choose '}
-                          {mode.label.toLowerCase()}
-                          {' image'}
-                        </Button>
-                        <Dom
-                          as="input"
-                          id={
-                            'background-' + String(c.target ?? '') + '-' + String(mode.value ?? '')
-                          }
-                          type={'file'}
-                          aria-label={`Choose ${mode.label.toLowerCase()} ${c.label.toLowerCase()}`}
-                          accept={'image/png,image/jpeg,image/webp'}
-                          disabled={image.busy}
-                          className={['sr-only'].filter(Boolean).join(' ')}
-                          events={{
-                            change: (event: Event & { currentTarget: HTMLInputElement }) =>
-                              c.select(mode.value, event)
-                          }}
-                        />
-                        {image.url || image.error ? (
-                          <>
-                            <Button
-                              variant={'ghost'}
-                              disabled={image.busy}
-                              onClick={() =>
-                                removeBackground(c.target, mode.value).catch(() => undefined)
-                              }
-                              aria-label={
-                                'Remove ' +
-                                String(mode.label.toLowerCase() ?? '') +
-                                ' ' +
-                                String(c.label.toLowerCase() ?? '')
-                              }
-                            >
-                              {'Remove'}
-                            </Button>
-                          </>
-                        ) : null}
-                        {image.name ? (
-                          <>
-                            <Dom as="p" className={['filename'].filter(Boolean).join(' ')}>
-                              {image.name}
-                            </Dom>
-                          </>
-                        ) : null}
-                        {image.busy ? (
-                          <>
-                            <Dom as="p" role={'status'}>
-                              {'Preparing image…'}
-                            </Dom>
-                          </>
-                        ) : null}
-                        {image.error ? (
-                          <>
-                            <Dom
-                              as="p"
-                              role={'alert'}
-                              className={['error'].filter(Boolean).join(' ')}
-                            >
-                              {image.error}
-                            </Dom>
-                          </>
-                        ) : null}
-                      </Dom>
-                    </>
-                  );
-                })()}
-              </React.Fragment>
-            ))}
-          </Dom>
-          {c.hasAnything ? (
-            <>
-              <Button
-                variant={'outline'}
-                disabled={c.busy}
-                onClick={() => removeBackgrounds(c.target).catch(() => undefined)}
-                aria-label={'Remove both ' + String(c.label.toLowerCase() ?? '') + ' images'}
-                className={['mt-3'].filter(Boolean).join(' ')}
-              >
-                {'Remove both'}
-              </Button>
-            </>
-          ) : null}
           <Dom as="div" className="fade-toggle">
             <SwitchField
               label={`Fade ${c.label.toLowerCase()}`}
@@ -228,7 +113,7 @@ export function BackgroundSettings(
           <Dom as="p" className={['fade-note'].filter(Boolean).join(' ')}>
             {'Light fades toward white; dark fades toward black.'}
           </Dom>
-        </Dom>
+        </SettingsBackgroundImages>
       </div>
     </SettingsContext.Provider>
   );

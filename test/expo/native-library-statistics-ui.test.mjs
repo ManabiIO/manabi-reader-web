@@ -23,7 +23,7 @@ const output = mkdtempSync(join(tmpdir(), 'library-statistics-ui-'));
 process.on('exit', () => rmSync(output, { recursive: true, force: true }));
 const fixture = `import React,{useRef} from 'react';
 import {ActionButton as NativeMenuButton} from './apps/web/src/shared-ui/ActionButton';
-export const View=({children,style,accessibilityLabel,testID,onLayout})=>{if(onLayout&&testID)globalThis.libraryStatisticsUI.layouts[testID]=onLayout;return <div data-label={accessibilityLabel} data-testid={testID} data-style={JSON.stringify(StyleSheet.flatten(style))}>{children}</div>}; export const ScrollView=View,SafeAreaView=View,Host=View;
+export const View=({children,style,accessibilityLabel,testID,onLayout})=>{if(onLayout&&testID)globalThis.libraryStatisticsUI.layouts[testID]=onLayout;return <div data-label={accessibilityLabel} data-testid={testID} data-style={JSON.stringify(StyleSheet.flatten(style))}>{children}</div>}; export const ScrollView=View,SafeAreaView=View,Host=View,Image=View;
 export const Text=({children,style,accessibilityRole})=><span role={accessibilityRole==='header'?'heading':undefined} data-color={StyleSheet.flatten(style).color}>{children}</span>; export const StyleSheet={create:x=>x,flatten:x=>Object.assign({},...(Array.isArray(x)?x.flat(Infinity):[x]).filter(Boolean))};
 export const Platform={OS:"android"}; export const useColorScheme=()=>"light"; export const useWindowDimensions=()=>globalThis.libraryStatisticsUI.dimensions;
 export const ActivityIndicator=()=>null; export const Modal=({visible,children})=>visible?<section>{children}</section>:null;

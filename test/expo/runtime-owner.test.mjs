@@ -1209,3 +1209,58 @@ test('font import dispatch carries exact transferred bytes and private purpose i
   assert.equal(invalid.ok, false);
   assert.match(invalid.error, /both a font and a cover/);
 });
+
+test('background invalidation reaches native separately from image bytes and retires its observers', async (t) => {
+  const f = await runtimeOwner(t);
+  const before = f.snapshots.at(-1).backgroundRevision;
+  await f.settle(() =>
+    f.backgroundState.set({ library: { light: { url: 'data:image/png;base64,AAAA' } } })
+  );
+  assert.ok(f.snapshots.at(-1).backgroundRevision > before);
+  assert.doesNotMatch(JSON.stringify(f.snapshots.at(-1)), /data:image/);
+  await f.unmount();
+  assert.equal(f.backgroundState.listeners.size, 0);
+  assert.equal(f.libraryFade.observed, false);
+  assert.equal(f.readerFade.observed, false);
+});
+
+test('native background transfer dispatches only its exact selected slot and cancellation fences the pending save', async (t) => {
+  const f = await runtimeOwner(t),
+    pending = deferred();
+  let captured;
+  f.backgroundImport = async (target, file, authority) => {
+    captured = { target, file, authority };
+    await pending.promise;
+    authority.signal.throwIfAborted();
+    authority.assertCurrent();
+    return {};
+  };
+  success(
+    await f.command('import.begin', {
+      transferId: 'background_fixture',
+      name: 'image.png',
+      size: 3,
+      background: { target: 'reader', mode: 'dark', type: 'image/png' }
+    })
+  );
+  success(
+    await f.command('import.chunk', { transferId: 'background_fixture', sequence: 0, data: 'AQID' })
+  );
+  const commit = await f.start('import.commit', { transferId: 'background_fixture' });
+  assert.deepEqual(captured.target, { target: 'reader', mode: 'dark', type: 'image/png' });
+  assert.equal(captured.file.type, 'image/png');
+  assert.equal(captured.file.size, 3);
+  success(await f.command('import.cancel', { transferId: 'background_fixture' }));
+  assert.equal(captured.authority.signal.aborted, true);
+  await f.settle(() => pending.resolve());
+  assert.equal((await f.finish(commit)).ok, false);
+  const mixed = await f.command('import.begin', {
+    transferId: 'mixed_background',
+    name: 'image.png',
+    size: 3,
+    background: { target: 'reader', mode: 'dark', type: 'image/png' },
+    font: { name: 'Other' }
+  });
+  assert.equal(mixed.ok, false);
+  assert.match(mixed.error, /one purpose/);
+});

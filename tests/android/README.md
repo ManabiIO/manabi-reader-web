@@ -181,3 +181,28 @@ value (including absence). The evidence verifier requires `nativeDimensions` to
 be `slider-completion-and-automatic-local-save-with-exact-restore`. This exercises
 accessible range completion and the save bridge; it does not prove physical
 drag/rotation/cancellation, spoken TalkBack, or the device/large-text matrix.
+
+### Native background image journey (current gate; runtime result pending)
+
+The background journey requires API 29+ (CI uses API 35). On the fresh disposable
+emulator, seed opens the native editor, cancels the real Android document picker,
+then selects three test-owned PNGs through that picker. MediaStore fixtures are
+unique to the qualification ID and are removed after each transfer. The app's
+ordinary import path writes library light/dark and reader light into its real
+appearance database; the unselected reader dark slot must remain absent.
+
+Both process phases read SHA-256 hashes of the actual persisted slot bytes and
+require light and dark Library image views to draw the corresponding decoded
+pixels. Native-view capture excludes the separate intentional fade overlay.
+The second phase must retain exactly the same saved image records after a real
+force-stop/process restart. It removes only Library light, verifies the other
+two records are unchanged, then uses both Remove-both actions and requires the
+native background view to disappear. The exact original appearance preference
+is restored. `nativeBackgrounds` evidence and cross-process byte equality are
+required; a missing field, empty record map or component-only result fails.
+
+Unlike the isolated storage sentinel probe, this journey uses the product's real
+appearance store, initially required to be empty. It runs only on the runner's
+fresh disposable emulator, never an existing device profile. If it fails, test
+images may remain there until that emulator is discarded. Compilation and unit
+harness results do not establish a successful system-picker/native-image run.

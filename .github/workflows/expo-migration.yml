@@ -193,6 +193,7 @@ jobs:
             run_suite "default-shared-statistics-$engine" python tests/browser/statistics_acceptance_cases.py --export-mode default
             run_suite "default-settings-controls-$engine" python tests/browser/test_settings_controls.py
             run_suite "default-settings-editor-$engine" python tests/browser/test_settings_editor_usability.py
+            run_suite "default-appearance-$engine" python -m unittest -v test_appearance_refinement
             run_suite "default-shared-library-shelf-$engine" python tests/browser/library_shelf_acceptance_cases.py
             if [ "$QUALIFICATION_SCOPE" = affected ]; then
               run_suite "default-retained-failure-regressions-$engine" python tests/browser/retained_failure_acceptance_cases.py
@@ -311,6 +312,14 @@ jobs:
       - name: Real browser cover decoding and canvas
         if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
         run: node test/expo/native-library-cover-browser.mjs
+      - name: Real local background decoding and native resource projection
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
+        run: |
+          status=0
+          for engine in chromium webkit; do
+            BACKGROUND_BROWSER="$engine" node test/expo/native-background-browser.mjs || status=1
+          done
+          exit "$status"
       - name: Retained actual-app assertions on the same export
         if: ${{ !cancelled() && steps.export.outcome == 'success' && steps.browsers.outcome == 'success' }}
         run: |
@@ -337,6 +346,7 @@ jobs:
             run_suite "gated-shared-statistics-$engine" python tests/browser/statistics_acceptance_cases.py --export-mode gated
             run_suite "gated-settings-controls-$engine" python tests/browser/test_settings_controls.py
             run_suite "gated-settings-editor-$engine" python tests/browser/test_settings_editor_usability.py
+            run_suite "gated-appearance-$engine" python -m unittest -v test_appearance_refinement
             run_suite "gated-shared-library-shelf-$engine" python tests/browser/library_shelf_acceptance_cases.py
             if [ "$QUALIFICATION_SCOPE" = affected ]; then
               run_suite "gated-retained-failure-regressions-$engine" python tests/browser/retained_failure_acceptance_cases.py

@@ -26,6 +26,22 @@ export function verifyEvidence(evidence, phase, id) {
     evidence.nativeDimensions,
     'slider-completion-and-automatic-local-save-with-exact-restore'
   );
+  assert.equal(evidence.nativeBackgrounds?.rendered, 'native-light-and-dark-decoded-pixels');
+  assert.equal(evidence.nativeBackgrounds.removed, phase === 'verify');
+  assert.equal(
+    evidence.nativeBackgrounds.picker,
+    phase === 'seed' ? 'system-picker-cancel-and-three-imports' : 'retained-from-previous-process'
+  );
+  assert.deepEqual(Object.keys(evidence.nativeBackgrounds.records).sort(), [
+    'library-dark',
+    'library-light',
+    'reader-light'
+  ]);
+  for (const [slot, image] of Object.entries(evidence.nativeBackgrounds.records)) {
+    assert.equal(image.name, `manabi-background-${id}-${slot}.png`);
+    assert.ok(Number.isSafeInteger(image.bytes) && image.bytes > 0);
+    assert.match(image.sha256, /^[a-f0-9]{64}$/);
+  }
   assert.match(
     evidence.entry,
     /^https:\/\/appassets\.androidplatform\.net\/www\.bundle\/[a-f0-9]{32}\.html$/
@@ -63,6 +79,11 @@ if (process.argv[1] && import.meta.url === new URL(process.argv[1], 'file:').hre
     verifyEvidence(second, 'verify', first.id);
     assert.equal(first.entry, second.entry, 'Entry changed unexpectedly between process launches');
     assert.notEqual(first.processId, second.processId, 'Both phases used the same process');
+    assert.deepEqual(
+      first.nativeBackgrounds.records,
+      second.nativeBackgrounds.records,
+      'Exact persisted background bytes must survive a real process restart'
+    );
     console.log(
       'Packaged Android host smoke passed, including synthetic storage after process restart.'
     );

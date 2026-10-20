@@ -56,6 +56,7 @@ import { SettingsWorkspace as SharedSettingsWorkspace } from '../features/settin
 import * as workspaceLayout from '../features/settings/workspace-layout';
 import { createSettingsWorkspaceState } from '../features/settings/workspace-state';
 
+import { NativeBackgroundManager } from './NativeBackgroundManager';
 import { NativeFontManager } from './NativeFontManager';
 
 interface Colors {
@@ -410,6 +411,7 @@ export function NativeSettingsScreen() {
   const [editor, setEditor] = useState<{ original: NativeTheme | null; seed: ThemeOption } | null>(
     null
   );
+  const [backgroundsOpen, setBackgroundsOpen] = useState(false);
   const [stateOwner, setStateOwner] = useState('');
   const ownerKey = `${snapshot.session}:${snapshot.epoch}`;
   const sessionRef = useRef<NativeSettingsSession | null>(null);
@@ -428,8 +430,10 @@ export function NativeSettingsScreen() {
       sessionRef.current = session;
       setView({ pending: false, error: '', reconcileRequired: false });
       setEditor(null);
+      setBackgroundsOpen(false);
       session.start();
       return () => {
+        setBackgroundsOpen(false);
         session.dispose();
         if (sessionRef.current === session) sessionRef.current = null;
       };
@@ -627,6 +631,28 @@ export function NativeSettingsScreen() {
                   onClose={() => setEditor(null)}
                 />
               </Dialog>
+            )}
+            {data &&
+              (category === 'appearance' || category === 'all' || !!query.trim()) &&
+              (!query.trim() || /background|image|wallpaper/i.test(query)) && (
+                <Card colors={colors}>
+                  <Text accessibilityRole="header" style={[styles.label, { color: colors.text }]}>
+                    Background images
+                  </Text>
+                  <Text style={{ color: colors.muted }}>
+                    Separate light and dark images for your Library and reader, saved on this
+                    device.
+                  </Text>
+                  <Action
+                    label="Manage background images"
+                    colors={colors}
+                    disabled={busy}
+                    onPress={() => setBackgroundsOpen(true)}
+                  />
+                </Card>
+              )}
+            {backgroundsOpen && data && (
+              <NativeBackgroundManager key={ownerKey} onClose={() => setBackgroundsOpen(false)} />
             )}
             {gates.map((gate) => (
               <Card key={gate.id} colors={colors}>

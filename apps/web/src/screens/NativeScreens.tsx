@@ -86,7 +86,8 @@ export function Screen({
   menuActions,
   onBeforeBack,
   backAction,
-  hideMenu
+  hideMenu,
+  background
 }: {
   title: string;
   children: ReactNode;
@@ -96,12 +97,14 @@ export function Screen({
   onBeforeBack?: () => boolean;
   backAction?: ReactNode;
   hideMenu?: boolean;
+  background?: ReactNode;
 }) {
   const { error, clearError } = useReaderRuntime();
   const provided = useUiTheme();
   const activeTheme = theme ?? provided;
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: activeTheme.colors.background }]}>
+      {background}
       <ScreenStatusBar theme={activeTheme} />
       <NativeScreenHeader
         title={title}
