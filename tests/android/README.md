@@ -143,10 +143,10 @@ offline gates remain separate before Android runtime readiness is declared.
 Both process phases also traverse the actual RN/Compose accessibility hierarchy:
 Library actions → Settings → Fonts & text → primary font manager → Close → Back
 to Library. The test
-requires the real cache-read empty state from the DOM owner. It selects no font
-file and changes no built-in preference. Evidence must include
+requires the real cache-read empty state from the DOM owner. The font-manager
+portion selects no font file or preference. Evidence must include
 `settings-typography-font-cache-read-and-close`; importing a component or merely
-finding a bridge shim is insufficient. This read-only UI journey complements
+finding a bridge shim is insufficient. That read-only font journey complements
 the original synthetic storage/origin probes. It is not proof of the Android
 system file picker, physical-device typography, TalkBack or IME parity.
 

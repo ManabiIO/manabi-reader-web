@@ -390,3 +390,12 @@ The run used the affected scope with no artifact uploads or remote caches.
 This is an exact-source checkpoint, not evidence for later switch/choice changes
 or full screen parity. See [shared UI convergence](SHARED-UI-CONVERGENCE.md) for
 the later local coverage and remaining specialized-editor/runtime gates.
+
+### Shared Settings switch qualification
+
+Run [`39484746448`](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39484746448)
+passed all three jobs on `617ebf88861d5b254681c2eb8938afa162a0468a`:
+regression/default web, promoted web and packaged Android, including reload and
+process restart. This qualifies the shared switch source under the affected CI
+scope. It does not include the later wrapping choice controls or the added native
+color-mode save check, and does not establish spoken TalkBack or full parity.
