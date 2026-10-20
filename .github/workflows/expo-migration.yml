@@ -105,6 +105,12 @@ jobs:
       - name: Migration contract tests including CI policy
         if: success() || failure()
         run: pnpm test:expo
+      - name: Select the Android harness Java toolchain
+        if: success() || failure()
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: Android instrumentation harness contracts
         if: success() || failure()
         run: node --test tests/android/harness.test.mjs

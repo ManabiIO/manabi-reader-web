@@ -231,6 +231,20 @@ test('full web inventories enable video search while automatic affected exports 
   assert.match(exportStep.run, /verify-expo-export\.mjs --platform web/);
 });
 
+test('Android compilation and executable harness contracts select Java 21 before running', () => {
+  for (const [job, consumer] of [
+    [migration.jobs.regression, 'Android instrumentation harness contracts'],
+    [migration.jobs.android, 'Compile Android host and run origin policy tests']
+  ]) {
+    const setup = job.steps.findIndex((step) => step.uses === 'actions/setup-java@v4');
+    const run = job.steps.findIndex((step) => step.name === consumer);
+    assert.ok(setup >= 0 && setup < run, `${consumer} must not inherit the runner's Java 17`);
+    assert.equal(job.steps[setup].with['java-version'], '21');
+    assert.equal(job.steps[setup].with.distribution, 'temurin');
+    assert.equal(job.steps[setup].with.cache, undefined);
+  }
+});
+
 test('executing jobs cannot upload artifacts, save remote caches or hide composite actions', () => {
   const allowed = new Set([
     'actions/checkout@v4',
