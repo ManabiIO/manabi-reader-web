@@ -270,9 +270,7 @@ function rawSparseCues(state: SparseState, index: number): Cue[] {
   return window.cues.filter(
     (cue) =>
       !(
-        (index > 0 &&
-          silent(index - 1) &&
-          cue.end <= previousSeam + SPARSE_CONTEXT_SECONDS) ||
+        (index > 0 && silent(index - 1) && cue.end <= previousSeam + SPARSE_CONTEXT_SECONDS) ||
         (index + 1 < state.windows.length &&
           silent(index + 1) &&
           cue.start >= nextSeam - SPARSE_CONTEXT_SECONDS)

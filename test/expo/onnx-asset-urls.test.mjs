@@ -173,7 +173,13 @@ test('the actual worker serializes epochs and retirement suppresses late success
     const worker = await workerFixture({ deferred: true });
     worker.send({ type: 'init', assetBaseURL: 'https://reader.invalid/reader-web/' });
     await flush();
-    const request = (id, epoch) => ({ type: 'analyze', id, epoch, rate: 16000, samples: new Float32Array(8800) });
+    const request = (id, epoch) => ({
+      type: 'analyze',
+      id,
+      epoch,
+      rate: 16000,
+      samples: new Float32Array(8800)
+    });
     worker.send(request(1, 1));
     await flush();
     worker.send(request(2, 2));

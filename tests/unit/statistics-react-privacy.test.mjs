@@ -15,8 +15,13 @@ function summaryView(c, f) {
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'fragment' },
     '../reader-react/controller': { useReaderController: () => c },
     './primitives': {
-      Dom: 'dom', AppIcon: 'icon', Button: 'button', Popover: 'popover', ReaderScope: 'scope',
-      useLatest: (props) => ({ current: props }), useReaderBindings() {}
+      Dom: 'dom',
+      AppIcon: 'icon',
+      Button: 'button',
+      Popover: 'popover',
+      ReaderScope: 'scope',
+      useLatest: (props) => ({ current: props }),
+      useReaderBindings() {}
     },
     './statistics-summary-controller': {},
     '$lib/components/statistics/statistics-summary/statistics-summary': f.load(
@@ -27,13 +32,21 @@ function summaryView(c, f) {
     '$lib/functions/statistic-util': f.load('lib/functions/statistic-util.ts'),
     './statistics-summary-header': { StatisticsSummaryHeader: 'header' }
   };
-  const source = readFileSync(new URL('../../apps/web/src/statistics-react/statistics-summary.tsx', import.meta.url), 'utf8');
+  const source = readFileSync(
+    new URL('../../apps/web/src/statistics-react/statistics-summary.tsx', import.meta.url),
+    'utf8'
+  );
   const code = ts.transpileModule(source, {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX }
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.CommonJS,
+      jsx: ts.JsxEmit.ReactJSX
+    }
   }).outputText;
   const exports = {};
   runInNewContext(code, {
-    exports, require: (name) => {
+    exports,
+    require: (name) => {
       assert.ok(name in dependencies, `Declare view dependency ${name}`);
       return dependencies[name];
     }
@@ -53,10 +66,18 @@ function find(node, predicate) {
 }
 async function setup() {
   const f = fixture();
-  const hidden = new Set(['readingTime', 'charactersRead', 'lastReadingSpeed', 'other-tracker-item']);
+  const hidden = new Set([
+    'readingTime',
+    'charactersRead',
+    'lastReadingSpeed',
+    'other-tracker-item'
+  ]);
   f.store.lastBlurredTrackerItems$.next(hidden);
   const rows = [f.row('Privacy row', '2024-02-28', 120)];
-  const c = f.start('statistics-summary', { aggregratedStatistics: rows, statisticsDateRangeLabel: '2024' });
+  const c = f.start('statistics-summary', {
+    aggregratedStatistics: rows,
+    statisticsDateRangeLabel: '2024'
+  });
   await f.frame();
   return { f, c, hidden, rows };
 }
@@ -67,8 +88,15 @@ test('compatibility Summary hides all metric names and descendants; activation r
   const anchor = { isConnected: true };
   c.statisticsSummaryPopover = { openAt: (target) => opened.push(target), close() {} };
   try {
-    const savedRange = [f.store.lastStatisticsStartDate$.value, f.store.lastStatisticsEndDate$.value];
-    const savedSource = [c.$lastReadingTimeDataSource$, c.$lastCharactersDataSource$, c.$lastReadingSpeedDataSource$];
+    const savedRange = [
+      f.store.lastStatisticsStartDate$.value,
+      f.store.lastStatisticsEndDate$.value
+    ];
+    const savedSource = [
+      c.$lastReadingTimeDataSource$,
+      c.$lastCharactersDataSource$,
+      c.$lastReadingSpeedDataSource$
+    ];
     for (const key of ['readingTime', 'charactersRead', 'lastReadingSpeed']) {
       let metric = find(summaryView(c, f), (node) => node.props['data-summary-metric'] === key);
       const span = find(metric.props.children, (node) => node.type === 'span');
@@ -76,7 +104,10 @@ test('compatibility Summary hides all metric names and descendants; activation r
       assert.equal(metric.props['aria-pressed'], true);
       assert.equal(span.props['aria-hidden'], true);
       assert.equal(span.props.className, 'blur');
-      assert.ok(!metric.props.className.split(' ').includes('blur'), 'Focus chrome remains unblurred');
+      assert.ok(
+        !metric.props.className.split(' ').includes('blur'),
+        'Focus chrome remains unblurred'
+      );
       assert.ok(!metric.props['aria-label'].includes(String(span.props.children)));
       // Descendant clicks must anchor to the button, never the blurred child.
       await metric.props.events.click({ currentTarget: anchor, target: span });
@@ -87,13 +118,25 @@ test('compatibility Summary hides all metric names and descendants; activation r
       metric = find(summaryView(c, f), (node) => node.props['data-summary-metric'] === key);
       assert.match(metric.props['aria-label'], /Activate to view details/);
       assert.equal(metric.props['aria-pressed'], false);
-      assert.equal(find(metric.props.children, (node) => node.type === 'span').props['aria-hidden'], false);
+      assert.equal(
+        find(metric.props.children, (node) => node.type === 'span').props['aria-hidden'],
+        false
+      );
     }
     assert.equal(f.store.lastBlurredTrackerItems$.value.has('other-tracker-item'), true);
-    assert.deepEqual([f.store.lastStatisticsStartDate$.value, f.store.lastStatisticsEndDate$.value], savedRange);
-    assert.deepEqual([c.$lastReadingTimeDataSource$, c.$lastCharactersDataSource$, c.$lastReadingSpeedDataSource$], savedSource);
+    assert.deepEqual(
+      [f.store.lastStatisticsStartDate$.value, f.store.lastStatisticsEndDate$.value],
+      savedRange
+    );
+    assert.deepEqual(
+      [c.$lastReadingTimeDataSource$, c.$lastCharactersDataSource$, c.$lastReadingSpeedDataSource$],
+      savedSource
+    );
     assert.equal(c.currentStatisticsSummaryRows[0], rows[0]);
-    const metric = find(summaryView(c, f), (node) => node.props['data-summary-metric'] === 'readingTime');
+    const metric = find(
+      summaryView(c, f),
+      (node) => node.props['data-summary-metric'] === 'readingTime'
+    );
     const pending = metric.props.events.click({ currentTarget: anchor, target: {} });
     await f.frame();
     await pending;
@@ -113,13 +156,21 @@ test('compatibility Summary hides all metric names and descendants; activation r
 
 test('compatibility details focus waits for committed content and repeated close cancels delayed focus/reopen', async () => {
   const { f, c } = await setup();
-  const focused = [], opened = [], closed = [];
+  const focused = [],
+    opened = [],
+    closed = [];
   const anchor = { isConnected: true };
   const close = { isConnected: true, focus: (options) => focused.push(options) };
   c.statisticsSummaryDetailsClose = close;
   c.statisticsSummaryPopover = {
-    openAt: (target) => { opened.push(target); c.statisticsSummaryDetailsOpen = true; },
-    close: (restore) => { closed.push(restore); c.statisticsSummaryDetailsOpen = false; }
+    openAt: (target) => {
+      opened.push(target);
+      c.statisticsSummaryDetailsOpen = true;
+    },
+    close: (restore) => {
+      closed.push(restore);
+      c.statisticsSummaryDetailsOpen = false;
+    }
   };
   try {
     for (let cycle = 0; cycle < 2; cycle++) {
@@ -140,7 +191,10 @@ test('compatibility details focus waits for committed content and repeated close
       assert.equal(c.statisticsSummaryPopoverDetails.length, 0);
     }
     assert.deepEqual(opened, [anchor, anchor]);
-    assert.ok(closed.every(Boolean), 'Explicit close asks the existing primitive to restore the anchor');
+    assert.ok(
+      closed.every(Boolean),
+      'Explicit close asks the existing primitive to restore the anchor'
+    );
     const pending = c.openDetails(anchor, ['Cancelled details']);
     c.closeDetails();
     await f.frame();
@@ -154,11 +208,14 @@ test('compatibility details focus waits for committed content and repeated close
 
 test('compatibility details ignore superseded, detached and retired open/focus callbacks', async () => {
   const { f, c, hidden } = await setup();
-  const opened = [], focused = [];
-  const first = { isConnected: true }, second = { isConnected: true };
+  const opened = [],
+    focused = [];
+  const first = { isConnected: true },
+    second = { isConnected: true };
   c.statisticsSummaryPopover = { openAt: (target) => opened.push(target), close() {} };
   c.statisticsSummaryDetailsClose = { isConnected: true, focus: () => focused.push('close') };
-  const a = c.openDetails(first, ['First title']), b = c.openDetails(second, ['Second title']);
+  const a = c.openDetails(first, ['First title']),
+    b = c.openDetails(second, ['Second title']);
   await f.frame();
   await Promise.all([a, b]);
   assert.deepEqual(opened, [second]);
@@ -168,7 +225,8 @@ test('compatibility details ignore superseded, detached and retired open/focus c
   await detached;
   assert.equal(opened.length, 1);
   c.statisticsSummaryDetailsOpen = true;
-  const focus = c.focusDetails(), pending = c.openDetails(second, ['Retired title']);
+  const focus = c.focusDetails(),
+    pending = c.openDetails(second, ['Retired title']);
   c.controller.destroy();
   await f.frame();
   await Promise.all([focus, pending]);

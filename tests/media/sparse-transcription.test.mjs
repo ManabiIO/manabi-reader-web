@@ -451,7 +451,10 @@ test('exact model-input silence survives queue restart without rewriting accepte
     assert.equal(checkpoint.sparse.windows[1].digitalSilence, true);
     assert.equal(Object.hasOwn(checkpoint.sparse.windows[0], 'digitalSilence'), false);
     assert.equal(checkpoint.sparse.windows[0].cues[1].text, 'halo hallucination');
-    assert.deepEqual(checkpoint.cues.map((item) => item.text), ['accepted']);
+    assert.deepEqual(
+      checkpoint.cues.map((item) => item.text),
+      ['accepted']
+    );
     assert.equal(inferred, 1);
     assert.equal(prepared, 1, 'zero input does not prepare the model');
     assert.deepEqual(await store.tracks('guest', key), []);
@@ -474,7 +477,10 @@ test('exact model-input silence survives queue restart without rewriting accepte
     assert.equal(inferred, 2);
     assert.equal(prepared, 2);
     const [track] = await store.tracks('guest', key);
-    assert.deepEqual(track.cues.map((item) => item.text), ['accepted', 'later']);
+    assert.deepEqual(
+      track.cues.map((item) => item.text),
+      ['accepted', 'later']
+    );
     assert.deepEqual(track.cues[0], checkpoint.cues[0], 'accepted identity and timing stay fixed');
   } finally {
     await queue.dispose();

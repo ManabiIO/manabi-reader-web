@@ -456,7 +456,10 @@ export class PitchController {
       const audio = this.audio!;
       const context = this.context!;
       if (
-        audio.paused || audio.ended || audio.seeking || this.buffering ||
+        audio.paused ||
+        audio.ended ||
+        audio.seeking ||
+        this.buffering ||
         !this.containsSpeechTime(audio.currentTime)
       )
         return;

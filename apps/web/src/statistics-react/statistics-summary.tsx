@@ -402,7 +402,9 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                       type="button"
                                       data-summary-metric="charactersRead"
                                       className="text-left focus-visible:outline-2 focus-visible:outline-ring"
-                                      aria-pressed={c.$lastBlurredTrackerItems$.has('charactersRead')}
+                                      aria-pressed={c.$lastBlurredTrackerItems$.has(
+                                        'charactersRead'
+                                      )}
                                       aria-label={c.metricAccessibleLabel(
                                         'charactersRead',
                                         'Characters',
@@ -427,7 +429,9 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                             ? 'blur'
                                             : undefined
                                         }
-                                        aria-hidden={c.$lastBlurredTrackerItems$.has('charactersRead')}
+                                        aria-hidden={c.$lastBlurredTrackerItems$.has(
+                                          'charactersRead'
+                                        )}
                                       >
                                         {charactersValue}
                                       </span>
@@ -468,7 +472,9 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                       type="button"
                                       data-summary-metric="lastReadingSpeed"
                                       className="text-left focus-visible:outline-2 focus-visible:outline-ring"
-                                      aria-pressed={c.$lastBlurredTrackerItems$.has('lastReadingSpeed')}
+                                      aria-pressed={c.$lastBlurredTrackerItems$.has(
+                                        'lastReadingSpeed'
+                                      )}
                                       aria-label={c.metricAccessibleLabel(
                                         'lastReadingSpeed',
                                         'Reading speed',
@@ -494,7 +500,9 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                             ? 'blur'
                                             : undefined
                                         }
-                                        aria-hidden={c.$lastBlurredTrackerItems$.has('lastReadingSpeed')}
+                                        aria-hidden={c.$lastBlurredTrackerItems$.has(
+                                          'lastReadingSpeed'
+                                        )}
                                       >
                                         {speedValue}
                                       </span>
@@ -527,11 +535,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                           }
                         }}
                       >
-                        <Dom
-                          as="div"
-                          slot={'content'}
-                          className="relative min-w-48 p-4 pr-14"
-                        >
+                        <Dom as="div" slot={'content'} className="relative min-w-48 p-4 pr-14">
                           <Dom
                             as="button"
                             type="button"

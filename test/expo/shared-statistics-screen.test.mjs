@@ -586,8 +586,10 @@ test('shared Summary hides numeric children, reveals before details, and preserv
   const fixture = await mount(fake.port);
   try {
     const queryCalls = fake.calls.load.length;
-    const metrics = () => [...fixture.container.querySelectorAll('[role="button"],button')]
-      .filter((node) => /value hidden.*reveal/.test(node.getAttribute('aria-label') ?? ''));
+    const metrics = () =>
+      [...fixture.container.querySelectorAll('[role="button"],button')].filter((node) =>
+        /value hidden.*reveal/.test(node.getAttribute('aria-label') ?? '')
+      );
     assert.equal(metrics().length, 3);
     for (let index = 0; index < 3; index++) {
       const metric = metrics()[0];
@@ -595,7 +597,10 @@ test('shared Summary hides numeric children, reveals before details, and preserv
       assert.ok(metric.querySelector('[aria-hidden="true"]'));
       const label = metric.getAttribute('aria-label');
       assert.ok(!/\b(?:2|50|1500)\b/.test(label));
-      await act(async () => { metric.focus(); metric.click(); });
+      await act(async () => {
+        metric.focus();
+        metric.click();
+      });
       await settle();
       assert.equal(dialog('Measurement details'), undefined, 'First activation only reveals');
       assert.equal(document.activeElement, metric);
@@ -609,16 +614,27 @@ test('shared Summary hides numeric children, reveals before details, and preserv
         const close = findButton('Close measurement details', panel);
         assert.equal(document.activeElement, close);
         if (cycle === 0) await act(async () => close.click());
-        else await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', {
-          key: 'Escape', bubbles: true, cancelable: true
-        })));
+        else
+          await act(async () =>
+            document.dispatchEvent(
+              new window.KeyboardEvent('keydown', {
+                key: 'Escape',
+                bubbles: true,
+                cancelable: true
+              })
+            )
+          );
         await settle();
         assert.equal(dialog('Measurement details'), undefined);
         assert.equal(document.activeElement, metric);
       }
     }
     assert.deepEqual(hidden, ['readingTime', 'charactersRead', 'lastReadingSpeed']);
-    assert.equal(fake.calls.load.length, queryCalls, 'Reveal does not change the query or reread history');
+    assert.equal(
+      fake.calls.load.length,
+      queryCalls,
+      'Reveal does not change the query or reread history'
+    );
     assert.deepEqual(fake.calls.mutate, []);
   } finally {
     await fixture.cleanup();
@@ -634,12 +650,17 @@ test('shared Summary re-hides on a new snapshot, retires raw details and leaves 
     }
   });
   const fixture = await mount(fake.port);
-  const metric = () => [...fixture.container.querySelectorAll('[role="button"],button')]
-    .find((node) => /^Total Time for Panel title 000/.test(node.getAttribute('aria-label') ?? ''));
+  const metric = () =>
+    [...fixture.container.querySelectorAll('[role="button"],button')].find((node) =>
+      /^Total Time for Panel title 000/.test(node.getAttribute('aria-label') ?? '')
+    );
   try {
     const anchor = metric();
     assert.ok(anchor);
-    await act(async () => { anchor.focus(); anchor.click(); });
+    await act(async () => {
+      anchor.focus();
+      anchor.click();
+    });
     await settle();
     await act(async () => anchor.click());
     await settle();

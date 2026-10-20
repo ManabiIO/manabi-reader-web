@@ -20,6 +20,7 @@ from urllib.request import urlopen
 from urllib.parse import unquote, urlsplit
 
 from playwright.sync_api import sync_playwright, expect
+from browser_launch import launch_options
 from test_shared_ttu import SharedTtuBrowser
 import test_static_reader as static
 
@@ -173,7 +174,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
                 if response.status != 200 or b'/reader-web/shared-runtime.js' not in response.read():
                     raise RuntimeError('Shared storage integration server returned the wrong fixture')
             cls.playwright = sync_playwright().start()
-            cls.browser = cls.playwright.chromium.launch()
+            cls.browser = cls.playwright.chromium.launch(**launch_options())
         except BaseException:
             cls.stop_server()
             raise

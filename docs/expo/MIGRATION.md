@@ -247,3 +247,15 @@ contracts pass. The actual exported app passes nine offline/connection scenarios
 across Chromium/WebKit and ten history/reader-retirement journeys (five per
 engine). Screenshots were inspected at compact and sidebar sizes. This is local
 candidate evidence, not a completed remote SDK 58 Android runtime result.
+
+The first public SDK 58 run (`39454122013`, commit `d88d1484`) passed the full
+web job and the default browser acceptance in the regression job. That regression
+job also exposed pre-existing formatting drift and the shared-storage fixture's
+outdated native module resolution. Follow-up: format those files, remove the
+unused test parameter, and select actual RNW/Expo web implementations in the
+fixture, retaining its production module graph and assertions. Router's npm
+archive omits its advertised source entry, so this isolated esbuild fixture uses
+its published JS entry while Expo modules use their shipped web sources.
+The repaired fixture passes its build contract and two real Chromium storage
+ownership journeys. Its shared browser launcher now uses the required macOS
+Chrome clone workaround, including persistent contexts.

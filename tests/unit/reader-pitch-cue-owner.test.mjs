@@ -27,15 +27,21 @@ try {
     tsconfig: 'apps/web/tsconfig.json',
     logLevel: 'silent'
   });
-  ({ createAudioPanel, CueTimeline } = createRequire(import.meta.url)(join(directory, 'audio.cjs')));
+  ({ createAudioPanel, CueTimeline } = createRequire(import.meta.url)(
+    join(directory, 'audio.cjs')
+  ));
 } finally {
   rmSync(directory, { recursive: true, force: true });
 }
 
 test('React audio updates exact pitch ownership before its unchanged-cue shortcut', () => {
   const panel = createAudioPanel({
-    bookId: 1, bookTitle: 'Cue owner', htmlContent: '', layoutKey: 0,
-    onFollow() {}, returnFocus() {}
+    bookId: 1,
+    bookTitle: 'Cue owner',
+    htmlContent: '',
+    layoutKey: 0,
+    onFollow() {},
+    returnFocus() {}
   });
   const calls = [];
   panel.pitch = { setSpeechWindow: (bounds, owner) => calls.push({ bounds, owner }) };
@@ -45,7 +51,11 @@ test('React audio updates exact pitch ownership before its unchanged-cue shortcu
   panel.timeline = new CueTimeline(panel.cues);
   panel.snapshot = {
     file: { name: 'voice.wav', size: 10, lastModified: 0 },
-    ready: true, paused: false, rate: 1, time: 1.5, duration: 10
+    ready: true,
+    paused: false,
+    rate: 1,
+    time: 1.5,
+    duration: 10
   };
   try {
     panel.updateCurrent(false);
@@ -64,7 +74,11 @@ test('React audio updates exact pitch ownership before its unchanged-cue shortcu
     panel.cues = [replacement];
     panel.timeline = new CueTimeline(panel.cues);
     panel.updateCurrent(false);
-    assert.equal(calls.at(-1).owner, replacement, 'identical bounds in a new transcript retire old work');
+    assert.equal(
+      calls.at(-1).owner,
+      replacement,
+      'identical bounds in a new transcript retire old work'
+    );
     panel.snapshot = { ...panel.snapshot, time: 5 };
     panel.updateCurrent(false);
     assert.equal(calls.at(-1).bounds, undefined);

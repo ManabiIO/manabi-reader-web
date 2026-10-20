@@ -127,7 +127,7 @@ function identity(h) {
     globals: { crypto: { randomUUID: () => 'local-uuid' } }
   }).api;
 }
-function recovery(h) {
+function recovery() {
   return loadOfflineModule('apps/web/src/lib/data/database/books-db/reader-statistics.ts', {
     modules: { './content-hash-index.ts': { readIndexedBookTitles: (store) => store.getAll() } }
   }).api;
@@ -137,14 +137,13 @@ const operations = [
   ['series receipts', (h) => receipts(h).applyCloudSeriesReceipts(cloud, plan)],
   [
     'WebDAV configuration',
-    (h) =>
-      webdav(h).configureDav(connection, 'secret', { remember: false, expected: connection })
+    (h) => webdav(h).configureDav(connection, 'secret', { remember: false, expected: connection })
   ],
   ['WebDAV disconnect', (h) => webdav(h).disconnectDav(connection.id)],
   ['WebDAV source link', (h) => new (webdav(h).WebDavSource)(connection).persistLink(link)],
   [
     'statistics recovery',
-    (h) => recovery(h).readStatisticsRecoverySnapshot({ transaction: () => h.tx })
+    (h) => recovery().readStatisticsRecoverySnapshot({ transaction: () => h.tx })
   ]
 ];
 function storageValues() {
@@ -187,9 +186,11 @@ for (const [name, run] of operations) {
     const failure = new DOMException('Request refused', 'UnknownError');
     const h = boundary(storageValues(), failure);
     let settled = false;
-    const rejected = assert.rejects(run(h), (error) => error === failure).then(() => {
-      settled = true;
-    });
+    const rejected = assert
+      .rejects(run(h), (error) => error === failure)
+      .then(() => {
+        settled = true;
+      });
     await h.aborted.promise;
     await setImmediate();
     assert.equal(settled, false);
@@ -257,7 +258,10 @@ test('WebDAV source link preserves a concurrent per-book sync choice', async () 
   await setImmediate();
   h.done.resolve();
   assert.equal(await pending, existing);
-  assert.equal(h.calls.some(([store, verb]) => store === 'books' && verb === 'put'), false);
+  assert.equal(
+    h.calls.some(([store, verb]) => store === 'books' && verb === 'put'),
+    false
+  );
 });
 
 test('repeated series receipts neither rewrite receipts nor invalidate the catalog', async () => {
@@ -267,7 +271,10 @@ test('repeated series receipts neither rewrite receipts nor invalidate the catal
   await setImmediate();
   h.done.resolve();
   assert.equal(await pending, false);
-  assert.deepEqual(h.calls.map(([, verb]) => verb), ['get']);
+  assert.deepEqual(
+    h.calls.map(([, verb]) => verb),
+    ['get']
+  );
 });
 
 test('WebDAV disconnect removes only links for the disconnected source', async () => {

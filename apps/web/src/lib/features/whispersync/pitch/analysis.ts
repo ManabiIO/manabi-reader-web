@@ -57,9 +57,7 @@ export function resampleForSwiftF0(input: Float32Array, rate: number): Float32Ar
   const output = new Float32Array(length);
   const cutoff = 0.47 * Math.min(1, SWIFT_F0_SAMPLE_RATE / rate);
   const radius =
-    rate > SWIFT_F0_SAMPLE_RATE
-      ? Math.min(64, Math.max(16, Math.ceil((rate / 48000) * 16)))
-      : 8;
+    rate > SWIFT_F0_SAMPLE_RATE ? Math.min(64, Math.max(16, Math.ceil((rate / 48000) * 16))) : 8;
   for (let index = 0; index < length; index++) {
     const center = (index + 0.5) * ratio - 0.5;
     const first = Math.max(0, Math.ceil(center - radius));
@@ -124,19 +122,14 @@ export function measurementFromSwiftF0(
     offsetSeconds: 0,
     windowSeconds: Math.max(0, finite(windowSeconds))
   };
-  if (
-    !samples.length ||
-    count < SWIFT_F0_LEFT_CONTEXT_FRAMES + 1 + SWIFT_F0_LOOKAHEAD_FRAMES
-  )
+  if (!samples.length || count < SWIFT_F0_LEFT_CONTEXT_FRAMES + 1 + SWIFT_F0_LOOKAHEAD_FRAMES)
     return empty;
 
   const index = count - 1 - SWIFT_F0_LOOKAHEAD_FRAMES;
   const candidate = Number(pitch[index]);
   const level = frameLevel(samples, index * SWIFT_F0_HOP);
   const score =
-    level.currentHopPeak >= SILENCE_PEAK
-      ? clamp(finite(Number(confidence[index])), 0, 1)
-      : 0;
+    level.currentHopPeak >= SILENCE_PEAK ? clamp(finite(Number(confidence[index])), 0, 1) : 0;
   const hz =
     score >= clamp(finite(voicingThreshold, VOICING_THRESHOLD), 0, 1) &&
     level.currentHopPeak >= SILENCE_PEAK &&
