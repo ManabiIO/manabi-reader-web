@@ -60,11 +60,18 @@ disconnection as an error or equating a local save with remote success.
 
 Retain the design established in [web-design-2026.md](../web-design-2026.md):
 quiet opaque surfaces, Manabi typography and hierarchy, readable content and
-restrained controls. Native Apple material effects are a reference, not a Windows
-or Android requirement. Phone widths retain the compact stack and contextual
+restrained controls. Native Apple material effects inform the design of this
+web/Android edition. Phone widths retain the compact stack and contextual
 actions; wider Library views retain the sidebar. Size, not device detection,
 selects the layout. Reader controls and the connection explanation stay
 horizontal even when the book is vertical Japanese.
+
+The [SDK 58 universal List](https://docs.expo.dev/versions/v58.0.0/sdk/ui/universal/list/)
+uses native list containers on Android/iOS, but React still creates all children
+up front; the web implementation is a scrolling View. Expo recommends Legend
+List or FlashList for large collections. Keep Expo UI for suitable controls and
+small settings groups; a shared List import does not establish large-library
+performance or web virtualization.
 
 [Legend List v3](https://www.legendapp.com/open-source/list/v3/react-native/getting-started/)
 supports the React Native platforms, including Windows, without native code;
