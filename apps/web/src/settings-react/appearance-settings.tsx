@@ -62,8 +62,12 @@ export function AppearanceSettings(
             <Dom as="summary">{'Background images'}</Dom>
             <Dom as="p" className={['description'].filter(Boolean).join(' ')}>
               {
-                ' Book browser and reader images can each be different in Light and Dark mode. Images fill the screen without stretching and are saved only in this browser, never uploaded or included in account settings sync. PNG, JPEG, or WebP, up to 8 MB. Remove either image independently or remove both for a surface. A mode without an image uses the plain theme background. '
+                ' Choose separate light and dark images for your library and reader. PNG, JPEG, or WebP, up to 8 MB. Images fill the screen without stretching. '
               }
+            </Dom>
+            <Dom as="p" className="description">
+              Images stay in this browser and aren’t synced or included in book backups. Keep your
+              originals to use them on another device.
             </Dom>
             <Dom as="div" className={['backgrounds'].filter(Boolean).join(' ')}>
               {(c.backgrounds ?? []).map((background, _index1) => (
