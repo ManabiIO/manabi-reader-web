@@ -1,0 +1,153 @@
+{
+  "package": "react-native-windows",
+  "version": "0.85.0",
+  "template": "cpp-app",
+  "license": "MIT",
+  "files": [
+    {
+      "target": "NuGet.config",
+      "source": "templates/cpp-app/NuGet_Config",
+      "sha256": "f1c80b889149e78631eeb4f6fa591142f40762959e89e6253644335be584309d"
+    },
+    {
+      "target": "windows/.gitignore",
+      "source": "templates/cpp-app/windows/_gitignore",
+      "sha256": "92eef8f2d8afe3ebfa1582043a97467190c51b0a3a98512b7a776e951c922a34"
+    },
+    {
+      "target": "windows/ExperimentalFeatures.props",
+      "source": "templates/cpp-app/windows/ExperimentalFeatures.props",
+      "sha256": "1b37c0bfd658a2aa98bbf9d126e3de61fca6eceafb929f660380e285d1052d3b"
+    },
+    {
+      "target": "windows/ManabiReaderWindows.Package/Images/LockScreenLogo.scale-200.png",
+      "source": "templates/cpp-app/windows/MyApp.Package/Images/LockScreenLogo.scale-200.png",
+      "sha256": "a41a053b3fc3b0c109720ccd437a19725ae9163ea75990222a12b596b9c7ca76"
+    },
+    {
+      "target": "windows/ManabiReaderWindows.Package/Images/SplashScreen.scale-200.png",
+      "source": "templates/cpp-app/windows/MyApp.Package/Images/SplashScreen.scale-200.png",
+      "sha256": "a3382b0b1b834e95b888f06d483dc2d78fa1b3855e0683d5cfbd5167be9731a6"
+    },
+    {
+      "target": "windows/ManabiReaderWindows.Package/Images/Square150x150Logo.scale-200.png",
+      "source": "templates/cpp-app/windows/MyApp.Package/Images/Square150x150Logo.scale-200.png",
+      "sha256": "7f3cb5738e8f05544445f79996a313f8b47dee22dbc9c7be859d2707710f0c73"
+    },
+    {
+      "target": "windows/ManabiReaderWindows.Package/Images/Square44x44Logo.scale-200.png",
+      "source": "templates/cpp-app/windows/MyApp.Package/Images/Square44x44Logo.scale-200.png",
+      "sha256": "594492a25070951d7462c091d9f899a66f55ba992bb9b05d98d50f67cdfb2abe"
+    },
+    {
+      "target": "windows/ManabiReaderWindows.Package/Images/Square44x44Logo.targetsize-24_altform-unplated.png",
+      "source": "templates/cpp-app/windows/MyApp.Package/Images/Square44x44Logo.targetsize-24_altform-unplated.png",
+      "sha256": "48cf9c22156a0b3d77982641f972785e7861a7257f7bcf155be7d5a12e1aa3d8"
+    },
+    {
+      "target": "windows/ManabiReaderWindows.Package/Images/StoreLogo.png",
+      "source": "templates/cpp-app/windows/MyApp.Package/Images/StoreLogo.png",
+      "sha256": "ae95e99a96251abaf8de15c9cdaddb8cefb1b8b320b10a4f1f4e1dc3c25c1b1a"
+    },
+    {
+      "target": "windows/ManabiReaderWindows.Package/Images/Wide310x150Logo.scale-200.png",
+      "source": "templates/cpp-app/windows/MyApp.Package/Images/Wide310x150Logo.scale-200.png",
+      "sha256": "b5b7754832c08e58faacfe64ea4b9f8b59b52a658e4eea4aab3790cfb89faa03"
+    },
+    {
+      "target": "windows/ManabiReaderWindows.Package/ManabiReaderWindows.Package.wapproj",
+      "source": "templates/cpp-app/windows/MyApp.Package/MyApp.Package.wapproj",
+      "sha256": "ef50580e6f95afc734f22605c243f6be23276944e02de46a7801cb5f8214f853"
+    },
+    {
+      "target": "windows/ManabiReaderWindows.Package/Package.appxmanifest",
+      "source": "templates/cpp-app/windows/MyApp.Package/Package.appxmanifest",
+      "sha256": "43d4ffcd8d52919971cb7d1b195d2d76dc74cf5290357eb6dad1916af75f7711"
+    },
+    {
+      "target": "windows/ManabiReaderWindows.sln",
+      "source": "templates/cpp-app/windows/MyApp.sln",
+      "sha256": "7642a57deadad1c77e5f6b8b30d2606bf3b9af4f93e49b5ee960d86ee640ebf4"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/.gitignore",
+      "source": "templates/cpp-app/windows/MyApp/_gitignore",
+      "sha256": "ee4ac48acaa34db5c41fea159514f986d5dcb28d3f06eb60cca81e45c24952f1"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/AutolinkedNativeModules.g.cpp",
+      "source": "templates/cpp-app/windows/MyApp/AutolinkedNativeModules.g.cpp",
+      "sha256": "b02eb4e8923a29f157aa82ae948c285594bdc14a13ed90889a3f6cf38c17a585"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/AutolinkedNativeModules.g.h",
+      "source": "templates/cpp-app/windows/MyApp/AutolinkedNativeModules.g.h",
+      "sha256": "0290ef776e53626cfd73dfec2e4d6657ee3413726f93e526a3ee1a38ac8d3a7e"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/AutolinkedNativeModules.g.props",
+      "source": "templates/cpp-app/windows/MyApp/AutolinkedNativeModules.g.props",
+      "sha256": "b5ed5b9d875fb9c6d669ee9b5a1a3b085b5d3118a2ad1e37a3efc19d958aeb1a"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/AutolinkedNativeModules.g.targets",
+      "source": "templates/cpp-app/windows/MyApp/AutolinkedNativeModules.g.targets",
+      "sha256": "f038d97cac5134d36fc6f7d536b9c44b8217132e773fff4da43067a779781dff"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/ManabiReaderWindows.cpp",
+      "source": "templates/cpp-app/windows/MyApp/MyApp.cpp",
+      "sha256": "c97710557dc4a28a81c7a75428515312c10e157e80377ee54039ab7ea1bc06dc"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/ManabiReaderWindows.h",
+      "source": "templates/cpp-app/windows/MyApp/MyApp.h",
+      "sha256": "245ff9031a96ef2ffade37bd506c2cf3e602747e29b80a41cb2be9f3c9691154"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/ManabiReaderWindows.ico",
+      "source": "templates/cpp-app/windows/MyApp/MyApp.ico",
+      "sha256": "fdc1aa703c5110e0c3f362678d2dafef7413f77e4f25d2e00e128d36b0982ce3"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/ManabiReaderWindows.rc",
+      "source": "templates/cpp-app/windows/MyApp/MyApp.rc",
+      "sha256": "e7ab7b2b5c858f8d795a18ae5324da96fc1e0e2087d4f706455b32e54f6fa339"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/ManabiReaderWindows.vcxproj",
+      "source": "templates/cpp-app/windows/MyApp/MyApp.vcxproj",
+      "sha256": "51e7af4457b5779d1f9ceb24ae538a31133732280a2868520cc743f05434ae51"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/ManabiReaderWindows.vcxproj.filters",
+      "source": "templates/cpp-app/windows/MyApp/MyApp.vcxproj.filters",
+      "sha256": "ebdab0c0efa89d1e2d84f4ca4fdc7bae9ad03e45323e0f86cd687c3fe273c3f4"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/pch.cpp",
+      "source": "templates/cpp-app/windows/MyApp/pch.cpp",
+      "sha256": "f1a03d6510be0ca46b84609263a9ca9167fbe905a7c07e40bcc0b07658e1eaff"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/pch.h",
+      "source": "templates/cpp-app/windows/MyApp/pch.h",
+      "sha256": "5f1134571ed84d2ad9e5c9bdfdd5990ecdd594001c1dd5500df1f795624306aa"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/resource.h",
+      "source": "templates/cpp-app/windows/MyApp/resource.h",
+      "sha256": "1b84d930dafd53deade2b971c49088ae423ec203d53fa932da7aa9fc38703873"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/small.ico",
+      "source": "templates/cpp-app/windows/MyApp/small.ico",
+      "sha256": "fdc1aa703c5110e0c3f362678d2dafef7413f77e4f25d2e00e128d36b0982ce3"
+    },
+    {
+      "target": "windows/ManabiReaderWindows/targetver.h",
+      "source": "templates/cpp-app/windows/MyApp/targetver.h",
+      "sha256": "a2761fdbd4c8925741ddea678ee8398de930207e447666bc6a76d5f72684c04f"
+    }
+  ]
+}

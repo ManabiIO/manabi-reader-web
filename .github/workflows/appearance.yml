@@ -20,14 +20,16 @@ concurrency:
   cancel-in-progress: true
 jobs:
   component-lint:
-    # This exact migration is qualified once in expo-migration.yml.
+    # Dedicated Expo/Windows qualification branches skip legacy cache/upload jobs.
     if: >-
       !(github.repository == 'ManabiIO/manabi-reader-web' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
-        github.head_ref == 'feat/expo-android-web-migration') ||
+        (github.head_ref == 'feat/expo-android-web-migration' ||
+         github.head_ref == 'codex/reader-windows-sdk56-20261020')) ||
        (github.event_name == 'push' &&
-        github.ref == 'refs/heads/feat/expo-android-web-migration')))
+        (github.ref == 'refs/heads/feat/expo-android-web-migration' ||
+         github.ref == 'refs/heads/codex/reader-windows-sdk56-20261020'))))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -45,14 +47,16 @@ jobs:
       - run: node scripts/prepare-expo.mjs
       - run: node tools/appearance/lint.mjs
   appearance:
-    # This exact migration is qualified once in expo-migration.yml.
+    # Dedicated Expo/Windows qualification branches skip legacy cache/upload jobs.
     if: >-
       !(github.repository == 'ManabiIO/manabi-reader-web' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
-        github.head_ref == 'feat/expo-android-web-migration') ||
+        (github.head_ref == 'feat/expo-android-web-migration' ||
+         github.head_ref == 'codex/reader-windows-sdk56-20261020')) ||
        (github.event_name == 'push' &&
-        github.ref == 'refs/heads/feat/expo-android-web-migration')))
+        (github.ref == 'refs/heads/feat/expo-android-web-migration' ||
+         github.ref == 'refs/heads/codex/reader-windows-sdk56-20261020'))))
     runs-on: ubuntu-24.04
     # Both browser engines plus setup/build reached 20 minutes with every case passing.
     # Leave time for suite completion and evidence upload; module timeouts stay bounded below.

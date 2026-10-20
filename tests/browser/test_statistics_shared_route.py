@@ -253,6 +253,11 @@ class SharedStatisticsBrowser(LibraryBase):
                 # detail surface, while retaining the saved privacy preference.
                 metric.press('Enter')
                 expect(details).to_be_visible()
+                # As above, wait for the popover's scheduled initial focus before
+                # moving it to another keyboard action. Visibility alone can
+                # precede that animation-frame callback.
+                expect(details.get_by_role(
+                    'button', name='Close measurement details', exact=True)).to_be_focused()
                 self.page.get_by_role('button', name='Sort by Total Time', exact=True).press('Enter')
                 expect(details).to_have_count(0)
                 expect(private).to_have_count(3)

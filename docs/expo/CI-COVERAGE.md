@@ -5,6 +5,32 @@ outcomes and per-suite logs for the exact recorded source commit are the evidenc
 A skipped, timed-out, interrupted or never-started suite is **unqualified**. Green
 results from an older commit do not qualify this revision.
 
+## Windows candidate
+
+`windows-bootstrap.yml` is separate from the three-job migration workflow below.
+It admits only public `ManabiIO/manabi-reader-web` pushes/manual dispatches on
+`codex/reader-windows-sdk56-20261020`, using one stock `windows-2025-vs2026` runner.
+It validates VS 2026 >=18.6.1, installs the frozen graph, checks types/patches,
+bundles the Windows JS, compiles Debug and Release independently, and attempts
+the actual Release bootstrap through Windows UI Automation.
+
+The runtime probe checks native text, input/state updates, button activation and
+window-size updates. It does not establish Reader UI, persistence, IME, Narrator,
+ARM64, installation or upgrade acceptance. It launches only the fresh bootstrap
+executable and closes that process in cleanup. No production library is opened.
+
+Legacy workflows also suppress this exact candidate's pushes and same-repository
+PRs at job admission. Other branches, forks and legacy manual dispatch behavior
+remain unchanged; those manual jobs must not be dispatched for this qualification.
+The new job has read-only repository permissions, no secrets, artifact uploads,
+remote caches, larger runner, signing, package deployment or publication.
+Evidence is ordinary logs and summaries from the disposable runner.
+
+`test/windows/ci-policy.test.mjs` checks the new job's admission and scope;
+`test/expo/ci-storage-policy.test.mjs` retains all original migration routing
+cases and checks that the candidate cannot allocate legacy upload/cache jobs.
+No successful native result is implied by the workflow merely existing.
+
 ## Execution boundary
 
 - Only `ManabiIO/manabi-reader-web` and its own

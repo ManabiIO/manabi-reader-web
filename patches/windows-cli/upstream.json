@@ -1,0 +1,10 @@
+{
+  "package": "@react-native-windows/cli",
+  "version": "0.85.0",
+  "source": "https://registry.npmjs.org/@react-native-windows/cli/0.85.0",
+  "adaptedFrom": "https://github.com/shirakaba/expo-desktop/blob/1e45de7e2d63811b1480f0388d1572f084e67acb/templates/blank-typescript/patches/@react-native-windows%2Bcli%2B0.83.2.patch",
+  "files": {
+    "lib-commonjs/commands/healthCheck/healthChecks.js": "3d58b88cb5318da8f6efccd9e48df117d6164438494057ca3006ab9c603a4808",
+    "lib-commonjs/utils/commandWithProgress.js": "5b00dd453daf753e9310f6721dbfdb4cba3671d6386920d2d24206202e894cfb"
+  }
+}

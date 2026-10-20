@@ -4,7 +4,10 @@
 version for native Windows desktop and regular Expo. The Edge PWA decision below
 is the historical October 18 checkpoint, not fulfillment of that requirement.
 RN Windows 0.85.0 was released October 19; SDK 56 / RN 0.85 is now the newest
-version-intersection candidate. See [Windows SDK qualification](WINDOWS-SDK-COMPATIBILITY.md).
+version-intersection candidate. See [Windows SDK qualification](WINDOWS-SDK-COMPATIBILITY.md)
+and the [desktop research](DESKTOP-RESEARCH-2026-10.md). The latter distinguishes
+this candidate from the published community Expo Desktop template (SDK 55 /
+RN 0.83), and records the current native-module and WebView2 qualification gates.
 
 Research and implementation checkpoint: October 18, 2026. This open-source Reader
 targets web, Android, and Windows. It is distinct from the native Apple Reader

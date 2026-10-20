@@ -21,3 +21,7 @@ __pycache__/
 /apps/web/public/
 /apps/web/src/app.generated.css
 /apps/web/src/runtime/font-assets.ts
+
+# Native Windows host qualification outputs
+/apps/windows/.expo/
+/apps/windows/artifacts/

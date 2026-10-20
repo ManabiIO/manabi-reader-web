@@ -17,14 +17,16 @@ concurrency:
   cancel-in-progress: true
 jobs:
   native:
-    # This exact migration is qualified once in expo-migration.yml.
+    # Dedicated Expo/Windows qualification branches skip legacy cache/upload jobs.
     if: >-
       !(github.repository == 'ManabiIO/manabi-reader-web' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
-        github.head_ref == 'feat/expo-android-web-migration') ||
+        (github.head_ref == 'feat/expo-android-web-migration' ||
+         github.head_ref == 'codex/reader-windows-sdk56-20261020')) ||
        (github.event_name == 'push' &&
-        github.ref == 'refs/heads/feat/expo-android-web-migration')))
+        (github.ref == 'refs/heads/feat/expo-android-web-migration' ||
+         github.ref == 'refs/heads/codex/reader-windows-sdk56-20261020'))))
     name: Pitch ${{ matrix.browser }}
     # Headless Linux WebKit reports play while its WAV media clock stays at 0;
     # macOS WebKit exercises the actual Safari media pipeline.
@@ -74,14 +76,16 @@ jobs:
           path: test-results/
           retention-days: 3
   application:
-    # This exact migration is qualified once in expo-migration.yml.
+    # Dedicated Expo/Windows qualification branches skip legacy cache/upload jobs.
     if: >-
       !(github.repository == 'ManabiIO/manabi-reader-web' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
-        github.head_ref == 'feat/expo-android-web-migration') ||
+        (github.head_ref == 'feat/expo-android-web-migration' ||
+         github.head_ref == 'codex/reader-windows-sdk56-20261020')) ||
        (github.event_name == 'push' &&
-        github.ref == 'refs/heads/feat/expo-android-web-migration')))
+        (github.ref == 'refs/heads/feat/expo-android-web-migration' ||
+         github.ref == 'refs/heads/codex/reader-windows-sdk56-20261020'))))
     name: Pitch actual app and appearance
     runs-on: ubuntu-24.04
     timeout-minutes: 20
