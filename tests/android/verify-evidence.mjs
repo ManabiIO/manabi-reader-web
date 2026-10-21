@@ -14,6 +14,14 @@ export function verifyEvidence(evidence, phase, id) {
   assert.equal(evidence.id, id);
   assert.equal(evidence.target, 'io.manabi.reader');
   assert.equal(evidence.targetDebuggable, false);
+  assert.equal(evidence.nativeOffline?.notice, 'native-details-open-and-dismissed');
+  assert.equal(evidence.nativeOffline.webViewOnline, false);
+  for (const point of ['beforeLaunch', 'afterJourneys', 'afterStorageChecks'])
+    assert.deepEqual(evidence.nativeOffline[point], {
+      airplaneMode: true,
+      activeNetwork: false,
+      networkCount: 0
+    });
   assert.equal(evidence.nativeRoundTrip, 'snapshot-route-and-library-state-reply');
   assert.equal(evidence.nativeFontManager, 'shared-font-list-add-back-and-close-without-save');
   assert.equal(

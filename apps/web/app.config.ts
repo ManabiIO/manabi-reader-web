@@ -45,7 +45,12 @@ const config: ExpoConfig = {
   scheme: 'manabi-reader',
   userInterfaceStyle: 'automatic',
   platforms: ['android', 'web'],
-  android: { package: 'io.manabi.reader' },
+  android: {
+    package: 'io.manabi.reader',
+    // WebView's connectivity observer needs this normal permission to report
+    // real navigator.onLine changes to the shared offline notice.
+    permissions: ['android.permission.ACCESS_NETWORK_STATE']
+  },
   web: { bundler: 'metro', output: 'single', name: 'Manabi Reader', lang: 'ja' },
   plugins: [
     // Keep the full route shell available after the initial offline precache.

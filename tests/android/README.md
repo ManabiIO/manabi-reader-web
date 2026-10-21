@@ -94,6 +94,12 @@ attempts. A failed run is failure evidence, never a pass. If the seed process
 crashes, its synthetic namespace can remain in that disposable AVD; discard the
 AVD rather than clearing any general-purpose app profile.
 
+After these guards and local APK installation, the runner enables airplane mode
+and explicitly disables Wi-Fi and mobile data on that disposable emulator. Both
+application processes run disconnected. A standalone invocation leaves the test
+AVD disconnected for diagnosis; the CI workflow destroys its disposable AVD on
+exit. It does not change the host computer's network or any existing app profile.
+
 The instrumentation's `full` default checks reload persistence and removes its
 random namespace in a single process, but it
 does **not** establish force-stop/process-restart persistence. Use the two-phase
@@ -101,6 +107,12 @@ runner for that claim.
 
 ## Assertions made by a passing two-phase run
 
+- The release app has the normal `ACCESS_NETWORK_STATE` permission; before
+  launch, after the native journeys and after the storage checks, Android reports
+  airplane mode, no active network and zero available networks. The real WebView
+  reports `navigator.onLine === false`; the native offline explanation opens and
+  dismisses through accessible controls in both processes. These new assertions
+  still require an exact-source packaged run.
 - Real native Library app heading, empty-library explanation and non-fallback pagination, requiring
   DOM `onSnapshot` → native routing and native `library.state` → DOM `onReply`;
   the existence of a JavaScript bridge shim alone is insufficient
@@ -125,20 +137,22 @@ runner for that claim.
 
 ## Explicitly still unqualified
 
-This narrow smoke is not complete Android acceptance. It does not test real
-book/annotation/import data, a dictionary open/import/search, SQLite database
+This narrow smoke is not complete Android acceptance. The text-book import and
+ZIP export journey below does not establish EPUB reading/annotation fidelity,
+a dictionary open/import/search, SQLite database
 initialization, ONNX/ORT inference, worker OPFS synchronous handles, an APK update
 with a changed HTML hash, OS reboot, storage eviction/quota, unsupported WebView
 features, same-origin iframe bridge-dispatch rejection, actual scriptless EPUB
 frames, renderer crashes, account changes, repeated native navigation, or
 user-gesture links/Custom Tabs and redirects/popups.
 
-No network-offline or no-DNS claim follows from this suite: it requests canonical
-APK URLs and verifies packaged byte hashes, but does not turn off networking or
-capture network traffic. `javascript:` execution is also not treated as blocked
+The current runner turns networking off and checks real OS/WebView state at the
+boundaries above. It does not capture network traffic, so it makes no claim that
+the application never attempts DNS or external requests. Previous passing runs
+predate the disconnected gate and do not qualify it. `javascript:` execution is also not treated as blocked
 navigation: the test already executes trusted page JavaScript, and Android does
-not deliver every such URL to the navigation callback. Those trust-boundary and
-offline gates remain separate before Android runtime readiness is declared.
+not deliver every such URL to the navigation callback. Full trust-boundary and
+offline reading acceptance remain separate from these selected local journeys.
 
 ## Official API references
 
@@ -146,6 +160,8 @@ offline gates remain separate before Android runtime readiness is declared.
 - [Instrumented tests from the command line](https://developer.android.com/studio/test/command-line)
 - [Official emulator command-line options](https://developer.android.com/studio/run/emulator-commandline)
 - [Local WebView content and HTTPS asset loading](https://developer.android.com/develop/ui/views/layout/webapps/load-local-content)
+- [Chromium WebView network observer and its ACCESS_NETWORK_STATE requirement](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/net/android/java/src/org/chromium/net/NetworkChangeNotifierAutoDetect.java)
+- [Android 15 connectivity shell: airplane-mode enable/disable](https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/heads/android15-release/service/src/com/android/server/ConnectivityService.java)
 
 - [GitHub-supported Android virtualization and its explicit host permission setup](https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/)
 

@@ -10,13 +10,16 @@ import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Rect;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.net.Uri;
+import android.net.ConnectivityManager;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
@@ -85,6 +88,8 @@ public final class PackagedReaderTest {
         .put("processId", android.os.Process.myPid());
     boolean preserve = false;
     try {
+      JSONObject offline = new JSONObject().put("beforeLaunch", awaitDeviceOffline());
+      evidence.put("nativeOffline", offline);
       Intent intent = target.getPackageManager().getLaunchIntentForPackage(target.getPackageName());
       assertNotNull("The generated Expo launcher activity is missing", intent);
       activity = instrumentation.startActivitySync(intent);
@@ -92,6 +97,8 @@ public final class PackagedReaderTest {
       entry = readUrl();
       awaitReady();
       awaitNativeLibraryReply();
+      qualifyOfflineNotice();
+      offline.put("notice", "native-details-open-and-dismissed").put("webViewOnline", false);
       if (phase.equals("verify")) qualifyNativeFontPicker(phase);
       qualifyNativeFontManager();
       if (!phase.equals("verify")) qualifyNativeFontPicker(phase);
@@ -105,6 +112,9 @@ public final class PackagedReaderTest {
         public void awaitPicker() { awaitDocumentPicker(); }
         public void cancelPicker(String purpose) throws Exception { cancelDocumentPicker(purpose); }
       }, id).run(phase));
+      offline.put("afterJourneys", awaitDeviceOffline());
+      assertEquals("The actual WebView must remain disconnected after local imports and export",
+          "false", evaluate("navigator.onLine"));
       evidence.put("entry", entry).put("nativeSettings", nativeSettings());
       if (phase.equals("verify")) {
         evidence.put("afterProcessRestart", runProbe("verify"));
@@ -114,11 +124,14 @@ public final class PackagedReaderTest {
         evaluate("window.__manabiDocumentBeforeReload = true; true;");
         instrumentation.runOnMainSync(() -> reader.reload());
         awaitReady(true);
+        assertEquals("The actual WebView must remain disconnected after document reload",
+            "false", evaluate("navigator.onLine"));
         evidence.put("afterReload", runProbe("verify"));
         if (phase.equals("seed")) evidence.put("nativeFontAfterReload", runFontProbe("selected"));
         evidence.put("navigation", navigationRestrictions());
         preserve = phase.equals("seed");
       }
+      offline.put("afterStorageChecks", awaitDeviceOffline());
       evidence.put("passed", true);
     } catch (Throwable failure) {
       evidence.put("passed", false).put("error", failure.toString());
@@ -144,6 +157,39 @@ public final class PackagedReaderTest {
       emitEvidence();
       closeActivity();
     }
+  }
+
+  /** Observe actual OS connectivity without changing app/WebView security or
+   * injecting navigator values. The shell disconnects only the disposable AVD. */
+  private JSONObject awaitDeviceOffline() throws Exception {
+    Context target = instrumentation.getTargetContext();
+    assertEquals("The release app must be able to observe network state",
+        PackageManager.PERMISSION_GRANTED,
+        target.checkSelfPermission(android.Manifest.permission.ACCESS_NETWORK_STATE));
+    ConnectivityManager connectivity = target.getSystemService(ConnectivityManager.class);
+    assertNotNull(connectivity);
+    long deadline = SystemClock.uptimeMillis() + 20000;
+    do {
+      boolean airplane = Settings.Global.getInt(target.getContentResolver(), Settings.Global.AIRPLANE_MODE_ON, 0) == 1;
+      boolean active = connectivity.getActiveNetwork() != null;
+      int networks = connectivity.getAllNetworks().length;
+      if (airplane && !active && networks == 0) return new JSONObject()
+          .put("airplaneMode", true).put("activeNetwork", false).put("networkCount", 0);
+      SystemClock.sleep(100);
+    } while (SystemClock.uptimeMillis() < deadline);
+    throw new AssertionError("The disposable emulator still has an available network or is not in airplane mode");
+  }
+
+  private void qualifyOfflineNotice() throws Exception {
+    long deadline = SystemClock.uptimeMillis() + 20000;
+    while (!"false".equals(evaluate("navigator.onLine")) && SystemClock.uptimeMillis() < deadline)
+      SystemClock.sleep(100);
+    assertEquals("WebView must report the real disconnected device", "false", evaluate("navigator.onLine"));
+    clickAccessibleText("Offline. Connection details");
+    awaitAccessibleText("You’re offline. You can keep reading.");
+    awaitAccessibleText("Books already saved on this device are available offline. Books and media you haven’t downloaded need a connection.");
+    clickAccessibleText("Close connection details");
+    awaitNativeLibraryReply();
   }
 
   private void onActivity(Consumer<Activity> action) {

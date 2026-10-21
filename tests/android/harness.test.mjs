@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { webcrypto, createHash } from 'node:crypto';
 import { IDBFactory } from 'fake-indexeddb';
 import { prepareAndroidQualification } from '../../scripts/prepare-android-qualification.mjs';
@@ -237,6 +237,109 @@ test('prepare is idempotent and confines additions to the generated test project
   }
 });
 
+test('offline runner refuses existing profiles and disconnects only the checked disposable emulator before launch', async () => {
+  for (const scenario of ['physical', 'not-emulator', 'existing-app', 'airplane-failed', 'fresh']) {
+    const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-offline-runner-'));
+    try {
+      const bin = path.join(temp, 'bin');
+      await fs.mkdir(bin);
+      await fs.mkdir(path.join(temp, 'tests/android'), { recursive: true });
+      await fs.copyFile(
+        new URL('run-qualification.sh', import.meta.url),
+        path.join(temp, 'tests/android/run-qualification.sh')
+      );
+      for (const file of [
+        'release/app-release.apk',
+        'androidTest/release/app-release-androidTest.apk'
+      ]) {
+        const target = path.join(temp, 'apps/web/android/app/build/outputs/apk', file);
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.writeFile(target, 'isolated shell sequencing fixture');
+      }
+      const trace = path.join(temp, 'adb-calls.jsonl');
+      await fs.writeFile(
+        path.join(bin, 'adb'),
+        `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2), key = args.join(' '), scenario = process.env.MANABI_SCENARIO;
+fs.appendFileSync(process.env.MANABI_ADB_TRACE, JSON.stringify(args) + '\\n');
+if (key === 'shell getprop ro.kernel.qemu') console.log(scenario === 'not-emulator' ? '0' : '1');
+else if (key === 'shell getprop sys.boot_completed') console.log('1');
+else if (key.startsWith('shell pm path ')) {
+  if (scenario === 'existing-app') console.log('package:/fixture/existing.apk');
+}
+else if (key === 'shell cmd connectivity airplane-mode') console.log(scenario === 'airplane-failed' ? 'disabled' : 'enabled');
+else if (key.startsWith('shell am instrument ')) process.exitCode = 97;
+else if (!(key.startsWith('install ') || key.startsWith('shell dumpsys ') || key.startsWith('logcat ')
+  || key === 'shell getprop ro.build.fingerprint' || key === 'shell cmd connectivity airplane-mode enable'
+  || key === 'shell svc wifi disable' || key === 'shell svc data disable')) throw new Error(key);
+`,
+        { mode: 0o755 }
+      );
+      await fs.writeFile(
+        path.join(bin, 'sha256sum'),
+        `#!/usr/bin/env node
+const fs = require('node:fs'), crypto = require('node:crypto');
+for (const file of process.argv.slice(2)) console.log(crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') + '  ' + file);
+`,
+        { mode: 0o755 }
+      );
+      const result = spawnSync('bash', ['tests/android/run-qualification.sh'], {
+        cwd: temp,
+        env: {
+          ...process.env,
+          PATH: bin + path.delimiter + process.env.PATH,
+          ANDROID_SERIAL: scenario === 'physical' ? 'physical-fixture' : 'emulator-5554',
+          MANABI_SCENARIO: scenario,
+          MANABI_ADB_TRACE: trace
+        },
+        encoding: 'utf8',
+        timeout: 15000
+      });
+      assert.ifError(result.error);
+      const calls = (await fs.readFile(trace, 'utf8').catch(() => ''))
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((row) => JSON.parse(row).join(' '));
+      if (['physical', 'not-emulator', 'existing-app'].includes(scenario)) {
+        assert.equal(result.status, 1, result.stderr);
+        assert.equal(
+          calls.some(
+            (call) =>
+              call.includes('airplane-mode') || call.includes('svc ') || call.startsWith('install ')
+          ),
+          false
+        );
+      } else if (scenario === 'airplane-failed') {
+        assert.equal(result.status, 1, result.stderr);
+        assert.match(result.stderr, /did not enter airplane mode/);
+        assert.equal(
+          calls.some((call) => call.startsWith('shell am instrument ')),
+          false
+        );
+      } else {
+        assert.equal(result.status, 97, result.stderr);
+        const launch = calls.findIndex((call) => call.startsWith('shell am instrument '));
+        assert.ok(launch > 0);
+        for (const command of [
+          'shell cmd connectivity airplane-mode enable',
+          'shell svc wifi disable',
+          'shell svc data disable'
+        ]) {
+          const position = calls.indexOf(command);
+          assert.ok(
+            position > calls.indexOf('shell pm path io.manabi.reader.test') && position < launch,
+            command
+          );
+        }
+      }
+    } finally {
+      await trashTemporary(temp);
+    }
+  }
+});
+
 test('probe really writes/reads its synthetic namespace and cleans only that namespace', async () => {
   const fixture = harness();
   await assert.rejects(fixture.invoke('verify'));
@@ -299,6 +402,16 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     id,
     target: 'io.manabi.reader',
     targetDebuggable: false,
+    nativeOffline: {
+      notice: 'native-details-open-and-dismissed',
+      webViewOnline: false,
+      ...Object.fromEntries(
+        ['beforeLaunch', 'afterJourneys', 'afterStorageChecks'].map((point) => [
+          point,
+          { airplaneMode: true, activeNetwork: false, networkCount: 0 }
+        ])
+      )
+    },
     nativeRoundTrip: 'snapshot-route-and-library-state-reply',
     nativeFontManager: 'shared-font-list-add-back-and-close-without-save',
     nativeBookExport: {
@@ -435,6 +548,24 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     assert.throws(() =>
       verifyEvidence({ ...evidence, targetDebuggable: true }, evidence.phase, id)
     );
+    for (const nativeOffline of [undefined, {}, { ...evidence.nativeOffline, webViewOnline: true }])
+      assert.throws(() => verifyEvidence({ ...evidence, nativeOffline }, evidence.phase, id));
+    for (const point of ['beforeLaunch', 'afterJourneys', 'afterStorageChecks']) {
+      for (const state of [
+        undefined,
+        { airplaneMode: true, activeNetwork: false, networkCount: 1 },
+        { airplaneMode: false, activeNetwork: false, networkCount: 0 },
+        { airplaneMode: true, activeNetwork: true, networkCount: 0 }
+      ]) {
+        assert.throws(() =>
+          verifyEvidence(
+            { ...evidence, nativeOffline: { ...evidence.nativeOffline, [point]: state } },
+            evidence.phase,
+            id
+          )
+        );
+      }
+    }
     for (const nativeFontManager of [undefined, 'component-imported', false])
       assert.throws(() => verifyEvidence({ ...evidence, nativeFontManager }, evidence.phase, id));
     for (const nativeFontPreferences of [undefined, 'component-mounted', false])

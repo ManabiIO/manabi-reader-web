@@ -760,3 +760,34 @@ and metadata boundary inside DocumentsUI, rejects preview/prefix labels, and
 also serves the new book-import journey. Full background and book-export runtime
 qualification is still pending. Original failure data is retained locally in
 `../evidence/android-picker-followup-jv95hkmw/`.
+
+### Real Android disconnected-state observation
+
+Expo config introspection found that the generated Android manifest did not
+request `ACCESS_NETWORK_STATE`. Chromium's WebView network-change observer
+[requires that normal permission](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/net/android/java/src/org/chromium/net/NetworkChangeNotifierAutoDetect.java).
+The app now declares it explicitly so `navigator.onLine` can supply actual
+connection changes to the existing DOM owner and shared offline notice. There
+is no new network permission prompt, connectivity store, sync claim, data schema
+or backup/restore change.
+
+The emulator runner now disables networking only after its existing fresh-AVD,
+uninstalled-profile and APK guards. It uses the Android connectivity service's
+airplane-mode command and disables Wi-Fi/mobile data explicitly. Instrumentation
+requires granted network-state observation, airplane mode, no active network and
+zero available networks before launching each app process, after the native
+journeys and after storage checks. It reads the real WebView's offline state and
+opens/dismisses the native explanation in both processes. Font/background imports,
+the text-book/verified-ZIP journey, reload and process restart therefore must all
+work while disconnected for a new run to pass. No navigator override, synthetic
+offline event or network/security bypass is used.
+
+Local harness tests exercise shell ordering with isolated fake ADB commands,
+including physical-device/existing-app refusal and a failed airplane-mode setup.
+Evidence verification rejects absent, connected or incomplete offline checkpoints
+in either process. These are harness checks, not Android runtime results. Local
+evidence in `../evidence/android-offline-mxrxhsw1/` includes generated-manifest
+introspection, 14 harness tests, lint, shell syntax and Android API compilation
+under Java 21. The new disconnected device gate still needs an exact-source run.
+No packet capture or no-DNS claim is made, and full offline EPUB/annotation and
+device accessibility coverage remains open.
