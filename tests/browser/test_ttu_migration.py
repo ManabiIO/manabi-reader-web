@@ -13,6 +13,7 @@ import threading
 import unittest
 import zipfile
 from playwright.sync_api import sync_playwright, expect
+from browser_launch import launch_options
 from test_static_reader import StaticHandler, ThreadingHTTPServer, epub, TITLE
 
 OTHER = 'Other book'
@@ -82,25 +83,25 @@ class MigrationBrowser(unittest.TestCase):
         launch = {}
         if os.environ.get('PLAYWRIGHT_CHROMIUM_EXECUTABLE'):
             launch['executable_path'] = os.environ['PLAYWRIGHT_CHROMIUM_EXECUTABLE']
-        cls.browser = cls.playwright.chromium.launch(**launch)
+        cls.browser = cls.playwright.chromium.launch(**launch_options('chromium', **launch))
         try:
             cls.source = cls.export_fixture()
             cls.source_entries = entries(cls.source)
         except BaseException:
-            cls.browser.close()
-            cls.playwright.stop()
-            cls.server.shutdown()
-            cls.server.server_close()
-            cls.thread.join()
+            cls.tearDownClass()
             raise
 
     @classmethod
     def tearDownClass(cls):
-        cls.browser.close()
-        cls.playwright.stop()
-        cls.server.shutdown()
-        cls.server.server_close()
-        cls.thread.join()
+        try:
+            cls.browser.close()
+        finally:
+            try:
+                cls.playwright.stop()
+            finally:
+                cls.server.shutdown()
+                cls.server.server_close()
+                cls.thread.join()
 
     @classmethod
     def export_fixture(cls):

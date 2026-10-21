@@ -645,3 +645,30 @@ and real export/migration/repeat. Both enlarged-text screenshots were reviewed.
 These are local checks, not an installed Android interaction or TalkBack pass.
 The full shared Library workspace, common search, native export destinations and
 remaining device acceptance stay open.
+
+### Backup archive delivery boundary
+
+`BackupStorageHandler.finishExportZip` now consumes and returns a completed Blob
+and the existing ZIP filename independently of browser downloading. The ordinary
+browser path retains its download and URL cleanup. Detaching the writer before
+awaiting completion prevents an old download/finalization from discarding a newer
+export. Cancellation is supplied by the current replication operation, checked
+after compression and before delivery, and checked again before a queued browser
+click. A previous book context cannot supply another operation's cancellation.
+
+`replicateData` accepts an optional archive destination. A destination receives
+an archive only after successful replication; per-book errors, empty work and
+cancellation discard it instead of presenting a partial ZIP as a successful native
+backup. Destination failure is surfaced and is not replayed. Existing serializers,
+ZIP entry names, preferences and restoration behavior are unchanged. Six focused
+tests use the real ZIP codec for delivery, cancellation, writer isolation and
+partial failures; the actual-app export/restore journeys remain the wire-format
+acceptance evidence.
+
+This is the shared archive boundary for native export, not a completed Android
+Save flow. Android still needs selection admission, identity-checked DOM reads,
+a bounded cancellable transfer, a real system destination chooser, and saved-file
+verification/cleanup before exposing Export. Native paths must stay in the shell;
+ZIP bytes must not be added to ordinary runtime snapshots. The existing DOM
+storage owner and current backup format remain authoritative. Full Settings,
+background images and font caches are not implicitly included by this refactor.

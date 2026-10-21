@@ -4,7 +4,10 @@
  * All rights reserved.
  */
 
-import { BackupStorageHandler } from '$lib/data/storage/handler/backup-handler';
+import {
+  BackupStorageHandler,
+  type BackupDelivery
+} from '$lib/data/storage/handler/backup-handler';
 import { BaseStorageHandler, FilePrefix } from '$lib/data/storage/handler/base-handler';
 import { requestPersistentStorageOnce } from '$lib/data/window/navigator/persistent-storage';
 import { StorageDataType, StorageKey } from '$lib/data/storage/storage-types';
@@ -182,7 +185,8 @@ export async function replicateData(
   refreshDataList: boolean,
   contexts: ReplicationContext[],
   dataToReplicate: StorageDataType[],
-  cancelSignal?: AbortSignal
+  cancelSignal?: AbortSignal,
+  backupDelivery?: BackupDelivery
 ) {
   const bookOperationsLength = dataToReplicate.filter(
     (entry) => entry !== StorageDataType.READING_GOALS
@@ -420,7 +424,12 @@ export async function replicateData(
 
   if (targetHandler instanceof BackupStorageHandler) {
     await targetHandler
-      .createExportZip(document, cancelSignal?.aborted || !processed)
+      .createExportZip(
+        document,
+        !!cancelSignal?.aborted || !processed || (!!backupDelivery && !!errorMessage),
+        backupDelivery,
+        cancelSignal
+      )
       .catch((error) => {
         errorMessage = error.message;
       });
