@@ -96,6 +96,14 @@ public final class PackagedReaderTest {
       qualifyNativeFontManager();
       if (!phase.equals("verify")) qualifyNativeFontPicker(phase);
       qualifyNativeBackgrounds(phase);
+      evidence.put("nativeBookExport", new PackagedBookExport(instrumentation, new PackagedBookExport.Driver() {
+        public String readAsset(String name) throws Exception { return PackagedReaderTest.this.readAsset(name); }
+        public String evaluate(String script) throws Exception { return PackagedReaderTest.this.evaluate(script); }
+        public void click(String label) throws Exception { clickAccessibleText(label); }
+        public void awaitText(String label) throws Exception { awaitAccessibleText(label); }
+        public void awaitPicker() { awaitDocumentPicker(); }
+        public void cancelPicker(String purpose) throws Exception { cancelDocumentPicker(purpose); }
+      }, id).run(phase));
       evidence.put("entry", entry).put("nativeSettings", nativeSettings());
       if (phase.equals("verify")) {
         evidence.put("afterProcessRestart", runProbe("verify"));

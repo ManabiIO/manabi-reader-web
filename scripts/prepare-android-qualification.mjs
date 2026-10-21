@@ -30,9 +30,13 @@ export async function prepareAndroidQualification({
   const assetDir = path.join(app, 'src/androidTest/assets/manabi-qualification');
   await fs.mkdir(javaDir, { recursive: true });
   await fs.mkdir(assetDir, { recursive: true });
-  for (const name of ['PackagedReaderTest.java', 'PackagedReaderInstrumentation.java'])
+  for (const name of [
+    'PackagedReaderTest.java',
+    'PackagedReaderInstrumentation.java',
+    'PackagedBookExport.java'
+  ])
     await fs.copyFile(path.join(fixtureDirectory, name), path.join(javaDir, name));
-  for (const name of ['probe.js', 'font-probe.js'])
+  for (const name of ['probe.js', 'font-probe.js', 'book-export-probe.js'])
     await fs.copyFile(path.join(fixtureDirectory, name), path.join(assetDir, name));
   const version = JSON.parse(
     await fs.readFile(path.join(root, 'apps/web/src/lib/search/manabitan-version.json'), 'utf8')

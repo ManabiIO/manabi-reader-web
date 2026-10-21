@@ -728,4 +728,9 @@ verification/cleanup, shared options and route/account retirement. Both producti
 platform exports, strict types, lint and actual-app browser backup/layout checks
 are separate from Android runtime acceptance. The new Android folder chooser,
 SAF write/read/cleanup and TalkBack export journey still need packaged-device
-qualification; the existing emulator gate does not exercise this export flow.
+qualification. The emulator harness now requires a real picker import, cancelled
+folder selection, multi-chunk export, independent nested-ZIP/HTML verification,
+native Library copy removal and unchanged archive bytes after process restart.
+This extends the gate but does not establish its result until the exact-source
+APK run passes. Spoken TalkBack and provider-error/cancellation-during-write
+coverage remain separate acceptance work.

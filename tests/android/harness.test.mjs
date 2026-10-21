@@ -301,6 +301,17 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     targetDebuggable: false,
     nativeRoundTrip: 'snapshot-route-and-library-state-reply',
     nativeFontManager: 'shared-font-list-add-back-and-close-without-save',
+    nativeBookExport: {
+      filename: 'ttu-reader-export-10-20-2026-12-34-56-archive_token.zip',
+      bytes: 530000,
+      sha256: 'a'.repeat(64),
+      contentHash: 'b'.repeat(64),
+      htmlBytes: 860000,
+      htmlSha256: 'c'.repeat(64),
+      title: `manabi-export-${id}`,
+      zip: 'independent-nested-zip-and-stored-html-verification',
+      libraryCopyRemoved: true
+    },
     nativeChoices: 'color-mode-selection-local-save-and-restore',
     nativeFontPreferences: 'explicit-font-draft-cancel-apply-and-exact-restore',
     nativeThemeChooser: 'add-dialog-back-and-close-without-save',
@@ -321,6 +332,11 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     ...base,
     phase: 'seed',
     processId: 200,
+    nativeBookExport: {
+      ...base.nativeBookExport,
+      journey: 'system-picker-cancel-import-export-and-remove',
+      removed: false
+    },
     nativeFontPicker: { font, picker: 'system-picker-cancel-import-and-select', removed: false },
     nativeFontImported: { ...font, selected: false },
     nativeFontAfterReload: { ...font },
@@ -347,6 +363,11 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     ...base,
     phase: 'verify',
     processId: 300,
+    nativeBookExport: {
+      ...base.nativeBookExport,
+      journey: 'retained-after-process-restart',
+      removed: true
+    },
     nativeFontPicker: {
       font: { ...font },
       picker: 'retained-from-previous-process',
@@ -370,6 +391,8 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     (value) => (value.processId = seed.processId),
     (value) => (value.nativeFontPicker.font.sha256 = 'b'.repeat(64)),
     (value) => (value.nativeBackgrounds.records['library-light'].sha256 = 'b'.repeat(64)),
+    (value) => (value.nativeBookExport.sha256 = 'd'.repeat(64)),
+    (value) => (value.nativeBookExport.htmlSha256 = 'e'.repeat(64)),
     (value) => delete value.nativeFontCleanup
   ]) {
     const changed = structuredClone(verify);
@@ -395,6 +418,17 @@ test('runtime evidence requires an actual native roundtrip in both process phase
       { ...evidence.nativeBackgrounds, picker: 'mock-picker' }
     ])
       assert.throws(() => verifyEvidence({ ...evidence, nativeBackgrounds }, evidence.phase, id));
+    for (const nativeBookExport of [
+      undefined,
+      {},
+      { ...evidence.nativeBookExport, journey: 'mock-picker' },
+      { ...evidence.nativeBookExport, bytes: 1024 },
+      { ...evidence.nativeBookExport, htmlSha256: 'missing' },
+      { ...evidence.nativeBookExport, libraryCopyRemoved: false },
+      { ...evidence.nativeBookExport, removed: !evidence.nativeBookExport.removed },
+      { ...evidence.nativeBookExport, zip: 'success-message-only' }
+    ])
+      assert.throws(() => verifyEvidence({ ...evidence, nativeBookExport }, evidence.phase, id));
     for (const nativeRoundTrip of [undefined, 'shim-exists', false]) {
       assert.throws(() => verifyEvidence({ ...evidence, nativeRoundTrip }, evidence.phase, id));
     }
@@ -559,7 +593,8 @@ class ParseJava { public static void main(String[] args) throws Exception {
         '--add-modules=jdk.compiler',
         parser,
         new URL('PackagedReaderTest.java', import.meta.url).pathname,
-        new URL('PackagedReaderInstrumentation.java', import.meta.url).pathname
+        new URL('PackagedReaderInstrumentation.java', import.meta.url).pathname,
+        new URL('PackagedBookExport.java', import.meta.url).pathname
       ],
       { encoding: 'utf8' }
     );
@@ -742,4 +777,70 @@ test('font probe rejects picker mutation, changed bytes, implicit selection and 
   f.stored.set('fontFamilyGroupOne', '');
   f.stored.set('fontFamilyGroupTwo', 'changed');
   await assert.rejects(f.invoke('cleanup'), /other family/);
+});
+
+test('book export probe reads the actual imported record and refuses ambiguous or invalid fixtures', async () => {
+  const indexedDB = new IDBFactory();
+  const open = indexedDB.open('books', 1);
+  open.onupgradeneeded = () => {
+    open.result.createObjectStore('data', { keyPath: 'id' });
+    open.result.createObjectStore('bookmark', { keyPath: 'dataId' });
+  };
+  const db = await new Promise((resolve, reject) => {
+    open.onsuccess = () => resolve(open.result);
+    open.onerror = () => reject(open.error);
+  });
+  const source = await fs.readFile(new URL('book-export-probe.js', import.meta.url), 'utf8');
+  const invoke = vm.runInNewContext(source, { indexedDB, TextEncoder, crypto: webcrypto });
+  const write = async (store, record) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).put(record);
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onabort = () => reject(tx.error);
+    });
+  };
+  const book = {
+    id: 1,
+    title: `manabi-export-${id}`,
+    sourceFormat: 'txt',
+    contentHash: 'a'.repeat(64),
+    elementHtml: `<p>日本語の読書 ${id}</p>`
+  };
+  try {
+    assert.equal((await invoke({ id, operation: 'empty' })).empty, true);
+    await write('data', book);
+    const result = await invoke({ id, operation: 'imported' });
+    assert.equal(result.title, book.title);
+    assert.equal(result.contentHash, book.contentHash);
+    assert.equal(result.htmlBytes, Buffer.byteLength(book.elementHtml));
+    assert.equal(result.htmlSha256, createHash('sha256').update(book.elementHtml).digest('hex'));
+    assert.equal(result.progress, null);
+    await assert.rejects(invoke({ id, operation: 'empty' }), /empty disposable Library/);
+    await assert.rejects(invoke({ id: 'wrong', operation: 'imported' }), /Invalid book export/);
+    await assert.rejects(invoke({ id, operation: 'write' }), /Unknown book export/);
+    const bookmark = { dataId: 1, progress: 0.25, lastBookmarkModified: 123 };
+    await write('bookmark', bookmark);
+    assert.equal(
+      JSON.stringify((await invoke({ id, operation: 'imported' })).progress),
+      JSON.stringify(bookmark)
+    );
+    await write('data', { ...book, contentHash: 'invalid' });
+    await assert.rejects(invoke({ id, operation: 'imported' }), /canonical content hash/);
+    await write('data', book);
+    await write('bookmark', { ...bookmark, dataId: 2 });
+    await assert.rejects(invoke({ id, operation: 'imported' }), /unrelated bookmark/);
+    await write('data', { ...book, id: 2, title: 'Unrelated book' });
+    await assert.rejects(invoke({ id, operation: 'imported' }), /exact book/);
+    const read = db.transaction(['data', 'bookmark']);
+    const books = read.objectStore('data').getAll();
+    const bookmarks = read.objectStore('bookmark').getAll();
+    await new Promise((resolve) => {
+      read.oncomplete = resolve;
+    });
+    assert.deepEqual(books.result, [book, { ...book, id: 2, title: 'Unrelated book' }]);
+    assert.deepEqual(bookmarks.result, [bookmark, { ...bookmark, dataId: 2 }]);
+  } finally {
+    db.close();
+  }
 });

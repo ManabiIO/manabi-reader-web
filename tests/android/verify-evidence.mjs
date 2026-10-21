@@ -59,6 +59,22 @@ export function verifyEvidence(evidence, phase, id) {
     assert.ok(Number.isSafeInteger(image.bytes) && image.bytes > 0);
     assert.match(image.sha256, /^[a-f0-9]{64}$/);
   }
+  const archive = evidence.nativeBookExport;
+  assert.equal(
+    archive?.journey,
+    phase === 'seed'
+      ? 'system-picker-cancel-import-export-and-remove'
+      : 'retained-after-process-restart'
+  );
+  assert.equal(archive.removed, phase === 'verify');
+  assert.equal(archive.libraryCopyRemoved, true);
+  assert.equal(archive.zip, 'independent-nested-zip-and-stored-html-verification');
+  assert.equal(archive.title, `manabi-export-${id}`);
+  assert.match(archive.filename, /^ttu-reader-export-[0-9-]+-[A-Za-z0-9_-]+\.zip$/);
+  assert.ok(Number.isSafeInteger(archive.bytes) && archive.bytes > 256 * 1024);
+  assert.ok(Number.isSafeInteger(archive.htmlBytes) && archive.htmlBytes > 256 * 1024);
+  for (const key of ['sha256', 'contentHash', 'htmlSha256'])
+    assert.match(archive[key], /^[a-f0-9]{64}$/);
   assert.match(
     evidence.entry,
     /^https:\/\/appassets\.androidplatform\.net\/www\.bundle\/[a-f0-9]{32}\.html$/
@@ -102,6 +118,17 @@ export function verifyEvidencePair(first, second) {
     first.nativeBackgrounds.records,
     second.nativeBackgrounds.records,
     'Exact persisted background bytes must survive a real process restart'
+  );
+  const firstArchive = { ...first.nativeBookExport };
+  const secondArchive = { ...second.nativeBookExport };
+  for (const archive of [firstArchive, secondArchive]) {
+    delete archive.journey;
+    delete archive.removed;
+  }
+  assert.deepEqual(
+    firstArchive,
+    secondArchive,
+    'The same complete ZIP must survive process restart'
   );
   return { first, second };
 }

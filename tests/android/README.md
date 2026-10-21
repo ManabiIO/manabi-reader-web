@@ -287,3 +287,36 @@ Both callers retain their original exact no-save/draft checks. The evidence also
 records the number of Back presses for each picker. No product behavior or
 persistence changes are involved. Java/harness validation does not establish this
 repair; a new exact-source emulator run is required.
+
+### Selected-book export to a real Android folder
+
+`PackagedBookExport` adds an installed-app journey after the Settings checks. It
+creates one random, test-owned text document under Downloads, imports it through
+Add Books and the actual system picker, and observes the existing IndexedDB
+record through a read-only probe. No book data or bridge calls are injected.
+The source includes Japanese and enough deterministic text for the finished ZIP
+to exceed one 256 KiB transfer chunk.
+
+The same native selection opens Export, cancels the destination picker without
+changing the book or granting a folder, then chooses the test folder and saves.
+An independent Java ZIP reader verifies the provider's actual archive, nested
+book ZIP, canonical content hash and complete stored-HTML hash. It compares any
+initial reading-position record and requires the source file to remain intact.
+The Library copy is removed through the ordinary selection confirmation. Only
+the archive remains in the fixture folder.
+
+The second process must find the exact persisted SAF grant and document, match
+all archive bytes and inspect the nested contents again with the Library empty.
+Cleanup deletes that exact verified archive, then the randomly named folder only
+after confirming it is empty. Test metadata is removed and its grant released.
+A failed run can leave its fixture in the disposable emulator for diagnostics;
+no general app data, other folder or unrelated document is cleared.
+
+`nativeBookExport` evidence is mandatory in both phases, including matching ZIP
+and HTML hashes, a multi-chunk size, Library removal and final cleanup. A success
+message, exported JS, compilation or unit test is insufficient. The suite still
+does not qualify export cancellation during native file writes, error injection
+from arbitrary providers, spoken TalkBack, real user libraries, native ZIP
+restoration, or turning networking off. Existing browser codec tests cover the
+richer book/image/history/audio/subtitle round trip. This new device gate remains
+unqualified until its exact-source emulator run completes.
