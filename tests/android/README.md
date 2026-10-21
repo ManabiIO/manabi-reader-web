@@ -268,3 +268,22 @@ picker cancellation, import, cached-byte, selected-face and restart assertions a
 unchanged. A new emulator pass is still required; this failure provides no new
 font-picker or background-picker acceptance. Raw evidence is retained in
 `../evidence/native-export-p7hp3uai/android-9e3f2532.log`.
+
+### Cancellation from a remembered picker folder
+
+Run [39526220239](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39526220239)
+at `c61676970e6eec203ac8fe90150b1006cbb493cf` passed both web jobs and the actual
+font-picker cancel/import/select sequence in the seed process. Evidence includes
+the 3,498,868-byte cached WOFF2, its hash and production Blob stylesheet loading.
+It then stopped during background-picker cancellation: the captured active window
+was still DocumentsUI at Downloads after one Back moved out of the remembered
+`ManabiQualification` folder. This does not qualify background import or the
+second process phase.
+
+Cancellation now waits for the system accessibility queue to settle, checks the
+foreground package before each Back, and walks at most eight picker levels within
+20 seconds. It stops as soon as the app returns and rejects an unrelated window.
+Both callers retain their original exact no-save/draft checks. The evidence also
+records the number of Back presses for each picker. No product behavior or
+persistence changes are involved. Java/harness validation does not establish this
+repair; a new exact-source emulator run is required.

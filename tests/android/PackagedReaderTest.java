@@ -326,7 +326,7 @@ public final class PackagedReaderTest {
       setFontInput("Font name", name);
       clickAccessibleText("Choose font file and save");
       awaitDocumentPicker();
-      instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
+      cancelDocumentPicker("font");
       awaitFontInput("Font name", name);
       assertTrue(runFontProbe("cancelled").getBoolean("cancelled"));
       pickPackagedFont(fixture);
@@ -430,7 +430,7 @@ public final class PackagedReaderTest {
         // Cancellation must return to the same usable editor without a save.
         clickAccessibleText("Choose light book browser background");
         awaitDocumentPicker();
-        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
+        cancelDocumentPicker("background");
         awaitAccessibleText("Refresh saved backgrounds");
         assertEquals("Cancelling the system picker must not save", empty.toString(), backgroundRecords().toString());
         pickBackground("Choose light book browser background", prefix + "-library-light.png", Color.rgb(174, 34, 112));
@@ -498,6 +498,35 @@ public final class PackagedReaderTest {
       SystemClock.sleep(100);
     }
     throw new AssertionError("Android system document picker never opened");
+  }
+
+  /** DocumentsUI remembers its last directory. Back can first leave that folder;
+   * only send another Back after the system picker settles and still owns focus.
+   * Never send Back into the returned app or a different system window. */
+  private void cancelDocumentPicker(String purpose) throws Exception {
+    String targetPackage = instrumentation.getTargetContext().getPackageName();
+    int presses = 0;
+    long deadline = SystemClock.uptimeMillis() + 20000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      instrumentation.getUiAutomation().waitForIdle(500, 5000);
+      AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
+      if (root == null || root.getPackageName() == null) {
+        SystemClock.sleep(100);
+        continue;
+      }
+      String activePackage = root.getPackageName().toString();
+      if (targetPackage.equals(activePackage)) {
+        assertTrue("Cancellation must send Back to the actual system picker", presses > 0);
+        evidence.put("nativePickerCancel-" + purpose, presses);
+        return;
+      }
+      assertTrue("Refuse to cancel an unrelated foreground window: " + activePackage,
+          activePackage.endsWith(".documentsui"));
+      assertTrue("System picker cancellation exceeded its navigation bound", presses < 8);
+      instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
+      presses++;
+    }
+    throw new AssertionError("System document picker did not return to the app: " + purpose);
   }
 
   /** Recent is a cached/aggregated view, not the source fixture's directory.
