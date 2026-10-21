@@ -229,3 +229,21 @@ import and after verification cleanup, retaining its empty-catalog assertions.
 `nativeFontPicker`, seed `nativeFontImported`/`nativeFontAfterReload`, and verify
 `nativeFontCleanup` are mandatory evidence. Probe unit tests and the separate
 real-browser font codec check do not establish native runtime acceptance.
+
+### Picker source navigation repair
+
+Run [39515114181](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39515114181)
+at `d4063de44ab4aca4b3446ac698b9fae4359530ec` passed both web jobs and built
+both APKs. Its Android seed phase passed the existing choice, dimension and font
+preference/manager controls, then failed before the first background import:
+DocumentsUI showed an empty **Recent images** view and could not find the
+newly created fixture. This run does not qualify background persistence or pixels.
+
+The harness now verifies each source MediaStore record is published, nonempty,
+and has the expected name/MIME type, then navigates the real system picker's
+Images or Downloads root into `ManabiQualification` before selecting the exact
+file. It does not depend on the cached aggregate Recent view. Source-fixture
+cleanup and every existing persistence, decoded-pixel, cancellation and process
+restart assertion remain required. Java/API compilation is not proof that the
+revised picker navigation has passed; the next exact-source emulator run must
+establish that result.

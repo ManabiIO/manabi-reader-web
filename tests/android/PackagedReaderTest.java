@@ -10,6 +10,7 @@ import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
+import android.database.Cursor;
 import android.graphics.Rect;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
@@ -381,9 +382,10 @@ public final class PackagedReaderTest {
       values.clear();
       values.put(MediaStore.Downloads.IS_PENDING, 0);
       assertEquals(1, target.getContentResolver().update(uri, values, null, null));
+      awaitPublishedFixture(uri, fixture.getString("fileName"), "font/woff2");
       clickAccessibleText("Choose font file and save");
       awaitDocumentPicker();
-      clickAccessibleText(fixture.getString("fileName"));
+      choosePublishedDocument("Downloads", fixture.getString("fileName"));
       awaitAccessibleText("Stored on this device");
     } finally {
       assertEquals("Clean up only our own source font fixture", 1, target.getContentResolver().delete(uri, null, null));
@@ -498,6 +500,34 @@ public final class PackagedReaderTest {
     throw new AssertionError("Android system document picker never opened");
   }
 
+  /** Recent is a cached/aggregated view, not the source fixture's directory.
+   * Traverse the actual provider root and folder through the system picker. */
+  private void choosePublishedDocument(String root, String name) throws Exception {
+    clickAccessibleText("Show roots");
+    clickAccessibleText(root);
+    clickAccessibleText("ManabiQualification");
+    clickAccessibleText(name);
+  }
+
+  private void awaitPublishedFixture(Uri uri, String name, String mime) throws Exception {
+    long deadline = SystemClock.uptimeMillis() + 15000;
+    String observed = "No row";
+    do {
+      try (Cursor row = instrumentation.getTargetContext().getContentResolver().query(uri,
+          new String[] {MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.MIME_TYPE,
+            MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.IS_PENDING}, null, null, null)) {
+        if (row != null && row.moveToFirst()) {
+          observed = row.getString(0) + "; " + row.getString(1) + "; bytes=" + row.getLong(2)
+              + "; pending=" + row.getInt(3);
+          if (name.equals(row.getString(0)) && mime.equals(row.getString(1)) &&
+              row.getLong(2) > 0 && row.getInt(3) == 0) return;
+        }
+      }
+      SystemClock.sleep(100);
+    } while (SystemClock.uptimeMillis() < deadline);
+    throw new AssertionError("Picker fixture was not published: " + observed);
+  }
+
   private void pickBackground(String label, String name, int color) throws Exception {
     int expectedCount = backgroundRecords().length() + 1;
     Context target = instrumentation.getTargetContext();
@@ -518,9 +548,10 @@ public final class PackagedReaderTest {
       values.clear();
       values.put(MediaStore.Images.Media.IS_PENDING, 0);
       assertEquals(1, target.getContentResolver().update(uri, values, null, null));
+      awaitPublishedFixture(uri, name, "image/png");
       clickAccessibleText(label);
       awaitDocumentPicker();
-      clickAccessibleText(name);
+      choosePublishedDocument("Images", name);
       // Product data changes only after copying, transferring, decoding and saving.
       awaitBackgroundCount(expectedCount);
       awaitBackgroundEditorIdle();
