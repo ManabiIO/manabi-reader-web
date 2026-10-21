@@ -26,6 +26,7 @@ process.on('exit', () => {
   renameSync(output, join(mkdtempSync(join(trash, 'library-statistics-ui-')), 'output'));
 });
 const fixture = `import React,{useRef} from 'react';
+export const semantics=value=>({type:'semantics',...value});
 import {ActionButton as NativeMenuButton} from './apps/web/src/shared-ui/ActionButton';
 export const View=({children,style,accessibilityLabel,accessibilityRole,role,testID,onLayout})=>{if(onLayout&&testID)globalThis.libraryStatisticsUI.layouts[testID]=onLayout;return <div role={role??accessibilityRole} data-label={accessibilityLabel} data-testid={testID} data-style={JSON.stringify(StyleSheet.flatten(style))}>{children}</div>}; export const ScrollView=View,SafeAreaView=View,Host=View,Image=View;
 export const Text=({children,style,accessibilityRole})=><span role={accessibilityRole==='header'?'heading':undefined} data-color={StyleSheet.flatten(style).color}>{children}</span>; export const StyleSheet={create:x=>x,flatten:x=>Object.assign({},...(Array.isArray(x)?x.flat(Infinity):[x]).filter(Boolean))};
@@ -33,7 +34,7 @@ export const Platform={OS:"android"}; export const useColorScheme=()=>"light"; e
 export const useSafeAreaInsets=()=>({top:0,bottom:0,left:0,right:0}); export const ActivityIndicator=()=>null; export const Modal=({visible,children,onRequestClose})=>{if(visible)globalThis.libraryStatisticsUI.modalClose=onRequestClose;return visible?<section>{children}</section>:null;};
 export const Pressable=({children,onPress,disabled,accessibilityLabel,accessibilityState,role})=><button role={role} aria-label={accessibilityLabel} aria-selected={accessibilityState?.selected} disabled={disabled} onClick={onPress}>{typeof children==='function'?children({pressed:false}):children}</button>; export const UiIcon=()=>null;
 export const FlatList=({data,renderItem,numColumns,ListEmptyComponent,ListHeaderComponent,onViewableItemsChanged,accessibilityLabel,testID,onLayout,onScroll})=>{if(testID){globalThis.libraryStatisticsUI.layouts[testID]=onLayout;globalThis.libraryStatisticsUI.scrolls[testID]=onScroll;}if(onViewableItemsChanged)globalThis.libraryStatisticsUI.viewports[accessibilityLabel||'books']=onViewableItemsChanged;return <div data-label={accessibilityLabel} data-columns={numColumns}>{ListHeaderComponent}{data.length?data.map((item,index)=><div key={item.key}>{renderItem({item,index})}</div>):ListEmptyComponent}</div>};
-export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder})=><input value={value.value} onChange={event=>onChangeText?.(event.target.value)} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=({label,value,onValueChange,disabled})=><input type="checkbox" aria-label={label} checked={value} disabled={disabled} onChange={event=>onValueChange(event.target.checked)}/>;
+export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder,modifiers})=><input aria-label={modifiers?.find(item=>item.type==='semantics')?.contentDescription} value={value.value} onInput={event=>onChangeText?.(event.currentTarget.value)} onChange={()=>{}} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=({label,value,onValueChange,disabled})=><input type="checkbox" aria-label={label} checked={value} disabled={disabled} onChange={event=>onValueChange(event.target.checked)}/>;
 export const Checkbox=Switch,Picker=View;
 export const Action=({label,onPress,disabled,theme,variant})=><button data-variant={variant} data-seed={theme?.seedColor} disabled={disabled} onClick={onPress}>{label}</button>;
 export const MenuAction=({label,onPress,disabled})=><NativeMenuButton role="menuitem" variant="ghost" onPress={onPress} disabled={disabled}>{label}</NativeMenuButton>;
@@ -66,7 +67,7 @@ await build({
         b.onResolve(
           {
             filter:
-              /^(react-native|react-native-safe-area-context|@expo\/ui|expo-router)$|\/NativeScreens$|\/UiIcon$|\/ExpoToggle$|\/RuntimeProvider\.native$|^\.\/(cover|cover-controller|catalog|content-search)$/
+              /^(react-native|react-native-safe-area-context|@expo\/ui(?:\/jetpack-compose\/modifiers)?|expo-router)$|\/NativeScreens$|\/UiIcon$|\/ExpoToggle$|\/RuntimeProvider\.native$|^\.\/(cover|cover-controller|catalog|content-search)$/
           },
           () => ({ path: 'fixture', namespace: 'fixture' })
         );
@@ -503,7 +504,19 @@ test('native metadata uses the complete shared field limits and blocks editing d
   assert.equal(field('Author sort names (matching lines, optional)').maxLength, 16415);
   assert.equal(field('Tags (one per line)').maxLength, 15423);
   assert.equal(field('Description').dataset.rows, '5');
-  assert.ok(field('For example, 2024-03-01'));
+  assert.equal(field('For example, 2024-03-01').getAttribute('aria-label'), 'Published');
+  assert.equal(
+    field('Authors (one per line)').getAttribute('aria-label'),
+    'Authors (one per line)'
+  );
+  const title = f.container.querySelector('input[aria-label="Title"]');
+  assert.ok(title);
+  await act(() => {
+    title.value = 'Edited Japanese book 日本語';
+    title.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  assert.equal(title.value, 'Edited Japanese book 日本語');
+  assert.equal(title.getAttribute('aria-label'), 'Title');
   await click(f, 'Save metadata');
   assert.equal(field('Title').disabled, true);
   assert.equal(field('Authors (one per line)').disabled, true);

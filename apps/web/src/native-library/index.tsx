@@ -29,6 +29,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Host as ExpoHost, TextInput, useNativeState } from '@expo/ui';
+import { semantics } from '@expo/ui/jetpack-compose/modifiers';
 import { Switch } from '../shared-ui/ExpoToggle';
 import { router, usePathname } from 'expo-router';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
@@ -137,6 +138,7 @@ function Field({
         style={{ width: '100%', minHeight: 48 }}
       >
         <TextInput
+          modifiers={[semantics({ contentDescription: label })]}
           value={native}
           placeholder={placeholder ?? label}
           editable={!disabled}
@@ -966,6 +968,7 @@ function Library() {
         {searchMode === 'metadata' && (
           <Host matchContents={{ vertical: true }} style={{ width: '100%', minHeight: 44 }}>
             <TextInput
+              modifiers={[semantics({ contentDescription: 'Search books, authors, or series' })]}
               value={searchNative}
               placeholder="Search books, authors, or series"
               textStyle={{ color: uiTheme.colors.foreground }}
