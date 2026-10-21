@@ -4,21 +4,11 @@
  * All rights reserved.
  */
 
-import { useEffect, useState, type ReactNode } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View
-} from 'react-native';
+import { useState, type ReactNode } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, usePathname } from 'expo-router';
-import { Host, TextInput, useNativeState } from '@expo/ui';
-import { Switch } from '../shared-ui/ExpoToggle';
+import { Host } from '@expo/ui';
 import { ExpoButton } from '../shared-ui/ExpoButton';
 import { ActionButton } from '../shared-ui/ActionButton';
 import { Menu } from '../shared-ui/Menu';
@@ -29,7 +19,6 @@ import { useUiTheme } from '../shared-ui/theme';
 import { contextualDestinations } from '../shared-ui/navigation-context';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
 import type { UiTheme } from '../shared-ui/theme';
-import type { SettingField } from '../platform/runtime-contract';
 
 export function Action({
   label,
@@ -203,227 +192,6 @@ export function NativeScreenHeader({
     </View>
   );
 }
-export function NativeLibraryScreen() {
-  const { snapshot, command, importBooks, busy } = useReaderRuntime();
-  const [query, setQuery] = useState('');
-  const [selection, setSelection] = useState<number[]>([]);
-  const search = useNativeState('');
-  useEffect(() => setSelection([]), [snapshot.session, snapshot.epoch]);
-  const visible = snapshot.books;
-  useEffect(() => {
-    if (!snapshot.session) return;
-    const timeout = setTimeout(() => {
-      void command('library.query', { query, offset: 0, limit: 100 }).catch(() => {});
-    }, 180);
-    return () => clearTimeout(timeout);
-  }, [query, snapshot.session, snapshot.epoch, command]);
-  function remove() {
-    const ids = [...selection];
-    Alert.alert(
-      'Remove selected books?',
-      'Remove these cached book copies from this device? Reading statistics will be kept.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => {
-            void command('delete', { ids, keepStatistics: true })
-              .then(() => setSelection([]))
-              .catch(() => {});
-          }
-        }
-      ]
-    );
-  }
-  return (
-    <Screen
-      title="Library"
-      actions={
-        <Action
-          label={busy ? 'Importing…' : 'Import Books'}
-          onPress={() => {
-            void importBooks();
-          }}
-          disabled={busy || snapshot.loading}
-          variant="filled"
-        />
-      }
-    >
-      <Host matchContents style={styles.search}>
-        <TextInput
-          value={search}
-          placeholder="Search library"
-          onChangeText={(value) => {
-            search.value = value;
-            setQuery(value);
-          }}
-        />
-      </Host>
-      {selection.length > 0 && (
-        <View style={styles.row}>
-          <Text>{selection.length} selected</Text>
-          <Action label="Remove selected" onPress={remove} />
-          <Action label="Cancel selection" onPress={() => setSelection([])} />
-        </View>
-      )}
-      {snapshot.loading ? (
-        <ActivityIndicator accessibilityLabel="Loading Library" />
-      ) : (
-        <FlatList
-          data={visible}
-          keyExtractor={(book) => String(book.id)}
-          contentContainerStyle={styles.list}
-          ListFooterComponent={
-            <View style={styles.row}>
-              <Text>{snapshot.totalBooks ?? visible.length} books</Text>
-              <Action
-                label="Previous page"
-                disabled={!snapshot.libraryPage?.offset}
-                onPress={() => {
-                  void command('library.query', {
-                    query,
-                    offset: Math.max(0, (snapshot.libraryPage?.offset ?? 0) - 100),
-                    limit: 100
-                  }).catch(() => {});
-                }}
-              />
-              <Action
-                label="Next page"
-                disabled={
-                  (snapshot.libraryPage?.offset ?? 0) + visible.length >= (snapshot.totalBooks ?? 0)
-                }
-                onPress={() => {
-                  void command('library.query', {
-                    query,
-                    offset: (snapshot.libraryPage?.offset ?? 0) + 100,
-                    limit: 100
-                  }).catch(() => {});
-                }}
-              />
-            </View>
-          }
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.heading}>
-                {query ? 'No matching books' : 'Your books, ready to read'}
-              </Text>
-              <Text>
-                Import an EPUB, HTMLZ, or text file. Books stay available offline on this device.
-              </Text>
-            </View>
-          }
-          renderItem={({ item }) => (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Read ${item.title}`}
-              accessibilityState={{ selected: selection.includes(item.id) }}
-              onLongPress={() =>
-                setSelection((previous) =>
-                  previous.includes(item.id)
-                    ? previous.filter((id) => id !== item.id)
-                    : [...previous, item.id]
-                )
-              }
-              onPress={() => {
-                if (selection.length)
-                  setSelection((previous) =>
-                    previous.includes(item.id)
-                      ? previous.filter((id) => id !== item.id)
-                      : [...previous, item.id]
-                  );
-                else
-                  void command('open', { bookId: item.id })
-                    .then(() => router.push({ pathname: '/b', params: { id: item.id } }))
-                    .catch(() => {});
-              }}
-              style={[styles.book, selection.includes(item.id) && styles.selected]}
-            >
-              <View style={styles.cover}>
-                <Text style={styles.coverText}>{item.title.slice(0, 6)}</Text>
-              </View>
-              <View style={styles.bookDetails}>
-                <Text style={styles.title}>{item.title}</Text>
-                {item.creators ? <Text>{item.creators}</Text> : null}
-                <Text>
-                  {item.characters > 0
-                    ? `${Math.min(100, Math.round((item.progress / item.characters) * 100))}% read`
-                    : 'Ready to read'}
-                </Text>
-              </View>
-            </Pressable>
-          )}
-        />
-      )}
-    </Screen>
-  );
-}
-function Setting({ field }: { field: SettingField }) {
-  const { command } = useReaderRuntime();
-  const text = useNativeState(String(field.value));
-  const [draft, setDraft] = useState(String(field.value));
-  useEffect(() => {
-    text.value = String(field.value);
-    setDraft(String(field.value));
-  }, [field.value]);
-  const save = (value: unknown) => {
-    void command('settings', { key: field.key, value }).catch(() => {});
-  };
-  if (field.kind === 'boolean')
-    return (
-      <View style={styles.setting}>
-        <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
-          <Switch label={field.label} value={!!field.value} onValueChange={save} />
-        </Host>
-      </View>
-    );
-  return (
-    <View style={styles.setting}>
-      <Text style={styles.title}>{field.label}</Text>
-      {field.kind === 'choice' ? (
-        <View style={styles.row}>
-          {field.choices?.map((choice) => (
-            <Action
-              key={choice}
-              label={choice}
-              variant={choice === field.value ? 'filled' : 'outlined'}
-              onPress={() => save(choice)}
-            />
-          ))}
-        </View>
-      ) : (
-        <View style={styles.row}>
-          <Host matchContents style={{ flex: 1 }}>
-            <TextInput
-              value={text}
-              keyboardType={field.kind === 'number' ? 'decimal-pad' : 'default'}
-              onChangeText={(value) => {
-                text.value = value;
-                setDraft(value);
-              }}
-            />
-          </Host>
-          <Action
-            label={`Apply ${field.label}`}
-            onPress={() => save(field.kind === 'number' ? Number(draft) : draft)}
-          />
-        </View>
-      )}
-    </View>
-  );
-}
-export function NativeSettingsScreen() {
-  const { snapshot } = useReaderRuntime();
-  return (
-    <Screen title="Settings">
-      <ScrollView contentContainerStyle={styles.list}>
-        {snapshot.settings.map((field) => (
-          <Setting key={field.key} field={field} />
-        ))}
-      </ScrollView>
-    </Screen>
-  );
-}
 export function NativeConnectionsScreen() {
   const { snapshot, command } = useReaderRuntime();
   const { colors } = useUiTheme();
@@ -486,40 +254,6 @@ const styles = StyleSheet.create({
   },
   heading: { fontSize: 26, fontWeight: '700', color: '#222923' },
   title: { fontSize: 17, fontWeight: '600', color: '#222923' },
-  row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
-  navigation: {
-    borderTopWidth: 1,
-    borderTopColor: '#dce2db',
-    padding: 8,
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    flexWrap: 'wrap'
-  },
-  search: { paddingHorizontal: 16, paddingBottom: 12 },
   list: { padding: 16, gap: 12 },
-  empty: { padding: 24, gap: 12 },
-  book: {
-    flexDirection: 'row',
-    padding: 12,
-    marginBottom: 10,
-    gap: 16,
-    borderRadius: 16,
-    backgroundColor: 'white',
-    borderWidth: 1,
-    borderColor: '#e0e4dc'
-  },
-  selected: { borderColor: '#477d54', borderWidth: 2 },
-  cover: {
-    width: 72,
-    minHeight: 100,
-    borderRadius: 6,
-    backgroundColor: '#e0ebdd',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 8
-  },
-  coverText: { color: '#355a3c', fontSize: 18, fontWeight: '600' },
-  bookDetails: { flex: 1, gap: 8, justifyContent: 'center' },
-  setting: { gap: 8, padding: 14, borderRadius: 14, backgroundColor: 'white' },
   error: { margin: 12, padding: 12, backgroundColor: '#ffe8e2', borderRadius: 12, gap: 8 }
 });
