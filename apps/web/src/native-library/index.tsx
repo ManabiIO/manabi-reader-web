@@ -54,6 +54,7 @@ import { NativeSavedBackground } from '../native-settings/NativeSavedBackground'
 import { NativeBookCover } from './cover';
 import { formatCalendarDay } from '../lib/library/reading-state';
 import { LibraryBookFace } from '../features/library/LibraryBookFace';
+import { NativeBookExportForm } from './export-sheet';
 import { LibrarySelectionToolbar } from '../features/library/LibrarySelectionToolbar';
 import { selectionLayout } from '../features/library/selection-layout';
 import { bookFaceLayout } from '../features/library/book-face';
@@ -275,6 +276,12 @@ function Library() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [exportSelection, setExportSelection] = useState<{
+    token: string;
+    keys: string[];
+    revision: number;
+  }>();
+  const [exportMessage, setExportMessage] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [selecting, setSelecting] = useState(false);
   const removalIntent = useRef(0);
@@ -394,6 +401,7 @@ function Library() {
         setBusy(false);
       }
       coverOperation.current?.abort();
+      setExportSelection(undefined);
       setCatalogVisible(false);
       setSheet(undefined);
     }
@@ -1007,6 +1015,7 @@ function Library() {
             <Action label="Dismiss" onPress={() => setError('')} />
           </View>
         ) : null}
+        {exportMessage ? <Text accessibilityLiveRegion="polite">{exportMessage}</Text> : null}
         {selecting && focused && (
           <LibrarySelectionToolbar
             key={state?.token}
@@ -1016,6 +1025,28 @@ function Library() {
             compact={!wide}
             busy={busy || loading || importing}
             selectLabel="Select page"
+            exportAction={{
+              label: 'Export',
+              disabled:
+                !state ||
+                selected.some(
+                  (key) =>
+                    !state.items.some(
+                      (item) =>
+                        item.kind === 'book' && item.key === key && item.available && item.bookId
+                    )
+                ),
+              onActivate: () => {
+                if (!state || busy || loading || importing || !activeRoute.current) return;
+                setExportMessage('');
+                setError('');
+                setExportSelection({
+                  token: state.token,
+                  keys: [...selected],
+                  revision: removalScope.current.revision
+                });
+              }
+            }}
             onCancel={() => {
               setSelecting(false);
               setSelected([]);
@@ -1683,6 +1714,29 @@ function Library() {
             ))}
         </Sheet>
       )}
+      {exportSelection &&
+        focused &&
+        exportSelection.token === state?.token &&
+        exportSelection.revision === removalScope.current.revision && (
+          <Sheet
+            title="Export books and reading data"
+            close={() => {
+              setExportSelection(undefined);
+              void refresh(latestQuery.current);
+            }}
+          >
+            <NativeBookExportForm
+              selection={exportSelection}
+              onFinished={(message, failed) => {
+                if (!mounted.current || !activeRoute.current) return;
+                setExportSelection(undefined);
+                if (failed) setError(message);
+                else setExportMessage(message);
+                void refresh(latestQuery.current);
+              }}
+            />
+          </Sheet>
+        )}
     </NativeLibraryFrame>
   );
   return <UiThemeProvider {...state?.uiTheme}>{content}</UiThemeProvider>;

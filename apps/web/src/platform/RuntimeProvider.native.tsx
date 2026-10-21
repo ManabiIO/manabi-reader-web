@@ -18,7 +18,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { router, useGlobalSearchParams, usePathname } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
-import { File } from 'expo-file-system';
+import { Directory, File, FileMode } from 'expo-file-system';
+import { saveNativeBookExport } from '../native-library/export-selection';
+import type { NativeBookExportRequest } from '../native-library/export-contract';
 import * as WebBrowser from 'expo-web-browser';
 import type { DOMProps } from 'expo/dom';
 import ReaderRuntime, { type ReaderRuntimeRef } from './reader-runtime.dom';
@@ -61,6 +63,11 @@ interface RuntimeValue {
   busy: boolean;
   command(method: BridgeMethod, payload?: Record<string, unknown>): Promise<unknown>;
   importBooks(): Promise<void>;
+  exportBooks(
+    selection: NativeBookExportRequest,
+    signal: AbortSignal,
+    progress: (message: string) => void
+  ): Promise<{ filename: string } | null>;
   importFont(name: string, signal: AbortSignal): Promise<boolean>;
   importBackground(slot: BackgroundSlot, signal: AbortSignal): Promise<boolean>;
   changeCover(selection: { token: string; key: string }, signal: AbortSignal): Promise<boolean>;
@@ -165,6 +172,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         if (
           method !== 'library.cover.read' &&
           method !== 'library.cover.cancel' &&
+          !method.startsWith('library.export.') &&
           owner.session === latest.current.session &&
           owner.epoch === latest.current.epoch
         )
@@ -295,6 +303,72 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     } finally {
       importActive.current = false;
       setBusy(false);
+    }
+  }
+  async function exportBooks(
+    selection: NativeBookExportRequest,
+    signal: AbortSignal,
+    progress: (message: string) => void
+  ) {
+    if (importActive.current) throw new Error('Another file transfer is in progress.');
+    importActive.current = true;
+    setBusy(true);
+    const owner = { ...latest.current };
+    try {
+      return await saveNativeBookExport(
+        {
+          scope: () => latest.current,
+          command,
+          wait: () => new Promise((resolve) => setTimeout(resolve, 200)),
+          async pickDirectory() {
+            let directory: Directory;
+            try {
+              directory = await Directory.pickDirectoryAsync();
+            } catch (cause) {
+              if (
+                cause &&
+                typeof cause === 'object' &&
+                'code' in cause &&
+                cause.code === 'ERR_PICKER_CANCELLED'
+              )
+                return null;
+              throw cause;
+            }
+            return {
+              createFile(name) {
+                const file = directory.createFile(name, 'application/zip');
+                return {
+                  get name() {
+                    return file.name;
+                  },
+                  get size() {
+                    return file.size;
+                  },
+                  openWrite: () => file.open(FileMode.WriteOnly),
+                  openRead: () => file.open(FileMode.ReadOnly),
+                  delete: () => file.delete()
+                };
+              }
+            };
+          }
+        },
+        selection,
+        signal,
+        progress
+      );
+    } catch (cause) {
+      if (
+        cause instanceof Error &&
+        cause.name === 'ExportCleanupError' &&
+        mounted.current &&
+        owner.session === latest.current.session &&
+        owner.epoch === latest.current.epoch
+      )
+        setError(cause.message);
+      throw cause;
+    } finally {
+      importActive.current = false;
+      if (mounted.current) setBusy(false);
     }
   }
   async function changeCover(selection: { token: string; key: string }, signal: AbortSignal) {
@@ -436,6 +510,7 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
         busy,
         command,
         importBooks,
+        exportBooks,
         changeCover,
         importFont,
         importBackground,

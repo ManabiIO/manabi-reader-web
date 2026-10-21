@@ -7,7 +7,7 @@
 import { useEffect } from 'react';
 import { DialogTemplate } from '../ui/dialogs';
 import { useStore } from '$runtime/use-store';
-import { StorageDataType, StorageKey } from '$lib/data/storage/storage-types';
+import { StorageKey } from '$lib/data/storage/storage-types';
 import { isStorageSourceAvailable, storageSource$ } from '$lib/data/storage/storage-view';
 import {
   fsStorageSource$,
@@ -20,6 +20,34 @@ import {
 import { isOnlineSourceAvailable } from '$lib/functions/utils';
 import { executeReplicate$ } from '$lib/functions/replication/replication-progress';
 import { Button } from './primitives';
+import {
+  BookExportContent,
+  type BookExportContentLayout
+} from '../features/library/BookExportContent';
+const contentLayout: BookExportContentLayout = {
+  Group: ({ children }) => (
+    <div
+      className="grid gap-2"
+      style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 12rem), 1fr))' }}
+    >
+      {children}
+    </div>
+  ),
+  Choice: ({ value, label, checked, disabled, onChange }) => (
+    <label className="flex min-h-11 min-w-0 items-center gap-3 rounded-xl px-2">
+      <input
+        className="shrink-0"
+        type="checkbox"
+        name={value}
+        value={value}
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+      />
+      <span className="min-w-0 break-words">{label}</span>
+    </label>
+  )
+};
 export function BookExportDialog({ onClose }: { onClose?: () => void }) {
   const active = useStore(storageSource$),
     target = useStore(lastExportedTarget$),
@@ -53,13 +81,6 @@ export function BookExportDialog({ onClose }: { onClose?: () => void }) {
       if (next) lastExportedTarget$.next(next.source);
     }
   }, [active, target, online, google, onedrive, filesystem]);
-  const content = [
-    [StorageDataType.DATA, 'Book data'],
-    [StorageDataType.PROGRESS, 'Reading position'],
-    [StorageDataType.STATISTICS, 'Statistics'],
-    [StorageDataType.AUDIOBOOK, 'Audiobook'],
-    [StorageDataType.SUBTITLE, 'Subtitles']
-  ] as const;
   return (
     <DialogTemplate
       title="Export books and reading data"
@@ -82,7 +103,10 @@ export function BookExportDialog({ onClose }: { onClose?: () => void }) {
     >
       <fieldset>
         <legend className="mb-3 text-lg font-semibold">Export target</legend>
-        <div className="grid grid-cols-2 gap-3">
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 12rem), 1fr))' }}
+        >
           {targets.map((item) => (
             <Button
               variant="outline"
@@ -98,26 +122,11 @@ export function BookExportDialog({ onClose }: { onClose?: () => void }) {
       </fieldset>
       <fieldset className="mt-6">
         <legend className="mb-3 text-lg font-semibold">Export content</legend>
-        <div className="grid grid-cols-2 gap-2">
-          {content.map(([value, label]) => (
-            <label key={value} className="flex min-h-11 items-center gap-3 rounded-xl px-2">
-              <input
-                type="checkbox"
-                name={value}
-                value={value}
-                checked={selected.includes(value)}
-                onChange={(event) =>
-                  lastExportedTypes$.next(
-                    event.currentTarget.checked
-                      ? [...selected, value]
-                      : selected.filter((type) => type !== value)
-                  )
-                }
-              />
-              {label}
-            </label>
-          ))}
-        </div>
+        <BookExportContent
+          layout={contentLayout}
+          selected={selected}
+          onChange={(parts) => lastExportedTypes$.next(parts)}
+        />
       </fieldset>
     </DialogTemplate>
   );

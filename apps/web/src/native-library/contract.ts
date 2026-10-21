@@ -125,7 +125,7 @@ export interface LibraryAuthority {
 export interface LibraryAccessRequest {
   token: string;
   keys: string[];
-  operation: 'open' | 'delete';
+  operation: 'open' | 'delete' | 'export';
 }
 /** DOM-only authority: validate these again in the actual read/write transaction. */
 export interface LibraryAccessIdentity {

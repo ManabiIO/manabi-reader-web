@@ -338,6 +338,8 @@ class ModalControlsBrowser(LibraryBase):
         for checkbox in checkboxes.all():
             label = checkbox.locator('xpath=ancestor::label')
             self.assertGreaterEqual(label.bounding_box()['height'], 43.99)
+            self.assertLessEqual(label.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+            self.assertLessEqual(label.locator('span').evaluate('e => e.scrollWidth - e.clientWidth'), 1)
             checkbox.uncheck()
         start = panel.get_by_role('button', name='Start export', exact=True)
         expect(start).to_be_disabled()

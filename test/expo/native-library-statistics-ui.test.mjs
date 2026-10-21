@@ -34,6 +34,7 @@ export const useSafeAreaInsets=()=>({top:0,bottom:0,left:0,right:0}); export con
 export const Pressable=({children,onPress,disabled,accessibilityLabel,accessibilityState,role})=><button role={role} aria-label={accessibilityLabel} aria-selected={accessibilityState?.selected} disabled={disabled} onClick={onPress}>{typeof children==='function'?children({pressed:false}):children}</button>; export const UiIcon=()=>null;
 export const FlatList=({data,renderItem,numColumns,ListEmptyComponent,ListHeaderComponent,onViewableItemsChanged,accessibilityLabel,testID,onLayout,onScroll})=>{if(testID){globalThis.libraryStatisticsUI.layouts[testID]=onLayout;globalThis.libraryStatisticsUI.scrolls[testID]=onScroll;}if(onViewableItemsChanged)globalThis.libraryStatisticsUI.viewports[accessibilityLabel||'books']=onViewableItemsChanged;return <div data-label={accessibilityLabel} data-columns={numColumns}>{ListHeaderComponent}{data.length?data.map((item,index)=><div key={item.key}>{renderItem({item,index})}</div>):ListEmptyComponent}</div>};
 export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder})=><input value={value.value} onChange={event=>onChangeText?.(event.target.value)} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=({label,value,onValueChange,disabled})=><input type="checkbox" aria-label={label} checked={value} disabled={disabled} onChange={event=>onValueChange(event.target.checked)}/>;
+export const Checkbox=Switch,Picker=View;
 export const Action=({label,onPress,disabled,theme,variant})=><button data-variant={variant} data-seed={theme?.seedColor} disabled={disabled} onClick={onPress}>{label}</button>;
 export const MenuAction=({label,onPress,disabled})=><NativeMenuButton role="menuitem" variant="ghost" onPress={onPress} disabled={disabled}>{label}</NativeMenuButton>;
 export const BackHandler={addEventListener:(_name,fn)=>{globalThis.libraryStatisticsUI.back=fn;return {remove(){if(globalThis.libraryStatisticsUI.back===fn)globalThis.libraryStatisticsUI.back=undefined;}}}};
@@ -210,6 +211,94 @@ async function click(f, label) {
 }
 const confirm = (f) =>
   f.confirmations.at(-1)[2].find((button) => button.style === 'destructive').onPress;
+
+test('selected-page export uses common content options and the captured selection exactly once', async (t) => {
+  const f = await mount(t),
+    exports = [],
+    gate = deferred();
+  globalThis.libraryStatisticsUI.runtime.exportBooks = (selection, signal, progress) => {
+    exports.push({ selection, signal });
+    progress('Checking saved ZIP…');
+    return gate.promise;
+  };
+  await click(f, 'Select');
+  await click(f, 'Select page');
+  await click(f, 'Export');
+  assert.match(f.container.textContent, /1 selected on this page/);
+  assert.match(f.container.textContent, /works offline/);
+  assert.match(f.container.textContent, /restoration is currently available on the web/);
+  const choices = [...f.container.querySelectorAll('input[type=checkbox]')];
+  assert.deepEqual(
+    choices.map((input) => input.getAttribute('aria-label')),
+    ['Book data', 'Reading position', 'Statistics', 'Audiobook', 'Subtitles']
+  );
+  await act(() => choices[3].click());
+  await click(f, 'Choose folder and save ZIP');
+  assert.equal(exports.length, 1);
+  assert.deepEqual(exports[0].selection, {
+    token: 'library-1',
+    keys: ['book-key'],
+    parts: ['data', 'bookmark', 'statistic', 'subtitle']
+  });
+  assert.ok(
+    [...f.container.querySelectorAll('input[type=checkbox]')].every((input) => input.disabled)
+  );
+  assert.match(f.container.textContent, /Checking saved ZIP/);
+  assert.ok(
+    [...f.container.querySelectorAll('button')].find((item) => item.textContent === 'Saving ZIP…')
+      .disabled
+  );
+  await act(() => gate.resolve({ filename: 'verified-export.zip' }));
+  assert.match(f.container.textContent, /Saved verified-export.zip to the chosen folder/);
+  assert.equal(f.container.querySelectorAll('input[type=checkbox]').length, 0);
+  assert.equal(f.calls.filter((call) => call.method === 'library.state').length, 2);
+});
+
+test('export cancels on modal close, route/account departure and selection ABA without showing late success', async (t) => {
+  for (const departure of ['close', 'route', 'account', 'selection']) {
+    const f = await mount(t),
+      gate = deferred();
+    let signal;
+    globalThis.libraryStatisticsUI.runtime.exportBooks = (_selection, current) => {
+      signal = current;
+      return gate.promise;
+    };
+    await click(f, 'Select');
+    await click(f, 'Select page');
+    await click(f, 'Export');
+    await click(f, 'Choose folder and save ZIP');
+    if (departure === 'close') await act(() => globalThis.libraryStatisticsUI.modalClose());
+    if (departure === 'route') {
+      await f.render('/settings');
+      await f.render('/manage');
+    }
+    if (departure === 'account') await f.render('/manage', 2);
+    if (departure === 'selection') {
+      await click(f, 'Cancel selection');
+      await click(f, 'Select');
+      await click(f, 'Select page');
+    }
+    assert.equal(signal.aborted, true, departure);
+    await act(() => gate.resolve({ filename: 'late-export.zip' }));
+    assert.doesNotMatch(f.container.textContent, /Saved late-export/);
+  }
+});
+
+test('a failed export is not replayed and refreshes its consumed admission before retry', async (t) => {
+  const f = await mount(t);
+  let calls = 0;
+  globalThis.libraryStatisticsUI.runtime.exportBooks = async () => {
+    calls++;
+    throw new Error('The saved ZIP could not be verified.');
+  };
+  await click(f, 'Select');
+  await click(f, 'Select page');
+  await click(f, 'Export');
+  await click(f, 'Choose folder and save ZIP');
+  assert.equal(calls, 1);
+  assert.match(f.container.textContent, /saved ZIP could not be verified/);
+  assert.equal(f.calls.filter((call) => call.method === 'library.state').length, 2);
+});
 
 test('Library details opens Statistics using one bounded hint admission, never a snapshot or numeric-ID route', async (t) => {
   const f = await mount(t);

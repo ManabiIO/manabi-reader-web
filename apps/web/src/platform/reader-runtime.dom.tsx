@@ -52,6 +52,9 @@ import { isUUID } from '$lib/snippets/document';
 import { getRecord as getSnippet, type SnippetRecord } from '$lib/snippets/database';
 import { scope as captureSnippetScope, type SnippetScope } from '$lib/snippets/scope';
 import { createNativeLibraryService } from '../native-library/dom-service';
+import { NativeBookExportService } from '../native-library/export-service';
+import { createNativeBookArchive } from '../native-library/export-dom';
+import { parseBookExportRequest } from '../native-library/export-contract';
 import { createNativeCatalogService } from '../native-library/catalog-dom';
 import { createNativeLibraryContentSearchService } from '../native-library/content-search-dom';
 import { clearLibraryLocation, queueLibraryLocation } from '$lib/library/search-navigation';
@@ -105,6 +108,7 @@ export default function ReaderRuntime({
     }).catch(() => {});
   }, [mode, theme, custom]);
   const [snippet, setSnippet] = useState<{ record: SnippetRecord; scope: SnippetScope }>();
+  const bookExport = useMemo(() => new NativeBookExportService(), []);
   const snippets = useMemo(() => new NativeSnippetsService(createNativeSnippetsRepository()), []);
   const [bookId, setBookId] = useState<number>();
   const [libraryLocationToken, setLibraryLocationToken] = useState<string>();
@@ -272,6 +276,37 @@ export default function ReaderRuntime({
               }
               case 'library.state':
                 return library.state(payload, libraryAuthority);
+              case 'library.export.start': {
+                if (bookExport.active)
+                  throw new Error('Finish or cancel the current export first.');
+                const selection = parseBookExportRequest(payload);
+                const identities = await library.admitAccess(
+                  { token: selection.token, keys: selection.keys, operation: 'export' },
+                  libraryAuthority
+                );
+                libraryAuthority.assertCurrent();
+                const result = bookExport.start(
+                  identities.length,
+                  libraryAuthority,
+                  operation.stop,
+                  async (owner, progress) =>
+                    createNativeBookArchive(
+                      await reader.database.db,
+                      identities,
+                      selection.parts,
+                      { ...owner, profileId: operation.profileId },
+                      progress
+                    )
+                );
+                retained = true;
+                return result;
+              }
+              case 'library.export.status':
+                return bookExport.status(payload, libraryAuthority);
+              case 'library.export.chunk':
+                return bookExport.chunk(payload, libraryAuthority);
+              case 'library.export.cancel':
+                return bookExport.cancel(payload, libraryAuthority);
               case 'library.action':
                 return library.action(payload, libraryAuthority);
               case 'library.cover.read':
@@ -798,6 +833,7 @@ export default function ReaderRuntime({
         state.accountLifetime = new AbortController();
         state.transfer.cancel();
         retireBook();
+        bookExport.dispose();
         fonts.dispose();
         contentSearch.dispose();
         catalog.dispose();
@@ -879,6 +915,7 @@ export default function ReaderRuntime({
           state.lifetime.abort();
           state.accountLifetime.abort();
           state.transfer.cancel();
+          bookExport.dispose();
           fonts.dispose();
           contentSearch.dispose();
           catalog.dispose();

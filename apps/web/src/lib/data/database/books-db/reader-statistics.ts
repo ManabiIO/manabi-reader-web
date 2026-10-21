@@ -88,6 +88,11 @@ export interface StatisticsMigrationGuard {
     book: BooksDb['data']['value'],
     owner: BooksDb['readerBookScope']['value'] | undefined
   ): void;
+  /** Optional owner check for title-keyed legacy rows before assigning any copy. */
+  validateTitleCopy?(
+    book: BooksDb['data']['value'],
+    owner: BooksDb['readerBookScope']['value'] | undefined
+  ): void;
   /** Optional original canonical admission, checked before any migration write. */
   validateIdentity?(
     book: BooksDb['data']['value'],
@@ -211,6 +216,13 @@ export async function migrateLegacyStatistics(
             .getAll(IDBKeyRange.bound([book.title], [book.title, []]));
           if (legacy.length) {
             const copies = await tx.objectStore('data').index('title').getAll(book.title);
+            if (guard?.validateTitleCopy) {
+              for (const copy of copies) {
+                const owner = await tx.objectStore('readerBookScope').get(copy.id);
+                guard.assertCurrent();
+                guard.validateTitleCopy(copy, owner);
+              }
+            }
             const identities = new Set(await Promise.all(copies.map(keyFor)));
             if (identities.size !== 1 || !identities.has(bookKey)) {
               await migration.put({ title: book.title, state: 'ambiguous' });

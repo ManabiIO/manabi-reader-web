@@ -11,6 +11,86 @@ const success = (reply) => {
   return reply.value;
 };
 
+test('DOM export retains the original owner after Start and keeps ZIP bytes out of snapshots', async (t) => {
+  const f = await runtimeOwner(t),
+    gate = deferred();
+  let owner,
+    calls = 0,
+    admitted;
+  f.admit = (payload) => {
+    admitted = payload;
+    return [{ bookId: 1, title: 'Selected' }];
+  };
+  f.createArchive = async (_db, identities, parts, authority, progress) => {
+    calls++;
+    assert.deepEqual(identities, [{ bookId: 1, title: 'Selected' }]);
+    assert.deepEqual(parts, ['data']);
+    owner = authority;
+    progress(0);
+    return gate.promise;
+  };
+  const started = await f.start('library.export.start', {
+    token: 'library-token',
+    keys: ['book-key'],
+    parts: ['data']
+  });
+  const status = success(await f.finish(started));
+  assert.equal(status.phase, 'preparing');
+  assert.deepEqual(admitted, { token: 'library-token', keys: ['book-key'], operation: 'export' });
+  assert.equal(owner.profileId, 'alice');
+  owner.assertCurrent();
+  const retained = f.operations.find((operation) => !operation.stopped);
+  assert.ok(retained);
+  await f.settle(() =>
+    gate.resolve({ blob: new Blob(['exact archive bytes']), filename: 'ttu-reader-export-1.zip' })
+  );
+  const ready = success(await f.command('library.export.status', { token: status.token }));
+  assert.equal(ready.phase, 'ready');
+  const chunk = success(
+    await f.command('library.export.chunk', { token: status.token, offset: 0 })
+  );
+  assert.equal(Buffer.from(chunk.data, 'base64').toString(), 'exact archive bytes');
+  assert.equal(calls, 1);
+  assert.ok(f.snapshots.every((snapshot) => !JSON.stringify(snapshot).includes(chunk.data)));
+  success(await f.command('library.export.cancel', { token: status.token }));
+  assert.equal(retained.stopped, 1);
+  assert.equal(owner.signal.aborted, true);
+  assert.equal((await f.command('library.export.status', { token: status.token })).ok, false);
+});
+
+for (const departure of ['generation', 'account-aba', 'unmount'])
+  test(`pending ZIP preparation cannot outlive ${departure}`, async (t) => {
+    const f = await runtimeOwner(t),
+      gate = deferred();
+    let owner;
+    f.admit = () => [{ bookId: 1, title: 'Selected' }];
+    f.createArchive = async (_db, _ids, _parts, authority) => {
+      owner = authority;
+      return gate.promise;
+    };
+    const started = success(
+      await f.command('library.export.start', {
+        token: 'library-token',
+        keys: ['book-key'],
+        parts: ['data']
+      })
+    );
+    if (departure === 'generation') await f.refreshGeneration();
+    if (departure === 'account-aba') {
+      await f.changeAccount('bob');
+      await f.changeAccount('alice');
+    }
+    if (departure === 'unmount') await f.unmount();
+    assert.equal(owner.signal.aborted, true);
+    assert.throws(() => owner.assertCurrent());
+    await f.settle(() =>
+      gate.resolve({ blob: new Blob(['old account archive']), filename: 'ttu-reader-export-1.zip' })
+    );
+    assert.ok(f.operations.every((operation) => operation.stopped));
+    if (departure !== 'unmount')
+      assert.equal((await f.command('library.export.status', { token: started.token })).ok, false);
+  });
+
 test('the persistent DOM forwards resolved appearance and custom chrome without reopening the book', async (t) => {
   const f = await runtimeOwner(t);
   assert.equal(f.appearances.at(-1).mode, 'light');

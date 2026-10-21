@@ -61,6 +61,20 @@ const bridge = production('platform/bridge-contract.ts', {
   '../native-settings/font-contract.ts': production('native-settings/font-contract.ts'),
   '../native-settings/background-contract.ts': production('native-settings/background-contract.ts')
 });
+const exportContract = production('native-library/export-contract.ts', {
+  '../features/library/export-options': production('features/library/export-options.ts', {
+    '../../lib/data/storage/storage-types': production('lib/data/storage/storage-types.ts')
+  }),
+  './contract': production('native-library/contract.ts', {
+    '../features/library/sort-options': production('features/library/sort-options.ts', {
+      '../../lib/data/sort-types': production('lib/data/sort-types.ts')
+    })
+  })
+});
+const exportService = production('native-library/export-service.ts', {
+  './export-contract': exportContract,
+  '../platform/transfer-encoding': production('platform/transfer-encoding.ts')
+});
 const navigation = production('platform/native-navigation.ts');
 const editor = production('native-snippets/editor-model.ts', {
   '../lib/snippets/document': documents
@@ -467,6 +481,14 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     '$lib/library/search-navigation': libraryLocation,
     '../native-library/content-search-dom': {
       createNativeLibraryContentSearchService: () => contentSearch
+    },
+    '../native-library/export-contract': exportContract,
+    '../native-library/export-service': exportService,
+    '../native-library/export-dom': {
+      createNativeBookArchive: (...args) => {
+        if (!f.createArchive) throw new Error('Unexpected archive preparation');
+        return f.createArchive(...args);
+      }
     },
     '../native-library/dom-service': { createNativeLibraryService: () => library },
     '../native-library/catalog-dom': { createNativeCatalogService: () => catalog },

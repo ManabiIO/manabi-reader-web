@@ -1,8 +1,8 @@
 /** @license BSD-3-Clause */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
+import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';
@@ -50,7 +50,7 @@ export const router={push:path=>go('push',path),replace:path=>go('replace',path)
 export const useNavigation=()=>({dispatch(action){dispatched.push(action);go('dispatch','/manage')}});
 export function usePreventRemove(prevent,callback){useEffect(()=>{guard=prevent?callback:undefined;return()=>{guard=undefined}},[prevent,callback])}
 export function removeRoute(){guard?.({data:{action:{type:'POP'}}})}
-export const getDocumentAsync=async()=>({canceled:true});export class File{};export const openBrowserAsync=async()=>{};
+export const getDocumentAsync=async()=>({canceled:true});export class File{};export class Directory{static async pickDirectoryAsync(){throw Object.assign(new Error('cancelled'),{code:'ERR_PICKER_CANCELLED'})}};export const FileMode={WriteOnly:'w',ReadOnly:'r'};export const openBrowserAsync=async()=>{};
 export async function snapshot(next){await props.onSnapshot(next)}
 export async function appearance(next){await props.onAppearance(next)}
 export async function hostError(message){props.dom.onReaderHostError({nativeEvent:{message}})}
@@ -422,6 +422,8 @@ test('connection status stays outside the hidden DOM host and never reopens the 
 });
 
 test.after(() => {
-  rmSync(directory, { recursive: true, force: true });
+  const trash = join(homedir(), '.Trash');
+  mkdirSync(trash, { recursive: true });
+  renameSync(directory, join(mkdtempSync(join(trash, 'native-route-ui-')), 'output'));
   dom.window.close();
 });

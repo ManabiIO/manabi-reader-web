@@ -672,3 +672,57 @@ verification/cleanup before exposing Export. Native paths must stay in the shell
 ZIP bytes must not be added to ordinary runtime snapshots. The existing DOM
 storage owner and current backup format remain authoritative. Full Settings,
 background images and font caches are not implicitly included by this refactor.
+
+### Selected-book Android ZIP destination
+
+The native selection toolbar now opens an export sheet for **selected books on
+the current page**. Web and Android share `BookExportContent`: the same five
+content choices and toggling, with browser label/input leaves and native Expo UI
+checkboxes. Web retains its destination controller, stored export preferences,
+dialog focus return and existing serializers. Its content and destination grids
+now fit the available width in rem units; screenshot review found clipped labels
+at 320px/200% text despite the old panel-level overflow assertion. The browser
+test now checks each label's own overflow too.
+
+Android chooses a destination through `Directory.pickDirectoryAsync`. The DOM
+owner consumes the exact Library admission, requires its canonical content/local
+identity and builds the existing ZIP from guarded per-book snapshots. Ownership
+and identity are checked in the transaction that reads the actual data. The
+existing statistics migration gets an optional title-copy owner guard before it
+can create legacy identities. Ambiguous title-keyed audio/subtitles, unresolved
+statistics and colliding ZIP folders fail explicitly; the user can narrow the
+options or export copies separately. No partial archive is delivered on failure.
+
+Preparation owns its account/runtime subscription beyond the Start reply. One
+scoped archive can be active; status and 256 KiB chunks use bounded read receipts,
+with cancellation, ten-minute idle expiry and account/runtime disposal. The
+archive is still assembled as a Blob, and the current book/history is read in
+memory; this is bounded **transport**, not a fully streaming serializer. Existing
+legacy migration may also read same-title copies together. Paths stay in the
+native shell and archive bytes never enter runtime snapshots.
+
+The shell creates a uniquely named SAF document, writes chunks using explicit
+write-only handles, closes it, then compares all saved bytes through bounded
+read-only handles before reporting success. Installed Expo 58's `File.rename`
+uses Java file paths and cannot rename SAF content URIs, so this flow does not
+claim atomic publication: the new file may be visible while writing. Cancellation
+or failure removes only that newly created file; failed cleanup names the
+incomplete file. Lost acknowledgments are not replayed. Picker cancellation
+before Start leaves the selection unconsumed. Closing the sheet, changing the
+selection, refreshing, leaving the route or replacing the account retires the
+operation and refreshes admission before another explicit attempt.
+
+This preserves the existing wire format and DB version. The UI describes the
+selection scope and excludes settings, fonts, backgrounds, snippets and
+annotations. Native ZIP restoration and whole-library/application backup remain
+open; the existing web restore is the destination for these portable archives.
+
+Local evidence lives in `../evidence/native-export-p7hp3uai/`: real IndexedDB and
+ZIP export/restore in Chromium and WebKit preserve ruby, images, position,
+completion, statistics, audio position and subtitles. Unit/mounted tests cover
+ownership, canonical identity, expiry, cancellation, chunk bounds, file
+verification/cleanup, shared options and route/account retirement. Both production
+platform exports, strict types, lint and actual-app browser backup/layout checks
+are separate from Android runtime acceptance. The new Android folder chooser,
+SAF write/read/cleanup and TalkBack export journey still need packaged-device
+qualification; the existing emulator gate does not exercise this export flow.

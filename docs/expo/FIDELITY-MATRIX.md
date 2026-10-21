@@ -153,7 +153,9 @@ first shared complete composition; the eight remaining screen closures are:
    actual Android menu interaction, focus and announcements remain unqualified.
    Series-level editing, common search composition and full native
    accessibility acceptance remain open.
-   Native backup/export destinations and
+   Selected-page native ZIP export is wired to the system folder chooser with
+   guarded reads, bounded transfer and saved-byte verification. Its actual SAF
+   and TalkBack device journey, native restore, whole-library backup and
    provider/folder access remain open. This is the largest next everyday-screen
    implementation now underway. Ordinary book-face and eight-field metadata-editor compositions and canonical
    reading labels are shared in current local source; native cards/controls consume

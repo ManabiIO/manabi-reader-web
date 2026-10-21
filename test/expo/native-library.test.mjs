@@ -557,8 +557,8 @@ test('two physical copies of one saved book have distinct opaque row handles', a
   assert.equal(f.writes[0][1][0].file.id, 'two');
 });
 
-test('Library access retains the original canonical key for ordinary open and delete', async () => {
-  for (const operation of ['open', 'delete']) {
+test('Library access retains the original canonical key for open, delete and export', async () => {
+  for (const operation of ['open', 'delete', 'export']) {
     const f = setup([book(1, { contentHash: undefined })]);
     f.data.coverIdentities = { 1: 'local:11111111-1111-4111-8111-111111111111' };
     const state = await f.service.state({}, f.authority);
@@ -569,6 +569,35 @@ test('Library access retains the original canonical key for ordinary open and de
     assert.equal(result[0].readerBookKey, f.data.coverIdentities[1]);
     assert.equal(f.writes.length, 0);
   }
+});
+
+test('export requires canonical proof for every available selected copy and consumes the admission', async () => {
+  for (const invalid of ['missing-proof', 'placeholder', 'outside-view']) {
+    const f = setup([book(1, { isPlaceholder: invalid === 'placeholder' })]);
+    if (invalid !== 'missing-proof') f.data.coverIdentities = { 1: `content:${'1'.repeat(64)}` };
+    const state = await f.service.state({}, f.authority);
+    await assert.rejects(
+      f.service.admitAccess(
+        {
+          token: state.token,
+          keys: [invalid === 'outside-view' ? 'forged' : state.items[0].key],
+          operation: 'export'
+        },
+        f.authority
+      ),
+      /Refresh|available imported/
+    );
+  }
+  const f = setup([book(1), book(2)]);
+  f.data.coverIdentities = { 1: `content:${'1'.repeat(64)}`, 2: `content:${'2'.repeat(64)}` };
+  const state = await f.service.state({}, f.authority);
+  const request = {
+    token: state.token,
+    keys: state.items.map((item) => item.key),
+    operation: 'export'
+  };
+  assert.equal((await f.service.admitAccess(request, f.authority)).length, 2);
+  await assert.rejects(f.service.admitAccess(request, f.authority), /expired/);
 });
 
 test('Library canonical admissions reject identical hashless reimports, missing proof and ABA', async () => {
