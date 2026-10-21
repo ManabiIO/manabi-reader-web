@@ -1828,7 +1828,7 @@ function MetadataEditor({
         }
       />
       <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
-        <Switch label="Blur cover" value={blur} onValueChange={setBlur} />
+        <Switch label="Blur cover" value={blur} onValueChange={setBlur} disabled={busy} />
       </Host>
       <Text style={styles.label}>Page direction</Text>
       <View style={styles.row}>
@@ -1837,6 +1837,7 @@ function MetadataEditor({
             key={value}
             label={{ unknown: 'Automatic', ltr: 'Left to right', rtl: 'Right to left' }[value]}
             variant={direction === value ? 'filled' : 'outlined'}
+            disabled={busy}
             onPress={() => setDirection(value)}
           />
         ))}

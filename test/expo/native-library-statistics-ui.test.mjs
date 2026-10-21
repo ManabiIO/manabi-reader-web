@@ -517,10 +517,27 @@ test('native metadata uses the complete shared field limits and blocks editing d
   });
   assert.equal(title.value, 'Edited Japanese book 日本語');
   assert.equal(title.getAttribute('aria-label'), 'Title');
+  const blur = f.container.querySelector('input[aria-label="Blur cover"]');
+  await act(() => blur.click());
+  await click(f, 'Right to left');
   await click(f, 'Save metadata');
   assert.equal(field('Title').disabled, true);
   assert.equal(field('Authors (one per line)').disabled, true);
-  assert.equal(f.calls.filter((call) => call.method === 'library.action').length, 1);
+  assert.equal(blur.disabled, true);
+  for (const label of ['Automatic', 'Left to right', 'Right to left']) {
+    const choice = [...f.container.querySelectorAll('button')].find(
+      (node) => node.textContent === label
+    );
+    assert.equal(choice.disabled, true);
+    await act(() => choice.click());
+  }
+  await act(() => blur.click());
+  assert.equal(blur.checked, true);
+  const writes = f.calls.filter((call) => call.method === 'library.action');
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].payload.change.title, 'Edited Japanese book 日本語');
+  assert.equal(writes[0].payload.change.coverBlur, true);
+  assert.equal(writes[0].payload.change.direction, 'rtl');
   await act(async () => gate.resolve({ saved: true }));
 });
 
