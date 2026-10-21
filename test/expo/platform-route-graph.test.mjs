@@ -118,6 +118,12 @@ for (const platform of ['android', 'web'])
       inputs.some((file) => file.endsWith('/features/library/LibrarySelectionToolbar.tsx')),
       `${platform} must execute the common selection toolbar`
     );
+    assert.ok(
+      inputs.some((file) => file.endsWith('/features/library/LibrarySortControls.tsx')),
+      `${platform} must execute the common Library sorting controls`
+    );
+    const sortLeaf = platform === 'web' ? 'sort-layout.web.tsx' : 'sort-layout.tsx';
+    assert.ok(inputs.some((file) => file.endsWith(`/features/library/${sortLeaf}`)));
     const selectionLeaf = platform === 'web' ? 'selection-layout.web.tsx' : 'selection-layout.tsx';
     assert.ok(inputs.some((file) => file.endsWith(`/features/library/${selectionLeaf}`)));
     for (const shared of ['SettingsFieldGroup.tsx', 'SettingsWorkspace.tsx', 'workspace-state.ts'])

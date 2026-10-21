@@ -548,8 +548,8 @@ test('Library restores saved sort controls, saves one choice and keeps filters o
     [...f.container.querySelectorAll('button')].find(
       (item) => item.textContent === label || item.getAttribute('aria-label') === label
     );
-  assert.equal(button('Author').dataset.variant, 'filled');
-  assert.equal(button('Ascending').dataset.variant, 'filled');
+  assert.equal(button('Author').getAttribute('aria-selected'), 'true');
+  assert.equal(button('Ascending').getAttribute('aria-selected'), 'true');
   await click(f, 'Title');
   const writes = f.calls.filter((call) => call.method === 'library.action');
   assert.equal(writes.length, 1);
@@ -559,13 +559,13 @@ test('Library restores saved sort controls, saves one choice and keeps filters o
     property: 'title',
     direction: 'asc'
   });
-  assert.equal(button('Title').dataset.variant, 'filled');
+  assert.equal(button('Title').getAttribute('aria-selected'), 'true');
   await click(f, 'Descending');
-  assert.equal(button('Descending').dataset.variant, 'filled');
+  assert.equal(button('Descending').getAttribute('aria-selected'), 'true');
   await f.render('/manage', 2);
   await click(f, 'Sort and filter');
-  assert.equal(button('Title').dataset.variant, 'filled');
-  assert.equal(button('Descending').dataset.variant, 'filled');
+  assert.equal(button('Title').getAttribute('aria-selected'), 'true');
+  assert.equal(button('Descending').getAttribute('aria-selected'), 'true');
 });
 test('pending sort saves reject duplicate activation and do not refresh a departed Library', async (t) => {
   const pending = deferred();
@@ -620,7 +620,11 @@ test('changing saved sorting returns to page one, reconciles errors and never re
   const author = [...f.container.querySelectorAll('button')].find(
     (item) => item.textContent === 'Author'
   );
-  assert.equal(author.dataset.variant, 'filled', 'only the owner read confirms the saved choice');
+  assert.equal(
+    author.getAttribute('aria-selected'),
+    'true',
+    'only the owner read confirms the saved choice'
+  );
 });
 
 test('account replacement permanently retires an old sort reply without refreshing the new Library', async (t) => {
@@ -648,9 +652,10 @@ test('account replacement permanently retires an old sort reply without refreshi
     'new account remains usable'
   );
   assert.equal(
-    [...f.container.querySelectorAll('button')].find((item) => item.textContent === 'Descending')
-      .dataset.variant,
-    'filled'
+    [...f.container.querySelectorAll('button')]
+      .find((item) => item.textContent === 'Descending')
+      .getAttribute('aria-selected'),
+    'true'
   );
 });
 
@@ -990,7 +995,7 @@ test('Finished timeline renders calendar-day headers, restores layout/order and 
     false
   );
   const headings = () =>
-    [...f.container.querySelectorAll('[role="heading"]')].map((h) => h.textContent);
+    [...f.container.querySelectorAll('[data-columns] [role="heading"]')].map((h) => h.textContent);
   assert.deepEqual(headings(), ['Oct 3, 2026', 'Oct 1, 2026', 'Date not set']);
   assert.equal(f.container.querySelector('[data-columns]').dataset.columns, '1');
   assert.match(f.container.textContent, /Finished · Oct 3, 2026/);
@@ -998,10 +1003,7 @@ test('Finished timeline renders calendar-day headers, restores layout/order and 
   assert.ok(![...f.container.querySelectorAll('button')].some((b) => b.textContent === 'Author'));
   assert.equal(f.container.querySelector('[aria-label="Unfinished books only"]'), null);
   await click(f, 'Oldest first');
-  assert.deepEqual(
-    headings().filter((h) => h !== 'Sort and filter'),
-    ['Oct 1, 2026', 'Oct 3, 2026', 'Date not set']
-  );
+  assert.deepEqual(headings(), ['Oct 1, 2026', 'Oct 3, 2026', 'Date not set']);
   assert.deepEqual(
     f.calls.filter((c) => c.method === 'library.action').map((c) => c.payload.type),
     ['finished.order']
@@ -1009,10 +1011,7 @@ test('Finished timeline renders calendar-day headers, restores layout/order and 
   const grid = f.container.querySelector('[aria-label="Grid layout (off uses timeline)"]');
   await act(() => grid.click());
   assert.equal(f.container.querySelector('[data-columns]').dataset.columns, '2');
-  assert.deepEqual(
-    headings().filter((h) => h !== 'Sort and filter'),
-    []
-  );
+  assert.deepEqual(headings(), []);
   await f.render('/manage', 2);
   await click(f, 'Finished (3)');
   assert.equal(

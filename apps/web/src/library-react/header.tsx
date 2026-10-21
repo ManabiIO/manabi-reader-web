@@ -48,6 +48,8 @@ import {
 import { AppNav, ActionMenu } from './navigation';
 import { LibrarySelectionToolbar } from '../features/library/LibrarySelectionToolbar';
 import { selectionLayout } from '../features/library/selection-layout.web';
+import { LibrarySortControls } from '../features/library/LibrarySortControls';
+import { sortLayout } from '../features/library/sort-layout.web';
 export function HeaderView({
   c,
   children: _children
@@ -439,84 +441,19 @@ export function HeaderView({
                                     collisionPadding={8}
                                     className={['library-menu w-56'].filter(Boolean).join(' ')}
                                   >
-                                    {c.libraryMenu.finishedOrder ? (
-                                      <>
-                                        <Menu.Label>{'Finished date'}</Menu.Label>
-                                        <Menu.RadioGroup
-                                          value={c.libraryMenu.finishedOrder}
-                                          onValueChange={c.libraryMenu.setFinishedOrder}
-                                        >
-                                          <Menu.RadioItem value={'desc'}>
-                                            {'Newest first'}
-                                          </Menu.RadioItem>
-                                          <Menu.RadioItem value={'asc'}>
-                                            {'Oldest first'}
-                                          </Menu.RadioItem>
-                                        </Menu.RadioGroup>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Menu.RadioGroup
-                                          value={c.libraryMenu.sortProperty}
-                                          onValueChange={(value: any) =>
-                                            c.libraryMenu?.setSort(value)
-                                          }
-                                        >
-                                          {c.libraryMenu.sortChoices.map((choice, __index) => (
-                                            <Fragment key={choice.property}>
-                                              <Menu.RadioItem value={choice.property}>
-                                                {choice.label}
-                                              </Menu.RadioItem>
-                                            </Fragment>
-                                          ))}
-                                        </Menu.RadioGroup>
-                                        <Menu.Sub>
-                                          <Menu.SubTrigger>{'More Sort Options'}</Menu.SubTrigger>
-                                          <Menu.SubContent
-                                            side={c.compactMenus.current ? 'bottom' : 'right'}
-                                            align={'end'}
-                                            collisionPadding={8}
-                                            className={['library-menu w-52']
-                                              .filter(Boolean)
-                                              .join(' ')}
-                                          >
-                                            <Menu.RadioGroup
-                                              value={c.libraryMenu.sortProperty}
-                                              onValueChange={(value: any) =>
-                                                c.libraryMenu?.setSort(value)
-                                              }
-                                            >
-                                              {c.libraryMenu.moreSortChoices.map(
-                                                (choice, __index) => (
-                                                  <Fragment key={choice.property}>
-                                                    <Menu.RadioItem value={choice.property}>
-                                                      {choice.label}
-                                                    </Menu.RadioItem>
-                                                  </Fragment>
-                                                )
-                                              )}
-                                            </Menu.RadioGroup>
-                                          </Menu.SubContent>
-                                        </Menu.Sub>
-                                        <Menu.Separator />
-                                        <Menu.RadioGroup
-                                          value={c.libraryMenu.sortDirection}
-                                          onValueChange={(value: any) =>
-                                            c.libraryMenu?.setSort(
-                                              c.libraryMenu.sortProperty,
-                                              value === 'asc' ? 'asc' : 'desc'
-                                            )
-                                          }
-                                        >
-                                          <Menu.RadioItem value={'asc'}>
-                                            {'Ascending'}
-                                          </Menu.RadioItem>
-                                          <Menu.RadioItem value={'desc'}>
-                                            {'Descending'}
-                                          </Menu.RadioItem>
-                                        </Menu.RadioGroup>
-                                      </>
-                                    )}
+                                    <LibrarySortControls
+                                      layout={sortLayout}
+                                      compact={c.compactMenus.current}
+                                      property={c.libraryMenu.sortProperty}
+                                      direction={c.libraryMenu.sortDirection}
+                                      finishedOrder={c.libraryMenu.finishedOrder}
+                                      onSort={(property, direction) =>
+                                        c.libraryMenu?.setSort(property, direction)
+                                      }
+                                      onFinishedOrder={(value) =>
+                                        c.libraryMenu?.setFinishedOrder(value)
+                                      }
+                                    />
                                   </Menu.SubContent>
                                 </Menu.Sub>
                               </Menu.SubContent>

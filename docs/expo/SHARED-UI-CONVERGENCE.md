@@ -791,3 +791,30 @@ introspection, 14 harness tests, lint, shell syntax and Android API compilation
 under Java 21. The new disconnected device gate still needs an exact-source run.
 No packet capture or no-DNS claim is made, and full offline EPUB/annotation and
 device accessibility coverage remains open.
+
+### Shared Library sorting controls
+
+Web and Android now render the common `LibrarySortControls` composition. Its
+inventory includes all eight existing properties and preserves direction when
+changing property (and property when changing direction). The Finished shelf
+keeps its separate finished-date ordering. Invalid, unchanged and disabled
+callbacks cannot save; damaged preferences use the existing read-only fallback.
+
+The web leaf retains the real menu radio groups, nested More Sort Options,
+keyboard navigation, dismissal, focus and collision geometry. Android uses named,
+wrapping choices with selected and disabled accessibility states, through the
+same owned `ChoiceButtons` primitive already used by Settings. The installed
+Expo UI Compose semantics modifier does not expose a selected-state property;
+these choices use the established RN/RNW primitive rather than inventing one.
+Existing platform controllers still own persistence, admission and account/route
+lifetimes. Storage schemas and backup/restore formats are unchanged.
+
+Evidence in `../evidence/shared-library-sort-k7f6hn_v/` records 49 passing focused
+composition, mounted Library and route-graph tests; affected lint, full application
+types, production web/Android exports and completed web post-build. Six retained
+actual-app checks passed in each of Chromium and WebKit, including all sorting
+and export options, Finished ordering, author search, touch menus, Settings
+keyboard/save behavior and responsive choices. Sorting and Settings screenshots
+were visually checked at desktop, phone and 320px/200% text sizes; menus and
+choices remain readable and inside the available width. These are browser and
+mounted-native results, not packaged Android or spoken TalkBack acceptance.

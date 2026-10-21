@@ -45,17 +45,15 @@ import {
   type NativeLibraryState
 } from './contract';
 import { reconcileNativeSelection } from './selection';
-import {
-  librarySortChoices,
-  readLibrarySort,
-  type LibrarySort
-} from '../features/library/sort-options';
+import { readLibrarySort, type LibrarySort } from '../features/library/sort-options';
 import { NativeLibraryContentSearch } from './content-search';
 import { NativeSavedBackground } from '../native-settings/NativeSavedBackground';
 import { NativeBookCover } from './cover';
 import { formatCalendarDay } from '../lib/library/reading-state';
 import { LibraryBookFace } from '../features/library/LibraryBookFace';
 import { NativeBookExportForm } from './export-sheet';
+import { LibrarySortControls } from '../features/library/LibrarySortControls';
+import { sortLayout } from '../features/library/sort-layout';
 import { LibrarySelectionToolbar } from '../features/library/LibrarySelectionToolbar';
 import { selectionLayout } from '../features/library/selection-layout';
 import { bookFaceLayout } from '../features/library/book-face';
@@ -1390,50 +1388,15 @@ function Library() {
           ) : null}
           {sheet === 'filters' && (
             <>
-              {finishedShelf ? (
-                <View style={styles.row}>
-                  <Action
-                    label="Newest first"
-                    variant={state?.finishedOrder !== 'asc' ? 'filled' : 'outlined'}
-                    disabled={busy || loading}
-                    onPress={() => void chooseFinishedOrder('desc')}
-                  />
-                  <Action
-                    label="Oldest first"
-                    variant={state?.finishedOrder === 'asc' ? 'filled' : 'outlined'}
-                    disabled={busy || loading}
-                    onPress={() => void chooseFinishedOrder('asc')}
-                  />
-                </View>
-              ) : (
-                <>
-                  <View style={styles.row}>
-                    {librarySortChoices.map((choice) => (
-                      <Action
-                        key={choice.property}
-                        label={choice.label}
-                        variant={sort.property === choice.property ? 'filled' : 'outlined'}
-                        disabled={busy || loading}
-                        onPress={() => void chooseSort(choice.property)}
-                      />
-                    ))}
-                  </View>
-                  <View style={styles.row}>
-                    <Action
-                      label="Ascending"
-                      variant={sort.direction === 'asc' ? 'filled' : 'outlined'}
-                      disabled={busy || loading}
-                      onPress={() => void chooseSort(sort.property, 'asc')}
-                    />
-                    <Action
-                      label="Descending"
-                      variant={sort.direction === 'desc' ? 'filled' : 'outlined'}
-                      disabled={busy || loading}
-                      onPress={() => void chooseSort(sort.property, 'desc')}
-                    />
-                  </View>
-                </>
-              )}
+              <LibrarySortControls
+                layout={sortLayout}
+                property={sort.property}
+                direction={sort.direction}
+                finishedOrder={finishedShelf ? (state?.finishedOrder ?? 'desc') : undefined}
+                disabled={!state || busy || loading}
+                onSort={(property, direction) => void chooseSort(property, direction)}
+                onFinishedOrder={(value) => void chooseFinishedOrder(value)}
+              />
               <View style={{ gap: 8 }}>
                 {query.collection !== 'finished' && (
                   <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
