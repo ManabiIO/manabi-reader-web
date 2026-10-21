@@ -734,3 +734,29 @@ native Library copy removal and unchanged archive bytes after process restart.
 This extends the gate but does not establish its result until the exact-source
 APK run passes. Spoken TalkBack and provider-error/cancellation-during-write
 coverage remain separate acceptance work.
+
+### Library field names and removal of superseded screens
+
+Native metadata, collection, series, date and search inputs now attach their
+accessible names to the actual Expo UI text field. Entering text no longer
+removes the only name when a placeholder disappears. The metadata date keeps
+its `Published` label separately from its example placeholder. Mounted Library
+and passage-search tests exercise the retained name after editing; packaged
+TalkBack acceptance remains separate.
+
+`NativeScreens.tsx` no longer exports the unused early Library and Settings
+implementations. The existing route entries already select `native-library`
+and `native-settings`; shared header/actions and the account screen remain.
+The cleanup removes the superseded screen controllers and their styles without
+changing persistence, schemas or backup/restore behavior.
+
+Run [39529342298](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39529342298)
+on `615b9a7a6b36504e0b55697035862bd9f38b9b5d` passed both web jobs. Android
+confirmed actual font picker/import/selection and production cached font loading,
+plus background-picker cancellation from its remembered subfolder. It then failed
+because the image grid's filename is part of a description containing file size
+and timestamp. The test-only document selector now accepts that exact filename
+and metadata boundary inside DocumentsUI, rejects preview/prefix labels, and
+also serves the new book-import journey. Full background and book-export runtime
+qualification is still pending. Original failure data is retained locally in
+`../evidence/android-picker-followup-jv95hkmw/`.

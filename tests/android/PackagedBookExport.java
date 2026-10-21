@@ -34,6 +34,7 @@ final class PackagedBookExport {
     String readAsset(String name) throws Exception;
     String evaluate(String script) throws Exception;
     void click(String label) throws Exception;
+    void clickDocument(String filename) throws Exception;
     void awaitText(String label) throws Exception;
     void awaitPicker() throws Exception;
     void cancelPicker(String purpose) throws Exception;
@@ -71,7 +72,7 @@ final class PackagedBookExport {
       driver.click("Add Books");
       driver.awaitPicker();
       openFixtureFolder();
-      driver.click(title + ".txt");
+      driver.clickDocument(title + ".txt");
       driver.awaitText("1–1 of 1");
       expected = probe("imported");
       assertEquals("Import must preserve the original document", sha256(source), sha256(read(input)));

@@ -100,6 +100,7 @@ public final class PackagedReaderTest {
         public String readAsset(String name) throws Exception { return PackagedReaderTest.this.readAsset(name); }
         public String evaluate(String script) throws Exception { return PackagedReaderTest.this.evaluate(script); }
         public void click(String label) throws Exception { clickAccessibleText(label); }
+        public void clickDocument(String filename) throws Exception { clickPublishedDocument(filename); }
         public void awaitText(String label) throws Exception { awaitAccessibleText(label); }
         public void awaitPicker() { awaitDocumentPicker(); }
         public void cancelPicker(String purpose) throws Exception { cancelDocumentPicker(purpose); }
@@ -543,7 +544,46 @@ public final class PackagedReaderTest {
     clickAccessibleText("Show roots");
     clickAccessibleText(root);
     clickAccessibleText("ManabiQualification");
-    clickAccessibleText(name);
+    clickPublishedDocument(name);
+  }
+
+  /** Grid tiles expose the exact filename followed by size/date in their
+   * description. Select only our random fixture in the actual DocumentsUI;
+   * never broaden application-control matching or activate a preview child. */
+  private void clickPublishedDocument(String filename) throws Exception {
+    assertTrue("Only this run's source document may be selected",
+        filename.startsWith("manabi-") && filename.contains(config.getString("id"))
+        && !filename.contains("/") && !filename.contains(","));
+    long deadline = SystemClock.uptimeMillis() + 20000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
+      if (root != null && root.getPackageName() != null) {
+        assertTrue("Refuse to select a document outside the system picker",
+            root.getPackageName().toString().endsWith(".documentsui"));
+        List<AccessibilityNodeInfo> matches = new ArrayList<>();
+        collectDocumentLabels(root, filename, matches);
+        for (AccessibilityNodeInfo match : matches) {
+          match.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+          AccessibilityNodeInfo action = match;
+          for (int depth = 0; action != null && depth < 6; depth++, action = action.getParent()) {
+            if (nativeControlVisible(action) && action.isEnabled() && action.isClickable()
+                && action.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return;
+          }
+        }
+        scrollNativeForward(root);
+      }
+      SystemClock.sleep(200);
+    }
+    throw new AssertionError("System picker document was not reachable: " + filename);
+  }
+
+  private void collectDocumentLabels(AccessibilityNodeInfo node, String filename,
+      List<AccessibilityNodeInfo> matches) {
+    if (DocumentPickerLabels.matches(filename, node.getText(), node.getContentDescription())) matches.add(node);
+    for (int index = 0; index < node.getChildCount(); index++) {
+      AccessibilityNodeInfo child = node.getChild(index);
+      if (child != null) collectDocumentLabels(child, filename, matches);
+    }
   }
 
   private void awaitPublishedFixture(Uri uri, String name, String mime) throws Exception {

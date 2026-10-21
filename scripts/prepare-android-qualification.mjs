@@ -33,7 +33,8 @@ export async function prepareAndroidQualification({
   for (const name of [
     'PackagedReaderTest.java',
     'PackagedReaderInstrumentation.java',
-    'PackagedBookExport.java'
+    'PackagedBookExport.java',
+    'DocumentPickerLabels.java'
   ])
     await fs.copyFile(path.join(fixtureDirectory, name), path.join(javaDir, name));
   for (const name of ['probe.js', 'font-probe.js', 'book-export-probe.js'])

@@ -15,6 +15,17 @@ replace the `WebViewClient`, install a JavaScript interface, or change the host'
 security settings. The test-only probe is read from the separate test APK and
 executed with `WebView.evaluateJavascript` under Android instrumentation.
 
+The system-picker selector supports both exact filenames in list rows and
+DocumentsUI grid descriptions containing the exact filename followed by comma
+and metadata. It is restricted to this run's random source filename while
+DocumentsUI owns the foreground window. Preview labels and filename prefixes
+are not document matches. Application controls still require exact labels.
+Java matcher tests cover the actual description captured in failed run
+[39529342298](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39529342298).
+That run confirmed font import/select/production loading and background-picker
+cancellation (two Back presses), then failed to select the PNG grid tile. It
+does not establish background rendering, restart or book-export acceptance.
+
 ## Build, then run
 
 Use Node 24.21, the reviewed dependency lock, Java 21, and the normal Android SDK.

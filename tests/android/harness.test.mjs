@@ -566,6 +566,55 @@ public class RunnerContract {
   }
 });
 
+test('actual Java document selector distinguishes grid metadata from previews and filename prefixes', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-document-labels-'));
+  try {
+    const runner = path.join(temp, 'DocumentPickerLabelsTest.java');
+    await fs.writeFile(
+      runner,
+      `package io.manabi.reader.qualification;
+class DocumentPickerLabelsTest {
+  public static void main(String[] args) {
+    String name = "manabi-background-b42ccff5c82f23ebd097c3d3d26861e2-library-light.png";
+    check(true, name, name, null);
+    check(true, name, null, name);
+    check(true, name, "", name + ", 347 B, 2:22\u202fAM");
+    check(true, name, null, name + ", 347 B, Oct 21");
+    check(false, name, null, "Preview the file " + name);
+    check(false, name, null, name + ".backup, 347 B, 2:22\u202fAM");
+    check(false, name, name + ".backup", null);
+    check(false, name, null, "copy-" + name + ", 347 B");
+    check(false, name, name + ", 347 B", null);
+    check(false, name, null, null);
+    check(false, "", "", "");
+    check(false, null, name, name);
+  }
+  private static void check(boolean expected, String filename, String text, String description) {
+    if (DocumentPickerLabels.matches(filename, text, description) != expected)
+      throw new AssertionError("Unexpected match: " + text + " / " + description);
+  }
+}`
+    );
+    execFileSync(
+      'javac',
+      [
+        '--release',
+        '21',
+        '-d',
+        temp,
+        new URL('DocumentPickerLabels.java', import.meta.url).pathname,
+        runner
+      ],
+      { encoding: 'utf8' }
+    );
+    execFileSync('java', ['-cp', temp, 'io.manabi.reader.qualification.DocumentPickerLabelsTest'], {
+      encoding: 'utf8'
+    });
+  } finally {
+    await trashTemporary(temp);
+  }
+});
+
 test('instrumentation Java parses with JDK 21 (syntax only, not Android compilation)', async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-java-syntax-'));
   try {
@@ -594,7 +643,8 @@ class ParseJava { public static void main(String[] args) throws Exception {
         parser,
         new URL('PackagedReaderTest.java', import.meta.url).pathname,
         new URL('PackagedReaderInstrumentation.java', import.meta.url).pathname,
-        new URL('PackagedBookExport.java', import.meta.url).pathname
+        new URL('PackagedBookExport.java', import.meta.url).pathname,
+        new URL('DocumentPickerLabels.java', import.meta.url).pathname
       ],
       { encoding: 'utf8' }
     );
