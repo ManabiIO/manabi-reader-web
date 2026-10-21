@@ -59,7 +59,7 @@ export function NativeBookExportForm({
         }
       );
       if (!mounted.current) return;
-      if (result) onFinished(`Saved ${result.filename} to the chosen folder.`);
+      if (result) onFinished('Saved a verified ZIP to the chosen folder.');
       else {
         setMessage('No folder selected.');
       }

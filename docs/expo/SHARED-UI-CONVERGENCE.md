@@ -706,9 +706,12 @@ write-only handles, closes it, then compares all saved bytes through bounded
 read-only handles before reporting success. Installed Expo 58's `File.rename`
 uses Java file paths and cannot rename SAF content URIs, so this flow does not
 claim atomic publication: the new file may be visible while writing. Cancellation
-or failure removes only that newly created file; failed cleanup names the
-incomplete file. Lost acknowledgments are not replayed. Picker cancellation
-before Start leaves the selection unconsumed. Closing the sheet, changing the
+or failure removes only that newly created file; failed cleanup identifies the
+requested archive name. Expo File.name derives from its URI and can return an
+opaque provider ID, so completion messages do not use it and cleanup guidance
+uses the generated ZIP name submitted to the provider. Lost acknowledgments
+are not replayed. Picker cancellation before Start leaves the selection
+unconsumed. Closing the sheet, changing the
 selection, refreshing, leaving the route or replacing the account retires the
 operation and refreshes admission before another explicit attempt.
 

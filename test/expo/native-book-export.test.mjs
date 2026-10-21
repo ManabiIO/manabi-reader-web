@@ -330,7 +330,11 @@ function destination(t, options = {}) {
         createFile(name) {
           files.push(name);
           return {
-            name,
+            // Expo File.name derives from the URI, not provider display metadata.
+            // It can be an opaque ID; neither success nor cleanup may depend on it.
+            get name() {
+              throw new Error('Do not interpret an opaque document URI as a filename.');
+            },
             get size() {
               return saved.length;
             },
@@ -453,7 +457,7 @@ test('failed partial-file cleanup explicitly names the unverified file', async (
   const f = destination(t, { corrupt: true, cleanupFails: true });
   await assert.rejects(f.run(), {
     name: 'ExportCleanupError',
-    message: /incomplete file.*could not be removed/
+    message: /incomplete ZIP.*could not be removed.*ttu-reader-export-[0-9-]+-export_token_1\.zip/
   });
   assert.equal(f.f.service.active, false);
 });

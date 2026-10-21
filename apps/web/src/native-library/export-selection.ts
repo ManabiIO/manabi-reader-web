@@ -20,7 +20,6 @@ interface ExportHandle {
   close(): void;
 }
 interface ExportFile {
-  name: string;
   size: number;
   openWrite(): ExportHandle;
   openRead(): ExportHandle;
@@ -34,7 +33,8 @@ export interface NativeExportDependencies {
 }
 
 /** The shell alone owns the destination URI. Verify saved bytes in bounded reads
- * before reporting success. Never overwrite or clean up a pre-existing file. */
+ * before reporting success. Never overwrite or clean up a pre-existing file.
+ * The returned filename is the requested label, not metadata decoded from a URI. */
 export async function saveNativeBookExport(
   dependencies: NativeExportDependencies,
   input: NativeBookExportRequest,
@@ -55,6 +55,7 @@ export async function saveNativeBookExport(
   if (!directory) return null;
   let token: string | undefined;
   let file: ExportFile | undefined;
+  let filename: string | undefined;
   let handle: ExportHandle | undefined;
   let saved = false;
   let result: { filename: string } | undefined;
@@ -97,7 +98,7 @@ export async function saveNativeBookExport(
     )
       throw new Error('The completed ZIP metadata is invalid.');
     const size = status.size;
-    const filename = status.filename.replace(/\.zip$/, `-${token}.zip`);
+    filename = status.filename.replace(/\.zip$/, `-${token}.zip`);
     check();
     // SAF creates a new document. Use a unique name; never open an existing path
     // for truncation. SAF rename is not supported by the installed Expo API.
@@ -154,7 +155,7 @@ export async function saveNativeBookExport(
     handle = undefined;
     check();
     saved = true;
-    result = { filename: file.name };
+    result = { filename };
   } catch (cause) {
     failed = true;
     failure = cause;
@@ -172,7 +173,7 @@ export async function saveNativeBookExport(
             file.delete();
           } catch {
             const error = new Error(
-              `Export did not finish. The incomplete file “${file.name}” could not be removed; delete it from the chosen folder.`
+              `Export did not finish. An incomplete ZIP could not be removed from the chosen folder. Look for “${filename}” and delete it.`
             );
             error.name = 'ExportCleanupError';
             failed = true;

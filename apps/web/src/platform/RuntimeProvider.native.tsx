@@ -338,9 +338,6 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
               createFile(name) {
                 const file = directory.createFile(name, 'application/zip');
                 return {
-                  get name() {
-                    return file.name;
-                  },
                   get size() {
                     return file.size;
                   },

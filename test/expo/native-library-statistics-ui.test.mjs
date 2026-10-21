@@ -249,7 +249,7 @@ test('selected-page export uses common content options and the captured selectio
       .disabled
   );
   await act(() => gate.resolve({ filename: 'verified-export.zip' }));
-  assert.match(f.container.textContent, /Saved verified-export.zip to the chosen folder/);
+  assert.match(f.container.textContent, /Saved a verified ZIP to the chosen folder/);
   assert.equal(f.container.querySelectorAll('input[type=checkbox]').length, 0);
   assert.equal(f.calls.filter((call) => call.method === 'library.state').length, 2);
 });
@@ -280,7 +280,7 @@ test('export cancels on modal close, route/account departure and selection ABA w
     }
     assert.equal(signal.aborted, true, departure);
     await act(() => gate.resolve({ filename: 'late-export.zip' }));
-    assert.doesNotMatch(f.container.textContent, /Saved late-export/);
+    assert.doesNotMatch(f.container.textContent, /Saved a verified ZIP/);
   }
 });
 
