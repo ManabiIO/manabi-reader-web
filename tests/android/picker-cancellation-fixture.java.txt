@@ -1,0 +1,117 @@
+/* SPDX-License-Identifier: BSD-3-Clause */
+import java.util.*;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Predicate;
+
+/** Executes the instrumentation's actual cancellation method with delayed
+ * platform observations. This models the race; it is not an Android run. */
+class PickerCancellationTest {
+  static final String APP = "io.manabi.reader";
+  static final String PICKER = "com.android.documentsui";
+  final Instrumentation instrumentation = new Instrumentation();
+  final Map<String, Object> evidence = new HashMap<>();
+
+  /* ACTUAL_CANCELLATION_METHOD */
+
+  public static void main(String[] args) throws Exception {
+    run(1, APP); // root picker: a second Back would dismiss the app's font dialog
+    run(2, PICKER, APP); // remembered subfolder: one acknowledged parent navigation
+    refuses(APP, false, 0, "Cancellation must send Back");
+    refuses("com.example.unrelated", false, 0, "unrelated foreground window");
+    refuses(PICKER, true, 1, "No new navigation event");
+    PickerCancellationTest bounded = new PickerCancellationTest();
+    bounded.instrumentation.ui.transitions.addAll(Collections.nCopies(9, PICKER));
+    try {
+      bounded.cancelDocumentPicker("font");
+      throw new AssertionError("An endless picker must fail");
+    } catch (AssertionError expected) {
+      assertTrue("Must retain the navigation bound", expected.getMessage().contains("navigation bound"));
+      assertTrue("Must not send a ninth Back", bounded.instrumentation.presses == 8);
+    }
+  }
+  static void run(int presses, String... transitions) throws Exception {
+    PickerCancellationTest test = new PickerCancellationTest();
+    test.instrumentation.ui.transitions.addAll(List.of(transitions));
+    test.cancelDocumentPicker("font");
+    assertTrue("Only acknowledged picker navigation may repeat Back", test.instrumentation.presses == presses);
+    assertTrue("The returned app must keep its dialog", test.instrumentation.ui.active.equals(APP));
+    assertTrue("Must record actual Back count", test.evidence.get("nativePickerCancel-font").equals(presses));
+    assertTrue("Must not leave an unacknowledged input", !test.instrumentation.ui.pending);
+  }
+  static void refuses(String active, boolean timeout, int presses, String message) throws Exception {
+    PickerCancellationTest test = new PickerCancellationTest();
+    test.instrumentation.ui.active = active;
+    test.instrumentation.ui.timeout = timeout;
+    try {
+      test.cancelDocumentPicker("font");
+      throw new AssertionError("Expected refusal: " + message);
+    } catch (AssertionError | TimeoutException expected) {
+      assertTrue("Wrong refusal: " + expected, expected.getMessage().contains(message));
+      assertTrue("Unexpected Back count", test.instrumentation.presses == presses);
+    }
+  }
+  static void assertTrue(String message, boolean condition) {
+    if (!condition) throw new AssertionError(message);
+  }
+  static class KeyEvent { static final int KEYCODE_BACK = 4; }
+  static class SystemClock {
+    static long now;
+    static long uptimeMillis() { return now += 10; }
+    static void sleep(long duration) { now += duration; }
+  }
+  static class AccessibilityNodeInfo {
+    final String packageName;
+    AccessibilityNodeInfo(String packageName) { this.packageName = packageName; }
+    CharSequence getPackageName() { return packageName; }
+  }
+  static class AccessibilityEvent {
+    static final int TYPE_WINDOW_STATE_CHANGED = 32, TYPE_WINDOW_CONTENT_CHANGED = 2048;
+    final String packageName;
+    final int type;
+    AccessibilityEvent(String packageName, int type) { this.packageName = packageName; this.type = type; }
+    CharSequence getPackageName() { return packageName; }
+    int getEventType() { return type; }
+    void recycle() {}
+  }
+  static class Context { String getPackageName() { return APP; } }
+  static class Instrumentation {
+    final Automation ui = new Automation(this);
+    int presses;
+    Context getTargetContext() { return new Context(); }
+    Automation getUiAutomation() { return ui; }
+    void sendKeyDownUpSync(int key) {
+      assertTrue("Only Back is authorized", key == KeyEvent.KEYCODE_BACK);
+      assertTrue("A stale picker snapshot must not send a second Back into the app", !ui.pending);
+      assertTrue("Do not send Back outside the picker", ui.active.equals(PICKER));
+      presses++;
+      ui.pending = true;
+    }
+  }
+  static class Automation {
+    final Instrumentation instrumentation;
+    String active = PICKER;
+    boolean pending, timeout;
+    final Queue<String> transitions = new ArrayDeque<>();
+    Automation(Instrumentation instrumentation) { this.instrumentation = instrumentation; }
+    // Android can return immediately using an event from BEFORE the input.
+    void waitForIdle(long idle, long total) {}
+    AccessibilityNodeInfo getRootInActiveWindow() { return new AccessibilityNodeInfo(active); }
+    AccessibilityEvent executeAndWaitForEvent(Runnable action, Predicate<AccessibilityEvent> filter,
+        long timeoutMillis) throws TimeoutException {
+      action.run();
+      assertTrue("An unrelated window must not acknowledge navigation",
+          !filter.test(new AccessibilityEvent("com.example.unrelated", AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)));
+      assertTrue("A missing package must not acknowledge navigation",
+          !filter.test(new AccessibilityEvent(null, AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)));
+      assertTrue("A file-list update must not acknowledge navigation",
+          !filter.test(new AccessibilityEvent(PICKER, AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)));
+      if (timeout) throw new TimeoutException("No new navigation event");
+      String next = transitions.remove();
+      AccessibilityEvent event = new AccessibilityEvent(next, AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
+      assertTrue("Must accept actual picker/app navigation", filter.test(event));
+      active = next;
+      pending = false;
+      return event;
+    }
+  }
+}

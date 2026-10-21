@@ -347,3 +347,22 @@ from arbitrary providers, spoken TalkBack, real user libraries, native ZIP
 restoration, or turning networking off. Existing browser codec tests cover the
 richer book/image/history/audio/subtitle round trip. This new device gate remains
 unqualified until its exact-source emulator run completes.
+
+### Picker navigation acknowledgments
+
+Cancellation sends Back only while DocumentsUI owns the active window. Each
+press now waits for a new `TYPE_WINDOW_STATE_CHANGED` event from that picker or
+the target app before waiting for idle and reading the foreground again.
+DocumentsUI updates the activity title when moving to a parent directory. File
+list updates, events from unrelated packages and missing acknowledgments cannot
+trigger another Back. A missing event fails the journey instead of retrying.
+
+This addresses a race in run 39533224369: two Back presses were recorded during
+font cancellation and the expected font dialog was absent afterward. Android's
+[`UiAutomation.waitForIdle` implementation](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android15-release/core/java/android/app/UiAutomation.java)
+can return based on an event predating the action. `executeAndWaitForEvent`
+collects events around the action and rejects earlier events. The deterministic
+harness fixture executes the actual Java method against delayed observations and
+covers root/subfolder navigation, unrelated windows, missing acknowledgments and
+the navigation bound. The retained draft and unchanged-storage assertions remain
+required on the device; harness success alone does not qualify cancellation.

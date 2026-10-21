@@ -818,3 +818,16 @@ keyboard/save behavior and responsive choices. Sorting and Settings screenshots
 were visually checked at desktop, phone and 320px/200% text sizes; menus and
 choices remain readable and inside the available width. These are browser and
 mounted-native results, not packaged Android or spoken TalkBack acceptance.
+
+Run [39533224369](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39533224369)
+on `a487f0343d092734448579ffdeb46bf59cdc5fd9` passed both web jobs and compiled the
+Android APK, but failed at font-picker cancellation before background/book export
+qualification. The test recorded two Back presses and then found Settings without
+the expected font dialog. The cancellation helper now requires a fresh picker/app
+window-state event before any further Back. Its deterministic regression test
+reproduced the extra-Back race before the fix and passed afterward; all 15 harness
+tests and Java 21 Android API compilation pass. This is test synchronization, with
+no app persistence or backup changes. A new packaged run must qualify the fix,
+shared sorting and the disconnected-state gate together. Failure and local check
+evidence are retained in `../evidence/shared-library-sort-k7f6hn_v/` and
+`../evidence/picker-navigation-4n7rf8uo/`.

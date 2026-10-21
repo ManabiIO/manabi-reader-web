@@ -746,6 +746,29 @@ class DocumentPickerLabelsTest {
   }
 });
 
+test('picker cancellation waits for new navigation before another Back, preserving the returned app', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-picker-cancellation-'));
+  try {
+    const source = await fs.readFile(new URL('PackagedReaderTest.java', import.meta.url), 'utf8');
+    const start = source.indexOf('  private void cancelDocumentPicker(');
+    const end = source.indexOf('  /** Recent is a cached/aggregated view', start);
+    assert.ok(start > 0 && end > start);
+    const fixture = await fs.readFile(
+      new URL('picker-cancellation-fixture.java.txt', import.meta.url),
+      'utf8'
+    );
+    const runner = path.join(temp, 'PickerCancellationTest.java');
+    await fs.writeFile(
+      runner,
+      fixture.replace('/* ACTUAL_CANCELLATION_METHOD */', source.slice(start, end))
+    );
+    execFileSync('javac', ['--release', '21', '-d', temp, runner], { encoding: 'utf8' });
+    execFileSync('java', ['-cp', temp, 'PickerCancellationTest'], { encoding: 'utf8' });
+  } finally {
+    await trashTemporary(temp);
+  }
+});
+
 test('instrumentation Java parses with JDK 21 (syntax only, not Android compilation)', async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-java-syntax-'));
   try {

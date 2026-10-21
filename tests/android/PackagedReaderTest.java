@@ -28,6 +28,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.KeyEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityEvent;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.TextView;
@@ -555,9 +556,10 @@ public final class PackagedReaderTest {
     throw new AssertionError("Android system document picker never opened");
   }
 
-  /** DocumentsUI remembers its last directory. Back can first leave that folder;
-   * only send another Back after the system picker settles and still owns focus.
-   * Never send Back into the returned app or a different system window. */
+  /** DocumentsUI remembers its last directory. Back can first leave that folder.
+   * waitForIdle alone can return using events from BEFORE the last Back, so await
+   * a new window/title event before checking the settled foreground again.
+   * Missing acknowledgment fails; never retry into the returned app. */
   private void cancelDocumentPicker(String purpose) throws Exception {
     String targetPackage = instrumentation.getTargetContext().getPackageName();
     int presses = 0;
@@ -578,7 +580,14 @@ public final class PackagedReaderTest {
       assertTrue("Refuse to cancel an unrelated foreground window: " + activePackage,
           activePackage.endsWith(".documentsui"));
       assertTrue("System picker cancellation exceeded its navigation bound", presses < 8);
-      instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
+      AccessibilityEvent navigation = instrumentation.getUiAutomation().executeAndWaitForEvent(
+          () -> instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK),
+          event -> event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
+              && event.getPackageName() != null
+              && (activePackage.contentEquals(event.getPackageName())
+                  || targetPackage.contentEquals(event.getPackageName())),
+          5000);
+      navigation.recycle();
       presses++;
     }
     throw new AssertionError("System document picker did not return to the app: " + purpose);
