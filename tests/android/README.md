@@ -247,3 +247,24 @@ cleanup and every existing persistence, decoded-pixel, cancellation and process
 restart assertion remain required. Java/API compilation is not proof that the
 revised picker navigation has passed; the next exact-source emulator run must
 establish that result.
+
+### Persistent font-input accessibility name
+
+Run [39519479119](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39519479119)
+at `9e3f2532a720621d3272547d8990afbc2a07807a` passed both web jobs and built
+both APKs, but stopped in `setFontInput` before launching the font picker. The
+failure hierarchy contains the complete expected font name in an editable
+`android.widget.EditText`. Its content description is empty. The named Host is
+three levels above it, while the editable control's placeholder label disappears
+after entry. The harness correctly refuses to substitute an arbitrary descendant
+or sibling for the named semantic control.
+
+`NativeFontManager` now assigns `semantics({ contentDescription: 'Font name' })`
+directly to the universal TextInput, as the ordinary native Settings font draft
+already does. The installed Android universal implementation forwards modifiers
+to its BasicTextField. The mounted test names the field only through that modifier
+and checks the full fixture text after typing. The original native exact-value,
+picker cancellation, import, cached-byte, selected-face and restart assertions are
+unchanged. A new emulator pass is still required; this failure provides no new
+font-picker or background-picker acceptance. Raw evidence is retained in
+`../evidence/native-export-p7hp3uai/android-9e3f2532.log`.

@@ -27,7 +27,7 @@ const compiled = await build({
         b.onResolve(
           {
             filter:
-              /^(react-native|react-native-safe-area-context|expo-router|@expo\/ui(?:\/jetpack-compose)?)$/
+              /^(react-native|react-native-safe-area-context|expo-router|@expo\/ui(?:\/jetpack-compose(?:\/modifiers)?)?)$/
           },
           (args) => ({ path: args.path, namespace: 'native-test' })
         );
@@ -42,19 +42,21 @@ const compiled = await build({
         b.onLoad({ filter: /.*/, namespace: 'native-test' }, ({ path }) => ({
           loader: 'js',
           contents:
-            path === 'expo-router'
-              ? `export const Link=()=>null;`
-              : path === 'react-native-safe-area-context'
-                ? `export const useSafeAreaInsets=()=>({bottom:0,top:0,left:0,right:0});`
-                : path === 'theme'
-                  ? `export const useUiTheme=()=>({colors:{primary:'#212121',primaryForeground:'#fff',foreground:'#212121',secondary:'#eee',mutedForeground:'#666'}});`
-                  : path === '@expo/ui/jetpack-compose'
-                    ? `import React from 'react';export const Button=({children,onClick,enabled,colors})=>React.createElement('button',{onClick,disabled:!enabled,'data-compose-colors':JSON.stringify(colors)},children);export const OutlinedButton=Button,TextButton=Button;export const Text=({children,color})=>React.createElement('span',{'data-compose-text':color},children);`
-                    : path === 'runtime'
-                      ? `export const useReaderRuntime=()=>globalThis.__fontRuntime;`
-                      : path === '@expo/ui'
-                        ? `import React from 'react'; export const Icon=()=>null; export const Host=({children})=>React.createElement('div',{},children);export const Button=({label,onPress,disabled})=>React.createElement('button',{onClick:onPress,disabled},label); export const TextInput=({value,onChangeText,placeholder,editable})=>React.createElement('input',{'aria-label':placeholder,value:value.value,disabled:editable===false,onInput:e=>onChangeText(e.currentTarget.value),onChange:()=>{}});export const useNativeState=value=>React.useRef({value}).current;`
-                        : `import React from 'react'; export const alerts=[]; export const Alert={alert:(...args)=>alerts.push(args)};export const View=({children})=>React.createElement('div',{},children);export const Text=({children,style})=>React.createElement('span',{style},children);export const ScrollView=View,Modal=View;export const Platform={OS:'android'};export const StyleSheet={create:v=>v,flatten:v=>Array.isArray(v)?Object.assign({},...v.map(x=>StyleSheet.flatten(x))):v};export const Pressable=({children,onPress,disabled,accessibilityLabel,accessibilityState,style,ref})=>React.createElement('button',{ref,onClick:onPress,disabled,'aria-label':accessibilityLabel,'aria-pressed':accessibilityState?.selected,style:StyleSheet.flatten(typeof style==='function'?style({pressed:false}):style)},typeof children==='function'?children({pressed:false}):children);`
+            path === '@expo/ui/jetpack-compose/modifiers'
+              ? `export const semantics=value=>({type:'semantics',...value});`
+              : path === 'expo-router'
+                ? `export const Link=()=>null;`
+                : path === 'react-native-safe-area-context'
+                  ? `export const useSafeAreaInsets=()=>({bottom:0,top:0,left:0,right:0});`
+                  : path === 'theme'
+                    ? `export const useUiTheme=()=>({colors:{primary:'#212121',primaryForeground:'#fff',foreground:'#212121',secondary:'#eee',mutedForeground:'#666'}});`
+                    : path === '@expo/ui/jetpack-compose'
+                      ? `import React from 'react';export const Button=({children,onClick,enabled,colors})=>React.createElement('button',{onClick,disabled:!enabled,'data-compose-colors':JSON.stringify(colors)},children);export const OutlinedButton=Button,TextButton=Button;export const Text=({children,color})=>React.createElement('span',{'data-compose-text':color},children);`
+                      : path === 'runtime'
+                        ? `export const useReaderRuntime=()=>globalThis.__fontRuntime;`
+                        : path === '@expo/ui'
+                          ? `import React from 'react'; export const Icon=()=>null; export const Host=({children})=>React.createElement('div',{},children);export const Button=({label,onPress,disabled})=>React.createElement('button',{onClick:onPress,disabled},label); export const TextInput=({value,onChangeText,placeholder,editable,modifiers})=>React.createElement('input',{'aria-label':modifiers?.find(item=>item.type==='semantics')?.contentDescription,value:value.value,disabled:editable===false,onInput:e=>onChangeText(e.currentTarget.value),onChange:()=>{}});export const useNativeState=value=>React.useRef({value}).current;`
+                          : `import React from 'react'; export const alerts=[]; export const Alert={alert:(...args)=>alerts.push(args)};export const View=({children})=>React.createElement('div',{},children);export const Text=({children,style})=>React.createElement('span',{style},children);export const ScrollView=View,Modal=View;export const Platform={OS:'android'};export const StyleSheet={create:v=>v,flatten:v=>Array.isArray(v)?Object.assign({},...v.map(x=>StyleSheet.flatten(x))):v};export const Pressable=({children,onPress,disabled,accessibilityLabel,accessibilityState,style,ref})=>React.createElement('button',{ref,onClick:onPress,disabled,'aria-label':accessibilityLabel,'aria-pressed':accessibilityState?.selected,style:StyleSheet.flatten(typeof style==='function'?style({pressed:false}):style)},typeof children==='function'?children({pressed:false}):children);`
         }));
       }
     }
@@ -225,7 +227,12 @@ test('shared manager opens the import form explicitly, with a neutral Compose pi
   assert.equal(colors.containerColor, 'transparent');
   assert.equal(colors.contentColor, '#212121');
   assert.equal(colors.disabledContentColor, '#666');
-  await f.input('New font');
+  await f.input('Qualification font 1a11e3d6df1961cc87bc906a9a7ce962');
+  assert.equal(document.querySelector('input').getAttribute('aria-label'), 'Font name');
+  assert.equal(
+    document.querySelector('input').value,
+    'Qualification font 1a11e3d6df1961cc87bc906a9a7ce962'
+  );
   assert.equal(picker.disabled, false);
   assert.equal(f.calls.length, 1, 'opening and typing never saves');
 });

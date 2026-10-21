@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { semantics } from '@expo/ui/jetpack-compose/modifiers';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import { Host, TextInput, useNativeState } from '@expo/ui';
@@ -203,6 +204,7 @@ export function NativeFontManager({
               style={{ width: '100%', minHeight: 48 }}
             >
               <TextInput
+                modifiers={[semantics({ contentDescription: 'Font name' })]}
                 value={name}
                 placeholder="Font name"
                 maxLength={200}
