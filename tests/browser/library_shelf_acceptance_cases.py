@@ -11,6 +11,9 @@ import sys
 import unittest
 
 CASES = (
+    'test_library_sort.LibrarySortBrowser.test_direct_sort_keyboard_order_and_offline_reload_preserve_reading_data',
+    'test_library_sort.LibrarySortBrowser.test_finished_sort_is_separate_and_persists_without_changing_book_sort',
+    'test_library_sort.LibrarySortBrowser.test_direct_sort_reflows_and_all_choices_remain_reachable_at_large_text',
     'test_library_grid_labels.LibraryGridLabels.test_same_cover_books_keep_visible_titles_authors_and_selection_identity',
     'test_library_grid_labels.LibraryGridLabels.test_enlarged_grid_identity_stays_readable_without_horizontal_overflow',
     'test_library_grid_labels.LibraryGridLabels.test_selection_toolbar_stays_compact_and_reachable_at_200_percent_text',
@@ -23,7 +26,7 @@ CASES = (
 )
 
 def validate():
-    assert len(CASES) == len(set(CASES)) == 9
+    assert len(CASES) == len(set(CASES)) == 12
     for case in CASES:
         module, class_name, method = case.split('.')
         tree = ast.parse((Path(__file__).parent / (module + '.py')).read_text())
@@ -39,7 +42,7 @@ if __name__ == '__main__':
     if args.list:
         print(json.dumps(CASES))
     elif args.validate:
-        print('Eight retained Library shelf/editor cases and enlarged-list regression validated')
+        print('Twelve Library shelf/editor and direct-sort cases validated')
     else:
         suite = unittest.defaultTestLoader.loadTestsFromNames(CASES)
         assert suite.countTestCases() == len(CASES)

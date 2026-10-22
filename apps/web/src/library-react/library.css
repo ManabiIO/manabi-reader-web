@@ -36,8 +36,36 @@
 }
 .library-react .library-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   margin-bottom: 1rem;
+}
+.library-react .library-shelf-tools {
+  justify-content: flex-end;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+.library-react .library-shelf-tools .shelf-heading {
+  margin-inline-end: auto;
+}
+.library-react .library-sort-trigger[data-slot='button'] {
+  height: auto;
+  min-height: 44px;
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+  border-radius: 8px;
+}
+.library-react .library-sort-trigger svg {
+  flex-shrink: 0;
+  width: 1.125rem;
+  height: 1.125rem;
+}
+.library-react .library-sort-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .library-react .shelf-heading {
   font-family: var(--font-sans, system-ui);

@@ -9,7 +9,7 @@
     "check": "tsc --noEmit",
     "check:types": "tsc --noEmit",
     "check:watch": "tsc --noEmit --watch",
-    "start": "pnpm prepare:assets && expo start --android",
+    "start": "pnpm prepare:assets && expo start --web",
     "android": "pnpm prepare:assets && expo run:android",
     "export:android": "pnpm prepare:assets && expo export --platform android",
     "prebuild:android": "pnpm prepare:assets && expo prebuild --platform android",

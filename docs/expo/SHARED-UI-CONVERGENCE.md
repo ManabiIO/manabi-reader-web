@@ -1,5 +1,14 @@
 # Shared Android/web UI convergence
 
+**Current priority, October 22, 2026:** web delivery and web UX. Android
+implementation, device qualification and Android-only capability gaps are deferred
+at the user's request. Keep Expo UI, shared feature/domain code and bounded
+platform adapters so future Android work can reuse them; do not expand or qualify
+native flows during this phase. The Android items below are a retained backlog,
+not current web acceptance gates. Native Windows remains removed. Existing web
+functionality, local data safety, keyboard/accessibility and responsive mobile/
+desktop browser layouts remain required.
+
 The target is **one nonreader screen composition, interaction model and branded
 style vocabulary** for Android and web. Android-specific controls and system
 adapters are justified by actual UX or platform capabilities, not by separate
@@ -112,10 +121,11 @@ composition around it. Optional video requires domain/view separation before
 its route is counted as shared. File/auth/storage capability differences are
 explicit ports, not alternate complete pages.
 
-Work remains on the unmerged migration branch. Reuse the existing three-job
-standard-runner [zero-remote-storage CI plan](CI-COVERAGE.md), with no new artifact
-uploads/cache writes or paid resources. A successful export or source test is
-not full UI parity; report evidence for the exact source head.
+Work remains on the unmerged migration branch. Reuse the standard-runner
+[zero-remote-storage CI plan](CI-COVERAGE.md): two web jobs by default and retained
+Android qualification only on explicit manual opt-in. Add no artifact uploads,
+cache writes or paid resources. A successful export or source test is not full UI
+parity; report evidence for the exact source head.
 
 ## Settings field foundation after Statistics qualification
 
@@ -831,3 +841,37 @@ no app persistence or backup changes. A new packaged run must qualify the fix,
 shared sorting and the disconnected-state gate together. Failure and local check
 evidence are retained in `../evidence/shared-library-sort-k7f6hn_v/` and
 `../evidence/picker-navigation-4n7rf8uo/`.
+
+### Direct shelf sorting on web
+
+The Library shelf now exposes the current sort in one menu, with all eight
+properties and both directions visible without nested navigation. The control
+sits beside Books, below Continue when present, and above other shelves/series.
+Finished exposes only its independent newest/oldest order. Selection and search
+hide it; hydration, scanning and pending actions disable it. The original
+Library actions menu reads the same saved preference.
+
+`LibrarySortMenu.web.tsx` owns only the browser trigger and menu/focus behavior.
+`LibrarySortControls` and the canonical inventory remain shared, and the existing
+controller owns persistence. Android sources are unchanged and unqualified in
+this web-focused phase. No store, schema, migration or backup/restore format was
+added. Enlarged text wraps the trigger with a minimum 44px target; the menu
+scrolls while retaining keyboard access to every choice.
+
+Local evidence in `../evidence/web-sort-priority-klpz2vit/` records 47 passing
+CI-policy/common-sort tests, full application types, affected lint and a fresh
+production export plus its actual post-build. Eight distinct actual-app cases
+pass in each of Chromium and WebKit, assembled from the seven unaffected cases
+in each main run and the revised offline case in each focused follow-up.
+Original failed attempts are retained. Visual checks cover desktop/phone,
+light/dark and 320px with 200% text; an initial Continue-to-Books spacing defect
+was fixed without weakening the original geometry assertions.
+
+Playwright WebKit rejects service-worker navigation while its simulated-offline
+flag is set (the existing sync suite documents the same engine limitation).
+The revised test uses one sequence in both engines: change the real control
+while the browser reports offline, then stop a dedicated origin server, verify
+its TCP listener refuses connections and require the reload response to come
+from the installed service worker. The saved choice, actual book ordering and
+bookmark/statistics records must survive. This proves offline editing and
+cached reopening with the origin unavailable, not an OS-level network outage.

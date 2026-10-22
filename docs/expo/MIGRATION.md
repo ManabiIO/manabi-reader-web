@@ -1,5 +1,14 @@
 # Expo Android + web migration (draft)
 
+**Current priority, October 22, 2026:** web delivery and web UX. Android
+implementation, device qualification and Android-only capability gaps are deferred
+at the user's request. Keep Expo UI, shared feature/domain code and bounded
+platform adapters so future Android work can reuse them; do not expand or qualify
+native flows during this phase. The Android items below are a retained backlog,
+not current web acceptance gates. Native Windows remains removed. Existing web
+functionality, local data safety, keyboard/accessibility and responsive mobile/
+desktop browser layouts remain required.
+
 This branch is one deliberately large, **unmerged draft PR**. It replaces active Svelte UI and orchestration with React and an Expo Android/web shell. It is not a claim of release readiness or established 1:1 parity.
 
 ## Platform boundary

@@ -1,4 +1,4 @@
-name: Expo Android and web migration
+name: Expo web qualification
 # Public-repository, stock-runner qualification only. No remote artifacts or caches.
 # Pull requests already run on synchronize; do not add a duplicate push trigger.
 # The historically named SDK branch now contains only web/Android; admit it
@@ -18,6 +18,11 @@ on:
       - '.github/workflows/**'
   workflow_dispatch:
     inputs:
+      qualify_android:
+        description: Explicitly resume the deferred Android build and device qualification
+        required: false
+        type: boolean
+        default: false
       qualification_scope:
         description: Affected shared UI slice or the complete final web parity gate
         required: true
@@ -106,13 +111,13 @@ jobs:
         if: success() || failure()
         run: pnpm test:expo
       - name: Select the Android harness Java toolchain
-        if: success() || failure()
+        if: ${{ inputs.qualify_android == true && (success() || failure()) }}
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
       - name: Android instrumentation harness contracts
-        if: success() || failure()
+        if: ${{ inputs.qualify_android == true && (success() || failure()) }}
         run: node --test tests/android/harness.test.mjs
       - name: Existing reader regressions
         if: success() || failure()
@@ -455,7 +460,9 @@ jobs:
   android:
     name: Android export, APK assets and synthetic packaged-host runtime
     # Missing/private visibility fails closed; no runner is allocated.
+    # Paused by product scope. Allocate no Android runner unless explicitly requested.
     if: >-
+      github.event_name == 'workflow_dispatch' && inputs.qualify_android == true &&
       github.event.repository.visibility == 'public' &&
       toJSON(github.event.repository.private) == 'false' &&
       github.repository == 'ManabiIO/manabi-reader-web' &&

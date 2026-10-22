@@ -47,3 +47,11 @@ function Choices({
   );
 }
 export const sortLayout: LibrarySortLayout = { Choices, Separator: Menu.Separator };
+
+/** A direct shelf menu has room for the full inventory, without another submenu. */
+export const directSortLayout: LibrarySortLayout = {
+  Choices: ({ options, moreOptions, ...props }) => (
+    <Choices {...props} options={[...options, ...(moreOptions ?? [])]} showHeading />
+  ),
+  Separator: Menu.Separator
+};

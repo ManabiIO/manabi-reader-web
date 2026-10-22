@@ -1,5 +1,14 @@
 # Android/web fidelity matrix
 
+**Current priority, October 22, 2026:** web delivery and web UX. Android
+implementation, device qualification and Android-only capability gaps are deferred
+at the user's request. Keep Expo UI, shared feature/domain code and bounded
+platform adapters so future Android work can reuse them; do not expand or qualify
+native flows during this phase. The Android items below are a retained backlog,
+not current web acceptance gates. Native Windows remains removed. Existing web
+functionality, local data safety, keyboard/accessibility and responsive mobile/
+desktop browser layouts remain required.
+
 ## What counts as fidelity
 
 The reference is the released Svelte source at
@@ -85,9 +94,10 @@ browser layout or Android Compose behavior.
 
 Local combined suites have also encountered stopped esbuild services before
 application assertions. Those runs remain failed/unqualified, even where the
-same cases pass in isolation. Exact-head CI, actual browser geometry and actual
-packaged-host execution remain required evidence. The three-job policy and
-explicit **affected versus full** scopes are recorded in [CI-COVERAGE.md](CI-COVERAGE.md).
+same cases pass in isolation. Exact-head CI and actual browser geometry remain
+required evidence for web. Packaged-host execution is deferred with Android.
+The two default web jobs, opt-in Android policy and explicit **affected versus full**
+web scopes are recorded in [CI-COVERAGE.md](CI-COVERAGE.md).
 No affected-only pass replaces the full final web parity gate.
 
 ## SDK 58 component policy and research gates

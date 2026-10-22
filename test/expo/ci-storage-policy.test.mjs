@@ -64,13 +64,15 @@ function context({
   };
 }
 
-function admits(expression, github) {
+function admits(expression, github, inputs = {}) {
   // The checked-in job guards intentionally use only boolean operators, exact
   // string equality and toJSON. Execute that expression, not a duplicated rule.
   assert.equal(typeof expression, 'string');
   assert.doesNotMatch(expression, /\$\{\{|\b(?:success|failure|always|cancelled)\(/);
-  return compileFunction(`return Boolean(${expression});`, ['github', 'toJSON'])(github, (value) =>
-    JSON.stringify(value ?? null)
+  return compileFunction(`return Boolean(${expression});`, ['github', 'toJSON', 'inputs'])(
+    github,
+    (value) => JSON.stringify(value ?? null),
+    inputs
   );
 }
 
@@ -172,7 +174,18 @@ for (const [name, fixture, migrationExpected, legacyExpected] of cases) {
     if (Object.hasOwn(fixture, 'privateValue') && fixture.privateValue === undefined)
       delete github.event.repository.private;
     for (const [job, definition] of Object.entries(migration.jobs)) {
-      assert.equal(admits(definition.if, github), migrationExpected, `migration/${job}`);
+      assert.equal(
+        admits(definition.if, github),
+        job === 'android' ? false : migrationExpected,
+        `migration/${job}`
+      );
+      assert.equal(
+        admits(definition.if, github, { qualify_android: true }),
+        job === 'android'
+          ? migrationExpected && github.event_name === 'workflow_dispatch'
+          : migrationExpected,
+        `migration/${job} with explicit Android request`
+      );
     }
     for (const [file, workflow] of Object.entries(workflows)) {
       if (file === 'expo-migration.yml' || Object.hasOwn(untouched, file)) continue;
@@ -195,6 +208,28 @@ test('only three stock, read-only jobs; no duplicate push or matrix allocation',
     assert.equal(job['continue-on-error'], undefined);
     for (const step of job.steps) assert.equal(step['continue-on-error'], undefined);
   }
+});
+
+test('Android is deferred by default, and opt-in cannot bypass repository admission', () => {
+  const input = migration.on.workflow_dispatch.inputs.qualify_android;
+  assert.equal(input.type, 'boolean');
+  assert.equal(input.default, false);
+  assert.equal(input.required, false);
+  for (const value of [undefined, false, 'false', 'true'])
+    assert.equal(
+      admits(migration.jobs.android.if, context({ event: 'workflow_dispatch' }), {
+        qualify_android: value
+      }),
+      false
+    );
+  for (const name of [
+    'Select the Android harness Java toolchain',
+    'Android instrumentation harness contracts'
+  ])
+    assert.equal(
+      migration.jobs.regression.steps.find((step) => step.name === name).if,
+      '${{ inputs.qualify_android == true && (success() || failure()) }}'
+    );
 });
 
 test('affected qualification is explicit and the complete final gate remains selectable', () => {
@@ -594,7 +629,7 @@ test('both production exports retain the same exact shared Library shelf/editor 
   );
   assert.equal(result.status, 0, result.stderr);
   const cases = JSON.parse(result.stdout);
-  assert.equal(cases.length, 9);
+  assert.equal(cases.length, 12);
   assert.ok(
     cases.some((value) =>
       value.endsWith('test_enlarged_list_keeps_titles_readable_and_actions_separate')
