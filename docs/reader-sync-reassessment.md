@@ -1,24 +1,182 @@
 # Reader integration reassessment
 
-## Scope decision
+## Current scope: continuous Google Drive compatibility
 
-Do not add automatic reuse of existing TTU cloud libraries or broaden Google /
-Microsoft scopes for that purpose. TTU compatibility is a one-time migration
-proposal, separate from the ordinary Manabi cloud/local storage path. This change
-does not alter naming or remove existing compatibility features/data.
+Decision updated 2026-10-22. The user's request for continuous ッツ (Ttsu) and
+ideally Yatsu synchronization supersedes the earlier one-time-migration-only
+scope. Google Drive is the first and only transport in this phase. Web is active;
+Android is paused, Windows is deferred, and Apple clients are separate products.
+Import/export stays available and independent of connection setup.
 
-Proposed migration: export a library backup in TTU, then choose **Import from TTU**
-in Manabi. Accept the exported ZIP first; an optional locally selected downloaded
-TTU folder can use the same read-only importer. Preview supported books, bookmarks,
-and day statistics. Reuse the bounded archive reader, sanitize imported content,
-remap browser-local IDs, and retain the decoded book package instead of claiming
-to reconstruct its original EPUB. Select a Manabi destination after import. Do
-not import cloud credentials or copy TTU source bindings. Keep a migration receipt
-keyed by a canonical source-book/content digest so repeating an import is a no-op,
-not another statistics contribution. Different content with the same title must
-be a separate book or an explicit conflict, not an overwrite. Preserve the source
-and give a per-book completion/error summary. Native and Web should consume the
-same migrated representation; this is not a promise of continuing TTU sync.
+This is an integration design and executable reconciliation contract, **not a
+released continuous-sync service**. `reader-bridge-plan.ts` has no production
+caller, persistence, network access, OAuth credentials, scheduler, or live write
+adapter. Existing TTU-shaped Drive handlers and shared-folder auto import/export
+are not evidence that the proposed safety requirements are already implemented.
+
+### Public Hoshi reference, without implementation source
+
+Reviewed only Hoshi's [user guide][hoshi-guide], its linked screenshots and
+[privacy policy][hoshi-privacy]. No Hoshi implementation, diffs, repository clone,
+or decompiled app was consulted.
+
+The guide puts separate platform OAuth clients in one user-created Google Cloud
+project, using `drive.file`. Its screenshots expose connection status, automatic
+sync, direction, statistics and audiobook options. It describes periodic sync and
+lifecycle triggers, plus manual per-book sync. This establishes a user workflow;
+it does not establish atomic writes, conflict recovery or lossless statistics
+merging. The same-project requirement is the important compatibility finding.
+
+### Drive access and sign-in
+
+Prefer the existing same-origin backend's authorization-code flow, encrypted
+server-side refresh-token storage, one-use state, account checks and disconnect
+handling. Do not copy credentials from another reader or include client secrets
+in frontend configuration. Google's OAuth "offline access" permits refreshing
+credentials while the user is absent; cloud transfers still require a network.
+
+A Manabi OAuth client does not automatically see another app's `drive.file`
+library, even for the same Google account. Google's [scope documentation][scopes]
+describes app-created or explicitly authorized files. Test Google Picker access
+to actual independently created books, existing child files, and newly created
+children; selecting a folder must not be treated as recursive authorization.
+Manabi's existing [appDataFolder][appdata] storage is private to its app and cannot
+serve as the interchange directory.
+
+There are two access paths to qualify before selecting a default:
+
+- A Manabi-managed connection with explicit file authorization, if it can support
+  the necessary continuing access to the selected library.
+- An advanced, user-owned shared Google Cloud project, with a separately
+  configured Manabi backend client in that project. Hoshi's documented setup is a
+  reference for this path. This needs an explicit credential-management design;
+  it is not a hidden fallback to browser-stored client secrets.
+
+If narrow authorization cannot cover existing and future files, show that precise
+limitation. Do not silently request full-Drive scopes, label inaccessible files
+as deleted, or create a second empty library under the same title. Broader scopes
+and Google verification would require a separate product/security decision.
+[Yatsu's built-in connection][yatsu-drive] uses a separate default library; its
+custom TTU-compatible connection is the interoperability candidate. An observed
+Yatsu v11 backup does not qualify its current cloud writer.
+
+### Connection and reading experience
+
+Connect Google Drive, preview an explicitly chosen root, identify supported books,
+and let the reader select which books and data to link. Show existing local and
+remote progress before resolving first-connection differences. No implicit upload
+of the entire local library and no second live database used while reading.
+
+Save locally first. Schedule bounded, coalesced sync after committed changes,
+when the app regains focus/connectivity, periodically while active, and when
+leaving a book. Persist pending intent before an exit-triggered network attempt;
+page dismissal is not a reliable opportunity to finish an upload. Reading must
+open from local data without waiting for Drive. Offer an available incoming
+position without jumping an active reader unexpectedly. A web tab cannot promise
+continuous execution after it closes. A later server worker could process only
+intent already delivered to it.
+
+Use the existing inline connection detail control, with per-connection last
+verified sync and pending changes in Accounts and libraries. Distinguish
+"Saved on this device", "Waiting for connection", "Syncing", "Reconnect Google
+Drive" and "Review changes". Online does not mean synced. Keep routine updates
+quiet; do not introduce repeated toasts or alarming offline banners.
+
+### Identity, format and reconciliation contract
+
+Keep Drive transport separate from versioned TTU/Yatsu adapters. Bind every book
+to account, connection generation, selected root ID and stable provider file IDs,
+plus the existing fingerprint of decoded book content and media. Neither titles,
+ZIP bytes, timestamps nor browser-local IDs prove book identity. Refuse ambiguous
+duplicate files and unknown format versions. Use bounded decoding and existing
+content sanitization. Preserve unknown fields and additive sidecars without
+rewriting them; reject outgoing serialization if lossless preservation cannot be
+proved. Original book packages are immutable during routine progress sync.
+
+The initial normalized projection covers resume position and complete daily
+statistics rows. Notes, highlights, audiovisual progress and settings need their
+own demonstrated mappings before continuous writes; import/export support alone
+is insufficient. Do not claim whole-app parity.
+
+`planReaderBridge()` compares current local/remote semantic digests against a
+previously agreed baseline:
+
+- Equal values can be acknowledged against the observed revisions. Planning is
+  not itself a durable acknowledgement.
+- A change on only one side can transfer; resume positions may move backwards.
+- Distinct daily rows can transfer independently. Two edits to the same day's
+  cumulative total require review. Never add totals or choose their maximum.
+- Initial differences and concurrent edits pause the whole book. Keep both
+  recoverable values. An accepted decision creates a new guarded operation.
+- Missing files or rows are not deletion instructions. Preserve local data and
+  the last agreed baseline; never propagate deletion automatically.
+- Receive-only keeps unsent local changes pending. Baselines must remain agreed,
+  rather than recording divergent values as though synchronized.
+- Account changes, reconnect generations, changed content, unstable reads and
+  unknown write outcomes pause application and outbound work.
+
+A transport must download a stable set of related files and revalidate the full
+observation. One Drive revision is not an atomic revision across several files.
+Use a paginated [Drive changes feed][changes] for discovery, with durable tokens,
+bounded retries and a full rediscovery when a token expires. A feed or push
+notification is a hint to inspect the selected files, not a trusted data payload.
+
+### Writes, failures and recovery
+
+Before the first outbound write, durably record the base revisions, intended
+semantic values, original remote bytes and operation identity. A local journal
+must survive reload, offline interruption and tab races. Coordinate our own tabs
+and devices, but never assume an advisory lease is honored by other readers.
+
+Qualification must demonstrate conditional replacement on the **exact Drive
+upload endpoint**, recovery-copy retention, readback verification, interrupted
+upload handling and retry behavior. A version number or read-then-write check
+alone is not compare-and-swap. The planner's `conditional-recoverable` capability
+is an adapter qualification requirement, not a feature supplied by that string.
+If atomic replacement cannot be demonstrated, keep automatic outgoing work paused
+and provide an explicitly reviewed recovery/import/export path.
+
+On an uncertain result, inspect the remote operation outcome before retrying. Do
+not acknowledge a newer local edit as uploaded merely because an older upload
+succeeded. Apply local data and acknowledge only the accepted projection in one
+transaction, rechecking local revision and connection generation. Multi-file
+writes need journaled stages and partial-completion recovery; Drive does not
+provide a transaction over the reader's whole book directory.
+
+The reviewed [TTU Drive handler][ttu-drive] can replace files without a shared
+conflict protocol. Even if our own operation is conditional, another reader may
+later overwrite it. Preserve recoverable history and surface detected divergence;
+do not promise that all participating apps provide conflict-safe synchronization.
+
+### Backup and restore
+
+No persisted schema changes in this planner-only increment. When the journal and
+connection records are implemented, backup/restore is part of that change: retain
+local content, pending intent, accepted baselines, unresolved versions and
+recovery evidence. Exclude access/refresh tokens, client secrets and live grants.
+Restored connections start paused and require reconnection and a fresh preview
+before any remote write. Restoring data must not replay historical uploads or
+silently bind to a different Google account, folder or same-title book.
+
+### Release evidence still required
+
+Use two real app clients and a disposable, explicitly authorized Drive library to
+qualify cross-project and same-project access, new files, pagination, duplicate
+names, renames/moves, revocation, account switching, reconnects and token expiry.
+Exercise offline simultaneous edits, same-day totals, readback mismatches, lost
+responses, multi-file interruptions, late local edits and restored backups. Verify
+both import and export with actual TTU/Yatsu app UI. Provider fakes remain useful
+for deterministic fault injection, but cannot prove scopes or Drive write
+preconditions. No production credentials, scopes or user libraries were changed
+as part of this research.
+
+[hoshi-guide]: https://github.com/Manhhao/Hoshi-Reader/blob/main/TTUSYNC.md
+[hoshi-privacy]: https://github.com/Manhhao/Hoshi-Reader/blob/main/PRIVACY.md
+[yatsu-drive]: https://docs.yatsu.moe/google-drive-sync/
+[scopes]: https://developers.google.com/workspace/drive/api/guides/api-specific-auth
+[appdata]: https://developers.google.com/workspace/drive/api/guides/appdata
+[changes]: https://developers.google.com/workspace/drive/api/guides/manage-changes
+[ttu-drive]: https://github.com/ttu-ttu/ebook-reader/blob/e7ec1d2680b5121b97102753d14a7a49a9003761/apps/web/src/lib/data/storage/handler/gdrive-handler.ts
 
 ## Confirmed defects and fixes
 
