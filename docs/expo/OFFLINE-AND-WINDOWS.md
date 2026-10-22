@@ -34,9 +34,15 @@ identity stable so existing browser data remains accessible.
 
 ## Connection and storage language
 
-The neutral “Offline · On this device” control appears only when the device
-reports offline. Its explanation distinguishes downloaded books, locally stored
-progress, linked-library sync and backups. Reconnection clears the status, never
+Web uses one neutral “Offline” control inside the current screen's toolbar,
+next to the Library title or the screen actions. It never floats over reading
+content. A linked-library issue uses “Review sync” in the same location; when
+both conditions apply, “Offline” opens details containing the sync review link.
+The link retires on Accounts and libraries, where the actual recovery controls
+are already present. The paused Android presentation remains unchanged.
+
+The explanation distinguishes downloaded books, locally stored
+progress, linked-library sync and backups. Reconnection clears the offline status, never
 claims sync succeeded, and does not dismiss an explanation the person is reading.
 On web, focus returns to the trigger before it retires when focus moves away.
 
@@ -55,6 +61,14 @@ handling. No persistent schema, import/export format or backup content changed.
 This follows [web.dev's offline UX guidance](https://web.dev/articles/offline-ux-design-guidelines):
 explain what remains usable and where work is stored, without treating ordinary
 disconnection as an error or equating a local save with remote success.
+
+The web placement draws from [Todoist's toolbar status](https://www.todoist.com/help/todoist/features/use-todoist-while-offline-4rbaZw)
+(current help, September 2026), [Google Docs' title-adjacent save status](https://workspaceupdates.googleblog.com/2020/06/new-save-status-online-offline-google-docs.html)
+(2020 behavioral reference), and [Material's offline patterns](https://m1.material.io/patterns/offline-states.html)
+(archived guidance, not current Material styling). Use these for placement and
+progressive disclosure, not for claims about this app's persistence guarantees.
+The shared explanation/control keeps the native leaf boundary and adds no
+persistent preference or backup payload.
 
 ## Layout and list direction
 

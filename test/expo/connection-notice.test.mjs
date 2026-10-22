@@ -76,12 +76,12 @@ await build({
   ]
 });
 const { ConnectionNotice } = require(outfile);
-function mount(online) {
+function mount(online, props = {}) {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
   const render = (value) =>
-    act(() => root.render(React.createElement(ConnectionNotice, { online: value })));
+    act(() => root.render(React.createElement(ConnectionNotice, { online: value, ...props })));
   render(online);
   return {
     container,
@@ -150,6 +150,31 @@ test('reconnecting keeps the explanation open and returns focus before retiring 
     act(() => next.focus());
     assert.equal(f.container.textContent, '');
     next.remove();
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('inline status combines offline and sync attention behind one control', () => {
+  const f = mount(false, {
+    inline: true,
+    syncAction: React.createElement('a', { href: '/connections' }, 'Review accounts and libraries')
+  });
+  try {
+    const trigger = f.container.querySelector('[aria-haspopup="dialog"]');
+    assert.equal(f.container.textContent, 'Offline');
+    assert.equal(f.container.querySelectorAll('[role=button]').length, 1);
+    assert.equal(f.container.querySelector('a'), null);
+    act(() => trigger.click());
+    assert.match(
+      document.querySelector('dialog[open]').textContent,
+      /Reading sync needs attention/
+    );
+    assert.equal(document.querySelector('dialog[open] a').getAttribute('href'), '/connections');
+    f.render(true);
+    assert.match(document.querySelector('dialog[open]').textContent, /Your device is connected/);
+    act(() => document.querySelector('[aria-label="Close connection details"]').click());
+    assert.equal(f.container.textContent, 'Review sync');
   } finally {
     f.cleanup();
   }

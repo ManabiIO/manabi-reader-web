@@ -1,21 +1,74 @@
 /** @license BSD-3-Clause */
-.connection-notice-dock,
+.connection-status,
 [data-testid='connection-details-dialog'] {
   writing-mode: horizontal-tb;
   direction: ltr;
 }
-.connection-notice-dock {
-  position: fixed;
-  right: max(1rem, env(safe-area-inset-right));
-  bottom: calc(4.5rem + env(safe-area-inset-bottom));
-  max-width: min(22rem, calc(100vw - 2rem));
-  z-index: 30;
+.connection-status {
+  display: inline-flex;
+  min-width: 0;
+  flex-shrink: 0;
 }
-.connection-notice-dock[data-sync-attention] {
-  bottom: calc(10rem + env(safe-area-inset-bottom));
+.connection-status:empty {
+  display: none;
+}
+.connection-status [data-connection-status] {
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.connection-status [data-connection-status]:hover {
+  background: var(--secondary) !important;
+}
+.connection-status [data-connection-status] > div {
+  color: inherit;
+  font-size: 0.8125rem !important;
+}
+:root .react-reader-header .reader-toolbar [data-connection-status] {
+  width: auto;
+  height: auto;
+  padding: 10px 8px;
+}
+.connection-review-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.library-title-status {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  column-gap: 8px;
+}
+.app-navigation:has(.connection-status:not(:empty)) {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.react-settings-settings-header .settings-header:has(.connection-status:not(:empty)) {
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+}
+/* On narrow readers, status follows the toolbar actions in normal layout. */
+.react-reader-header .reader-toolbar:has(.connection-status:not(:empty)) {
+  flex-wrap: wrap;
+}
+@media (max-width: 639px) {
+  .react-settings-settings-header .settings-header:has(.connection-status:not(:empty)) {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+  .react-settings-settings-header .settings-navigation:has(.connection-status:not(:empty)) {
+    grid-column: 1 / -1;
+  }
+  .react-reader-header .reader-toolbar > .connection-status:not(:empty) {
+    order: 1;
+    flex-basis: 100%;
+    justify-content: center;
+  }
 }
 @media print {
-  .connection-notice-dock {
+  .connection-status {
     display: none;
   }
 }

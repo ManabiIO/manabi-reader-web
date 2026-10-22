@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Platform, View } from 'react-native';
 import { ActionButton } from './ActionButton';
 import { Dialog } from './ModalSurface';
@@ -12,34 +12,58 @@ import { UiText } from './Typography';
 import { useUiTheme } from './theme';
 
 /** Shared web/Android presentation. No persistent flags or second storage owner. */
-export function ConnectionNotice({ online }: { online: boolean | undefined }) {
+export function ConnectionNotice({
+  online,
+  inline = false,
+  syncAction,
+  statusIcon
+}: {
+  online: boolean | undefined;
+  inline?: boolean;
+  syncAction?: ReactNode;
+  statusIcon?: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const [returningFocus, setReturningFocus] = useState(false);
   const { colors } = useUiTheme();
   // Retain an open explanation and its focus-return target through reconnection.
-  if (online !== false && !open && !returningFocus) return null;
+  if (online !== false && !syncAction && !open && !returningFocus) return null;
   return (
     <>
       <ActionButton
         variant="ghost"
         shape="rounded"
-        accessibilityLabel={online === false ? 'Offline. Connection details' : 'Connection details'}
+        accessibilityLabel={
+          online === false
+            ? 'Offline. Connection details'
+            : syncAction
+              ? 'Review sync. Connection details'
+              : 'Connection details'
+        }
+        dataSet={inline ? { 'connection-status': '' } : undefined}
         aria-haspopup="dialog"
         aria-expanded={open}
         onPress={() => setOpen(true)}
         onBlur={() => setReturningFocus(false)}
         style={{
           minHeight: 44,
-          paddingHorizontal: 14,
+          paddingHorizontal: inline ? 8 : 14,
           paddingVertical: 10,
-          borderWidth: 1,
+          borderWidth: inline ? 0 : 1,
           borderColor: colors.border,
-          backgroundColor: colors.card,
-          borderRadius: 12
+          backgroundColor: inline ? 'transparent' : colors.card,
+          borderRadius: inline ? 8 : 12
         }}
       >
+        {statusIcon}
         <UiText role="status" accessibilityLiveRegion="polite" style={{ fontSize: 14 }}>
-          {online === false ? 'Offline · On this device' : 'Connection details'}
+          {online === false
+            ? inline
+              ? 'Offline'
+              : 'Offline · On this device'
+            : syncAction
+              ? 'Review sync'
+              : 'Connection details'}
         </UiText>
       </ActionButton>
       <Dialog
@@ -69,6 +93,12 @@ export function ConnectionNotice({ online }: { online: boolean | undefined }) {
             being online doesn’t mean everything has synced. Books without a linked library stay on
             this device.
           </UiText>
+          {syncAction && (
+            <View style={{ gap: 8 }}>
+              <UiText>Reading sync needs attention. You can keep reading on this device.</UiText>
+              {syncAction}
+            </View>
+          )}
           <UiText style={{ fontSize: 14, color: colors.mutedForeground }}>
             Keep a backup of important reading data before clearing app or site data, or moving to
             another device.

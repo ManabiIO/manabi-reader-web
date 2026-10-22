@@ -44,11 +44,16 @@ import { DialogHost } from '../ui/dialogs';
 import { bundledFontCSS } from './font-assets';
 import { embeddedFontStyleSheet } from './embedded-fonts';
 import { SnippetCapture } from '../snippets-react';
-import { ConnectionNotice } from '../shared-ui/ConnectionNotice';
 import { observeBrowserConnectivity } from './browser-connectivity';
 import './connection-notice.css';
 
-export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
+export function BrowserRuntime({
+  embedded = false,
+  routePath
+}: {
+  embedded?: boolean;
+  routePath?: string;
+}) {
   const appearance = useStore(appearance$);
   const mode = useStore(resolvedMode$);
   const theme = useStore(theme$);
@@ -61,7 +66,6 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
   useEffect(retireImportBootstrapOutsideRoute, [location.url.pathname]);
   const personal = useStore(personalSyncStatus);
   const books = useStore(bookSyncStatus);
-  const online = useStore(isOnline$);
   useEffect(() => {
     const stopConnectivity = observeBrowserConnectivity((value) => isOnline$.next(value), {
       window,
@@ -167,7 +171,8 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
     style.textContent = css;
     return undefined;
   }, [fonts, embedded]);
-  const path = location.url.pathname.slice(base.length).replace(/\/$/, '');
+  // The web shell supplies Expo's committed path; embedded hosts retain their explicit route bridge.
+  const path = (routePath ?? location.url.pathname.slice(base.length)).replace(/\/$/, '');
   const target = path === '/manage' ? 'library' : path === '/b' ? 'reader' : undefined;
   const background = target ? sets[target]?.[mode] : undefined;
   const options = target === 'reader' ? readerOptions : libraryOptions;
@@ -192,7 +197,7 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
           aria-hidden="true"
         />
       )}
-      {attention && path !== '/connections' && (
+      {embedded && attention && path !== '/connections' && (
         <aside
           role="status"
           className="fixed right-4 bottom-14 z-30 max-w-sm rounded-lg border bg-card p-3"
@@ -201,11 +206,6 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
             Reading sync needs attention. Your local reading data is safe.
           </a>
         </aside>
-      )}
-      {!embedded && (
-        <div className="connection-notice-dock" data-sync-attention={attention || undefined}>
-          <ConnectionNotice online={online} />
-        </div>
       )}
       <SnippetCapture />
       <DialogHost />

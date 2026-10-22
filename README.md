@@ -15,10 +15,10 @@ The site builds into `apps/web/build/docs/` after the web app build. The backend
 
 Manabi Reader for Web began as a fork of [ッツ Ebook Reader](https://github.com/ttu-ttu/ebook-reader). Its [original README](docs/ttu-upstream-readme.md) is retained for attribution and historical reference. See the guide's [Credits](site-docs/credits.md), [BSD 3-Clause](LICENSE), and [third-party UI licenses](THIRD_PARTY_UI_LICENSES.md).
 
-## Expo Android and web draft
+## Expo web draft
 
-The migration branch uses Expo SDK 58 and React Native 0.88 for Android and web. Native Windows is deferred until Expo UI supports it; desktop browsers remain supported. The native Apple apps remain separate; this project has no iOS or macOS target. See [architecture, verification and open parity gates](docs/expo/MIGRATION.md) before treating this draft as a release candidate.
+Web is the active delivery target. The migration branch uses Expo SDK 58 and React Native 0.88, retaining Expo UI, shared feature code and platform adapters so Android can be resumed later. Android implementation and device qualification are paused. Native Windows is deferred until Expo UI supports it; desktop browsers remain supported. The native Apple apps remain separate; this project has no iOS or macOS target. See [architecture, verification and open parity gates](docs/expo/MIGRATION.md) before treating this draft as a release candidate.
 
-Use Node 24.21.x and pnpm 12.3.4. `pnpm dev` starts web; `pnpm build` exports the existing `/reader-web` static deployment; `pnpm android` prepares/runs Android. `pnpm export:android` verifies the native/DOM bundle without deploying. `pnpm test:reader`, `pnpm test:whispersync`, and `pnpm test:expo` retain the core regression workflows.
+Use Node 24.21.x and pnpm 12.3.4. `pnpm dev` starts web; `pnpm build` exports the existing `/reader-web` static deployment. `pnpm test:reader`, `pnpm test:whispersync`, and `pnpm test:expo` retain the core regression workflows. Android commands remain available for future development, but are outside the current web acceptance requirements.
 
-The draft CI performs builds and tests only. It does not merge, deploy, enable EAS Update, or modify another repository.
+The draft CI runs two web jobs by default. Android build and device qualification require explicit manual opt-in. CI performs builds and tests only; it does not merge, deploy, enable EAS Update, or modify another repository.

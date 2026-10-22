@@ -11,6 +11,7 @@ import sys
 import unittest
 
 CASES = (
+    'test_library_notices.LibraryNoticesBrowser.test_offline_and_sync_notices_reflow_without_hiding_text_or_actions',
     'test_library_sort.LibrarySortBrowser.test_direct_sort_keyboard_order_and_offline_reload_preserve_reading_data',
     'test_library_sort.LibrarySortBrowser.test_finished_sort_is_separate_and_persists_without_changing_book_sort',
     'test_library_sort.LibrarySortBrowser.test_direct_sort_reflows_and_all_choices_remain_reachable_at_large_text',
@@ -26,7 +27,7 @@ CASES = (
 )
 
 def validate():
-    assert len(CASES) == len(set(CASES)) == 12
+    assert len(CASES) == len(set(CASES)) == 13
     for case in CASES:
         module, class_name, method = case.split('.')
         tree = ast.parse((Path(__file__).parent / (module + '.py')).read_text())
@@ -42,7 +43,7 @@ if __name__ == '__main__':
     if args.list:
         print(json.dumps(CASES))
     elif args.validate:
-        print('Twelve Library shelf/editor and direct-sort cases validated')
+        print('Thirteen Library shelf/editor, direct-sort and notice cases validated')
     else:
         suite = unittest.defaultTestLoader.loadTestsFromNames(CASES)
         assert suite.countTestCases() == len(CASES)

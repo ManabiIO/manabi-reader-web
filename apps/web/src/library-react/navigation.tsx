@@ -24,6 +24,7 @@ import { useStore } from '$runtime/use-store';
 import { USER_GUIDE_URL } from '$lib/components/navigation/docs-link';
 import { contextualDestinations } from '../shared-ui/navigation-context';
 import './navigation.css';
+import { ConnectionStatus } from '../runtime/ConnectionStatus';
 export function ActionMenu({
   label,
   title,
@@ -144,6 +145,7 @@ export function AppNav({
     <div
       className={['app-navigation', compact && 'app-navigation-compact'].filter(Boolean).join(' ')}
     >
+      <ConnectionStatus />
       <Menu.Root>
         <Menu.Trigger
           child={({ props }: { props: Record<string, any> }) => (

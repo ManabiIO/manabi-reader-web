@@ -46,6 +46,7 @@ import {
   UserCircle
 } from '@phosphor-icons/react';
 import { AppNav, ActionMenu } from './navigation';
+import { ConnectionStatus } from '../runtime/ConnectionStatus';
 import { LibrarySelectionToolbar } from '../features/library/LibrarySelectionToolbar';
 import { selectionLayout } from '../features/library/selection-layout.web';
 import { LibrarySortControls } from '../features/library/LibrarySortControls';
@@ -123,6 +124,12 @@ export function HeaderView({
               .filter(Boolean)
               .join(' ')}
           >
+            {c.compactLibrary &&
+              (c.selectMode || c.searchExpanded || !!c.libraryMenu?.search.query) && (
+                <div className="library-header-inner">
+                  <ConnectionStatus />
+                </div>
+              )}
             <div
               className={[
                 c.selectMode && c.compactLibrary ? 'hidden' : '',
@@ -189,7 +196,7 @@ export function HeaderView({
                 </>
               ) : (
                 <>
-                  <div className={['flex min-w-0 items-center gap-2'].filter(Boolean).join(' ')}>
+                  <div className="library-title-status">
                     {c.libraryMenu?.canGoBack ? (
                       <>
                         <Button
@@ -229,6 +236,7 @@ export function HeaderView({
                         </h1>
                       </>
                     )}
+                    <ConnectionStatus />
                   </div>
                   <div
                     className={['library-toolbar-actions flex shrink-0 items-center gap-1.5']
