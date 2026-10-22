@@ -36,6 +36,7 @@ import {
 import buildDummyBookImage from '$lib/functions/file-loaders/utils/build-dummy-book-image';
 import { exclusive } from './persistence';
 import { localProfileUser } from './client';
+import { identifyReaderBook } from './reader-book-identity';
 import { yatsuRows, prepareYatsuEntries, annotationContent, type YatsuPart } from './yatsu-import';
 import { parseYatsuSettings } from './yatsu-settings-format';
 import { importYatsuSettings } from './yatsu-settings';
@@ -114,13 +115,6 @@ function receipt(book: MigratedBook): Receipt | undefined {
     typeof value.records === 'object'
     ? value
     : undefined;
-}
-async function hash(value: Blob | string): Promise<string> {
-  const bytes =
-    typeof value === 'string' ? new TextEncoder().encode(value) : await value.arrayBuffer();
-  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (v) =>
-    v.toString(16).padStart(2, '0')
-  ).join('');
 }
 function imageMime(name: string): string {
   const extension = name.split('.').pop()?.toLowerCase() ?? '';
@@ -372,30 +366,9 @@ export class TtuMigration {
       });
       if (!data || data.title !== item.title)
         throw new Error('Book Data and its folder title disagree.');
-      const media: [string, string][] = [];
-      for (const name of Object.keys(data.blobs).sort()) {
-        signal?.throwIfAborted();
-        media.push([name, await hash(data.blobs[name])]);
-      }
-      const characters =
-        bookFile.metadata.characters ||
-        Math.max(0, ...data.sections.map((s) => (s.startCharacter ?? 0) + (s.characters ?? 0)));
-      // Hash decoded content, not ZIP timestamps/compression or browser-local IDs.
-      fingerprint = await hash(
-        canonical({
-          html: data.elementHtml,
-          css: data.styleSheet,
-          ...(data.epubPublication ? { epubPublication: data.epubPublication } : {}),
-          sections: data.sections,
-          language: data.language,
-          creators: data.creators,
-          metadata: data.metadata,
-          pageDirection: data.pageDirection,
-          characters,
-          media,
-          cover: data.coverImage ? await hash(data.coverImage) : null
-        })
-      );
+      const identity = await identifyReaderBook(data, bookFile.metadata.characters ?? 0, signal);
+      const { characters } = identity;
+      fingerprint = identity.fingerprint;
       const imageReferences = new Map<string, string>();
       for (const name of Object.keys(data.blobs)) {
         const placeholder = buildDummyBookImage(name);

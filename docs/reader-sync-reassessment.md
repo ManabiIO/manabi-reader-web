@@ -8,12 +8,12 @@ scope. Google Drive is the first and only transport in this phase. Web is active
 Android is paused, Windows is deferred, and Apple clients are separate products.
 Import/export stays available and independent of connection setup.
 
-This is an integration design, executable reconciliation contract and bounded
-state-file decoder, **not a released continuous-sync service**. The bridge modules
-have no production caller, persistence, network access, OAuth credentials,
-scheduler, or live write
-adapter. Existing TTU-shaped Drive handlers and shared-folder auto import/export
-are not evidence that the proposed safety requirements are already implemented.
+This includes an executable reconciliation contract, bounded state-file decoder
+and read-only Google Drive preview, **not a released continuous-sync service**.
+The preview uses the existing same-origin connection; it does not persist links
+or baselines, apply incoming changes, schedule work or enable outgoing writes.
+Existing TTU-shaped Drive handlers and shared-folder auto import/export are not
+evidence that the proposed safety requirements are already implemented.
 
 ### Public Hoshi reference, without implementation source
 
@@ -77,7 +77,8 @@ Yatsu v11 backup does not qualify its current cloud writer.
 
 The existing backend's disconnect route deletes the connection and queues token
 revocation. It cannot be reused unchanged for a shared-project connection. The
-inspection here was read-only; no backend credentials, scopes or routes changed.
+preview reuses only the current managed connection. No backend credentials or
+scopes changed; shared-project OAuth remains unimplemented.
 
 ### Connection and reading experience
 
@@ -155,18 +156,34 @@ proven portable location replaces them. The decoder freezes its result and
 supports cancellation; no partial result is acknowledged.
 
 The checked-in public Yatsu v11 backup exercises the decoder and reconciliation
-planner together. TTU fixtures cover the common supported shape. This still needs
-a verified decoded-book identity, stable Drive listing/download adapter, durable
-journal, transactionally guarded local application, OAuth, scheduler and qualified
-outgoing serializer. The decoder is not yet a production caller or write adapter.
-No database or backup format changed in this increment.
+planner together. TTU fixtures cover the common supported shape.
 
-The next provider boundary is a bounded, selected-root compatibility snapshot,
-including stable file IDs and revisions across the book package and state files.
-The existing frontend `CloudLibrary.read()` accepts EPUB/TXT/HTMLZ only; its normal
-book path must stay constrained. The current backend byte endpoint alone does not
-establish stable multi-file observations, so widening the frontend file filter
-would not make a safe continuous-sync reader.
+`previewDriveReaderBridge()` now downloads a bounded observation through dedicated
+backend snapshot/file routes. The backend requires a selected Google library root
+and direct child book directory, checks two full listings, fences downloads by
+file versions/checksums and rechecks connection generation after provider I/O.
+Unknown sidecars participate in the observation but are not rewritten or
+downloaded. The frontend verifies the decoded package title/content identity,
+projects supported state and rechecks the full observation before showing it.
+The normal `CloudLibrary.read()` EPUB/TXT/HTMLZ filter remains unchanged.
+
+In Accounts and libraries, browsing a supported Google book directory offers an
+inline preview of its saved position and reading days. It explicitly says that
+automatic sync is not connected. Navigation, account changes and canceled work
+must not publish an older preview. This gives the snapshot adapter a production
+caller without representing a read as permission to sync.
+
+`identifyReaderBook()` is shared with one-time import and retains the exact prior
+receipt hash format. It hashes decoded content/media, ignores local IDs and
+claimed content hashes, captures inputs before asynchronous work and supports
+cancellation. The public Yatsu package and existing built-app migration/reimport
+journeys exercise that shared path. No database or backup format changed.
+
+Still required: durable journal, guarded local application, compatibility OAuth,
+scheduler, conflict choices and a qualified outgoing serializer. The provider
+tests use real HTTP against a stateful vendor-wire fixture and PostgreSQL; they do
+not establish real Google consent, Drive listing consistency or live cross-app
+write safety. Rechecking observed versions is not an atomic multi-file transaction.
 
 ### Writes, failures and recovery
 
@@ -197,8 +214,8 @@ do not promise that all participating apps provide conflict-safe synchronization
 
 ### Backup and restore
 
-No persisted schema changes in this planner/decoder increment. When the journal and
-connection records are implemented, backup/restore is part of that change: retain
+No persisted schema changes in this read-only preview increment. When the journal
+and connection records are implemented, backup/restore is part of that change: retain
 local content, pending intent, accepted baselines, unresolved versions and
 recovery evidence. Exclude access/refresh tokens, client secrets and live grants.
 Restored connections start paused and require reconnection and a fresh preview
