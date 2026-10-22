@@ -341,6 +341,14 @@ jobs:
             EXPORT_BROWSER="$engine" node test/expo/native-book-export-browser.mjs || status=1
           done
           exit "$status"
+      - name: Native IndexedDB sync recovery and schema upgrades
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
+        run: |
+          status=0
+          for engine in chromium webkit; do
+            JOURNAL_BROWSER="$engine" node test/reader/reader-bridge-journal-browser.mjs || status=1
+          done
+          exit "$status"
       - name: Retained actual-app assertions on the same export
         if: ${{ !cancelled() && steps.export.outcome == 'success' && steps.browsers.outcome == 'success' }}
         run: |

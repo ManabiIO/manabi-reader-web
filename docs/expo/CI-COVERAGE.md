@@ -86,6 +86,9 @@ possible behavior or frozen mutable upstream action tags.
   history, promoted-reader routing, Library readiness/catalog ownership, and CI-policy cases
 - Existing reader regressions, snippets domain and mounted React integration;
   Android instrumentation-harness contracts only when explicitly requested
+- The web job also runs historical database upgrades and external-reader recovery
+  cases against native Chromium and WebKit IndexedDB. These qualify the storage
+  foundation, not live Google consent, a production sync caller or cloud writes.
 - Existing Whispersync core coverage thresholds and React compilation, pitch
   estimator/lifetime regressions, and both Python Library-dispatcher policy and
   diagnostics suites

@@ -12,6 +12,8 @@ This includes an executable reconciliation contract, bounded state-file decoder
 and read-only Google Drive preview, **not a released continuous-sync service**.
 The preview uses the existing same-origin connection; it does not persist links
 or baselines, apply incoming changes, schedule work or enable outgoing writes.
+A durable journal and recovery codec are implemented separately; they have no
+production sync caller yet and are not authority to activate a connection.
 Existing TTU-shaped Drive handlers and shared-folder auto import/export are not
 evidence that the proposed safety requirements are already implemented.
 
@@ -179,13 +181,37 @@ claimed content hashes, captures inputs before asynchronous work and supports
 cancellation. The public Yatsu package and existing built-app migration/reimport
 journeys exercise that shared path. No database or backup format changed.
 
-Still required: durable journal, guarded local application, compatibility OAuth,
-scheduler, conflict choices and a qualified outgoing serializer. The provider
+Still required: wire the durable journal to verified local mappings, guarded local
+application, compatibility OAuth, scheduler, conflict choices and a qualified
+outgoing serializer. The provider
 tests use real HTTP against a stateful vendor-wire fixture and PostgreSQL; they do
 not establish real Google consent, Drive listing consistency or live cross-app
 write safety. Rechecking observed versions is not an atomic multi-file transaction.
 
 ### Writes, failures and recovery
+
+`reader-bridge-journal.ts` retains prepared intent, conflicts, original state
+files, baseline digests and uncertain attempt identities in the books database.
+Storage version 14 adds `readerBridgeJournal` without rewriting existing book
+records. Journaling in the separate integration database would not allow local
+application and acknowledgement to share one transaction, so it is deliberately
+excluded from that path.
+
+Preparing an operation re-decodes its exact original files and checks their
+semantic digests. It captures inputs before asynchronous work. One IDB transaction
+serializes competing tabs and rechecks account scope before commit. Random CAS
+revisions reject stale transitions. The upload-attempt marker commits uncertainty
+before transmission; reopening the app or retrying a lost preparation response
+cannot turn it back into a fresh upload. Unsent drafts can be explicitly abandoned
+without discarding their evidence; uncertain and restored records cannot. Capacity
+limits stop new work without evicting older recovery records.
+
+The journal does not yet execute transfers, verify current local book state,
+acknowledge successful application, resolve uncertain outcomes or provide a
+production caller. Those operations need the local adapter and qualified writer.
+Its write-capability argument must come from a qualified live adapter; no backup
+can supply it. Native Chromium and WebKit cases exercise database reopening,
+competing connections, account/cancellation rollback and inert recovery imports.
 
 Before the first outbound write, durably record the base revisions, intended
 semantic values, original remote bytes and operation identity. A local journal
@@ -214,13 +240,21 @@ do not promise that all participating apps provide conflict-safe synchronization
 
 ### Backup and restore
 
-No persisted schema changes in this read-only preview increment. When the journal
-and connection records are implemented, backup/restore is part of that change: retain
-local content, pending intent, accepted baselines, unresolved versions and
-recovery evidence. Exclude access/refresh tokens, client secrets and live grants.
-Restored connections start paused and require reconnection and a fresh preview
-before any remote write. Restoring data must not replay historical uploads or
-silently bind to a different Google account, folder or same-title book.
+The read-only preview still changes no persisted user state. The journal adds a
+versioned, bounded recovery JSON format through `exportReaderBridgeRecovery()`
+and `restoreReaderBridgeRecovery()`. It retains exact state-file originals, pending
+intent, observed identities, baseline digests and the original phase/attempt even
+after recovery import. Export revalidates evidence and excludes live writer
+capability, access/refresh tokens, client secrets and grants. Unknown fields and
+invalid projections reject the whole import before any record is written.
+
+Recovery imports are same-account, atomic and idempotent. They are stored as
+inert `restored` records alongside existing work, never over it. They do not
+select a local book, activate a connection, acknowledge a baseline or replay an
+upload. Fresh connection/content verification and explicit recovery are required.
+The journal APIs do not yet have user-facing backup/restore controls; wiring those
+controls is part of the production sync integration. Existing book ZIP export
+and one-time import remain unchanged and do not contain the new journal.
 
 ### Release evidence still required
 

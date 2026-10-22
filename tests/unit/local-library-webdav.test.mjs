@@ -91,10 +91,15 @@ test('v9 upgrade adds local feature stores without replacing existing reading re
   await old.put('bookmark', resume);
   old.close();
   const db = await createBooksDb(name);
-  assert.equal(db.version, 13);
+  assert.equal(db.version, 14);
   assert.deepEqual(await db.get('data', 4), book);
   assert.deepEqual(await db.get('bookmark', 4), resume);
-  for (const store of ['readerImportRecord', 'readerExternalSync', 'readerSearchProjection'])
+  for (const store of [
+    'readerImportRecord',
+    'readerExternalSync',
+    'readerSearchProjection',
+    'readerBridgeJournal'
+  ])
     assert.ok(db.objectStoreNames.contains(store));
   db.close();
   await deleteDB(name);
