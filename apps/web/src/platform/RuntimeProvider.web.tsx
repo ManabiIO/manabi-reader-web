@@ -6,7 +6,8 @@
 
 import { type ReactNode } from 'react';
 import { usePathname } from 'expo-router';
-import { ConnectionStatusPath } from '../runtime/ConnectionStatus';
+import { ConnectionStatusContent } from '../runtime/ConnectionStatus';
+import { WebConnectionStatus } from '../runtime/WebConnectionStatus';
 import Runtime from '../runtime/Runtime.web';
 import { RouterBinding } from '../runtime/router-binding';
 import '../shared-ui/web-design.css';
@@ -16,7 +17,9 @@ export function RuntimeProvider({ children }: { children: ReactNode }) {
     <>
       <RouterBinding />
       <Runtime />
-      <ConnectionStatusPath.Provider value={path}>{children}</ConnectionStatusPath.Provider>
+      <ConnectionStatusContent.Provider value={<WebConnectionStatus path={path} />}>
+        {children}
+      </ConnectionStatusContent.Provider>
     </>
   );
 }

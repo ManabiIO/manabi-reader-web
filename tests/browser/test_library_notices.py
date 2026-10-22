@@ -111,9 +111,19 @@ class LibraryNoticesBrowser(LibraryBase):
         self.page.get_by_role('button', name='Read Ambiguous history', exact=True).first.click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
         self.context.set_offline(True)
-        for width, scale in [(390, 100), (320, 200)]:
+        for width, scale in [(390, 100), (320, 100), (320, 200), (390, 200)]:
             self.page.set_viewport_size({'width': width, 'height': 700})
             self.page.evaluate('scale => document.documentElement.style.fontSize = scale + "%"', scale)
+            # Pagination observes frame changes and recalculates on animation
+            # frames. Check the settled real layout, not the previous page width
+            # with the new rem padding before ResizeObserver has delivered.
+            self.page.wait_for_function(
+                '''() => {
+                  const content = document.querySelector('.book-content')?.getBoundingClientRect();
+                  return content && content.width > 0 && content.left >= 0 &&
+                    content.right <= innerWidth + 1 &&
+                    document.documentElement.scrollWidth - innerWidth <= 1;
+                }''', timeout=5000)
             expect(notice).to_be_visible()
             self.assertTrue(notice.evaluate("e => !!e.closest('header[aria-label=\"Reader toolbar\"]')"))
             self.assertTrue(notice.evaluate("e => {const r=e.getBoundingClientRect(); return r.x >= 0 && r.right <= innerWidth && r.height >= 44}"))

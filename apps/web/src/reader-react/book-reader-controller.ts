@@ -9,7 +9,6 @@ import type { createPaginated } from './paginated-controller';
 import {
   animationFrameScheduler,
   BehaviorSubject,
-  combineLatest,
   debounceTime,
   distinctUntilChanged,
   EMPTY,
@@ -456,7 +455,10 @@ export function createBookReader(
         observer.observe(el, { box: 'border-box' });
         return () => observer.disconnect();
       });
-      return merge(combineLatest([width$, height$]), frameResize$).pipe(
+      // Each dimension can change independently after subscriptions attach.
+      // combineLatest would wait for the other non-replaying Subject forever
+      // on a width-only resize whose initial height event was already emitted.
+      return merge(width$, height$, frameResize$).pipe(
         startWith(0),
         map(() => el)
       );
