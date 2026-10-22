@@ -49,7 +49,7 @@ function recordKey(key: string) {
   const parsed = new Date(day);
   return Number.isFinite(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === day;
 }
-function valid(snapshot: ReaderBridgeSnapshot) {
+export function validReaderBridgeSnapshot(snapshot: ReaderBridgeSnapshot) {
   return (
     !!snapshot &&
     [snapshot.binding, snapshot.generation, snapshot.revision].every(
@@ -86,17 +86,17 @@ function empty(state: ReaderBridgePlan['state'], reason?: string): ReaderBridgeP
 export function planReaderBridge(input: ReaderBridgeInput): ReaderBridgePlan {
   if (input.direction !== 'receive' && input.direction !== 'both')
     return empty('paused', 'invalid-direction');
-  if (!valid(input.local)) return empty('paused', 'invalid-local-snapshot');
+  if (!validReaderBridgeSnapshot(input.local)) return empty('paused', 'invalid-local-snapshot');
   if (input.remote.state !== 'available') return empty('paused', `remote-${input.remote.state}`);
   const local = input.local;
   const remote = input.remote.snapshot;
-  if (!valid(remote)) return empty('paused', 'invalid-remote-snapshot');
+  if (!validReaderBridgeSnapshot(remote)) return empty('paused', 'invalid-remote-snapshot');
   if (!sameBook(local, remote)) return empty('paused', 'binding-or-content-changed');
   const baseline = input.baseline;
   if (
     baseline &&
-    (!valid(baseline.local) ||
-      !valid(baseline.remote) ||
+    (!validReaderBridgeSnapshot(baseline.local) ||
+      !validReaderBridgeSnapshot(baseline.remote) ||
       !sameBook(local, baseline.local) ||
       !sameBook(local, baseline.remote))
   )

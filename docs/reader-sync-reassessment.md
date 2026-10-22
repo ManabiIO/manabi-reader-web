@@ -8,9 +8,10 @@ scope. Google Drive is the first and only transport in this phase. Web is active
 Android is paused, Windows is deferred, and Apple clients are separate products.
 Import/export stays available and independent of connection setup.
 
-This is an integration design and executable reconciliation contract, **not a
-released continuous-sync service**. `reader-bridge-plan.ts` has no production
-caller, persistence, network access, OAuth credentials, scheduler, or live write
+This is an integration design, executable reconciliation contract and bounded
+state-file decoder, **not a released continuous-sync service**. The bridge modules
+have no production caller, persistence, network access, OAuth credentials,
+scheduler, or live write
 adapter. Existing TTU-shaped Drive handlers and shared-folder auto import/export
 are not evidence that the proposed safety requirements are already implemented.
 
@@ -30,9 +31,10 @@ merging. The same-project requirement is the important compatibility finding.
 ### Drive access and sign-in
 
 Prefer the existing same-origin backend's authorization-code flow, encrypted
-server-side refresh-token storage, one-use state, account checks and disconnect
-handling. Do not copy credentials from another reader or include client secrets
-in frontend configuration. Google's OAuth "offline access" permits refreshing
+server-side refresh-token storage, one-use state and account checks. Disconnect
+behavior needs the shared-project changes described below. Do not copy credentials
+from another reader or include client secrets in frontend configuration. Google's
+OAuth "offline access" permits refreshing
 credentials while the user is absent; cloud transfers still require a network.
 
 A Manabi OAuth client does not automatically see another app's `drive.file`
@@ -42,6 +44,14 @@ to actual independently created books, existing child files, and newly created
 children; selecting a folder must not be treated as recursive authorization.
 Manabi's existing [appDataFolder][appdata] storage is private to its app and cannot
 serve as the interchange directory.
+
+The existing backend connection currently requests `drive.readonly` plus
+`drive.appdata`, not `drive.file`. It can discover and read existing ordinary Drive
+libraries under broader read consent; its writes are confined to app-private
+reading state. This does not qualify TTU/Yatsu write-back. The backend is
+default-off and its restricted-scope verification remains a release gate. A
+narrow compatibility connection must have an explicit purpose and scope model,
+rather than silently inheriting that connection's permissions.
 
 There are two access paths to qualify before selecting a default:
 
@@ -57,8 +67,17 @@ limitation. Do not silently request full-Drive scopes, label inaccessible files
 as deleted, or create a second empty library under the same title. Broader scopes
 and Google verification would require a separate product/security decision.
 [Yatsu's built-in connection][yatsu-drive] uses a separate default library; its
-custom TTU-compatible connection is the interoperability candidate. An observed
+custom TTU-compatible connection is the interoperability candidate. A shared
+project also couples revocation: Google's [OAuth documentation][oauth] states
+that revocation invalidates issued tokens for every client in that project.
+Keep disconnecting Manabi (stop local jobs and forget its server-held credentials)
+separate from revoking the project's Google authorization. A revocation action
+must explain its effect on the other readers before it is chosen. An observed
 Yatsu v11 backup does not qualify its current cloud writer.
+
+The existing backend's disconnect route deletes the connection and queues token
+revocation. It cannot be reused unchanged for a shared-project connection. The
+inspection here was read-only; no backend credentials, scopes or routes changed.
 
 ### Connection and reading experience
 
@@ -121,6 +140,34 @@ Use a paginated [Drive changes feed][changes] for discovery, with durable tokens
 bounded retries and a full rediscovery when a token expires. A feed or push
 notification is a hint to inspect the selected files, not a trusted data payload.
 
+`projectReaderBridgeFiles()` now reads bounded, version-matched progress and
+statistics files into that contract. It compares normalized values without local
+row IDs, export timestamps, property order or completion transport versions.
+It retains the exact original JSON separately. Yatsu section/layout context and
+dictionary counts also participate in semantic comparison: identical scroll
+coordinates in different sections must not be acknowledged as the same position.
+The eventual local adapter must map every field or pause; retained wire context
+does not prove a portable local position. The originals are recovery evidence,
+not permission to rewrite Yatsu files. Unknown fields, conflicting
+files, filename/position disagreement and mismatched character counts fail before
+any projection is returned. Legacy pixel coordinates remain meaningful until a
+proven portable location replaces them. The decoder freezes its result and
+supports cancellation; no partial result is acknowledged.
+
+The checked-in public Yatsu v11 backup exercises the decoder and reconciliation
+planner together. TTU fixtures cover the common supported shape. This still needs
+a verified decoded-book identity, stable Drive listing/download adapter, durable
+journal, transactionally guarded local application, OAuth, scheduler and qualified
+outgoing serializer. The decoder is not yet a production caller or write adapter.
+No database or backup format changed in this increment.
+
+The next provider boundary is a bounded, selected-root compatibility snapshot,
+including stable file IDs and revisions across the book package and state files.
+The existing frontend `CloudLibrary.read()` accepts EPUB/TXT/HTMLZ only; its normal
+book path must stay constrained. The current backend byte endpoint alone does not
+establish stable multi-file observations, so widening the frontend file filter
+would not make a safe continuous-sync reader.
+
 ### Writes, failures and recovery
 
 Before the first outbound write, durably record the base revisions, intended
@@ -150,7 +197,7 @@ do not promise that all participating apps provide conflict-safe synchronization
 
 ### Backup and restore
 
-No persisted schema changes in this planner-only increment. When the journal and
+No persisted schema changes in this planner/decoder increment. When the journal and
 connection records are implemented, backup/restore is part of that change: retain
 local content, pending intent, accepted baselines, unresolved versions and
 recovery evidence. Exclude access/refresh tokens, client secrets and live grants.
@@ -176,6 +223,7 @@ as part of this research.
 [scopes]: https://developers.google.com/workspace/drive/api/guides/api-specific-auth
 [appdata]: https://developers.google.com/workspace/drive/api/guides/appdata
 [changes]: https://developers.google.com/workspace/drive/api/guides/manage-changes
+[oauth]: https://developers.google.com/identity/protocols/oauth2/web-server
 [ttu-drive]: https://github.com/ttu-ttu/ebook-reader/blob/e7ec1d2680b5121b97102753d14a7a49a9003761/apps/web/src/lib/data/storage/handler/gdrive-handler.ts
 
 ## Confirmed defects and fixes
