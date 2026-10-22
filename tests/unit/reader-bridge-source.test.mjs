@@ -171,6 +171,10 @@ function fixture(change = () => {}) {
   );
   return {
     preview: (signal) => module.exports.previewDriveReaderBridge(selection, signal),
+    capture: module.exports.captureDriveReaderPreview,
+    revoke: () => {
+      current = false;
+    },
     calls,
     stopped: () => stopped
   };
@@ -188,6 +192,23 @@ test('real Yatsu package and sidecars become a verified read-only projection', a
   assert.equal(f.calls.length, 5);
   assert.equal(f.stopped(), 1);
   assert.ok(f.calls.every((call) => !call.options.method && !call.options.value));
+});
+
+test('local comparison captures only genuine previews in their original account generation', async () => {
+  const f = fixture();
+  const preview = await f.preview();
+  const prepared = f.capture(preview);
+  assert.equal(prepared.content.title, preview.title);
+  assert.equal(prepared.selection.owner, selection.owner);
+  const content = prepared.content;
+  content.elementHtml = 'changed by caller';
+  prepared.selection.owner = 'another';
+  assert.notEqual(f.capture(preview).content.elementHtml, content.elementHtml);
+  assert.equal(f.capture(preview).selection.owner, selection.owner);
+  assert.throws(() => f.capture({ ...preview }), /Refresh/);
+  f.revoke();
+  assert.throws(() => f.capture(preview), { code: 'account_changed' });
+  assert.throws(prepared.assertCurrent, { code: 'account_changed' });
 });
 
 test('reconnection and any final manifest change discard a fully decoded preview', async () => {

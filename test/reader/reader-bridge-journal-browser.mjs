@@ -12,14 +12,19 @@ import { chromium, webkit } from '@playwright/test';
 const engine = process.env.JOURNAL_BROWSER || 'chromium';
 assert.ok(['chromium', 'webkit'].includes(engine));
 const fixtures = await Promise.all(
-  ['books-schema-cases.mjs', 'reader-bridge-journal-cases.mjs'].map((name) =>
+  [
+    'books-schema-cases.mjs',
+    'reader-bridge-journal-cases.mjs',
+    'reader-bridge-local-book-cases.mjs'
+  ].map((name) =>
     build({
       entryPoints: [new URL(name, import.meta.url).pathname],
       bundle: true,
       write: false,
       format: 'iife',
       globalName: 'fixture',
-      platform: 'browser'
+      platform: 'browser',
+      alias: { $lib: new URL('../../apps/web/src/lib', import.meta.url).pathname }
     })
   )
 );

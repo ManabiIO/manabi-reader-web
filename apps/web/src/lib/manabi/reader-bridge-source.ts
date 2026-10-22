@@ -7,11 +7,13 @@
 import { request, IntegrationError } from './client';
 import { captureLibraryOperation } from './operation-scope';
 import { readRestoredBook } from '../functions/file-loaders/utils/restored-book';
+import type { RestoredContent } from '../functions/file-loaders/utils/restored-book';
 import { identifyReaderBook } from './reader-book-identity.ts';
 import { canonical, decodeTitle, importFile } from './ttu-migration-format.ts';
 import {
   projectReaderBridgeFiles,
   READER_BRIDGE_RECORD_LIMITS,
+  type ReaderBridgeProjection,
   type ReaderBridgeFile
 } from './reader-bridge-projection.ts';
 import type { ReaderBridgeSnapshot } from './reader-bridge-plan.ts';
@@ -22,6 +24,38 @@ export interface DriveReaderSelection {
   root: string;
   folder: string;
   profile: ReaderBridgeSnapshot['profile'];
+}
+export interface DriveReaderPreview {
+  title: string;
+  characters: number;
+  projection: ReaderBridgeProjection;
+  packageId: string;
+  ignoredFiles: number;
+}
+// Keep decoded bytes out of mutable UI state. Only a preview produced by the
+// verified download path can be used for a local comparison, in its original
+// account/session generation. This is an observation, never write authority.
+const preparedPreviews = new WeakMap<
+  DriveReaderPreview,
+  {
+    content: RestoredContent;
+    selection: DriveReaderSelection;
+    assertCurrent(): void;
+  }
+>();
+
+export function captureDriveReaderPreview(preview: DriveReaderPreview) {
+  const prepared = preparedPreviews.get(preview);
+  if (!prepared) throw new Error('Refresh the Google Drive preview before comparing a local copy.');
+  prepared.assertCurrent();
+  return {
+    get content() {
+      prepared.assertCurrent();
+      return structuredClone(prepared.content);
+    },
+    selection: { ...prepared.selection },
+    assertCurrent: prepared.assertCurrent
+  };
 }
 interface ObservedFile {
   id: string;
@@ -228,13 +262,15 @@ export async function previewDriveReaderBridge(input: DriveReaderSelection, sign
     );
     check();
     if (canonical(after) !== canonical(before)) throw new IntegrationError('conflict');
-    return Object.freeze({
+    const result = Object.freeze({
       title: content.title,
       characters: book.characters,
       projection,
       packageId: packageFile.id,
       ignoredFiles: before.ignoredFiles
     });
+    preparedPreviews.set(result, { content, selection, assertCurrent: check });
+    return result;
   } finally {
     scope.stop();
   }

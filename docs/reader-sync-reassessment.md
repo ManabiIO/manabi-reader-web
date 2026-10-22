@@ -14,6 +14,9 @@ The preview uses the existing same-origin connection; it does not persist links
 or baselines, apply incoming changes, schedule work or enable outgoing writes.
 A durable journal and recovery codec are implemented separately; they have no
 production sync caller yet and are not authority to activate a connection.
+The preview also supports explicit local-book selection and read-only content
+comparison. A matching result is an observation, not a saved link or authority
+to apply reading data.
 Existing TTU-shaped Drive handlers and shared-folder auto import/export are not
 evidence that the proposed safety requirements are already implemented.
 
@@ -180,6 +183,27 @@ receipt hash format. It hashes decoded content/media, ignores local IDs and
 claimed content hashes, captures inputs before asynchronous work and supports
 cancellation. The public Yatsu package and existing built-app migration/reimport
 journeys exercise that shared path. No database or backup format changed.
+
+The local comparison uses the same HTML/CSS/EPUB cleanup as one-time import.
+It hashes actual stored text and media, checks character counts and publication
+layout, and permits local renames without trusting titles or import receipts.
+The raw package fingerprint and existing import receipt format are unchanged.
+Only a genuine in-memory preview from the current account/session can enter this
+flow. Local choices use compact index keys and filter account ownership; the
+selected book is checked again before reading content. Hashing happens outside
+IndexedDB, followed by a transaction that rechecks the complete stored book,
+ownership and bookmark, comparing ArrayBuffer bytes rather than object keys.
+Legacy native Blob or string-cover records pause comparison without rewriting
+them. No statistics migration, journal entry, last-read update or baseline is
+created, so there is no new persisted state or backup-format change.
+
+The comparison is wired into the Connections preview with explicit selection,
+an inline result and no toast. Eight local-content cases run in both native
+Chromium and WebKit alongside schema/recovery coverage. They cover same-size
+binary changes, second-connection edits, account/cancellation boundaries,
+duplicate titles, renames and packed EPUB resource maps. The new UI still needs
+the composed app screenshot/import journey before release; these checks do not
+qualify continuous synchronization or Yatsu locator application.
 
 Still required: wire the durable journal to verified local mappings, guarded local
 application, compatibility OAuth, scheduler, conflict choices and a qualified

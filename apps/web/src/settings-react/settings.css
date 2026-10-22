@@ -204,6 +204,19 @@
   margin-top: 1rem;
   padding-top: 1rem;
 }
+.react-settings-connections-screen .reader-bridge-comparison {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+.react-settings-connections-screen .reader-bridge-comparison select {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+.react-settings-connections-screen .reader-bridge-comparison button {
+  justify-self: start;
+}
 .react-settings-connections-screen label {
   display: flex;
   gap: 0.5rem;

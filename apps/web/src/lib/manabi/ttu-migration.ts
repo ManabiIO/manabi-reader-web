@@ -4,7 +4,6 @@
  * All rights reserved.
  */
 
-import { rewriteEpubPublication } from '$lib/foliate-epub/publication-data';
 import { encodeBook } from '$lib/data/database/books-db/book-binary';
 import { requestPersistentStorageOnce } from '$lib/data/window/navigator/persistent-storage';
 
@@ -29,11 +28,7 @@ import {
 } from '$lib/functions/file-loaders/utils/limited-archive';
 import { readRestoredBook } from '$lib/functions/file-loaders/utils/restored-book';
 import { bookKey, updateOrganization } from '$lib/library/organization';
-import {
-  sanitizeBookHtml,
-  sanitizeBookStyleSheet
-} from '$lib/functions/book-security/book-content-security';
-import buildDummyBookImage from '$lib/functions/file-loaders/utils/build-dummy-book-image';
+import { prepareReaderImportContent } from './reader-import-content';
 import { exclusive } from './persistence';
 import { localProfileUser } from './client';
 import { identifyReaderBook } from './reader-book-identity';
@@ -369,30 +364,9 @@ export class TtuMigration {
       const identity = await identifyReaderBook(data, bookFile.metadata.characters ?? 0, signal);
       const { characters } = identity;
       fingerprint = identity.fingerprint;
-      const imageReferences = new Map<string, string>();
-      for (const name of Object.keys(data.blobs)) {
-        const placeholder = buildDummyBookImage(name);
-        imageReferences.set(placeholder, placeholder);
-        imageReferences.set(`ttu:${name}`, placeholder);
-      }
-      const policy = {
-        document,
-        preserveReaderLinks: true,
-        resolveImage: (source: string) => imageReferences.get(source)
-      };
-      const sanitized = data.epubPublication
-        ? rewriteEpubPublication(data.epubPublication, data.elementHtml, (resource) => ({
-            ...resource,
-            html: sanitizeBookHtml(resource.html, policy),
-            styleSheet: sanitizeBookStyleSheet(resource.styleSheet, document)
-          }))
-        : { elementHtml: sanitizeBookHtml(data.elementHtml, policy) };
       content = {
-        ...data,
+        ...prepareReaderImportContent(data, document),
         title: item.title,
-        ...sanitized,
-        styleSheet: sanitizeBookStyleSheet(data.styleSheet, document),
-        htmlBackup: data.htmlBackup ? sanitizeBookHtml(data.htmlBackup, policy) : undefined,
         characters,
         hasThumb: !!data.coverImage,
         lastBookModified: bookFile.metadata.modified,
