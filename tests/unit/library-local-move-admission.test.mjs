@@ -47,7 +47,8 @@ async function fixture() {
     IntegrationError: class extends Error {}
   };
   const scope = moduleFrom('../../apps/web/src/lib/manabi/operation-scope.ts', {
-    './client': client
+    './client': client,
+    '../state/store': moduleFrom('../../apps/web/src/lib/state/store.ts', {})
   });
   const actions = moduleFrom('../../apps/web/src/lib/library/local-series.ts', {
     '$lib/manabi/persistence': {

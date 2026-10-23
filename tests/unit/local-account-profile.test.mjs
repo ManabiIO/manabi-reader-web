@@ -6,7 +6,11 @@ import vm from 'node:vm';
 import { build } from 'esbuild';
 
 const { outputFiles } = await build({
-  entryPoints: [new URL('../../apps/web/src/lib/manabi/client.ts', import.meta.url).pathname],
+  stdin: {
+    contents: `export * from './apps/web/src/lib/manabi/client'; export * from './apps/web/src/lib/manabi/operation-scope';`,
+    resolveDir: new URL('../../', import.meta.url).pathname,
+    loader: 'ts'
+  },
   alias: { $lib: new URL('../../apps/web/src/lib', import.meta.url).pathname },
   bundle: true,
   platform: 'node',
@@ -48,6 +52,60 @@ function client(profile = alice) {
   vm.runInNewContext(outputFiles[0].text, context);
   return { api: context.module.exports, context, data, listeners };
 }
+
+test('local import admission waits for the initial profile and still revokes a real account switch', async () => {
+  const { api, context } = client();
+  let release;
+  context.navigator.onLine = true;
+  context.fetch = () =>
+    new Promise((resolve) => {
+      release = resolve;
+    });
+  let admitted = false;
+  const pending = api.prepareLocalLibraryOperation().then((scope) => {
+    admitted = true;
+    return scope;
+  });
+  await Promise.resolve();
+  assert.equal(admitted, false);
+  release(session(alice));
+  const scope = await pending;
+  try {
+    assert.equal(scope.profileId, 'alice');
+    scope.assertCurrent();
+    context.fetch = async () => session(bob);
+    await api.refreshAccount(true);
+    assert.throws(() => scope.assertCurrent(), { code: 'account_changed' });
+  } finally {
+    scope.stop();
+  }
+});
+
+test('local import admission keeps offline and anonymous use local, and cancellation admits no operation', async () => {
+  for (const profile of [alice, null]) {
+    const { api, context } = client(profile);
+    const first = await api.prepareLocalLibraryOperation();
+    assert.equal(first.profileId, profile?.id ?? null);
+    first.stop();
+    context.fetch = () => {
+      assert.fail('Settled local admission must not probe the network');
+    };
+    const next = await api.prepareLocalLibraryOperation();
+    next.assertCurrent();
+    next.stop();
+  }
+  const { api, context } = client();
+  let release;
+  context.fetch = () =>
+    new Promise((resolve) => {
+      release = resolve;
+    });
+  const controller = new AbortController();
+  const pending = api.prepareLocalLibraryOperation(controller.signal);
+  controller.abort();
+  release(session(alice));
+  await assert.rejects(pending, { name: 'AbortError' });
+});
 
 test('cold offline reload exposes only local identity and cannot authorize a request', async () => {
   const { api, data } = client();

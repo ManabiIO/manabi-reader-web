@@ -75,7 +75,10 @@ function profile() {
   };
   return {
     client,
-    scope: load('manabi/operation-scope.ts', { './client': client }),
+    scope: load('manabi/operation-scope.ts', {
+      './client': client,
+      '../state/store': load('state/store.ts')
+    }),
     change(id) {
       user = id === null ? null : { id };
       generation++;

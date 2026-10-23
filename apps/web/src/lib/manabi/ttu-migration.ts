@@ -5,6 +5,7 @@
  */
 
 import { encodeBook } from '$lib/data/database/books-db/book-binary';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { requestPersistentStorageOnce } from '$lib/data/window/navigator/persistent-storage';
 
 import { database, lastReadingGoalsModified$, readingGoal$ } from '$lib/data/store';
@@ -31,6 +32,7 @@ import { bookKey, updateOrganization } from '$lib/library/organization';
 import { prepareReaderImportContent } from './reader-import-content';
 import { exclusive } from './persistence';
 import { localProfileUser } from './client';
+import { prepareLocalLibraryOperation } from './operation-scope';
 import { identifyReaderBook } from './reader-book-identity';
 import { yatsuRows, prepareYatsuEntries, annotationContent, type YatsuPart } from './yatsu-import';
 import { parseYatsuSettings } from './yatsu-settings-format';
@@ -132,23 +134,61 @@ function sameSource(book: MigratedBook, title: string, fingerprint?: string): bo
   const value = receipt(book);
   return !!value && value.sourceTitle === title && (!fingerprint || value.content === fingerprint);
 }
-export async function migratedBookChoices(): Promise<MigratedBookChoice[]> {
-  const db = await database.db;
-  const tx = db.transaction('data');
-  const choices: MigratedBookChoice[] = [];
-  let cursor = await tx.store.openCursor();
-  while (cursor) {
-    const prior = receipt(cursor.value);
-    if (prior)
-      choices.push({
-        id: cursor.value.id,
-        title: cursor.value.title,
-        sourceTitle: prior.sourceTitle
-      });
-    cursor = await cursor.continue();
+export async function migratedBookChoices(signal?: AbortSignal): Promise<MigratedBookChoice[]> {
+  const operation = await prepareLocalLibraryOperation(signal);
+  const check = () => {
+    signal?.throwIfAborted();
+    operation.assertCurrent();
+  };
+  try {
+    check();
+    const db = await database.db;
+    check();
+    const tx = db.transaction(['data', 'readerBookScope']);
+    const choices = await commitTransaction(tx, async () => {
+      const data = tx.objectStore('data');
+      const unavailable = new Set<number>();
+      for (
+        let cursor = await data.index('libraryOwner').openKeyCursor();
+        cursor;
+        cursor = await cursor.continue()
+      ) {
+        check();
+        if (cursor.key !== operation.profileId) unavailable.add(cursor.primaryKey);
+      }
+      for (
+        let cursor = await tx.objectStore('readerBookScope').openCursor();
+        cursor;
+        cursor = await cursor.continue()
+      ) {
+        check();
+        if (
+          typeof cursor.value.accountId !== 'string' ||
+          cursor.value.accountId !== operation.profileId
+        )
+          unavailable.add(cursor.primaryKey);
+      }
+      // Import receipts are embedded in data and have no index. Read only
+      // eligible records, one at a time; foreign books' media stays in storage.
+      const result: MigratedBookChoice[] = [];
+      for (let cursor = await data.openKeyCursor(); cursor; cursor = await cursor.continue()) {
+        check();
+        if (unavailable.has(cursor.primaryKey)) continue;
+        const book = await data.get(cursor.primaryKey);
+        check();
+        if (!book || (book.libraryOwner !== undefined && book.libraryOwner !== operation.profileId))
+          continue;
+        const prior = receipt(book);
+        if (prior) result.push({ id: book.id, title: book.title, sourceTitle: prior.sourceTitle });
+      }
+      check();
+      return result;
+    });
+    check();
+    return choices;
+  } finally {
+    operation.stop();
   }
-  await tx.done;
-  return choices;
 }
 
 /** A File-backed import session. Preview holds filenames only, not every decoded book. */
@@ -310,9 +350,13 @@ export class TtuMigration {
   ): Promise<MigrationResult> {
     if (this.importing) throw new Error('An import from this ZIP is already running.');
     this.importing = true;
+    let operation: Awaited<ReturnType<typeof prepareLocalLibraryOperation>> | undefined;
     try {
-      return await this.readAndCommit(id, options, signal);
+      operation = await prepareLocalLibraryOperation(signal);
+      const lifetime = signal ? AbortSignal.any([signal, operation.signal]) : operation.signal;
+      return await this.readAndCommit(id, options, lifetime, operation);
     } finally {
+      operation?.stop();
       this.importing = false;
     }
   }
@@ -320,11 +364,13 @@ export class TtuMigration {
   private async readAndCommit(
     id: string,
     options: MigrationOptions,
-    signal?: AbortSignal
+    signal: AbortSignal,
+    operation: Awaited<ReturnType<typeof prepareLocalLibraryOperation>>
   ): Promise<MigrationResult> {
     signal?.throwIfAborted();
     const accountId = localProfileUser()?.id ?? null;
     const assertAccount = () => {
+      operation.assertCurrent();
       if ((localProfileUser()?.id ?? null) !== accountId)
         throw new Error('Account changed during import.');
     };
