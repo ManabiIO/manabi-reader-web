@@ -120,3 +120,65 @@ export function compareDriveReaderLocalBook(
     )
   );
 }
+
+/** Saving a verified pair does not enable automatic sync or change reading data. */
+export async function saveDriveReaderConnection(
+  preview: DriveReaderPreview,
+  comparison: object,
+  signal?: AbortSignal
+) {
+  try {
+    return await withPreview(preview, signal, async (_prepared, scope) => {
+      const { saveReaderBridgeConnection } = await import('./reader-bridge-connection');
+      return saveReaderBridgeConnection(await database.db, scope, preview, comparison);
+    });
+  } finally {
+    announceReaderBridgeRecoveryChange();
+  }
+}
+async function withConnectionOwner<T>(
+  owner: string,
+  signal: AbortSignal | undefined,
+  work: (scope: ReaderBridgeLocalScope) => Promise<T>
+) {
+  const operation = captureLibraryOperation();
+  const scope = {
+    profileId: operation.profileId,
+    signal: signal ? AbortSignal.any([signal, operation.signal]) : operation.signal,
+    assertCurrent() {
+      operation.assertCurrent();
+      if (operation.profileId !== owner)
+        throw new Error(
+          'Switch back to this account before changing its saved reader connections.'
+        );
+    }
+  };
+  try {
+    scope.assertCurrent();
+    scope.signal.throwIfAborted();
+    return await work(scope);
+  } finally {
+    operation.stop();
+  }
+}
+export function listDriveReaderConnections(owner: string, signal?: AbortSignal) {
+  return withConnectionOwner(owner, signal, async (scope) => {
+    const { listReaderBridgeConnections } = await import('./reader-bridge-connection');
+    return listReaderBridgeConnections(await database.db, scope);
+  });
+}
+export async function removeDriveReaderConnection(
+  owner: string,
+  id: string,
+  revision: string,
+  signal?: AbortSignal
+) {
+  try {
+    return await withConnectionOwner(owner, signal, async (scope) => {
+      const { removeReaderBridgeConnection } = await import('./reader-bridge-connection');
+      return removeReaderBridgeConnection(await database.db, scope, id, revision);
+    });
+  } finally {
+    announceReaderBridgeRecoveryChange();
+  }
+}

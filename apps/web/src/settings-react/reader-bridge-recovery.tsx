@@ -147,9 +147,9 @@ function AccountReaderBridgeRecovery({ owner }: { owner: string }) {
       <details>
         <summary>Reader sync recovery{rows.length ? ` (${rows.length})` : ''}</summary>
         <p id={explanation} className="reader-bridge-explanation">
-          Keep a copy of saved sync decisions and previous reading values. Restoring this file adds
-          inactive evidence for review; it does not change your reading data or reconnect Google
-          Drive.
+          Keep a copy of saved reader connections, sync decisions and previous reading values.
+          Restoring this file adds inactive evidence for review; it does not change your reading
+          data or reconnect Google Drive.
         </p>
         <div className="reader-bridge-recovery-actions">
           <Button
@@ -181,11 +181,13 @@ function AccountReaderBridgeRecovery({ owner }: { owner: string }) {
             <p className="hint">
               {row.phase === 'accepted'
                 ? 'Saved reading change'
-                : row.phase === 'restored'
-                  ? 'Recovered evidence · inactive'
-                  : row.phase === 'uncertain'
-                    ? 'Outcome needs inspection'
-                    : 'Unfinished sync decision'}
+                : row.phase === 'connection'
+                  ? 'Saved reader connection'
+                  : row.phase === 'restored'
+                    ? 'Recovered evidence · inactive'
+                    : row.phase === 'uncertain'
+                      ? 'Outcome needs inspection'
+                      : 'Unfinished sync decision'}
             </p>
             {['prepared', 'review', 'paused'].includes(row.phase) ? (
               <Button

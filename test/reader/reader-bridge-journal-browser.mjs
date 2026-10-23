@@ -16,7 +16,8 @@ const fixtures = await Promise.all(
     'books-schema-cases.mjs',
     'reader-bridge-journal-cases.mjs',
     'reader-bridge-local-book-cases.mjs',
-    'reader-bridge-receive-cases.mjs'
+    'reader-bridge-receive-cases.mjs',
+    'reader-bridge-connection-cases.mjs'
   ].map((name) =>
     build({
       entryPoints: [new URL(name, import.meta.url).pathname],
@@ -25,7 +26,20 @@ const fixtures = await Promise.all(
       format: 'iife',
       globalName: 'fixture',
       platform: 'browser',
-      alias: { $lib: new URL('../../apps/web/src/lib', import.meta.url).pathname }
+      nodePaths: [new URL('../../apps/web/node_modules', import.meta.url).pathname],
+      alias: { $lib: new URL('../../apps/web/src/lib', import.meta.url).pathname },
+      plugins: [
+        {
+          name: 'connection-io',
+          setup(builder) {
+            builder.onResolve({ filter: /^\.\/(client|operation-scope)$/ }, (args) =>
+              args.importer.endsWith('/reader-bridge-source.ts')
+                ? { path: new URL('reader-bridge-connection-io.mjs', import.meta.url).pathname }
+                : undefined
+            );
+          }
+        }
+      ]
     })
   )
 );

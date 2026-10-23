@@ -55,6 +55,7 @@ export function captureDriveReaderPreview(preview: DriveReaderPreview) {
       return structuredClone(prepared.content);
     },
     selection: { ...prepared.selection },
+    observation: structuredClone(prepared.observation),
     assertCurrent: prepared.assertCurrent
   };
 }

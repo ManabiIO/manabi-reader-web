@@ -45,14 +45,30 @@ async function withRecovery<T>(
   }
 }
 export function readDriveReaderRecovery(owner: string, signal?: AbortSignal) {
-  return withRecovery(owner, signal, async (scope) =>
-    (await readReaderBridgeJournal(await database.db, scope)).map((row) => ({
+  return withRecovery(owner, signal, async (scope) => {
+    const db = await database.db;
+    const journal = (await readReaderBridgeJournal(db, scope)).map((row) => ({
       id: row.id,
       revision: row.revision,
       title: row.entry.evidence.book.title,
       phase: row.phase
-    }))
-  );
+    }));
+    const { listReaderBridgeConnections } = await import('./reader-bridge-connection');
+    const connections = await listReaderBridgeConnections(db, {
+      profileId: owner,
+      signal: scope.signal,
+      assertCurrent: scope.assertCurrent
+    });
+    return [
+      ...journal,
+      ...connections.map((row) => ({
+        id: row.id,
+        revision: row.revision,
+        title: row.descriptor.title,
+        phase: row.state === 'restored' ? ('restored' as const) : ('connection' as const)
+      }))
+    ];
+  });
 }
 export function exportDriveReaderRecovery(owner: string, signal?: AbortSignal) {
   return withRecovery(owner, signal, async (scope) =>

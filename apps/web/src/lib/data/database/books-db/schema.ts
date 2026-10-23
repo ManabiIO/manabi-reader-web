@@ -54,6 +54,10 @@ const schema: Record<StoreNames<BooksDb>, StoreSchema> = {
   },
   readerSearchProjection: { keyPath: 'bookId' },
   readerExternalSync: { keyPath: 'id' },
+  readerBridgeConnection: {
+    keyPath: 'id',
+    indexes: { accountId: 'accountId', binding: 'binding', bookId: 'bookId' }
+  },
   readerBridgeJournal: { keyPath: 'id', indexes: { accountId: 'accountId', binding: 'binding' } },
   readerImportRecord: { keyPath: 'id', indexes: { bookKey: 'bookKey' } },
   readerStatistic: { keyPath: ['bookKey', 'dateKey'], indexes: { dateKey: 'dateKey' } },

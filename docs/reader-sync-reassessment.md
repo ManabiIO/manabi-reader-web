@@ -14,7 +14,8 @@ flow, **not a released continuous-sync service**. The preview uses the existing
 same-origin connection. Selecting and comparing a local book remains read-only;
 a matching result does not save a link or apply reading data. A separate review
 and save action applies supported incoming reading values with a durable recovery
-journal. There is no automatic scheduler or outgoing Drive writer.
+journal. Verified pairs can now be remembered and reopened for a fresh manual
+check. There is no automatic scheduler or outgoing Drive writer.
 Existing TTU-shaped Drive handlers and shared-folder auto import/export are not
 evidence that the proposed safety requirements are already implemented.
 
@@ -219,26 +220,74 @@ bytes, ownership and reading state in the same transaction that applies changes
 and records acceptance. It uses the existing reader-lifetime Web Lock so an open
 reader prevents application. Accepted baselines contain only agreed values;
 superseded decisions retain recovery evidence. A retry returns an existing
-receipt rather than replaying over later local reading. The books schema remains
-version 14.
+receipt rather than replaying over later local reading. Receive evidence was
+introduced in books schema version 14; saved connections below extend it to 15.
 
-At the user-requested stopping point, typecheck, focused lint, 69 bridge unit
-tests, 54 native IndexedDB cases in each of Chromium and WebKit, a fresh Expo web
-export and the composed PostgreSQL browser journey pass. Receive cases cover
-stale bytes/state, same-day conflicts, concurrent application, cancellation after
-a successful IDB put, idempotent retries, legacy assignment, unsupported mappings,
-missing records and tampered recovery. Recovery also checks version 1 imports.
-This is a development checkpoint, not a released or live-Drive-qualified feature.
+The receive path now binds comparisons to their original account, rechecks aggregate
+statistics timestamps and keeps completion/history clocks monotonic within decoder
+limits. Recovery records are checked again inside the acceptance transaction.
+Restored completed decisions remain inactive without blocking new review; restored
+unfinished or uncertain work still requires resolution. The interface cancels stale
+reviews and downloads, preserves truthful failure wording, and presents comparison
+and recovery controls inline at phone and desktop widths.
 
-Before shipping the receive UI, finish a positive TTU-compatible save journey in
-the composed app: open-reader blocking, recovery download/inert restore and
-reimport after receive must be exercised through the actual UI. Inspect both
-layout sizes for that positive path. Broader automatic sync still requires
-compatibility OAuth, scheduling, richer Yatsu mappings and a qualified outgoing
-serializer. The provider tests use real HTTP against a stateful vendor-wire
-fixture and PostgreSQL; they do
-not establish real Google consent, Drive listing consistency or live cross-app
-write safety. Rechecking observed versions is not an atomic multi-file transaction.
+The initial receive checkpoint passed 79 bridge/interface unit cases, 58 native IndexedDB
+cases in each of Chromium and WebKit, typecheck, focused lint and a fresh Expo web
+export. Its complete frontend unit suite passed all 1,854 cases. The composed
+PostgreSQL suite now exercises positive TTU receive as well as unsupported Yatsu
+mapping in both browsers: actual import, a separate reader tab blocking receive,
+explicit replacement, retained prior values, recovery download/inert restore,
+repeat restore, post-restore review and old-archive reimport preserving received
+values. Desktop and 390px screenshots were inspected. Chromium recovery runs in
+offline mode; WebKit blocks all HTTP requests instead because Playwright's
+synthetic offline mode rejects even plain local File reads. Neither recovery
+operation needs network access.
+
+A delayed genuine session response reproduced a cold-import account race after
+navigation. Explicit import now resolves the initial unknown profile before
+admission, then retains the normal account/cancellation fences. Settled offline
+and anonymous imports stay local. This does not add a database or backup format.
+
+Continuous sync still requires scheduling,
+compatibility OAuth, richer Yatsu mappings and a qualified outgoing serializer.
+The provider tests use real HTTP against a stateful vendor-wire fixture and
+PostgreSQL. They do not establish real Google consent, Drive listing consistency
+or live cross-app write safety. Rechecking observed versions is not an atomic
+multi-file transaction. This remains a development checkpoint.
+
+### Saved verified connections (2026-10-23)
+
+After a genuine local content match, an explicit “Remember this reader connection”
+action saves the verified pair. This does not receive reading values or enable
+automatic sync. The additive books schema v15 store binds the account, local
+UUID, actual content fingerprint, provider connection/generation, selected root,
+book directory, package and state-file IDs. Saving rechecks the full remote
+observation and current local bytes/ownership before assigning identity and
+persisting the pair in one transaction. Concurrent, stale and cancelled saves
+cannot replace a different pairing. Titles and browser-local numeric IDs alone
+are never identity evidence.
+
+“Saved reader connections” reopens the pair after navigation, verifies the saved
+revision and identities, downloads a new stable observation, and compares the
+actual stored content again. Reading sidecars may advance on the same file IDs;
+replaced files, changed generation/content and unsupported mappings require new
+review. Forgetting the connection requires its current account/revision and
+preserves reading data, Google access and recovery evidence. These controls use
+quiet inline messages and support local listing/removal offline.
+
+Recovery v3 adds bounded connection descriptors. V1 and v2 remain readable.
+Restore is atomic and idempotent across journal evidence and connection hints;
+hints remain inactive and never select a local book or reconnect Google Drive.
+The ordinary book ZIP format is unchanged, so keep the recovery JSON alongside
+book backups. Native Chromium and WebKit exercise v14 upgrades, tab races,
+cancellation, identity reuse, source replacement, malformed recovery and removal.
+The expanded frontend suite passes all 1,902 cases. There are 66 passing native
+IndexedDB cases per browser, and 28 saved-pair
+service cases exercise the production preview/content-comparison path. The full
+app passes both composed journeys in Chromium and WebKit, including remembering
+a pair, rechecking it after navigation, recovery v3 round-trip, inactive hints and
+forgetting connections. Screenshots were inspected at desktop, 390px and 320px.
+Narrow layouts contain both the comparison table and account preference selector.
 
 ### Writes, failures and recovery
 
@@ -307,9 +356,10 @@ select a local book, activate a connection, acknowledge a baseline or replay an
 upload. Fresh connection/content verification and explicit recovery are required.
 Connections now includes offline-capable recovery download/restore controls and
 an action to set aside unsent decisions while retaining evidence. New exports
-use version 2, including acceptance; version 1 remains readable. Restored
+use version 3, including connection descriptors and acceptance; versions 1 and 2 remain readable. Restored
 acceptance stays inactive and never replays local changes. The positive composed
-UI qualification remains pending as described above. Existing book ZIP export
+UI journey qualifies offline recovery and confirms that restoring accepted
+evidence neither replays changes nor blocks later reviews. Existing book ZIP export
 and one-time import remain unchanged and do not contain the new journal; keep
 the recovery JSON with book backups.
 

@@ -330,13 +330,17 @@ const cases = {
       const document = JSON.parse(json);
       equal(
         Object.keys(document).sort(),
-        ['accountId', 'entries', 'format', 'version'],
+        ['accountId', 'connections', 'entries', 'format', 'version'],
         'Unexpected backup authority.'
       );
       assert(!json.includes('conditional-recoverable'), 'Backup retained a live writer assertion.');
-      assert(document.version === 2, 'New backups must use the version 2 envelope.');
-      const legacy = JSON.stringify({ ...document, version: 1 });
+      assert(document.version === 3, 'New backups must use the version 3 envelope.');
+      const legacyDocument = { ...document };
+      delete legacyDocument.connections;
+      const legacy = JSON.stringify({ ...legacyDocument, version: 1 });
+      const version2 = JSON.stringify({ ...legacyDocument, version: 2 });
       assert((await restore(db, scope(), legacy)) === 1, 'Version 1 recovery evidence missing.');
+      assert((await restore(db, scope(), version2)) === 0, 'Version 2 import created duplicates.');
       assert((await restore(db, scope(), json)) === 0, 'Repeated import created duplicates.');
       const rows = await read(db, scope()),
         recovered = rows.find((row) => row.phase === 'restored');

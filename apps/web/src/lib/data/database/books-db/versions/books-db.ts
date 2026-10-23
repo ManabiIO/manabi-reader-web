@@ -7,6 +7,7 @@
 import type BooksDbV10 from '$lib/data/database/books-db/versions/v10/books-db-v10';
 
 import type { StoredBinary } from '../book-binary';
+import type { ReaderBridgeConnectionRecord } from '$lib/manabi/reader-bridge-connection-model';
 import type { ReaderBridgeJournalRecord } from '$lib/manabi/reader-bridge-journal';
 
 export type StoredBookData = Omit<BooksDbV10['data']['value'], 'blobs' | 'coverImage'> & {
@@ -21,6 +22,11 @@ type BooksDb = {
       }
     : BooksDbV10[K];
 } & {
+  readerBridgeConnection: {
+    key: string;
+    value: ReaderBridgeConnectionRecord;
+    indexes: { accountId: string; binding: string; bookId: number };
+  };
   readerBridgeJournal: {
     key: string;
     value: ReaderBridgeJournalRecord;
@@ -43,7 +49,8 @@ export type BooksDbHandle = BooksDb['handle']['value'];
 // not clone every stored book payload into JavaScript. Payloads and portable wire data are unchanged.
 // v14 retains external-reader pending intent and recovery evidence in the same
 // database as reading data. Recovery imports never activate a connection.
-export const currentDbVersion = 14;
+// v15 adds explicitly verified reader connections; restored descriptors stay inactive.
+export const currentDbVersion = 15;
 export const currentStorageVersion = currentDbVersion;
 export const ttuWireVersion = 8;
 

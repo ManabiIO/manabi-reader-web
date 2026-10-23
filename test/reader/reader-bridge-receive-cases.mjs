@@ -510,7 +510,7 @@ const cases = {
       await receive(pending, 'incoming', async () => {});
       const before = await dataState(db),
         json = await backup(db, journalScope());
-      assert(JSON.parse(json).version === 2, 'Acceptance did not version the portable envelope.');
+      assert(JSON.parse(json).version === 3, 'Acceptance did not version the portable envelope.');
       assert(
         (await restore(db, journalScope(), json)) === 1 &&
           (await restore(db, journalScope(), json)) === 0,

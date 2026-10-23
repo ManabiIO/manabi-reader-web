@@ -45,6 +45,7 @@ import { resolvePersonalConflict } from '$lib/manabi/personal-sync';
 import { CloudLibrary, removeLocalLibrary, supportedBook } from '$lib/manabi/sources';
 import { ReaderBridgePreview } from './reader-bridge-preview';
 import { ReaderBridgeRecovery } from './reader-bridge-recovery';
+import { ReaderBridgeConnections } from './reader-bridge-connections';
 import type { DriveReaderSelection } from '$lib/manabi/reader-bridge-source';
 
 import { DavConnections } from './dav-connections';
@@ -990,8 +991,14 @@ export function ConnectionsScreen(
             ))}
           </Dom>
           {localProfileUser()?.id ? (
+            <ReaderBridgeConnections
+              key={JSON.stringify(['connections', localProfileUser()!.id, accountGeneration()])}
+              owner={localProfileUser()!.id}
+            />
+          ) : null}
+          {localProfileUser()?.id ? (
             <ReaderBridgeRecovery
-              key={JSON.stringify([localProfileUser()!.id, accountGeneration()])}
+              key={JSON.stringify(['recovery', localProfileUser()!.id, accountGeneration()])}
               owner={localProfileUser()!.id}
             />
           ) : null}

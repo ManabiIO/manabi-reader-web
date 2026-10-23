@@ -47,9 +47,17 @@ const preV14 = {
   ...preV13,
   data: ['id', true, { title: 'title', contentHash: 'contentHash', libraryOwner: 'libraryOwner' }]
 };
-const expected = {
+const preV15 = {
   ...preV14,
   readerBridgeJournal: ['id', false, { accountId: 'accountId', binding: 'binding' }]
+};
+const expected = {
+  ...preV15,
+  readerBridgeConnection: [
+    'id',
+    false,
+    { accountId: 'accountId', binding: 'binding', bookId: 'bookId' }
+  ]
 };
 const prefix = (count) => Object.fromEntries(Object.entries(legacy).slice(0, count));
 const histories = {
@@ -67,6 +75,7 @@ const histories = {
   'v11-complete': [11, preV13],
   'v12-complete': [12, preV13],
   'v13-complete': [13, preV14],
+  'v14-complete': [14, preV15],
   // Shape produced by the old <7 guard after upgrading byte-only version 7.
   'v11-already-missing-reader-stores': [
     11,
@@ -191,7 +200,7 @@ async function snapshot(db, names = Array.from(db.objectStoreNames)) {
   return serializable(Object.fromEntries(rows));
 }
 function verifySchema(db) {
-  assert(db.version === 14, `Expected journal version 14, got ${db.version}`);
+  assert(db.version === 15, `Expected connection version 15, got ${db.version}`);
   const tx = db.transaction(Array.from(db.objectStoreNames));
   for (const [name, [path, increment = false, indexes = {}]] of Object.entries(expected)) {
     assert(db.objectStoreNames.contains(name), `Missing required store ${name}`);

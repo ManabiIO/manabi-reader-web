@@ -9,6 +9,15 @@ import type BooksDb from '../data/database/books-db/versions/books-db';
 import { commitTransaction } from '../data/database/books-db/commit-transaction.mjs';
 import { canonical } from './ttu-migration-format.ts';
 import {
+  validateReaderBridgeConnectionRecord,
+  verifyReaderBridgeConnectionDescriptor,
+  assertReaderBridgeConnectionCapacity,
+  connectionDigest,
+  READER_BRIDGE_CONNECTION_LIMITS,
+  type ReaderBridgeConnectionRecord
+} from './reader-bridge-connection-model';
+
+import {
   planReaderBridge,
   validReaderBridgeSnapshot,
   type ReaderBridgeInput,
@@ -452,15 +461,34 @@ export async function exportReaderBridgeRecovery(
   scope: ReaderBridgeJournalScope
 ) {
   const check = guard(scope);
-  const rows = await readReaderBridgeJournal(db, scope);
+  check();
+  const tx = db.transaction(['readerBridgeJournal', 'readerBridgeConnection'], 'readonly');
+  const [rows, saved] = await commitTransaction(tx, () =>
+    Promise.all([
+      tx.objectStore('readerBridgeJournal').index('accountId').getAll(scope.accountId),
+      tx
+        .objectStore('readerBridgeConnection')
+        .index('accountId')
+        .getAll(scope.accountId, READER_BRIDGE_CONNECTION_LIMITS.records + 1)
+    ])
+  );
+  check();
+  const records = saved.map(validateReaderBridgeConnectionRecord);
+  assertReaderBridgeConnectionCapacity(records);
+  const connections = [];
+  for (const row of records) {
+    connections.push(await verifyReaderBridgeConnectionDescriptor(row.descriptor));
+    check();
+  }
   const entries: PortableEntry[] = [];
   for (const row of rows) entries.push(await portable(row.entry, check, scope.signal));
   check();
   const document = {
     format: 'manabi-reader-bridge-recovery',
-    version: 2,
+    version: 3,
     accountId: scope.accountId,
-    entries
+    entries,
+    connections
   };
   if (bytes(document) > READER_BRIDGE_JOURNAL_LIMITS.backupBytes) fail('capacity');
   return JSON.stringify(document);
@@ -482,14 +510,22 @@ export async function restoreReaderBridgeRecovery(
     new TextEncoder().encode(json).byteLength > READER_BRIDGE_JOURNAL_LIMITS.backupBytes
   )
     fail('capacity');
-  const document = object(JSON.parse(json), ['format', 'version', 'accountId', 'entries']);
+  const document = object(
+    JSON.parse(json),
+    ['format', 'version', 'accountId', 'entries'],
+    ['connections']
+  );
   if (
     document.format !== 'manabi-reader-bridge-recovery' ||
-    ![1, 2].includes(Number(document.version)) ||
+    ![1, 2, 3].includes(Number(document.version)) ||
     typeof document.version !== 'number' ||
     document.accountId !== scope.accountId ||
     !Array.isArray(document.entries) ||
-    document.entries.length > READER_BRIDGE_JOURNAL_LIMITS.entries
+    document.entries.length > READER_BRIDGE_JOURNAL_LIMITS.entries ||
+    (document.version === 3
+      ? !Array.isArray(document.connections) ||
+        document.connections.length > READER_BRIDGE_CONNECTION_LIMITS.records
+      : document.connections !== undefined)
   )
     fail();
   const restored = new Map<string, ReaderBridgeJournalRecord>();
@@ -511,26 +547,93 @@ export async function restoreReaderBridgeRecovery(
     const id = `recovery:${digest}`;
     restored.set(id, record(scope.accountId, entry, plan(entry.evidence), id, 'restored'));
   }
-  return transaction(db, scope, async (tx, stillCurrent) => {
-    const additions: ReaderBridgeJournalRecord[] = [];
-    for (const row of restored.values()) {
-      const existing = await tx.store.get(row.id);
-      if (existing) {
-        if (
-          existing.accountId !== scope.accountId ||
-          existing.phase !== 'restored' ||
-          canonical(existing.entry) !== canonical(row.entry)
-        )
-          fail('stale');
-      } else additions.push(row);
+  const restoredConnections = new Map<string, ReaderBridgeConnectionRecord>();
+  for (const input of (document.connections ?? []) as unknown[]) {
+    const descriptor = await verifyReaderBridgeConnectionDescriptor(input);
+    if (descriptor.accountId !== scope.accountId) fail();
+    const id = `recovery:${await connectionDigest(descriptor)}`;
+    check();
+    restoredConnections.set(id, {
+      id,
+      version: 1,
+      revision: crypto.randomUUID(),
+      state: 'restored',
+      accountId: scope.accountId,
+      binding: descriptor.binding,
+      bookId: descriptor.local.bookId,
+      descriptor
+    });
+  }
+  assertReaderBridgeConnectionCapacity([...restoredConnections.values()]);
+  check();
+  const tx = db.transaction(['readerBridgeJournal', 'readerBridgeConnection'], 'readwrite');
+  const abort = () => {
+    try {
+      tx.abort();
+    } catch {
+      /* Already settled. */
     }
-    await capacity(tx, scope.accountId, additions);
-    for (const row of additions) {
-      stillCurrent();
-      await tx.store.add(row);
-    }
-    return additions.length;
-  });
+  };
+  scope.signal?.addEventListener('abort', abort, { once: true });
+  try {
+    return await commitTransaction(tx, async () => {
+      check();
+      const journal = tx.objectStore('readerBridgeJournal');
+      const connections = tx.objectStore('readerBridgeConnection');
+      const additions: ReaderBridgeJournalRecord[] = [];
+      for (const row of restored.values()) {
+        const existing = await journal.get(row.id);
+        if (existing) {
+          if (
+            existing.accountId !== scope.accountId ||
+            existing.phase !== 'restored' ||
+            canonical(existing.entry) !== canonical(row.entry)
+          )
+            fail('stale');
+        } else additions.push(row);
+      }
+      const current = await journal.index('accountId').getAll(scope.accountId);
+      if (
+        current.length + additions.length > READER_BRIDGE_JOURNAL_LIMITS.entries ||
+        [...current, ...additions].reduce((total, row) => total + bytes(row.entry), 0) >
+          READER_BRIDGE_JOURNAL_LIMITS.accountBytes
+      )
+        fail('capacity');
+      const connectionAdditions: ReaderBridgeConnectionRecord[] = [];
+      for (const row of restoredConnections.values()) {
+        const existing = await connections.get(row.id);
+        if (existing) {
+          validateReaderBridgeConnectionRecord(existing);
+          if (
+            existing.accountId !== scope.accountId ||
+            existing.state !== 'restored' ||
+            canonical(existing.descriptor) !== canonical(row.descriptor)
+          )
+            fail('stale');
+        } else connectionAdditions.push(row);
+      }
+      const currentConnections = (
+        await connections
+          .index('accountId')
+          .getAll(scope.accountId, READER_BRIDGE_CONNECTION_LIMITS.records + 1)
+      ).map(validateReaderBridgeConnectionRecord);
+      assertReaderBridgeConnectionCapacity([...currentConnections, ...connectionAdditions]);
+      for (const row of additions) {
+        check();
+        await journal.add(row);
+        check();
+      }
+      for (const row of connectionAdditions) {
+        check();
+        await connections.add(row);
+        check();
+      }
+      check();
+      return additions.length + connectionAdditions.length;
+    });
+  } finally {
+    scope.signal?.removeEventListener('abort', abort);
+  }
 }
 
 export const READER_BRIDGE_RECEIVE_STORES = [

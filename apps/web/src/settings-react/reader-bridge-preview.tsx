@@ -91,6 +91,37 @@ function LocalBookComparison({ preview }: { preview: Preview }) {
       if (pending.current === operation) pending.current = null;
     }
   };
+  const saveConnection = async () => {
+    if (!result?.matches || pending.current) return;
+    const operation = new AbortController();
+    pending.current = operation;
+    setBusy(true);
+    setMessage('');
+    try {
+      const api = await import('$lib/manabi/reader-bridge-local');
+      operation.signal.throwIfAborted();
+      await api.saveDriveReaderConnection(preview, result, operation.signal);
+      if (!operation.signal.aborted) {
+        // Saving can assign account ownership. Discard the older comparison;
+        // the next review must include that committed scope.
+        setResult(null);
+        setMessage(
+          'Connection saved on this device. Automatic sync is not enabled. Open Saved reader connections below to review this book later.'
+        );
+      }
+    } catch (error) {
+      if (operation.signal.aborted) return;
+      const code = error && typeof error === 'object' && 'code' in error ? error.code : '';
+      setMessage(
+        code === 'exists'
+          ? 'This book already has a different saved connection. Review it in Saved reader connections below.'
+          : 'The connection save could not be confirmed. Check Saved reader connections below before trying again. Reading data was not changed.'
+      );
+    } finally {
+      if (!operation.signal.aborted) setBusy(false);
+      if (pending.current === operation) pending.current = null;
+    }
+  };
   return (
     <div className="reader-bridge-comparison" aria-busy={busy}>
       {choices.length ? (
@@ -141,7 +172,12 @@ function LocalBookComparison({ preview }: { preview: Preview }) {
           </>
         ) : null}
       </div>
-      {result?.matches ? (
+      {result?.matches && !busy ? (
+        <Button variant="outline" onClick={() => void saveConnection()}>
+          Remember this reader connection
+        </Button>
+      ) : null}
+      {result?.matches && !busy ? (
         <ReaderBridgeChanges
           key={selected}
           preview={preview}

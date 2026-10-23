@@ -13,8 +13,10 @@ const { outputFiles } = await build({
       import { flushSync } from 'react-dom';
       import { ReaderBridgeRecovery } from './apps/web/src/settings-react/reader-bridge-recovery';
       import { ReaderBridgeChanges } from './apps/web/src/settings-react/reader-bridge-changes';
+      import { ReaderBridgeConnections } from './apps/web/src/settings-react/reader-bridge-connections';
       const root = createRoot(document.getElementById('root'));
       window.fixture = {
+        connections: owner => flushSync(() => root.render(<React.StrictMode><ReaderBridgeConnections owner={owner}/></React.StrictMode>)),
         recovery: owner => flushSync(() => root.render(<React.StrictMode><ReaderBridgeRecovery owner={owner}/></React.StrictMode>)),
         changes: props => flushSync(() => root.render(<React.StrictMode><ReaderBridgeChanges {...props}/></React.StrictMode>)),
         unmount: () => root.unmount()
@@ -37,9 +39,13 @@ const { outputFiles } = await build({
           namespace: 'interface-fixture'
         }));
         builder.onResolve(
-          { filter: /^\$lib\/manabi\/reader-bridge-(local|recovery)$/ },
+          { filter: /^\$lib\/manabi\/reader-bridge-(local|recovery|saved)$/ },
           ({ path }) => ({
-            path: path.endsWith('recovery') ? 'recovery' : 'local',
+            path: path.endsWith('recovery')
+              ? 'recovery'
+              : path.endsWith('saved')
+                ? 'saved'
+                : 'local',
             namespace: 'interface-fixture'
           })
         );
@@ -58,7 +64,11 @@ const { outputFiles } = await build({
                   export const restoreDriveReaderRecovery = (...args) => window.bridge.restore(...args);
                   export const abandonDriveReaderDraft = (...args) => window.bridge.abandon(...args);
                 `
-                : `
+                : path === 'saved'
+                  ? `export const checkSavedDriveReaderConnection = (...args) => window.bridge.checkConnection(...args);`
+                  : `
+                  export const listDriveReaderConnections = (...args) => window.bridge.connections(...args);
+                  export const removeDriveReaderConnection = (...args) => window.bridge.removeConnection(...args);
                   export const reviewDriveReaderChanges = (...args) => window.bridge.review(...args);
                   export const receiveDriveReaderChanges = (...args) => window.bridge.receive(...args);
                 `
@@ -294,6 +304,102 @@ test('review and save failures have accurate inline wording and permit a retry',
         },
         receive: async () => {
           throw new Error('Interrupted after commit');
+        }
+      }
+    }
+  );
+});
+
+const savedConnection = (title, state = 'linked') => ({
+  id: title,
+  revision: '1',
+  state,
+  descriptor: { title, source: { profile: 'ttu-1-8' } }
+});
+
+test('saved connections cancel a pending check and hide its book after changing accounts', async () => {
+  const pending = deferred();
+  let signal;
+  await fixture(
+    async ({ api, until, button, text }) => {
+      api.connections('owner-a');
+      await until(() => text().includes('Book for owner-a'));
+      // Let StrictMode finish mounting the asynchronously loaded row before input.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      button('Check current copies').click();
+      await until(() => signal);
+      api.connections('owner-b');
+      await until(() => text().includes('Book for owner-b'));
+      assert.equal(signal.aborted, true);
+      pending.reject(new Error('Previous account request failed'));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(text().includes('Book for owner-a'), false);
+      assert.equal(text().includes('Could not check Google Drive'), false);
+    },
+    {
+      bridge: {
+        connections: async (owner) => [savedConnection(`Book for ${owner}`)],
+        checkConnection: (_owner, _id, _revision, cancellation) => {
+          signal = cancellation;
+          return pending.promise;
+        }
+      }
+    }
+  );
+});
+
+test('restored connections remain inactive and forgetting them only calls the guarded removal', async () => {
+  let rows = [savedConnection('Recovered book', 'restored')];
+  const removals = [];
+  await fixture(
+    async ({ window, api, until, button, text }) => {
+      api.connections('owner');
+      await until(() => button('Forget recovered connection'));
+      assert.equal(button('Check current copies'), undefined);
+      assert.match(text(), /Recovery never reconnects a book automatically/);
+      // Let StrictMode finish mounting the asynchronously loaded row before input.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      button('Forget recovered connection').click();
+      await until(() => removals.length === 1);
+      assert.deepEqual(removals[0].slice(0, 3), ['owner', 'Recovered book', '1']);
+      rows = [];
+      window.recoveryChanges.dispatchEvent(new window.Event('change'));
+      await until(() => text().includes('No saved reader connections yet'));
+      assert.equal(text().includes('Recovered book'), false);
+    },
+    {
+      bridge: {
+        connections: async () => rows,
+        removeConnection: async (...args) => {
+          removals.push(args);
+        }
+      }
+    }
+  );
+});
+
+test('saved connection reads retry and an older failed request cannot erase newer records', async () => {
+  const old = deferred();
+  let reads = 0;
+  await fixture(
+    async ({ window, api, until, button, text }) => {
+      api.connections('owner');
+      await until(() => text().includes('Saved connections could not be read'));
+      button('Refresh saved connections').click();
+      await until(() => reads === 2);
+      window.recoveryChanges.dispatchEvent(new window.Event('change'));
+      await until(() => text().includes('Current book'));
+      old.reject(new Error('Old read failed'));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(text().includes('Saved connections could not be read'), false);
+      assert.equal(button('Check current copies').disabled, false);
+    },
+    {
+      bridge: {
+        connections: () => {
+          reads++;
+          if (reads === 1) throw new Error('Storage busy');
+          return reads === 2 ? old.promise : Promise.resolve([savedConnection('Current book')]);
         }
       }
     }
