@@ -220,19 +220,112 @@
 .react-settings-connections-screen .reader-bridge-changes {
   display: grid;
   gap: 0.75rem;
+  min-width: 0;
+}
+.react-settings-connections-screen .reader-bridge-changes h4,
+.react-settings-connections-screen .reader-bridge-recovery h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.react-settings-connections-screen .reader-bridge-changes button,
+.react-settings-connections-screen .reader-bridge-recovery button {
+  height: auto;
+  min-height: 44px;
+  max-width: 100%;
+  white-space: normal;
+  text-align: start;
+  line-height: 1.45;
 }
 .react-settings-connections-screen .reader-bridge-table {
   overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.react-settings-connections-screen .reader-bridge-table:focus-visible,
+.react-settings-connections-screen .reader-bridge-changes h4:focus-visible,
+.react-settings-connections-screen .reader-bridge-recovery summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
 }
 .react-settings-connections-screen .reader-bridge-table table {
   border-collapse: collapse;
   width: 100%;
+  table-layout: fixed;
+  font-size: 0.875rem;
+  line-height: 1.5;
 }
 .react-settings-connections-screen .reader-bridge-table th,
 .react-settings-connections-screen .reader-bridge-table td {
   padding: 0.5rem;
   text-align: start;
+  vertical-align: top;
+  overflow-wrap: anywhere;
   border-bottom: 1px solid var(--border);
+}
+.react-settings-connections-screen .reader-bridge-table th {
+  font-weight: 600;
+}
+.react-settings-connections-screen .reader-bridge-table thead {
+  background: var(--muted);
+}
+.react-settings-connections-screen .reader-bridge-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+.react-settings-connections-screen .reader-bridge-explanation {
+  max-width: 65ch;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+.react-settings-connections-screen .reader-bridge-status {
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.react-settings-connections-screen .reader-bridge-recovery summary {
+  min-height: 44px;
+  padding-block: 0.5rem;
+  cursor: pointer;
+  font-weight: 600;
+}
+.react-settings-connections-screen .reader-bridge-recovery-actions {
+  display: flex;
+  align-items: start;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  margin-block: 1rem;
+}
+.react-settings-connections-screen .reader-bridge-recovery-file {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 0.875rem;
+}
+.react-settings-connections-screen .reader-bridge-recovery-file label {
+  margin: 0;
+  font-weight: 500;
+}
+.react-settings-connections-screen .reader-bridge-recovery-file input {
+  width: 100%;
+  max-width: 100%;
+  min-height: 44px;
+}
+.react-settings-connections-screen .reader-bridge-recovery-file input::file-selector-button {
+  min-height: 44px;
+  margin-inline-end: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--background);
+  color: var(--foreground);
+  cursor: pointer;
+}
+.react-settings-connections-screen .reader-bridge-recovery-record {
+  padding-block: 1rem;
+  border-top: 1px solid var(--border);
+}
+.react-settings-connections-screen .reader-bridge-recovery-record .hint {
+  margin-top: 0.25rem;
 }
 .react-settings-connections-screen label {
   display: flex;

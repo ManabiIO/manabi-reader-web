@@ -10,9 +10,20 @@ import type { readDriveReaderRecovery } from '$lib/manabi/reader-bridge-recovery
 type Rows = Awaited<ReturnType<typeof readDriveReaderRecovery>>;
 
 export function ReaderBridgeRecovery({ owner }: { owner: string }) {
+  // Account changes start a new lifetime, including pending reads and downloads.
+  return <AccountReaderBridgeRecovery key={owner} owner={owner} />;
+}
+
+function AccountReaderBridgeRecovery({ owner }: { owner: string }) {
   const [rows, setRows] = React.useState<Rows>([]);
   const [busy, setBusy] = React.useState(false);
   const [notice, setNotice] = React.useState('');
+  const [readError, setReadError] = React.useState('');
+  const [loading, setLoading] = React.useState(true);
+  const [refreshAttempt, setRefreshAttempt] = React.useState(0);
+  const [visible, setVisible] = React.useState(10);
+  const fileId = React.useId();
+  const explanation = React.useId();
   const lifetime = React.useRef(new AbortController());
   const pending = React.useRef(false);
   const downloadUrls = React.useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -20,25 +31,41 @@ export function ReaderBridgeRecovery({ owner }: { owner: string }) {
     const operation = new AbortController();
     lifetime.current = operation;
     let unsubscribe = () => {};
+    setLoading(true);
+    setReadError('');
     void (async () => {
-      const api = await import('$lib/manabi/reader-bridge-recovery');
-      if (operation.signal.aborted) return;
-      let sequence = 0;
-      const refresh = () => {
-        const current = ++sequence;
-        void api
-          .readDriveReaderRecovery(owner, operation.signal)
-          .then((value) => {
-            if (!operation.signal.aborted && current === sequence) setRows(value);
-          })
-          .catch(() => {
-            if (!operation.signal.aborted)
-              setNotice('Sync recovery could not be read. Try opening this page again.');
-          });
-      };
-      api.readerBridgeRecoveryChanges.addEventListener('change', refresh);
-      unsubscribe = () => api.readerBridgeRecoveryChanges.removeEventListener('change', refresh);
-      refresh();
+      try {
+        const api = await import('$lib/manabi/reader-bridge-recovery');
+        if (operation.signal.aborted) return;
+        let sequence = 0;
+        const refresh = () => {
+          const current = ++sequence;
+          setLoading(true);
+          void api
+            .readDriveReaderRecovery(owner, operation.signal)
+            .then((value) => {
+              if (!operation.signal.aborted && current === sequence) {
+                setRows(value);
+                setReadError('');
+              }
+            })
+            .catch(() => {
+              if (!operation.signal.aborted && current === sequence)
+                setReadError('Sync recovery could not be read. Try again.');
+            })
+            .finally(() => {
+              if (!operation.signal.aborted && current === sequence) setLoading(false);
+            });
+        };
+        api.readerBridgeRecoveryChanges.addEventListener('change', refresh);
+        unsubscribe = () => api.readerBridgeRecoveryChanges.removeEventListener('change', refresh);
+        refresh();
+      } catch {
+        if (!operation.signal.aborted) {
+          setReadError('Sync recovery could not be opened. Try again.');
+          setLoading(false);
+        }
+      }
     })();
     return () => {
       operation.abort();
@@ -49,7 +76,7 @@ export function ReaderBridgeRecovery({ owner }: { owner: string }) {
       }
       downloadUrls.current.clear();
     };
-  }, [owner]);
+  }, [owner, refreshAttempt]);
   const run = async (
     work: (
       api: typeof import('$lib/manabi/reader-bridge-recovery'),
@@ -97,9 +124,12 @@ export function ReaderBridgeRecovery({ owner }: { owner: string }) {
   const load = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = '';
-    if (!file) return;
+    if (!file || pending.current) return;
+    if (file.size > 64 * 1024 * 1024) {
+      setNotice('This file is too large. Choose a sync recovery JSON file smaller than 64 MB.');
+      return;
+    }
     void run(async (api, signal) => {
-      if (file.size > 64 * 1024 * 1024) throw new Error('Recovery file too large.');
       const json = await file.text();
       signal.throwIfAborted();
       const count = await api.restoreDriveReaderRecovery(owner, json, signal);
@@ -107,26 +137,48 @@ export function ReaderBridgeRecovery({ owner }: { owner: string }) {
     });
   };
   const active = rows.filter((row) => !['abandoned', 'superseded'].includes(row.phase));
+  const older = rows.length - active.length;
   return (
-    <section aria-label="Reader sync recovery" aria-busy={busy}>
+    <section
+      aria-label="Reader sync recovery"
+      aria-busy={busy || loading}
+      className="reader-bridge-recovery"
+    >
       <details>
         <summary>Reader sync recovery{rows.length ? ` (${rows.length})` : ''}</summary>
-        <p>
+        <p id={explanation} className="reader-bridge-explanation">
           Keep a copy of saved sync decisions and previous reading values. Restoring this file adds
           inactive evidence for review; it does not change your reading data or reconnect Google
           Drive.
         </p>
-        <Button variant="outline" disabled={busy || !rows.length} onClick={() => void save()}>
-          Download sync recovery
-        </Button>
-        <label>
-          Restore sync recovery
-          <input type="file" accept=".json,application/json" disabled={busy} onChange={load} />
-        </label>
-        {active.map((row) => (
-          <article className="library" key={row.id}>
-            <strong>{row.title}</strong>
-            <p>
+        <div className="reader-bridge-recovery-actions">
+          <Button
+            variant="outline"
+            disabled={busy || loading || !rows.length}
+            onClick={() => void save()}
+          >
+            Download sync recovery
+          </Button>
+          <div className="reader-bridge-recovery-file">
+            <label htmlFor={fileId}>Restore sync recovery</label>
+            <input
+              id={fileId}
+              type="file"
+              accept=".json,application/json"
+              disabled={busy}
+              aria-describedby={explanation}
+              onChange={load}
+            />
+          </div>
+        </div>
+        {loading && !rows.length ? <p className="hint">Checking saved decisions…</p> : null}
+        {!loading && !readError && !rows.length ? (
+          <p className="hint">No saved sync decisions on this device yet.</p>
+        ) : null}
+        {active.slice(0, visible).map((row) => (
+          <article className="reader-bridge-recovery-record" key={row.id}>
+            <h4>{row.title}</h4>
+            <p className="hint">
               {row.phase === 'accepted'
                 ? 'Saved reading change'
                 : row.phase === 'restored'
@@ -151,10 +203,31 @@ export function ReaderBridgeRecovery({ owner }: { owner: string }) {
             ) : null}
           </article>
         ))}
+        {visible < active.length ? (
+          <Button variant="outline" onClick={() => setVisible((count) => count + 10)}>
+            Show more saved decisions ({active.length - visible} remaining)
+          </Button>
+        ) : null}
+        {older ? (
+          <p className="hint">
+            {older} older {older === 1 ? 'decision is' : 'decisions are'} also kept in the recovery
+            download.
+          </p>
+        ) : null}
       </details>
-      <div role="status" aria-live="polite">
+      <div role="status" aria-live="polite" aria-atomic="true" className="reader-bridge-status">
+        {readError ? <p>{readError}</p> : null}
         {notice ? <p>{notice}</p> : null}
       </div>
+      {readError ? (
+        <Button
+          variant="outline"
+          disabled={busy || loading}
+          onClick={() => setRefreshAttempt((attempt) => attempt + 1)}
+        >
+          Try reading sync recovery again
+        </Button>
+      ) : null}
     </section>
   );
 }

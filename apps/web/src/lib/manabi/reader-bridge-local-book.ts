@@ -30,6 +30,7 @@ const verifiedBooks = new WeakMap<
   {
     snapshot: ReaderBridgeLocalBookSnapshot;
     fingerprint: string;
+    profileId: string | null;
     check(): void;
   }
 >();
@@ -43,6 +44,7 @@ export function captureReaderBridgeLocalBook(comparison: object) {
   return {
     snapshot: structuredClone(verified.snapshot),
     fingerprint: verified.fingerprint,
+    profileId: verified.profileId,
     assertCurrent: verified.check
   };
 }
@@ -229,6 +231,7 @@ export async function compareReaderBridgeLocalBook(
     verifiedBooks.set(result, {
       snapshot: before,
       fingerprint: originalIdentity.fingerprint,
+      profileId: scope.profileId,
       check
     });
   return result;

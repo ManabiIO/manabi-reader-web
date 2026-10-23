@@ -269,6 +269,15 @@ async function capacity(
     fail('capacity');
 }
 
+/** A restored completed decision is inactive evidence, not a competing job or
+ * an active baseline. Restored unfinished/uncertain work still requires review. */
+export function readerBridgeJournalNeedsReview(row: ReaderBridgeJournalRecord): boolean {
+  const settled = ['abandoned', 'accepted', 'superseded'];
+  return (
+    !settled.includes(row.phase) && !(row.phase === 'restored' && settled.includes(row.entry.phase))
+  );
+}
+
 /** Call before scheduling work. Retry the same operationId after a lost local
  * result; a changed draft cannot reuse it. Concurrent tabs serialize in IDB. */
 export async function prepareReaderBridgeJournal(
@@ -308,9 +317,7 @@ export async function prepareReaderBridgeJournal(
     const existing = await tx.store.index('binding').getAll(next.binding);
     if (
       existing.some(
-        (row) =>
-          row.accountId === scope.accountId &&
-          !['abandoned', 'accepted', 'superseded'].includes(row.phase)
+        (row) => row.accountId === scope.accountId && readerBridgeJournalNeedsReview(row)
       )
     )
       fail('pending');
@@ -669,6 +676,13 @@ export async function acceptReaderBridgeReceive(
       )
         fail('stale');
       const rows = await journal.index('accountId').getAll(scope.accountId);
+      if (
+        rows.some(
+          (row) =>
+            row.id !== id && row.binding === next.binding && readerBridgeJournalNeedsReview(row)
+        )
+      )
+        fail('pending');
       const prior = rows.filter((row) => row.binding === next.binding && row.phase === 'accepted');
       if (prior.length > 1) fail('recovery');
       const previous = prior[0];

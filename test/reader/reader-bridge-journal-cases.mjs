@@ -6,6 +6,7 @@ import {
   prepareReaderBridgeJournal as prepare,
   markReaderBridgeAttempt as attempt,
   abandonReaderBridgeDraft as abandon,
+  acceptReaderBridgeReceive as accept,
   readReaderBridgeJournal as read,
   exportReaderBridgeRecovery as backup,
   restoreReaderBridgeRecovery as restore,
@@ -363,6 +364,57 @@ const cases = {
       assert(
         exported.entries.every((entry) => entry.phase === 'uncertain'),
         'Restoring hid the original unknown outcome.'
+      );
+    });
+  },
+  async 'uncertain recovery restored after preparation blocks local acceptance without losing evidence'() {
+    await withDatabase(async (db) => {
+      const input = await evidence('binding', 'receive');
+      [input.local, input.remote] = [input.remote, input.local];
+      const prepared = await prepare(db, scope(), globalThis.crypto.randomUUID(), input);
+      assert(
+        prepared.plan.pull.includes('resume'),
+        'Fixture did not prepare an incoming position.'
+      );
+      await withDatabase(async (source) => {
+        const outgoing = await prepare(
+          source,
+          scope(),
+          globalThis.crypto.randomUUID(),
+          await evidence(),
+          qualified
+        );
+        await attempt(source, scope(), outgoing.id, outgoing.revision, qualified);
+        await restore(db, scope(), await backup(source, scope()));
+      });
+      let applied = false;
+      await rejects(
+        () =>
+          accept(
+            db,
+            scope(),
+            prepared.id,
+            prepared.revision,
+            {
+              bookId: 1,
+              localIdentity: '00000000-0000-4000-8000-000000000001',
+              statisticsKey: 'local:00000000-0000-4000-8000-000000000001',
+              title: '本'
+            },
+            'incoming',
+            async () => {
+              applied = true;
+            }
+          ),
+        'pending'
+      );
+      assert(!applied, 'Unresolved restored upload allowed reading values to change.');
+      const rows = await read(db, scope());
+      assert(
+        rows.length === 2 &&
+          rows.some((row) => row.phase === 'restored') &&
+          rows.some((row) => row.id === prepared.id && row.phase === 'prepared'),
+        'Rejected receive altered recovery evidence.'
       );
     });
   },

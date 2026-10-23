@@ -20,7 +20,7 @@ function history(value: Readonly<Record<string, unknown>> | undefined) {
   if (!value) return 'No recorded reading';
   return `${Math.round(Number(value.readingTime) / 60)} min · ${Number(value.charactersRead).toLocaleString()} characters`;
 }
-function message(error: unknown) {
+function message(error: unknown, saving: boolean) {
   const code = error && typeof error === 'object' && 'code' in error ? error.code : '';
   if (code === 'unsupported-mapping')
     return 'This reader uses position or history details that cannot be saved here safely yet. Import and export remain available.';
@@ -34,7 +34,9 @@ function message(error: unknown) {
     return 'Return all reader tabs to the Library before saving these reading changes.';
   if (error instanceof Error && error.message.includes('requires Web Locks'))
     return 'This browser cannot safely apply reading changes across tabs. Import and local reading still work.';
-  return 'Reading changes could not be saved. Your existing reading data was kept; any unfinished operation is in sync recovery.';
+  return saving
+    ? 'The save could not be confirmed. Check Reader sync recovery before reviewing the current copies again.'
+    : 'Reading changes could not be checked. Your reading data was kept. Try reviewing again.';
 }
 export function ReaderBridgeChanges({
   preview,
@@ -50,7 +52,22 @@ export function ReaderBridgeChanges({
   const [notice, setNotice] = React.useState('');
   const [visible, setVisible] = React.useState(20);
   const pending = React.useRef<AbortController | null>(null);
-  React.useEffect(() => () => pending.current?.abort(), []);
+  const heading = React.useId();
+  const explanation = React.useId();
+  const reviewHeading = React.useRef<HTMLHeadingElement>(null);
+  React.useEffect(() => {
+    setReview(null);
+    setBusy(false);
+    setNotice('');
+    setVisible(20);
+    return () => {
+      pending.current?.abort();
+      pending.current = null;
+    };
+  }, [preview, comparison]);
+  React.useEffect(() => {
+    if (review) reviewHeading.current?.focus();
+  }, [review]);
   const run = async (save: boolean) => {
     if (pending.current) return;
     const operation = new AbortController();
@@ -72,7 +89,7 @@ export function ReaderBridgeChanges({
         if (!operation.signal.aborted) setReview(result);
       }
     } catch (error) {
-      if (!operation.signal.aborted) setNotice(message(error));
+      if (!operation.signal.aborted) setNotice(message(error, save));
     } finally {
       if (!operation.signal.aborted) setBusy(false);
       if (pending.current === operation) pending.current = null;
@@ -95,25 +112,27 @@ export function ReaderBridgeChanges({
         </Button>
       ) : (
         <>
-          <h4>Reading changes for {review.title}</h4>
-          <div className="reader-bridge-table">
+          <h4 id={heading} ref={reviewHeading} tabIndex={-1}>
+            Reading changes for {review.title}
+          </h4>
+          <div className="reader-bridge-table" role="region" aria-labelledby={heading} tabIndex={0}>
             <table>
               <thead>
                 <tr>
-                  <th>Reading data</th>
-                  <th>This device</th>
-                  <th>Google Drive</th>
+                  <th scope="col">Reading data</th>
+                  <th scope="col">This device</th>
+                  <th scope="col">Google Drive</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <th>Saved position</th>
+                  <th scope="row">Saved position</th>
                   <td>{position(review.local.values.resume)}</td>
                   <td>{position(review.remote.values.resume)}</td>
                 </tr>
                 {days.slice(0, visible).map((key) => (
                   <tr key={key}>
-                    <th>{key.slice(11)}</th>
+                    <th scope="row">{key.slice(11)}</th>
                     <td>{history(review.local.values[key])}</td>
                     <td>{history(review.remote.values[key])}</td>
                   </tr>
@@ -122,18 +141,18 @@ export function ReaderBridgeChanges({
             </table>
           </div>
           {visible < days.length ? (
-            <Button variant="outline" onClick={() => setVisible(visible + 20)}>
+            <Button variant="outline" onClick={() => setVisible((count) => count + 20)}>
               Show more reading days ({days.length - visible} remaining)
             </Button>
           ) : null}
-          <p>
+          <p id={explanation} className="reader-bridge-explanation">
             {review.plan.state === 'review'
               ? 'The copies differ. Choosing Google Drive replaces the differing saved position and daily totals shown here. Previous values are kept in sync recovery.'
               : 'Only incoming changes will be saved. Reading data found only on this device stays here.'}{' '}
             Google Drive will not be changed.
           </p>
           {canSave ? (
-            <Button disabled={busy} onClick={() => void run(true)}>
+            <Button disabled={busy} aria-describedby={explanation} onClick={() => void run(true)}>
               {busy
                 ? 'Saving on this device…'
                 : review.plan.state === 'review'
@@ -148,7 +167,7 @@ export function ReaderBridgeChanges({
           )}
         </>
       )}
-      <div role="status" aria-live="polite">
+      <div role="status" aria-live="polite" aria-atomic="true" className="reader-bridge-status">
         {notice ? <p>{notice}</p> : null}
       </div>
     </div>

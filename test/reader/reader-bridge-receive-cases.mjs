@@ -402,6 +402,88 @@ const cases = {
       await rejects(async () => prepare(db, await remote()), 'unsupported-mapping');
     });
   },
+  async 'content evidence and reviews stay bound to the original account'() {
+    await setup(async (db) => {
+      await db.put('readerBookScope', { bookId: 1, accountId: 'alice' });
+      const comparisonScope = scope();
+      const match = await compare(db, comparisonScope, raw(), 100, 1, document);
+      const incoming = await remote();
+      const before = await dataState(db);
+      await rejects(
+        () =>
+          review(db, { ...scope(), profileId: 'bob' }, match, incoming, {
+            title: '本',
+            characters: 100
+          }),
+        'changed'
+      );
+      const reviewScope = scope();
+      const pending = await review(db, reviewScope, match, incoming, {
+        title: '本',
+        characters: 100
+      });
+      reviewScope.profileId = 'bob';
+      await rejects(() => receive(pending, 'incoming', async () => {}), 'changed');
+      assert(before === (await dataState(db)), 'Another account applied the original review.');
+      assert((await db.count('readerBridgeJournal')) === 0, 'Cross-account intent was persisted.');
+    });
+  },
+  async 'receiving changes advances completion and statistics clocks beyond retained local values'() {
+    await setup(async (db) => {
+      const future = Date.now() + 100000;
+      await db.put('readerLocalIdentity', { bookId: 1, uuid: localUuid });
+      await db.put('bookmark', {
+        ...mark(0.8),
+        completion: { state: 'finished', finishedOn: '2026-10-01', modifiedAt: future }
+      });
+      await db.put('lastModified', {
+        title: `local:${localUuid}`,
+        dataType: 'statistic',
+        lastModifiedValue: future + 1
+      });
+      const incoming = await remote(0.5, [day()], 'ttu-1-6', {
+        completion: { state: 'reading', modifiedAt: 10 }
+      });
+      await receive(await prepare(db, incoming), 'use-drive', async () => {});
+      const bookmark = await db.get('bookmark', 1);
+      const modified = await db.get('lastModified', [`local:${localUuid}`, 'statistic']);
+      assert(
+        bookmark.completion.modifiedAt > future,
+        'A delayed older completion can override the accepted choice.'
+      );
+      assert(
+        modified.lastModifiedValue > future + 1,
+        'The statistics change clock moved backwards.'
+      );
+    });
+  },
+  async 'statistics-clock changes invalidate review and exhausted clocks never create unreadable records'() {
+    for (const exhausted of [false, true])
+      await setup(async (db) => {
+        await db.put('readerLocalIdentity', { bookId: 1, uuid: localUuid });
+        const modified = {
+          title: `local:${localUuid}`,
+          dataType: 'statistic',
+          lastModifiedValue: exhausted ? 1e15 : 10
+        };
+        await db.put('lastModified', modified);
+        const pending = await prepare(db, await remote());
+        if (!exhausted) await db.put('lastModified', { ...modified, lastModifiedValue: 11 });
+        const before = await dataState(db);
+        await rejects(
+          () => receive(pending, 'incoming', async () => {}),
+          exhausted ? 'unsupported-mapping' : 'changed'
+        );
+        assert(
+          before === (await dataState(db)),
+          'An unrepresentable or stale clock changed reading data.'
+        );
+        assert(
+          (await db.getAll('readerBridgeJournal')).every((row) => row.phase !== 'accepted'),
+          'Rejected clock was acknowledged.'
+        );
+      });
+  },
   async 'a content comparison cannot be reused for another package or fabricated review'() {
     await setup(async (db) => {
       const match = await compare(db, scope(), raw(), 100, 1, document);
@@ -441,6 +523,29 @@ const cases = {
           rows.some((row) => row.phase === 'restored'),
         'Restored acceptance became active.'
       );
+      const next = await prepare(db, await remote(0.6));
+      assert(
+        next.plan.pull.includes('resume'),
+        'Inactive restored acceptance blocked current review.'
+      );
+      await receive(next, 'incoming', async () => {});
+      assert(
+        (await db.get('bookmark', 1)).progress === 0.6,
+        'Restored evidence blocked a new explicit save.'
+      );
+      await setup(async (other) => {
+        await restore(other, journalScope(), json);
+        const firstReview = await prepare(other, await remote(0.7));
+        assert(
+          firstReview.plan.pull.includes('resume'),
+          'Restored acceptance was activated as an old local baseline.'
+        );
+        await receive(firstReview, 'incoming', async () => {});
+        assert(
+          (await other.get('bookmark', 1)).progress === 0.7,
+          'Inactive recovery prevented first explicit save.'
+        );
+      });
       const invalid = JSON.parse(json);
       invalid.entries[0].acceptance.baseline.local.records.resume = 'f'.repeat(64);
       await rejects(() => restore(db, journalScope(), JSON.stringify(invalid)), 'invalid');

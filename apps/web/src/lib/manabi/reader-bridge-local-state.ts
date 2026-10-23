@@ -25,6 +25,7 @@ import {
   READER_BRIDGE_RECEIVE_STORES,
   prepareReaderBridgeJournal,
   acceptReaderBridgeReceive,
+  readerBridgeJournalNeedsReview,
   type ReaderBridgeJournalEvidence,
   type ReaderBridgeReceiveDecision,
   type ReaderBridgeLocalTarget
@@ -63,6 +64,7 @@ async function readState(
     scope.signal?.throwIfAborted();
     scope.assertCurrent();
     verified.assertCurrent();
+    if (scope.profileId !== verified.profileId) fail('changed');
   };
   check();
   const id = verified.snapshot.book.id;
@@ -97,16 +99,18 @@ async function readState(
   // Shared totals affect every copy under this key. Do not infer ownership or
   // byte identity from another book's claimed hash.
   if (contentCopies.length !== 1 || contentCopies[0] !== id) fail('statistics-review');
-  const [rows, legacy, migration, priorLocal, pending, conflicts] = await Promise.all([
-    tx.objectStore('readerStatistic').getAll(statisticRange(key), 20001),
-    tx.objectStore('statistic').getAll(IDBKeyRange.bound([book.title], [book.title, []]), 20001),
-    tx.objectStore('readerStatisticMigration').get(book.title),
-    contentKey && identity
-      ? tx.objectStore('readerStatistic').getAll(statisticRange(`local:${identity.uuid}`), 1)
-      : Promise.resolve([]),
-    tx.objectStore('readerPersonalOutbox').index('bookKey').getAll(key),
-    tx.objectStore('readerPersonalConflict').index('bookKey').getAll(key)
-  ]);
+  const [rows, legacy, migration, priorLocal, pending, conflicts, statisticsModified] =
+    await Promise.all([
+      tx.objectStore('readerStatistic').getAll(statisticRange(key), 20001),
+      tx.objectStore('statistic').getAll(IDBKeyRange.bound([book.title], [book.title, []]), 20001),
+      tx.objectStore('readerStatisticMigration').get(book.title),
+      contentKey && identity
+        ? tx.objectStore('readerStatistic').getAll(statisticRange(`local:${identity.uuid}`), 1)
+        : Promise.resolve([]),
+      tx.objectStore('readerPersonalOutbox').index('bookKey').getAll(key),
+      tx.objectStore('readerPersonalConflict').index('bookKey').getAll(key),
+      tx.objectStore('lastModified').get([key, 'statistic'])
+    ]);
   check();
   if (pending.length || conflicts.length) fail('pending-sync');
   if (
@@ -137,7 +141,8 @@ async function readState(
     titleCopies,
     contentCopies,
     adoptLegacy,
-    selected
+    selected,
+    statisticsModified
   };
 }
 type State = Awaited<ReturnType<typeof readState>>;
@@ -228,6 +233,7 @@ export async function reviewReaderBridgeLocalChanges(
     scope.signal?.throwIfAborted();
     scope.assertCurrent();
     verified.assertCurrent();
+    if (scope.profileId !== verified.profileId) fail('changed');
   };
   check();
   const book = { ...source };
@@ -253,8 +259,7 @@ export async function reviewReaderBridgeLocalChanges(
       const rows = (
         await tx.objectStore('readerBridgeJournal').index('binding').getAll(remote.snapshot.binding)
       ).filter((row) => row.accountId === scope.profileId);
-      if (rows.some((row) => !['accepted', 'superseded', 'abandoned'].includes(row.phase)))
-        fail('pending-sync');
+      if (rows.some(readerBridgeJournalNeedsReview)) fail('pending-sync');
       const accepted = rows.filter((row) => row.phase === 'accepted');
       if (accepted.length > 1) fail('pending-sync');
       const prior = accepted[0];
@@ -352,6 +357,7 @@ export async function receiveReaderBridgeLocalChanges(
     scope.signal?.throwIfAborted();
     scope.assertCurrent();
     verified.assertCurrent();
+    if (scope.profileId !== verified.profileId) fail('changed');
   };
   check();
   if (!scope.profileId) fail('changed');
@@ -389,9 +395,13 @@ export async function receiveReaderBridgeLocalChanges(
       const time = Math.max(
         Date.now(),
         Number(state.resume?.lastBookmarkModified ?? 0) + 1,
+        Number(state.resume?.completion?.modifiedAt ?? 0) + 1,
+        Number(state.statisticsModified?.lastModifiedValue ?? 0) + 1,
         ...state.selected.map((row) => row.lastStatisticModified + 1)
       );
-      if (!Number.isSafeInteger(time) || time > 8640000000000000) fail('unsupported-mapping');
+      // The projection decoder accepts timestamps up to 1e15. Do not persist a
+      // value that a later review or recovery export would reject.
+      if (!Number.isSafeInteger(time) || time > 1e15) fail('unsupported-mapping');
       if (!state.identity)
         await tx
           .objectStore('readerLocalIdentity')
