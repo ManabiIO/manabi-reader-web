@@ -217,6 +217,23 @@
 .react-settings-connections-screen .reader-bridge-comparison button {
   justify-self: start;
 }
+.react-settings-connections-screen .reader-bridge-changes {
+  display: grid;
+  gap: 0.75rem;
+}
+.react-settings-connections-screen .reader-bridge-table {
+  overflow-x: auto;
+}
+.react-settings-connections-screen .reader-bridge-table table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.react-settings-connections-screen .reader-bridge-table th,
+.react-settings-connections-screen .reader-bridge-table td {
+  padding: 0.5rem;
+  text-align: start;
+  border-bottom: 1px solid var(--border);
+}
 .react-settings-connections-screen label {
   display: flex;
   gap: 0.5rem;

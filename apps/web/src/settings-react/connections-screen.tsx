@@ -44,6 +44,7 @@ import { resolvePersonalConflict } from '$lib/manabi/personal-sync';
 
 import { CloudLibrary, removeLocalLibrary, supportedBook } from '$lib/manabi/sources';
 import { ReaderBridgePreview } from './reader-bridge-preview';
+import { ReaderBridgeRecovery } from './reader-bridge-recovery';
 import type { DriveReaderSelection } from '$lib/manabi/reader-bridge-source';
 
 import { DavConnections } from './dav-connections';
@@ -988,6 +989,12 @@ export function ConnectionsScreen(
               </React.Fragment>
             ))}
           </Dom>
+          {localProfileUser()?.id ? (
+            <ReaderBridgeRecovery
+              key={JSON.stringify([localProfileUser()!.id, accountGeneration()])}
+              owner={localProfileUser()!.id}
+            />
+          ) : null}
         </Dom>
       </div>
     </SettingsContext.Provider>

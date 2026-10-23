@@ -21,10 +21,8 @@ import {
   type ReaderBridgeProjection
 } from './reader-bridge-projection.ts';
 
-/** This store is in the books database so a future local apply/acknowledgement
- * can share its transaction. This module deliberately cannot acknowledge or
- * execute a transfer: decoded projections do not prove a lossless local mapping
- * or a qualified cloud writer. No network, scheduler, grants or credentials. */
+/** The receive adapter applies local data in the same transaction as acceptance.
+ * No network, scheduler, grants or outgoing writer live in this module. */
 export const READER_BRIDGE_JOURNAL_LIMITS = Object.freeze({
   entries: 64,
   entryBytes: 24 * 1024 * 1024,
@@ -48,7 +46,28 @@ export interface ReaderBridgeJournalEvidence {
   remote: EvidenceProjection;
   baseline?: ReaderBridgeInput['baseline'];
 }
-type Phase = 'prepared' | 'review' | 'paused' | 'uncertain' | 'abandoned';
+type Phase =
+  | 'prepared'
+  | 'review'
+  | 'paused'
+  | 'uncertain'
+  | 'abandoned'
+  | 'accepted'
+  | 'superseded';
+export interface ReaderBridgeLocalTarget {
+  bookId: number;
+  localIdentity: string;
+  statisticsKey: string;
+  title: string;
+}
+export type ReaderBridgeReceiveDecision = 'incoming' | 'use-drive';
+interface Acceptance {
+  acceptedAt: string;
+  target: ReaderBridgeLocalTarget;
+  decision: ReaderBridgeReceiveDecision;
+  applied: string[];
+  baseline: NonNullable<ReaderBridgeInput['baseline']>;
+}
 interface Attempt {
   id: string;
   startedAt: string;
@@ -59,6 +78,7 @@ interface PortableEntry {
   phase: Phase;
   evidence: ReaderBridgeJournalEvidence;
   attempt?: Attempt;
+  acceptance?: Acceptance;
 }
 export interface ReaderBridgeJournalRecord {
   id: string;
@@ -286,7 +306,13 @@ export async function prepareReaderBridgeJournal(
       return previous; // In particular, an uncertain attempt is never prepared again.
     }
     const existing = await tx.store.index('binding').getAll(next.binding);
-    if (existing.some((row) => row.accountId === scope.accountId && row.phase !== 'abandoned'))
+    if (
+      existing.some(
+        (row) =>
+          row.accountId === scope.accountId &&
+          !['abandoned', 'accepted', 'superseded'].includes(row.phase)
+      )
+    )
       fail('pending');
     await capacity(tx, scope.accountId, [next]);
     await tx.store.add(next);
@@ -366,11 +392,17 @@ async function portable(
   check: () => void,
   signal?: AbortSignal
 ): Promise<PortableEntry> {
-  const value = object(input, ['operationId', 'createdAt', 'phase', 'evidence'], ['attempt']);
+  const value = object(
+    input,
+    ['operationId', 'createdAt', 'phase', 'evidence'],
+    ['attempt', 'acceptance']
+  );
   if (
     !uuid(value.operationId) ||
     !date(value.createdAt) ||
-    !['prepared', 'review', 'paused', 'uncertain', 'abandoned'].includes(String(value.phase))
+    !['prepared', 'review', 'paused', 'uncertain', 'abandoned', 'accepted', 'superseded'].includes(
+      String(value.phase)
+    )
   )
     fail();
   let attempt: Attempt | undefined;
@@ -379,12 +411,33 @@ async function portable(
     if (!uuid(pending.id) || !date(pending.startedAt) || value.phase !== 'uncertain') fail();
     attempt = { id: pending.id, startedAt: pending.startedAt };
   } else if (value.phase === 'uncertain') fail();
+  const evidence = await verifyEvidence(value.evidence, check, signal);
+  let acceptance: Acceptance | undefined;
+  if (['accepted', 'superseded'].includes(String(value.phase))) {
+    const saved = object(value.acceptance, [
+      'acceptedAt',
+      'target',
+      'decision',
+      'applied',
+      'baseline'
+    ]);
+    if (!date(saved.acceptedAt)) fail();
+    acceptance = acceptedProjection(
+      evidence,
+      value.operationId,
+      saved.target,
+      saved.decision,
+      saved.acceptedAt
+    );
+    if (canonical(saved) !== canonical(acceptance)) fail();
+  } else if (value.acceptance !== undefined) fail();
   return {
     operationId: value.operationId,
     createdAt: value.createdAt,
     phase: value.phase as Phase,
-    evidence: await verifyEvidence(value.evidence, check, signal),
-    ...(attempt ? { attempt } : {})
+    evidence,
+    ...(attempt ? { attempt } : {}),
+    ...(acceptance ? { acceptance } : {})
   };
 }
 export async function exportReaderBridgeRecovery(
@@ -398,7 +451,7 @@ export async function exportReaderBridgeRecovery(
   check();
   const document = {
     format: 'manabi-reader-bridge-recovery',
-    version: 1,
+    version: 2,
     accountId: scope.accountId,
     entries
   };
@@ -425,7 +478,8 @@ export async function restoreReaderBridgeRecovery(
   const document = object(JSON.parse(json), ['format', 'version', 'accountId', 'entries']);
   if (
     document.format !== 'manabi-reader-bridge-recovery' ||
-    document.version !== 1 ||
+    ![1, 2].includes(Number(document.version)) ||
+    typeof document.version !== 'number' ||
     document.accountId !== scope.accountId ||
     !Array.isArray(document.entries) ||
     document.entries.length > READER_BRIDGE_JOURNAL_LIMITS.entries
@@ -433,6 +487,8 @@ export async function restoreReaderBridgeRecovery(
     fail();
   const restored = new Map<string, ReaderBridgeJournalRecord>();
   for (const value of document.entries) {
+    if (document.version === 1 && value && typeof value === 'object' && 'acceptance' in value)
+      fail();
     if (bytes(value) > READER_BRIDGE_JOURNAL_LIMITS.entryBytes) fail('capacity');
     const entry = await portable(value, check, scope.signal);
     const digest = Array.from(
@@ -468,4 +524,191 @@ export async function restoreReaderBridgeRecovery(
     }
     return additions.length;
   });
+}
+
+export const READER_BRIDGE_RECEIVE_STORES = [
+  'data',
+  'bookmark',
+  'readerBookScope',
+  'readerLocalIdentity',
+  'statistic',
+  'readerStatistic',
+  'readerStatisticMigration',
+  'lastModified',
+  'readerBridgeJournal',
+  'readerPersonalOutbox',
+  'readerPersonalConflict'
+] as const;
+export type ReaderBridgeReceiveTransaction = IDBPTransaction<
+  BooksDb,
+  typeof READER_BRIDGE_RECEIVE_STORES,
+  'readwrite'
+>;
+
+function localTarget(value: unknown): ReaderBridgeLocalTarget {
+  const v = object(value, ['bookId', 'localIdentity', 'statisticsKey', 'title']);
+  if (
+    !Number.isSafeInteger(v.bookId) ||
+    Number(v.bookId) <= 0 ||
+    !uuid(v.localIdentity) ||
+    typeof v.statisticsKey !== 'string' ||
+    !(
+      v.statisticsKey === `local:${v.localIdentity}` ||
+      /^content:[a-f0-9]{64}$/.test(v.statisticsKey)
+    ) ||
+    typeof v.title !== 'string' ||
+    !v.title ||
+    v.title.length > 4096
+  )
+    fail();
+  return v as unknown as ReaderBridgeLocalTarget;
+}
+
+/** Only agreed records enter the baseline. Local-only pending values keep their
+ * previous agreement, and missing rows are never accepted as deletions. */
+function acceptedProjection(
+  evidence: ReaderBridgeJournalEvidence,
+  operationId: string,
+  target: unknown,
+  decision: unknown,
+  acceptedAt: string
+): Acceptance {
+  if (evidence.direction !== 'receive' || !['incoming', 'use-drive'].includes(String(decision)))
+    fail();
+  const result = plan(evidence);
+  if (
+    result.state === 'paused' ||
+    result.conflicts.some((item) => item.reason === 'removed') ||
+    (result.state === 'review' && decision !== 'use-drive')
+  )
+    fail('recovery');
+  const selected =
+    decision === 'use-drive'
+      ? Object.keys(evidence.remote.snapshot.records).sort()
+      : [...result.acknowledge, ...result.pull].sort();
+  const records = { ...evidence.baseline?.local.records };
+  for (const key of selected) records[key] = evidence.remote.snapshot.records[key];
+  return {
+    acceptedAt,
+    target: { ...localTarget(target) },
+    decision: decision as ReaderBridgeReceiveDecision,
+    applied: selected.filter(
+      (key) => evidence.local.snapshot.records[key] !== evidence.remote.snapshot.records[key]
+    ),
+    baseline: {
+      local: { ...evidence.local.snapshot, revision: `accepted:${operationId}`, records },
+      remote: { ...evidence.remote.snapshot, records: { ...records } }
+    }
+  };
+}
+
+/** The callback may await only this transaction's IDB requests. It must recheck
+ * current book bytes, ownership, local state and reader lifetime authority, then
+ * apply exactly the supplied incoming keys. A request success is not a commit. */
+export async function acceptReaderBridgeReceive(
+  db: IDBPDatabase<BooksDb>,
+  scope: ReaderBridgeJournalScope,
+  id: string,
+  revision: string,
+  targetInput: ReaderBridgeLocalTarget,
+  decision: ReaderBridgeReceiveDecision,
+  apply: (
+    tx: ReaderBridgeReceiveTransaction,
+    keys: readonly string[],
+    check: () => void
+  ) => Promise<void>
+) {
+  const check = guard(scope);
+  check();
+  const target = structuredClone(localTarget(targetInput));
+  // Revalidate retained evidence before opening the write transaction.
+  const observed = await db.get('readerBridgeJournal', id);
+  check();
+  if (
+    !observed ||
+    observed.accountId !== scope.accountId ||
+    observed.revision !== revision ||
+    !['prepared', 'review'].includes(observed.phase)
+  )
+    fail('stale');
+  const entry = await portable(observed.entry, check, scope.signal);
+  const acceptance = acceptedProjection(
+    entry.evidence,
+    entry.operationId,
+    target,
+    decision,
+    new Date().toISOString()
+  );
+  const next = record(
+    scope.accountId,
+    { ...entry, phase: 'accepted', acceptance },
+    plan(entry.evidence),
+    id
+  );
+  check();
+  const tx = db.transaction(READER_BRIDGE_RECEIVE_STORES, 'readwrite');
+  const abort = () => {
+    try {
+      tx.abort();
+    } catch {
+      /* Already settled. */
+    }
+  };
+  scope.signal?.addEventListener('abort', abort, { once: true });
+  try {
+    return await commitTransaction(tx, async () => {
+      check();
+      const journal = tx.objectStore('readerBridgeJournal');
+      const current = await journal.get(id);
+      if (
+        !current ||
+        current.revision !== revision ||
+        current.accountId !== scope.accountId ||
+        canonical(current.entry) !== canonical(entry) ||
+        current.phase !== entry.phase
+      )
+        fail('stale');
+      const rows = await journal.index('accountId').getAll(scope.accountId);
+      const prior = rows.filter((row) => row.binding === next.binding && row.phase === 'accepted');
+      if (prior.length > 1) fail('recovery');
+      const previous = prior[0];
+      if (previous) {
+        const accepted = previous.entry.acceptance;
+        if (
+          !accepted ||
+          canonical(accepted.baseline) !== canonical(entry.evidence.baseline) ||
+          accepted.target.bookId !== target.bookId ||
+          accepted.target.localIdentity !== target.localIdentity ||
+          accepted.target.statisticsKey !== target.statisticsKey
+        )
+          fail('stale');
+      } else if (entry.evidence.baseline) fail('stale');
+      const updates = [
+        next,
+        ...prior.map((row) =>
+          record(scope.accountId, { ...row.entry, phase: 'superseded' }, row.plan, row.id)
+        )
+      ];
+      const all = [
+        ...rows.filter((row) => !updates.some((update) => update.id === row.id)),
+        ...updates
+      ];
+      if (
+        all.length > READER_BRIDGE_JOURNAL_LIMITS.entries ||
+        all.reduce((sum, row) => sum + bytes(row.entry), 0) >
+          READER_BRIDGE_JOURNAL_LIMITS.accountBytes
+      )
+        fail('capacity');
+      check();
+      await apply(tx, acceptance.applied, check);
+      check();
+      for (const update of updates) {
+        await journal.put(update);
+        check();
+      }
+      return next;
+    });
+  } finally {
+    scope.signal?.removeEventListener('abort', abort);
+  }
 }

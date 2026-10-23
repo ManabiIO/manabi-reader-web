@@ -333,7 +333,9 @@ const cases = {
         'Unexpected backup authority.'
       );
       assert(!json.includes('conditional-recoverable'), 'Backup retained a live writer assertion.');
-      assert((await restore(db, scope(), json)) === 1, 'Recovery evidence missing.');
+      assert(document.version === 2, 'New backups must use the version 2 envelope.');
+      const legacy = JSON.stringify({ ...document, version: 1 });
+      assert((await restore(db, scope(), legacy)) === 1, 'Version 1 recovery evidence missing.');
       assert((await restore(db, scope(), json)) === 0, 'Repeated import created duplicates.');
       const rows = await read(db, scope()),
         recovered = rows.find((row) => row.phase === 'restored');

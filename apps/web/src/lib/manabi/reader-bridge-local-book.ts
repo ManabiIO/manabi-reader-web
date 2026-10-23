@@ -20,6 +20,32 @@ export interface ReaderBridgeLocalScope {
   signal?: AbortSignal;
   assertCurrent(): void;
 }
+export interface ReaderBridgeLocalBookSnapshot {
+  book: BooksDb['data']['value'];
+  owner: BooksDb['readerBookScope']['value'] | undefined;
+  resume: BooksDb['bookmark']['value'] | undefined;
+}
+const verifiedBooks = new WeakMap<
+  object,
+  {
+    snapshot: ReaderBridgeLocalBookSnapshot;
+    fingerprint: string;
+    check(): void;
+  }
+>();
+
+/** Internal preparation evidence. A UI object copied/recreated by a caller is
+ * not proof of a match. Consumers still recheck this snapshot in their own tx. */
+export function captureReaderBridgeLocalBook(comparison: object) {
+  const verified = verifiedBooks.get(comparison);
+  if (!verified) throw new ReaderBridgeLocalBookError('unavailable');
+  verified.check();
+  return {
+    snapshot: structuredClone(verified.snapshot),
+    fingerprint: verified.fingerprint,
+    assertCurrent: verified.check
+  };
+}
 export class ReaderBridgeLocalBookError extends Error {
   constructor(public readonly code: 'unavailable' | 'changed' | 'legacy-media') {
     super(
@@ -77,7 +103,7 @@ export async function listReaderBridgeLocalBooks(
 /** Exact synchronous structured-clone comparison. Object.keys(ArrayBuffer)
  * cannot compare image bytes. Legacy Blobs require asynchronous reads, so they
  * are deliberately not admitted by the final transaction check. */
-function sameStoredValue(a: unknown, b: unknown): boolean {
+export function sameReaderBridgeStoredValue(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
   if (a instanceof ArrayBuffer || b instanceof ArrayBuffer) {
     if (!(a instanceof ArrayBuffer) || !(b instanceof ArrayBuffer) || a.byteLength !== b.byteLength)
@@ -93,7 +119,7 @@ function sameStoredValue(a: unknown, b: unknown): boolean {
       Array.isArray(a) &&
       Array.isArray(b) &&
       a.length === b.length &&
-      a.every((value, index) => sameStoredValue(value, b[index]))
+      a.every((value, index) => sameReaderBridgeStoredValue(value, b[index]))
     );
   if (
     ![Object.prototype, null].includes(Object.getPrototypeOf(a)) ||
@@ -104,7 +130,9 @@ function sameStoredValue(a: unknown, b: unknown): boolean {
     bb = b as Record<string, unknown>;
   return (
     Object.keys(aa).length === Object.keys(bb).length &&
-    Object.keys(aa).every((key) => Object.hasOwn(bb, key) && sameStoredValue(aa[key], bb[key]))
+    Object.keys(aa).every(
+      (key) => Object.hasOwn(bb, key) && sameReaderBridgeStoredValue(aa[key], bb[key])
+    )
   );
 }
 
@@ -138,7 +166,8 @@ export async function compareReaderBridgeLocalBook(
     characters < 0
   )
     throw new ReaderBridgeLocalBookError('unavailable');
-  const remote = prepareReaderImportContent(structuredClone(remoteInput), document);
+  const source = structuredClone(remoteInput);
+  const remote = prepareReaderImportContent(source, document);
   const read = async () => {
     check();
     const tx = db.transaction(['data', 'readerBookScope', 'bookmark']);
@@ -158,6 +187,8 @@ export async function compareReaderBridgeLocalBook(
     });
   };
   const before = await read();
+  const originalIdentity = await identifyReaderBook(source, characters, scope.signal);
+  check();
   const stored = before.book;
   if (
     Object.values(stored.blobs).some((value) => value instanceof Blob) ||
@@ -181,9 +212,9 @@ export async function compareReaderBridgeLocalBook(
     layout(remote) === layout(local);
   const after = await read();
   check();
-  if (!sameStoredValue(before, after)) throw new ReaderBridgeLocalBookError('changed');
+  if (!sameReaderBridgeStoredValue(before, after)) throw new ReaderBridgeLocalBookError('changed');
   const progress = before.resume?.progress;
-  return Object.freeze({
+  const result = Object.freeze({
     bookId,
     title: stored.title,
     matches,
@@ -194,4 +225,11 @@ export async function compareReaderBridgeLocalBook(
         : undefined,
     hasResume: !!before.resume
   });
+  if (matches)
+    verifiedBooks.set(result, {
+      snapshot: before,
+      fingerprint: originalIdentity.fingerprint,
+      check
+    });
+  return result;
 }

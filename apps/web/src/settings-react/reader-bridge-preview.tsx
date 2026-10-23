@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { Button } from './primitives';
+import { ReaderBridgeChanges } from './reader-bridge-changes';
 import type {
   DriveReaderSelection,
   previewDriveReaderBridge
@@ -140,6 +141,19 @@ function LocalBookComparison({ preview }: { preview: Preview }) {
           </>
         ) : null}
       </div>
+      {result?.matches ? (
+        <ReaderBridgeChanges
+          key={selected}
+          preview={preview}
+          comparison={result}
+          onSaved={() => {
+            setResult(null);
+            setMessage(
+              'Reading changes saved on this device. Google Drive was not changed. Previous values are available in Reader sync recovery.'
+            );
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -202,7 +216,8 @@ export function ReaderBridgePreview({
         {busy ? 'Checking Google Drive…' : result ? 'Refresh preview' : 'Preview reading data'}
       </Button>
       <p className="hint">
-        Preview only. Automatic sync is not connected yet; your files stay unchanged.
+        Automatic sync is not connected. You can review compatible reading changes before saving
+        them on this device. Google Drive stays unchanged.
       </p>
       <div role="status" aria-live="polite">
         {message ? <p>{message}</p> : null}

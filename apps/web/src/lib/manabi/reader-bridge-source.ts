@@ -40,6 +40,7 @@ const preparedPreviews = new WeakMap<
   {
     content: RestoredContent;
     selection: DriveReaderSelection;
+    observation: Observation;
     assertCurrent(): void;
   }
 >();
@@ -56,6 +57,22 @@ export function captureDriveReaderPreview(preview: DriveReaderPreview) {
     selection: { ...prepared.selection },
     assertCurrent: prepared.assertCurrent
   };
+}
+
+/** Recheck the complete observed file set immediately before a reviewed local
+ * receive. This is still an observation, not an atomic Drive transaction. */
+export async function recheckDriveReaderPreview(preview: DriveReaderPreview, signal?: AbortSignal) {
+  const prepared = preparedPreviews.get(preview);
+  if (!prepared) throw new IntegrationError('conflict');
+  prepared.assertCurrent();
+  signal?.throwIfAborted();
+  const { selection } = prepared;
+  const path = `connections/${selection.connection}/reader-bridge/?${new URLSearchParams({ root: selection.root, folder: selection.folder, profile: selection.profile })}`;
+  const current = observation(await request<unknown>(path, { userId: selection.owner }), selection);
+  signal?.throwIfAborted();
+  prepared.assertCurrent();
+  if (canonical(current) !== canonical(prepared.observation))
+    throw new IntegrationError('conflict');
 }
 interface ObservedFile {
   id: string;
@@ -269,7 +286,7 @@ export async function previewDriveReaderBridge(input: DriveReaderSelection, sign
       packageId: packageFile.id,
       ignoredFiles: before.ignoredFiles
     });
-    preparedPreviews.set(result, { content, selection, assertCurrent: check });
+    preparedPreviews.set(result, { content, selection, observation: before, assertCurrent: check });
     return result;
   } finally {
     scope.stop();

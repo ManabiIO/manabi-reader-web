@@ -8,15 +8,13 @@ scope. Google Drive is the first and only transport in this phase. Web is active
 Android is paused, Windows is deferred, and Apple clients are separate products.
 Import/export stays available and independent of connection setup.
 
-This includes an executable reconciliation contract, bounded state-file decoder
-and read-only Google Drive preview, **not a released continuous-sync service**.
-The preview uses the existing same-origin connection; it does not persist links
-or baselines, apply incoming changes, schedule work or enable outgoing writes.
-A durable journal and recovery codec are implemented separately; they have no
-production sync caller yet and are not authority to activate a connection.
-The preview also supports explicit local-book selection and read-only content
-comparison. A matching result is an observation, not a saved link or authority
-to apply reading data.
+The working branch includes an executable reconciliation contract, bounded
+state-file decoder, read-only Google Drive preview and an explicit local receive
+flow, **not a released continuous-sync service**. The preview uses the existing
+same-origin connection. Selecting and comparing a local book remains read-only;
+a matching result does not save a link or apply reading data. A separate review
+and save action applies supported incoming reading values with a durable recovery
+journal. There is no automatic scheduler or outgoing Drive writer.
 Existing TTU-shaped Drive handlers and shared-folder auto import/export are not
 evidence that the proposed safety requirements are already implemented.
 
@@ -201,14 +199,44 @@ The comparison is wired into the Connections preview with explicit selection,
 an inline result and no toast. Eight local-content cases run in both native
 Chromium and WebKit alongside schema/recovery coverage. They cover same-size
 binary changes, second-connection edits, account/cancellation boundaries,
-duplicate titles, renames and packed EPUB resource maps. The new UI still needs
-the composed app screenshot/import journey before release; these checks do not
-qualify continuous synchronization or Yatsu locator application.
+duplicate titles, renames and packed EPUB resource maps. The composed production
+web export also exercises actual Yatsu ZIP import, idempotent reimport, explicit
+selection/comparison, unsupported-mapping rejection and stale-remote refresh on
+desktop and phone widths. Those steps preserve local reading data and make no
+Drive writes. They do not qualify continuous synchronization or Yatsu locator
+application.
 
-Still required: wire the durable journal to verified local mappings, guarded local
-application, compatibility OAuth, scheduler, conflict choices and a qualified
-outgoing serializer. The provider
-tests use real HTTP against a stateful vendor-wire fixture and PostgreSQL; they do
+### Explicit local receive checkpoint (2026-10-23)
+
+After a genuine content match, review compares saved position and daily totals.
+Initial or concurrent differences require an explicit choice to use Drive's
+values. Totals replace rather than add, local-only days remain, and missing rows
+are never deletion instructions. Unsupported Yatsu locator/dictionary fields,
+ambiguous legacy statistics and pending personal sync work pause application.
+
+Receive rechecks the full remote observation, persists intent, then rechecks book
+bytes, ownership and reading state in the same transaction that applies changes
+and records acceptance. It uses the existing reader-lifetime Web Lock so an open
+reader prevents application. Accepted baselines contain only agreed values;
+superseded decisions retain recovery evidence. A retry returns an existing
+receipt rather than replaying over later local reading. The books schema remains
+version 14.
+
+At the user-requested stopping point, typecheck, focused lint, 69 bridge unit
+tests, 54 native IndexedDB cases in each of Chromium and WebKit, a fresh Expo web
+export and the composed PostgreSQL browser journey pass. Receive cases cover
+stale bytes/state, same-day conflicts, concurrent application, cancellation after
+a successful IDB put, idempotent retries, legacy assignment, unsupported mappings,
+missing records and tampered recovery. Recovery also checks version 1 imports.
+This is a development checkpoint, not a released or live-Drive-qualified feature.
+
+Before shipping the receive UI, finish a positive TTU-compatible save journey in
+the composed app: open-reader blocking, recovery download/inert restore and
+reimport after receive must be exercised through the actual UI. Inspect both
+layout sizes for that positive path. Broader automatic sync still requires
+compatibility OAuth, scheduling, richer Yatsu mappings and a qualified outgoing
+serializer. The provider tests use real HTTP against a stateful vendor-wire
+fixture and PostgreSQL; they do
 not establish real Google consent, Drive listing consistency or live cross-app
 write safety. Rechecking observed versions is not an atomic multi-file transaction.
 
@@ -230,12 +258,12 @@ cannot turn it back into a fresh upload. Unsent drafts can be explicitly abandon
 without discarding their evidence; uncertain and restored records cannot. Capacity
 limits stop new work without evicting older recovery records.
 
-The journal does not yet execute transfers, verify current local book state,
-acknowledge successful application, resolve uncertain outcomes or provide a
-production caller. Those operations need the local adapter and qualified writer.
-Its write-capability argument must come from a qualified live adapter; no backup
-can supply it. Native Chromium and WebKit cases exercise database reopening,
-competing connections, account/cancellation rollback and inert recovery imports.
+The local receive adapter now verifies current local book state and applies
+supported incoming values together with acceptance. The journal does not execute
+network transfers or resolve uncertain outgoing outcomes. Its write-capability
+argument must come from a qualified live adapter; no backup can supply it. Native
+Chromium and WebKit cases exercise database reopening, competing connections,
+account/cancellation rollback and inert recovery imports.
 
 Before the first outbound write, durably record the base revisions, intended
 semantic values, original remote bytes and operation identity. A local journal
@@ -264,8 +292,9 @@ do not promise that all participating apps provide conflict-safe synchronization
 
 ### Backup and restore
 
-The read-only preview still changes no persisted user state. The journal adds a
-versioned, bounded recovery JSON format through `exportReaderBridgeRecovery()`
+The read-only preview still changes no persisted user state. Explicit receive
+persists local reading changes and their recovery evidence. The journal provides
+a versioned, bounded recovery JSON format through `exportReaderBridgeRecovery()`
 and `restoreReaderBridgeRecovery()`. It retains exact state-file originals, pending
 intent, observed identities, baseline digests and the original phase/attempt even
 after recovery import. Export revalidates evidence and excludes live writer
@@ -276,9 +305,13 @@ Recovery imports are same-account, atomic and idempotent. They are stored as
 inert `restored` records alongside existing work, never over it. They do not
 select a local book, activate a connection, acknowledge a baseline or replay an
 upload. Fresh connection/content verification and explicit recovery are required.
-The journal APIs do not yet have user-facing backup/restore controls; wiring those
-controls is part of the production sync integration. Existing book ZIP export
-and one-time import remain unchanged and do not contain the new journal.
+Connections now includes offline-capable recovery download/restore controls and
+an action to set aside unsent decisions while retaining evidence. New exports
+use version 2, including acceptance; version 1 remains readable. Restored
+acceptance stays inactive and never replays local changes. The positive composed
+UI qualification remains pending as described above. Existing book ZIP export
+and one-time import remain unchanged and do not contain the new journal; keep
+the recovery JSON with book backups.
 
 ### Release evidence still required
 

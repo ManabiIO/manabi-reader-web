@@ -172,6 +172,7 @@ function fixture(change = () => {}) {
   return {
     preview: (signal) => module.exports.previewDriveReaderBridge(selection, signal),
     capture: module.exports.captureDriveReaderPreview,
+    recheck: module.exports.recheckDriveReaderPreview,
     revoke: () => {
       current = false;
     },
@@ -209,6 +210,16 @@ test('local comparison captures only genuine previews in their original account 
   f.revoke();
   assert.throws(() => f.capture(preview), { code: 'account_changed' });
   assert.throws(prepared.assertCurrent, { code: 'account_changed' });
+});
+
+test('receive rechecks the original full Drive observation before accepting local changes', async () => {
+  const f = fixture(({ kind, value, index }) => {
+    if (kind === 'manifest' && index > 2) value.files[0].version = '2';
+  });
+  const preview = await f.preview();
+  await f.recheck(preview);
+  await assert.rejects(f.recheck(preview), { code: 'conflict' });
+  await assert.rejects(f.recheck({ ...preview }), { code: 'conflict' });
 });
 
 test('reconnection and any final manifest change discard a fully decoded preview', async () => {

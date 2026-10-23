@@ -15,7 +15,8 @@ const fixtures = await Promise.all(
   [
     'books-schema-cases.mjs',
     'reader-bridge-journal-cases.mjs',
-    'reader-bridge-local-book-cases.mjs'
+    'reader-bridge-local-book-cases.mjs',
+    'reader-bridge-receive-cases.mjs'
   ].map((name) =>
     build({
       entryPoints: [new URL(name, import.meta.url).pathname],
