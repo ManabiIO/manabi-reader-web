@@ -646,6 +646,7 @@ export const READER_BRIDGE_RECEIVE_STORES = [
   'readerStatisticMigration',
   'lastModified',
   'readerBridgeJournal',
+  'readerBridgeConnection',
   'readerPersonalOutbox',
   'readerPersonalConflict'
 ] as const;

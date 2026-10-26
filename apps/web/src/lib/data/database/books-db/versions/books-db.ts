@@ -18,9 +18,15 @@ type BooksDb = {
   [K in keyof BooksDbV10]: K extends 'data'
     ? Omit<BooksDbV10['data'], 'value' | 'indexes'> & {
         value: StoredBookData;
-        indexes: BooksDbV10['data']['indexes'] & { contentHash: string; libraryOwner: string };
+        indexes: BooksDbV10['data']['indexes'] & {
+          contentHash: string;
+          libraryOwner: string;
+          idLibraryOwner: [number, IDBValidKey];
+        };
       }
-    : BooksDbV10[K];
+    : K extends 'readerLocalIdentity'
+      ? BooksDbV10[K] & { indexes: { uuid: string } }
+      : BooksDbV10[K];
 } & {
   readerBridgeConnection: {
     key: string;
@@ -50,7 +56,9 @@ export type BooksDbHandle = BooksDb['handle']['value'];
 // v14 retains external-reader pending intent and recovery evidence in the same
 // database as reading data. Recovery imports never activate a connection.
 // v15 adds explicitly verified reader connections; restored descriptors stay inactive.
-export const currentDbVersion = 15;
+// v16 adds nonunique UUID and book-ID/owner indexes for bounded metadata-only
+// reader checks. Existing records, including conflicting evidence, stay intact.
+export const currentDbVersion = 16;
 export const currentStorageVersion = currentDbVersion;
 export const ttuWireVersion = 8;
 

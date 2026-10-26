@@ -8,7 +8,11 @@ import { database } from '../data/store';
 import { commitTransaction } from '../data/database/books-db/commit-transaction.mjs';
 import { assertBookPersonalAccess } from '../data/database/books-db/book-records';
 import { captureLibraryOperation } from './operation-scope';
-import { captureDriveReaderPreview, previewDriveReaderBridge } from './reader-bridge-source';
+import {
+  captureDriveReaderPreview,
+  observeDriveReaderBridge,
+  previewDriveReaderBridge
+} from './reader-bridge-source';
 import {
   captureReaderBridgeLocalBook,
   compareReaderBridgeLocalBook,
@@ -178,6 +182,128 @@ export async function checkSavedDriveReaderConnection(
     prepared.assertCurrent();
     compared.assertCurrent();
     return { preview, comparison };
+  } finally {
+    operation.stop();
+  }
+}
+
+/** Lightweight change detection for an existing pair. Index keys establish
+ * presence/ownership without cloning any book payload or hashing local media.
+ * A result describes remote files only; a fresh full review must still prove
+ * that both books and their reading values match before a local receive. */
+export async function observeSavedDriveReaderConnection(
+  owner: string,
+  id: string,
+  revision: string,
+  signal?: AbortSignal
+): Promise<{ state: 'unchanged' | 'changed'; observedAt: string; observedRevision: string }> {
+  if (!owner || !connectionUuid(id) || !connectionUuid(revision)) changed();
+  signal?.throwIfAborted();
+  const operation = captureLibraryOperation(owner);
+  const lifetime = signal ? AbortSignal.any([signal, operation.signal]) : operation.signal;
+  const check = () => {
+    lifetime.throwIfAborted();
+    operation.assertCurrent();
+    if (operation.profileId !== owner) changed();
+  };
+  try {
+    check();
+    const db = await database.db;
+    check();
+    const read = async (expected?: ReaderBridgeConnectionRecord) => {
+      check();
+      const tx = db.transaction([
+        'readerBridgeConnection',
+        'readerLocalIdentity',
+        'readerBookScope',
+        'data'
+      ]);
+      return commitTransaction(tx, async () => {
+        const stored = await tx.objectStore('readerBridgeConnection').get(id);
+        check();
+        if (
+          !stored ||
+          stored.id !== id ||
+          stored.accountId !== owner ||
+          stored.revision !== revision ||
+          stored.state !== 'linked'
+        )
+          changed();
+        const record = validateReaderBridgeConnectionRecord(stored);
+        if (expected && canonical(record) !== canonical(expected)) changed();
+        const bookId = record.descriptor.local.bookId;
+        const [present, identity, identityIds, account, ownership] = await Promise.all([
+          tx.objectStore('data').getKey(bookId),
+          tx.objectStore('readerLocalIdentity').get(bookId),
+          tx
+            .objectStore('readerLocalIdentity')
+            .index('uuid')
+            .getAllKeys(record.descriptor.local.identity, 2),
+          tx.objectStore('readerBookScope').get(bookId),
+          // The next book ID bounds every possible owner key type, including
+          // corrupt indexed array values. No unrelated owner's keys are read.
+          tx
+            .objectStore('data')
+            .index('idLibraryOwner')
+            .openKeyCursor(IDBKeyRange.bound([bookId], [bookId + 1], false, true))
+        ]);
+        check();
+        if (
+          present !== bookId ||
+          !identity ||
+          identity.bookId !== bookId ||
+          identity.uuid !== record.descriptor.local.identity ||
+          !account ||
+          account.bookId !== bookId ||
+          account.accountId !== owner ||
+          identityIds.length !== 1 ||
+          identityIds[0] !== bookId ||
+          (ownership &&
+            (!Array.isArray(ownership.key) ||
+              ownership.key.length !== 2 ||
+              ownership.key[0] !== bookId ||
+              ownership.key[1] !== owner ||
+              ownership.primaryKey !== bookId))
+        )
+          changed();
+        check();
+        return record;
+      });
+    };
+    const record = await read();
+    const { source } = await verifyReaderBridgeConnectionDescriptor(record.descriptor);
+    check();
+    const current = await observeDriveReaderBridge(
+      {
+        owner,
+        connection: source.connection,
+        root: source.root,
+        folder: source.folder,
+        profile: source.profile
+      },
+      lifetime
+    );
+    check();
+    if (
+      current.generation !== source.generation ||
+      current.profile !== source.profile ||
+      current.folder.id !== source.folder ||
+      canonical(current.folder.parents) !== canonical([source.root]) ||
+      current.files.length !== source.files.length ||
+      current.files.find((file) => file.role === 'book')?.id !== source.packageId
+    )
+      changed();
+    for (const saved of source.files) {
+      if (!current.files.some((file) => file.role === saved.role && file.id === saved.id))
+        changed();
+    }
+    await read(record);
+    check();
+    return {
+      state: current.revision === source.observedRevision ? 'unchanged' : 'changed',
+      observedRevision: current.revision,
+      observedAt: new Date().toISOString()
+    };
   } finally {
     operation.stop();
   }

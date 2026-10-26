@@ -10,6 +10,7 @@ import { base } from './paths';
 import { retireImportBootstrapOutsideRoute } from './import-bootstrap';
 import { refreshAccount } from '$lib/manabi/client';
 import { startPreferenceSync } from '$lib/manabi/preferences';
+import { startReaderBridgeAutomaticChecks } from '$lib/manabi/reader-bridge-automatic';
 import { startBookSync, bookSyncStatus } from '$lib/manabi/books';
 import { personalSyncStatus } from '$lib/manabi/personal-sync';
 import { startSnippets } from '$lib/snippets/service';
@@ -86,6 +87,7 @@ export function BrowserRuntime({
       startAppearanceSync(),
       startBackgrounds(),
       startPreferenceSync(),
+      ...(!embedded ? [startReaderBridgeAutomaticChecks()] : []),
       startBookSync(),
       startSnippets(derived(page, (current) => isSnippetLibraryPath(current.url.pathname, base)))
     ];

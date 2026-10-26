@@ -11,6 +11,7 @@ import unittest
 import zipfile
 from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright, expect
+from browser_launch import launch_options
 from test_static_reader import ThreadingHTTPServer, StaticHandler, ROOT, TITLE, epub
 
 OPTIONS = None
@@ -172,7 +173,7 @@ class OfflineReader(unittest.TestCase):
                     }))
 
                 try:
-                    context = engine.launch_persistent_context(profile)
+                    context = engine.launch_persistent_context(profile, **launch_options(OPTIONS.browser))
                     if abort_once:
                         # Fault injection at the real native IndexedDB request,
                         # not a replacement database or mocked network response.
@@ -277,7 +278,7 @@ class OfflineReader(unittest.TestCase):
                     stage = 'offline manifest launch after browser restart'
                     # Neither set_offline(), request interception, nor a live
                     # old browser process may supply the offline content.
-                    context = engine.launch_persistent_context(profile)
+                    context = engine.launch_persistent_context(profile, **launch_options(OPTIONS.browser))
                     page = context.pages[0] if context.pages else context.new_page()
                     observe(page)
                     response = page.goto(launch_url, wait_until='commit')
@@ -315,7 +316,7 @@ class OfflineReader(unittest.TestCase):
                             };
                           };
                         })""")
-                        self.assertEqual(stored['version'], 13)
+                        self.assertEqual(stored['version'], 16)
                         self.assertGreater(stored['images'], 0)
                         self.assertTrue(stored['byteRecords'])
                     else:

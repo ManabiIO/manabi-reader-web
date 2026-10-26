@@ -161,7 +161,10 @@ export async function runtimeOwner(t, { strict = false } = {}) {
     signOut: async () => {}
   };
   const operations = [];
-  const operationModule = production('lib/manabi/operation-scope.ts', { './client': client });
+  const operationModule = production('lib/manabi/operation-scope.ts', {
+    './client': client,
+    '../state/store': stores
+  });
   const operationBoundary = {
     captureLibraryOperation(...args) {
       const operation = operationModule.captureLibraryOperation(...args);

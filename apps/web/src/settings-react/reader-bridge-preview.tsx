@@ -106,7 +106,7 @@ function LocalBookComparison({ preview }: { preview: Preview }) {
         // the next review must include that committed scope.
         setResult(null);
         setMessage(
-          'Connection saved on this device. Automatic sync is not enabled. Open Saved reader connections below to review this book later.'
+          'Connection saved on this device. Open Saved reader connections below to review this book or choose automatic updates.'
         );
       }
     } catch (error) {
@@ -252,8 +252,8 @@ export function ReaderBridgePreview({
         {busy ? 'Checking Google Drive…' : result ? 'Refresh preview' : 'Preview reading data'}
       </Button>
       <p className="hint">
-        Automatic sync is not connected. You can review compatible reading changes before saving
-        them on this device. Google Drive stays unchanged.
+        Previewing does not turn on automatic updates. Review compatible reading changes before
+        saving them on this device. Google Drive stays unchanged.
       </p>
       <div role="status" aria-live="polite">
         {message ? <p>{message}</p> : null}

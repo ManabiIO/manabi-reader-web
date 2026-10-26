@@ -71,10 +71,12 @@ export function Checkbox({
   value,
   onValueChange,
   label,
+  // Browser description IDs have no meaning in Compose; never forward them.
+  accessibilityDescribedBy: _accessibilityDescribedBy,
   disabled,
   testID,
   modifiers
-}: ComponentProps<typeof UniversalCheckbox>) {
+}: ComponentProps<typeof UniversalCheckbox> & { accessibilityDescribedBy?: string }) {
   const { colors: c } = useUiTheme();
   const toggle = (
     <ComposeCheckbox

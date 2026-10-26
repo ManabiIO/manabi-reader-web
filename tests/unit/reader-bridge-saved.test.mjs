@@ -242,6 +242,8 @@ async function fixture(work) {
       calls,
       check: (signal, owner = 'alice', revision = record.revision) =>
         api.checkSavedDriveReaderConnection(owner, record.id, revision, signal),
+      observe: (signal, owner = 'alice', revision = record.revision) =>
+        api.observeSavedDriveReaderConnection(owner, record.id, revision, signal),
       nextRead: (hook) => {
         nextRead = hook;
       },
@@ -515,6 +517,351 @@ test('valid restored evidence IDs cannot be reopened as active pairs', async () 
     );
     assert.equal(f.calls.length, 0);
     assert.equal(await snapshot(f.db), before);
+  }));
+
+// Guard against accidentally replacing cheap polling with a full comparison.
+// IndexedDB key/index scans remain real; any materialization of book values fails.
+async function withoutBookPayloadReads(work) {
+  const restore = [];
+  for (const [prototype, owner] of [
+    [globalThis.IDBObjectStore.prototype, (value) => value.name],
+    [globalThis.IDBIndex.prototype, (value) => value.objectStore.name]
+  ])
+    for (const method of ['get', 'getAll', 'openCursor']) {
+      const original = prototype[method];
+      prototype[method] = function (...args) {
+        assert.notEqual(owner(this), 'data', `Polling must not load book data via ${method}`);
+        return original.apply(this, args);
+      };
+      restore.push(() => {
+        prototype[method] = original;
+      });
+    }
+  try {
+    return await work();
+  } finally {
+    for (const reset of restore) reset();
+  }
+}
+
+test('saved observation reads one manifest, no book payloads or binary data, and writes nothing', async () =>
+  fixture(async (f) => {
+    const before = await snapshot(f.db),
+      started = Date.now();
+    const result = await withoutBookPayloadReads(() => f.observe());
+    assert.equal(result.state, 'unchanged');
+    assert.ok(
+      Date.parse(result.observedAt) >= started && Date.parse(result.observedAt) <= Date.now()
+    );
+    assert.equal(await snapshot(f.db), before);
+    assert.equal(f.calls.length, 1);
+    assert.match(f.calls[0].path, /\/reader-bridge\/\?/);
+    assert.equal(f.calls[0].options.binary, undefined);
+  }));
+test('saved observation reports changed files without acknowledging them or interpreting reading values', async () =>
+  fixture(async (f) => {
+    f.manifest.revision = 'b'.repeat(64);
+    f.manifest.files.find((file) => file.role === 'book').version = '2';
+    // Invalid binary bodies would fail any attempt to decode a preview. Metadata
+    // observation must not read them, even when the package revision changed.
+    for (const role of ['book', 'resume', 'statistics']) f.bodies[role] = new Uint8Array();
+    const before = await snapshot(f.db);
+    const result = await withoutBookPayloadReads(() => f.observe());
+    assert.equal(result.state, 'changed');
+    assert.equal(f.calls.length, 1);
+    assert.equal(await snapshot(f.db), before);
+    assert.equal(
+      (await f.db.get('readerBridgeConnection', f.record.id)).descriptor.source.observedRevision,
+      'a'.repeat(64)
+    );
+  }));
+for (const [label, mutate] of [
+  [
+    'stale revision',
+    async (f) => {
+      await f.db.put('readerBridgeConnection', { ...f.record, revision: crypto.randomUUID() });
+    }
+  ],
+  [
+    'removed pair',
+    async (f) => {
+      await f.db.delete('readerBridgeConnection', f.record.id);
+    }
+  ],
+  [
+    'inactive restored row',
+    async (f) => {
+      await f.db.put('readerBridgeConnection', { ...f.record, state: 'restored' });
+    }
+  ],
+  [
+    'foreign saved account',
+    async (f) => {
+      await f.db.put('readerBridgeConnection', { ...f.record, accountId: 'bob' });
+    }
+  ],
+  [
+    'local ID reuse',
+    async (f) => {
+      await f.db.put('readerLocalIdentity', { bookId: 1, uuid: crypto.randomUUID() });
+    }
+  ],
+  [
+    'duplicated local UUID',
+    async (f) => {
+      await f.db.put('readerLocalIdentity', { bookId: 2, uuid: f.descriptor.local.identity });
+    }
+  ],
+  [
+    'removed local book',
+    async (f) => {
+      await f.db.delete('data', 1);
+    }
+  ],
+  [
+    'missing local identity',
+    async (f) => {
+      await f.db.delete('readerLocalIdentity', 1);
+    }
+  ],
+  [
+    'foreign local scope',
+    async (f) => {
+      await f.db.put('readerBookScope', { bookId: 1, accountId: 'bob' });
+    }
+  ],
+  [
+    'missing local scope',
+    async (f) => {
+      await f.db.delete('readerBookScope', 1);
+    }
+  ],
+  [
+    'foreign indexed library owner',
+    async (f) => {
+      await f.db.put('data', { ...(await f.db.get('data', 1)), libraryOwner: 'bob' });
+    }
+  ],
+  [
+    'array-valued indexed owner corruption',
+    async (f) => {
+      await f.db.put('data', { ...(await f.db.get('data', 1)), libraryOwner: ['alice'] });
+    }
+  ],
+  [
+    'numeric indexed owner corruption',
+    async (f) => {
+      await f.db.put('data', { ...(await f.db.get('data', 1)), libraryOwner: 1 });
+    }
+  ]
+])
+  test(`saved observation rejects ${label} before network access`, async () =>
+    fixture(async (f) => {
+      await mutate(f);
+      const before = await snapshot(f.db);
+      await assert.rejects(
+        withoutBookPayloadReads(() => f.observe()),
+        { code: 'changed' }
+      );
+      assert.equal(f.calls.length, 0);
+      assert.equal(await snapshot(f.db), before);
+    }));
+for (const [label, mutate, code = 'changed'] of [
+  [
+    'provider reconnection',
+    (f) => {
+      f.manifest.generation = crypto.randomUUID();
+    }
+  ],
+  [
+    'replaced package',
+    (f) => {
+      f.manifest.files.find((file) => file.role === 'book').id = 'replacement';
+    }
+  ],
+  [
+    'replaced progress',
+    (f) => {
+      f.manifest.files.find((file) => file.role === 'resume').id = 'replacement';
+    }
+  ],
+  [
+    'removed progress',
+    (f) => {
+      f.manifest.files = f.manifest.files.filter((file) => file.role !== 'resume');
+    }
+  ],
+  [
+    'removed statistics',
+    (f) => {
+      f.manifest.files = f.manifest.files.filter((file) => file.role !== 'statistics');
+    }
+  ],
+  [
+    'wrong root',
+    (f) => {
+      f.manifest.folder.parents = ['elsewhere'];
+    },
+    'invalid_response'
+  ],
+  [
+    'wrong folder',
+    (f) => {
+      f.manifest.folder.id = 'elsewhere';
+    },
+    'invalid_response'
+  ],
+  [
+    'wrong profile',
+    (f) => {
+      f.manifest.profile = 'ttu-1-8';
+    },
+    'invalid_response'
+  ]
+])
+  test(`saved observation rejects ${label} from the manifest`, async () =>
+    fixture(async (f) => {
+      mutate(f);
+      const before = await snapshot(f.db);
+      await assert.rejects(
+        withoutBookPayloadReads(() => f.observe()),
+        { code }
+      );
+      assert.equal(f.calls.length, 1);
+      assert.equal(await snapshot(f.db), before);
+    }));
+for (const [label, mutate] of [
+  [
+    'removed pair',
+    async (f) => {
+      await f.db.delete('readerBridgeConnection', f.record.id);
+    }
+  ],
+  [
+    'relinked pair',
+    async (f) => {
+      await f.db.put('readerBridgeConnection', { ...f.record, revision: crypto.randomUUID() });
+    }
+  ],
+  [
+    'silently changed descriptor',
+    async (f) => {
+      await f.db.put('readerBridgeConnection', {
+        ...f.record,
+        descriptor: { ...f.descriptor, title: 'Changed' }
+      });
+    }
+  ],
+  [
+    'reused local ID',
+    async (f) => {
+      await f.db.put('readerLocalIdentity', { bookId: 1, uuid: crypto.randomUUID() });
+    }
+  ],
+  [
+    'changed local ownership',
+    async (f) => {
+      await f.db.put('readerBookScope', { bookId: 1, accountId: 'bob' });
+    }
+  ]
+])
+  test(`saved observation rechecks ${label} after manifest fetch`, async () =>
+    fixture(async (f) => {
+      f.nextRead(() => mutate(f));
+      await assert.rejects(f.observe(), { code: 'changed' });
+      assert.equal(f.calls.length, 1);
+    }));
+test('saved observation handles wrong account, cancellation and revocation without publishing a result', async () => {
+  await fixture(async (f) => {
+    await assert.rejects(f.observe(undefined, 'bob'), { code: 'account_changed' });
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(f.observe(controller.signal), { name: 'AbortError' });
+    assert.equal(f.calls.length, 0);
+  });
+  await fixture(async (f) => {
+    const controller = new AbortController();
+    f.nextRead(() => controller.abort());
+    await assert.rejects(f.observe(controller.signal), { name: 'AbortError' });
+    assert.equal(f.calls.length, 1);
+  });
+  await fixture(async (f) => {
+    f.nextRead(() => f.revoke());
+    await assert.rejects(
+      f.observe(),
+      (error) => error.code === 'account_changed' || error.name === 'AbortError'
+    );
+    assert.equal(f.calls.length, 1);
+  });
+});
+test('restored hint IDs cannot start automatic observation', async () =>
+  fixture(async (f) => {
+    const restored = { ...f.record, id: 'recovery:' + 'a'.repeat(64), state: 'restored' };
+    await f.db.put('readerBridgeConnection', restored);
+    await assert.rejects(
+      f.api.observeSavedDriveReaderConnection('alice', restored.id, restored.revision),
+      { code: 'changed' }
+    );
+    assert.equal(f.calls.length, 0);
+  }));
+
+test('automatic observation uses bounded owner/UUID indexes with a large unrelated library', async () =>
+  fixture(async (f) => {
+    const tx = f.db.transaction(['data', 'readerLocalIdentity'], 'readwrite');
+    for (let id = 2; id <= 1501; id++) {
+      tx.objectStore('data').put({
+        id,
+        title: `Unrelated ${id}`,
+        libraryOwner: 'bob',
+        elementHtml: '<p>Other</p>',
+        blobs: {}
+      });
+      tx.objectStore('readerLocalIdentity').put({ bookId: id, uuid: crypto.randomUUID() });
+    }
+    await tx.done;
+    await f.db.put('data', { ...(await f.db.get('data', 1)), libraryOwner: 'alice' });
+    const objectGetAll = globalThis.IDBObjectStore.prototype.getAll;
+    const openKeys = globalThis.IDBIndex.prototype.openKeyCursor;
+    const allKeys = globalThis.IDBIndex.prototype.getAllKeys;
+    let ownerLookups = 0,
+      uuidLookups = 0;
+    globalThis.IDBObjectStore.prototype.getAll = function (...args) {
+      assert.notEqual(this.name, 'readerLocalIdentity', 'Polling cloned the whole identity store');
+      return objectGetAll.apply(this, args);
+    };
+    globalThis.IDBIndex.prototype.openKeyCursor = function (...args) {
+      if (this.objectStore.name === 'data') {
+        assert.equal(this.name, 'idLibraryOwner');
+        assert.deepEqual(args[0].lower, [1]);
+        assert.deepEqual(args[0].upper, [2]);
+        assert.equal(args[0].upperOpen, true);
+        ownerLookups++;
+      }
+      return openKeys.apply(this, args);
+    };
+    globalThis.IDBIndex.prototype.getAllKeys = function (...args) {
+      if (this.objectStore.name === 'readerLocalIdentity') {
+        assert.equal(this.name, 'uuid');
+        assert.deepEqual(args, [f.descriptor.local.identity, 2]);
+        uuidLookups++;
+      }
+      return allKeys.apply(this, args);
+    };
+    try {
+      const result = await withoutBookPayloadReads(() => f.observe());
+      assert.equal(result.state, 'unchanged');
+      assert.equal(ownerLookups, 2, 'Expected one bounded ownership lookup before and after HTTP');
+      assert.equal(
+        uuidLookups,
+        2,
+        'Expected one bounded duplicate-UUID check before and after HTTP'
+      );
+      assert.equal(f.calls.length, 1);
+    } finally {
+      globalThis.IDBObjectStore.prototype.getAll = objectGetAll;
+      globalThis.IDBIndex.prototype.openKeyCursor = openKeys;
+      globalThis.IDBIndex.prototype.getAllKeys = allKeys;
+    }
   }));
 
 test.after(() => {

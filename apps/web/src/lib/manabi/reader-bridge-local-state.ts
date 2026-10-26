@@ -11,6 +11,10 @@ import { contentHashPrimaryKeys } from '../data/database/books-db/content-hash-i
 import { contentStatisticKey, statisticRange } from '../data/database/books-db/reader-statistics';
 import { canonical } from './ttu-migration-format';
 import {
+  validateReaderBridgeConnectionRecord,
+  type ReaderBridgeConnectionRecord
+} from './reader-bridge-connection-model';
+import {
   projectReaderBridgeFiles,
   type ReaderBridgeFile,
   type ReaderBridgeProjection
@@ -208,6 +212,8 @@ export interface ReaderBridgeLocalReview {
   local: ReaderBridgeProjection;
   remote: ReaderBridgeProjection;
   plan: ReturnType<typeof planReaderBridge>;
+  /** Safe incoming changes or new agreement that has not been acknowledged. */
+  needsAcceptance: boolean;
 }
 interface Prepared {
   db: IDBPDatabase<BooksDb>;
@@ -314,6 +320,12 @@ export async function reviewReaderBridgeLocalChanges(
     title: state.book.title,
     local,
     remote,
+    needsAcceptance:
+      plan.state === 'ready' &&
+      (plan.pull.length > 0 ||
+        plan.acknowledge.some(
+          (key) => baseline?.local.records[key] !== remote.snapshot.records[key]
+        )),
     plan: Object.freeze({
       ...plan,
       pull: Object.freeze(plan.pull),
@@ -347,11 +359,36 @@ export async function receiveReaderBridgeLocalChanges(
   review: ReaderBridgeLocalReview,
   decision: ReaderBridgeReceiveDecision,
   assertRemoteCurrent: () => Promise<void>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  automaticConnection?: ReaderBridgeConnectionRecord
 ) {
   const prepared = preparedReviews.get(review);
   if (!prepared) fail('changed');
   const { db, scope, verified, state, target, evidence, operationId } = prepared;
+  const consent = automaticConnection
+    ? validateReaderBridgeConnectionRecord(structuredClone(automaticConnection))
+    : undefined;
+  const assertConsent = (stored: unknown) => {
+    if (!consent) return;
+    const record = validateReaderBridgeConnectionRecord(stored);
+    if (
+      decision !== 'incoming' ||
+      review.plan.state !== 'ready' ||
+      record.state !== 'linked' ||
+      record.automaticChecks !== true ||
+      record.automaticReceive !== true ||
+      canonical(record) !== canonical(consent) ||
+      record.accountId !== scope.profileId ||
+      record.binding !== evidence.remote.snapshot.binding ||
+      record.descriptor.fingerprint !== verified.fingerprint ||
+      record.descriptor.characters !== verified.snapshot.book.characters ||
+      record.descriptor.source.generation !== evidence.remote.snapshot.generation ||
+      record.descriptor.source.profile !== evidence.remote.snapshot.profile ||
+      record.bookId !== target.bookId ||
+      record.descriptor.local.identity !== target.localIdentity
+    )
+      fail('changed');
+  };
   const check = () => {
     signal?.throwIfAborted();
     scope.signal?.throwIfAborted();
@@ -367,6 +404,10 @@ export async function receiveReaderBridgeLocalChanges(
       signal && scope.signal ? AbortSignal.any([signal, scope.signal]) : (signal ?? scope.signal),
     assertCurrent: check
   };
+  if (consent) {
+    assertConsent(await db.get('readerBridgeConnection', consent.id));
+    check();
+  }
   await assertRemoteCurrent();
   check();
   const pending = await prepareReaderBridgeJournal(db, journalScope, operationId, evidence);
@@ -389,6 +430,10 @@ export async function receiveReaderBridgeLocalChanges(
     target,
     decision,
     async (tx, keys, assertCurrent) => {
+      // Shares the write transaction with reading data and the durable receipt.
+      // A revocation, forget, or replacement committed first wins atomically.
+      if (consent) assertConsent(await tx.objectStore('readerBridgeConnection').get(consent.id));
+      assertCurrent();
       const current = await readState(tx, verified, target.localIdentity, scope);
       if (!sameReaderBridgeStoredValue(current, state)) fail('changed');
       assertCurrent();

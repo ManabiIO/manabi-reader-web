@@ -171,6 +171,7 @@ function fixture(change = () => {}) {
   );
   return {
     preview: (signal) => module.exports.previewDriveReaderBridge(selection, signal),
+    observe: (signal) => module.exports.observeDriveReaderBridge(selection, signal),
     capture: module.exports.captureDriveReaderPreview,
     recheck: module.exports.recheckDriveReaderPreview,
     revoke: () => {
@@ -285,4 +286,61 @@ test('truncated, malformed and different-title book content never produces a pre
     if (kind === 'manifest') value.folder.name = 'Different';
   });
   await assert.rejects(title.preview(), /folder disagree/);
+});
+
+test('metadata observation validates a single manifest and never downloads book or sidecars', async () => {
+  const f = fixture();
+  const value = await f.observe();
+  assert.equal(value.revision, manifest().revision);
+  assert.equal(value.files.length, 3);
+  assert.equal(f.calls.length, 1);
+  assert.match(f.calls[0].path, /\/reader-bridge\/\?/);
+  assert.equal(f.calls[0].options.binary, undefined);
+  assert.equal(f.stopped(), 1);
+});
+test('metadata observation validates folder, root, profile and file membership without downloading', async () => {
+  for (const mutate of [
+    (value) => {
+      value.folder.id = 'replacement';
+    },
+    (value) => {
+      value.folder.parents = ['elsewhere'];
+    },
+    (value) => {
+      value.profile = 'ttu-1-8';
+    },
+    (value) => {
+      value.files[0].parents = ['elsewhere'];
+    },
+    (value) => {
+      value.files.push(value.files[0]);
+    },
+    (value) => {
+      value.files = value.files.filter((file) => file.role !== 'book');
+    }
+  ]) {
+    const f = fixture(({ kind, value }) => {
+      if (kind === 'manifest') mutate(value);
+    });
+    await assert.rejects(f.observe(), { code: 'invalid_response' });
+    assert.equal(f.calls.length, 1);
+    assert.equal(f.stopped(), 1);
+  }
+});
+test('metadata observation discards results on cancellation and account revocation', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const before = fixture();
+  await assert.rejects(before.observe(controller.signal), { name: 'AbortError' });
+  assert.equal(before.calls.length, 0);
+  assert.equal(before.stopped(), 0);
+  const during = new AbortController();
+  const canceled = fixture(() => during.abort());
+  await assert.rejects(canceled.observe(during.signal), { name: 'AbortError' });
+  assert.equal(canceled.calls.length, 1);
+  assert.equal(canceled.stopped(), 1);
+  const revoked = fixture(({ revoke }) => revoke());
+  await assert.rejects(revoked.observe(), { code: 'account_changed' });
+  assert.equal(revoked.calls.length, 1);
+  assert.equal(revoked.stopped(), 1);
 });

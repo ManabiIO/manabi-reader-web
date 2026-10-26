@@ -234,6 +234,63 @@ test('Settings switch retains its field name, focus and disabled behavior with a
   }
 });
 
+test('Expo checkbox descriptions update independently of the label and preserve the focused input', () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const changes = [];
+  const render = (props = {}) =>
+    act(() =>
+      root.render(
+        h(
+          React.Fragment,
+          null,
+          h(CheckboxField, {
+            label: 'Receive safe reading changes automatically',
+            value: false,
+            onValueChange: (value) => changes.push(value),
+            ...props
+          }),
+          h('p', { id: 'receive-help' }, 'Changes are saved on this device.'),
+          h('p', { id: 'updated-help' }, 'Google Drive is never changed.')
+        )
+      )
+    );
+  try {
+    render({ accessibilityDescribedBy: 'receive-help' });
+    const input = container.querySelector('input');
+    const label = input.labels[0];
+    assert.equal(input.getAttribute('aria-describedby'), 'receive-help');
+    assert.equal(
+      document.getElementById(input.getAttribute('aria-describedby')).textContent,
+      'Changes are saved on this device.'
+    );
+    assert.equal(label.textContent, 'Receive safe reading changes automatically');
+    assert.equal(input.hasAttribute('aria-label'), false);
+    assert.equal(container.querySelector('[accessibilitydescribedby]'), null);
+    act(() => input.focus());
+    render({ accessibilityDescribedBy: 'updated-help', value: true });
+    assert.equal(container.querySelector('input'), input);
+    assert.equal(document.activeElement, input);
+    assert.equal(input.checked, true);
+    assert.equal(input.getAttribute('aria-describedby'), 'updated-help');
+    assert.equal(input.labels[0], label);
+    render();
+    assert.equal(input.hasAttribute('aria-describedby'), false);
+    assert.equal(document.activeElement, input);
+    act(() => label.click());
+    assert.deepEqual(changes, [true]);
+    render({ disabled: true, accessibilityDescribedBy: 'receive-help' });
+    assert.equal(input.disabled, true);
+    assert.equal(input.getAttribute('aria-describedby'), 'receive-help');
+    act(() => label.click());
+    assert.deepEqual(changes, [true]);
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+  }
+});
+
 test.after(() => {
   const trash = join(homedir(), '.Trash');
   mkdirSync(trash, { recursive: true });

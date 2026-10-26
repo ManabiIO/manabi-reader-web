@@ -4,6 +4,9 @@ import test from 'node:test';
 import { build } from 'esbuild';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const appRequire = createRequire(new URL('../../apps/web/package.json', import.meta.url));
 
 const { outputFiles } = await build({
   stdin: {
@@ -28,24 +31,34 @@ const { outputFiles } = await build({
   bundle: true,
   platform: 'browser',
   format: 'iife',
+  jsx: 'automatic',
+  conditions: ['browser'],
+  resolveExtensions: ['.web.tsx', '.tsx', '.web.ts', '.ts', '.web.js', '.js'],
+  tsconfig: 'apps/web/tsconfig.json',
   write: false,
   define: { 'process.env.NODE_ENV': '"development"' },
   plugins: [
     {
       name: 'reader-bridge-interface-boundaries',
       setup(builder) {
+        // Keep the real shared Expo controls and browser adapter in this fixture.
+        builder.onResolve({ filter: /^react-native$/ }, () => ({
+          path: appRequire.resolve('react-native-web')
+        }));
         builder.onResolve({ filter: /^\.\/primitives$/ }, () => ({
           path: 'button',
           namespace: 'interface-fixture'
         }));
         builder.onResolve(
-          { filter: /^\$lib\/manabi\/reader-bridge-(local|recovery|saved)$/ },
+          { filter: /^\$lib\/manabi\/reader-bridge-(local|recovery|saved|automatic)$/ },
           ({ path }) => ({
             path: path.endsWith('recovery')
               ? 'recovery'
-              : path.endsWith('saved')
-                ? 'saved'
-                : 'local',
+              : path.endsWith('automatic')
+                ? 'automatic'
+                : path.endsWith('saved')
+                  ? 'saved'
+                  : 'local',
             namespace: 'interface-fixture'
           })
         );
@@ -53,10 +66,12 @@ const { outputFiles } = await build({
           loader: 'js',
           resolveDir: fileURLToPath(new URL('../../', import.meta.url)),
           contents:
-            path === 'button'
-              ? `import React from 'react'; export function Button({variant,...props}) { return React.createElement('button',props); }`
-              : path === 'recovery'
-                ? `
+            path === 'automatic'
+              ? `export const readerBridgeAutomaticStatus = window.automaticStatus;`
+              : path === 'button'
+                ? `import React from 'react'; export function Button({variant,...props}) { return React.createElement('button',props); }`
+                : path === 'recovery'
+                  ? `
                   if(window.importFailure) throw new Error('Module unavailable');
                   export const readerBridgeRecoveryChanges = window.recoveryChanges;
                   export const readDriveReaderRecovery = (...args) => window.bridge.read(...args);
@@ -64,11 +79,13 @@ const { outputFiles } = await build({
                   export const restoreDriveReaderRecovery = (...args) => window.bridge.restore(...args);
                   export const abandonDriveReaderDraft = (...args) => window.bridge.abandon(...args);
                 `
-                : path === 'saved'
-                  ? `export const checkSavedDriveReaderConnection = (...args) => window.bridge.checkConnection(...args);`
-                  : `
+                  : path === 'saved'
+                    ? `export const checkSavedDriveReaderConnection = (...args) => window.bridge.checkConnection(...args);`
+                    : `
                   export const listDriveReaderConnections = (...args) => window.bridge.connections(...args);
                   export const removeDriveReaderConnection = (...args) => window.bridge.removeConnection(...args);
+                  export const setDriveReaderAutomaticChecks = (...args) => window.bridge.setAutomaticChecks(...args);
+                  export const setDriveReaderAutomaticReceive = (...args) => window.bridge.setAutomaticReceive(...args);
                   export const reviewDriveReaderChanges = (...args) => window.bridge.review(...args);
                   export const receiveDriveReaderChanges = (...args) => window.bridge.receive(...args);
                 `
@@ -99,9 +116,28 @@ async function fixture(run, { bridge = {}, importFailure = false } = {}) {
     virtualConsole
   });
   const { window } = dom;
+  window.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {} });
+  window.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
   const downloads = [],
     revoked = [];
   Object.assign(window, { importFailure, bridge, recoveryChanges: new window.EventTarget() });
+  let automatic = { owner: null, records: {}, available: false };
+  const statusListeners = new Set();
+  window.automaticStatus = {
+    subscribe(listener) {
+      statusListeners.add(listener);
+      listener(automatic);
+      return () => statusListeners.delete(listener);
+    },
+    set(value) {
+      automatic = value;
+      for (const listener of statusListeners) listener(value);
+    }
+  };
   window.URL.createObjectURL = () => `blob:fixture-${downloads.length}`;
   window.URL.revokeObjectURL = (url) => revoked.push(url);
   window.HTMLAnchorElement.prototype.click = function () {
@@ -123,6 +159,7 @@ async function fixture(run, { bridge = {}, importFailure = false } = {}) {
     window.close();
   }
   assert.deepEqual(errors, [], 'The mounted interface must not emit React or DOM errors');
+  assert.equal(statusListeners.size, 0, 'Automatic status subscriptions end when the view closes');
 }
 
 const accepted = (title) => ({ id: title, revision: '1', phase: 'accepted', title });
@@ -317,6 +354,194 @@ const savedConnection = (title, state = 'linked') => ({
   descriptor: { title, source: { profile: 'ttu-1-8' } }
 });
 
+test('automatic receive is a separate opt-in that enables checks, and turning checks off turns both off', async () => {
+  const original = { ...savedConnection('Book'), version: 1 };
+  const calls = [];
+  await fixture(
+    async ({ window, api, until, text }) => {
+      api.connections('owner');
+      await until(() => window.document.querySelectorAll('input[type=checkbox]').length === 2);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const [checks, receive] = window.document.querySelectorAll('input[type=checkbox]');
+      assert.equal(checks.checked, false);
+      assert.equal(receive.checked, false);
+      assert.match(receive.labels[0].textContent, /Receive safe reading changes automatically/);
+      const description = window.document.getElementById(
+        receive.getAttribute('aria-describedby')
+      ).textContent;
+      assert.match(description, /last accepted reading state/);
+      assert.match(
+        description,
+        /Conflicts, including different starting positions, need your review/
+      );
+      assert.match(description, /Google Drive is never changed/);
+      receive.click();
+      await until(() => calls.length === 1 && !receive.disabled);
+      assert.deepEqual(calls[0].slice(0, 5), ['receive', 'owner', 'Book', '1', true]);
+      assert.equal(checks.checked, true);
+      assert.equal(receive.checked, true);
+      checks.click();
+      await until(() => calls.length === 2 && !checks.disabled);
+      assert.deepEqual(calls[1].slice(0, 5), ['checks', 'owner', 'Book', '2', false]);
+      assert.equal(checks.checked, false);
+      assert.equal(receive.checked, false);
+      assert.equal(text().includes('could not be confirmed'), false);
+    },
+    {
+      bridge: {
+        connections: async () => [original],
+        setAutomaticReceive: async (...args) => {
+          calls.push(['receive', ...args]);
+          return {
+            ...original,
+            version: 3,
+            revision: '2',
+            automaticChecks: true,
+            automaticReceive: true
+          };
+        },
+        setAutomaticChecks: async (...args) => {
+          calls.push(['checks', ...args]);
+          return {
+            ...original,
+            version: 3,
+            revision: '3',
+            automaticChecks: false,
+            automaticReceive: false
+          };
+        }
+      }
+    }
+  );
+});
+
+test('failed receive consent restores both saved preferences without claiming automatic receipt', async () => {
+  const pending = deferred();
+  await fixture(
+    async ({ window, api, until, text }) => {
+      api.connections('owner');
+      await until(() => window.document.querySelectorAll('input[type=checkbox]').length === 2);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const [checks, receive] = window.document.querySelectorAll('input[type=checkbox]');
+      receive.click();
+      await until(() => receive.disabled);
+      assert.equal(receive.checked, true);
+      assert.equal(checks.checked, true);
+      pending.reject(new Error('Storage unavailable'));
+      await until(() => text().includes('automatic receive preference could not be confirmed'));
+      assert.equal(receive.disabled, false);
+      assert.equal(checks.checked, false);
+      assert.equal(receive.checked, false);
+    },
+    {
+      bridge: {
+        connections: async () => [savedConnection('Book')],
+        setAutomaticReceive: () => pending.promise
+      }
+    }
+  );
+});
+
+test('automatic status is quiet, account and revision scoped, and a receive clears an older manual comparison', async () => {
+  const original = {
+    ...savedConnection('Book'),
+    version: 3,
+    automaticChecks: true,
+    automaticReceive: true
+  };
+  await fixture(
+    async ({ window, api, until, text, button }) => {
+      api.connections('owner');
+      await until(() => button('Check current copies'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      button('Check current copies').click();
+      await until(() => button('Review reading changes'));
+      const publish = (state, owner = 'owner', revision = '1') =>
+        window.automaticStatus.set({
+          owner,
+          available: true,
+          records: { Book: { revision, state, observedAt: '2026-10-23T12:00:00Z' } }
+        });
+      publish('changed', 'another-owner');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(text().includes('New reading changes are available'), false);
+      publish('changed', 'owner', 'old-revision');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(text().includes('New reading changes are available'), false);
+      for (const [state, message] of [
+        ['checking', 'Checking Google Drive…'],
+        ['unchanged', 'No new reading changes found.'],
+        ['changed', 'New reading changes are available to review.'],
+        ['review', 'Some reading changes need your review. Your local changes have been kept.'],
+        ['retry', 'Google Drive could not be checked just now.'],
+        ['paused', 'Automatic updates are paused.']
+      ]) {
+        publish(state);
+        await until(() => text().includes(message));
+        assert.equal(
+          window.document.querySelector('article [role=status]').getAttribute('aria-live'),
+          'polite'
+        );
+      }
+      publish('received');
+      await until(() =>
+        text().includes('Reading changes saved on this device. Google Drive was not changed.')
+      );
+      assert.equal(button('Review reading changes'), undefined);
+      api.connections('other-owner');
+      await until(() => button('Check current copies'));
+      assert.equal(text().includes('Reading changes saved on this device.'), false);
+    },
+    {
+      bridge: {
+        connections: async () => [original],
+        checkConnection: async () => ({ preview: {}, comparison: {} })
+      }
+    }
+  );
+});
+
+test('a new automatic conflict replaces an earlier manual receive success message', async () => {
+  const original = {
+    ...savedConnection('Book'),
+    version: 3,
+    automaticChecks: true,
+    automaticReceive: true
+  };
+  await fixture(
+    async ({ window, api, until, text, button }) => {
+      api.connections('owner');
+      await until(() => button('Check current copies'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      button('Check current copies').click();
+      await until(() => button('Review reading changes'));
+      // Finish StrictMode's mount replay before interacting with the new review.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      button('Review reading changes').click();
+      await until(() => button('Use Drive reading data on this device'));
+      button('Use Drive reading data on this device').click();
+      await until(() => text().includes('Previous values are available in Reader sync recovery.'));
+
+      window.automaticStatus.set({
+        owner: 'owner',
+        available: true,
+        records: { Book: { revision: '1', state: 'review', observedAt: 'later' } }
+      });
+      await until(() => text().includes('Some reading changes need your review.'));
+      assert.equal(text().includes('Reading changes saved on this device.'), false);
+      assert.equal(button('Check current copies').disabled, false);
+    },
+    {
+      bridge: {
+        connections: async () => [original],
+        checkConnection: async () => ({ preview: {}, comparison: {} }),
+        review: async () => reviewed('Book'),
+        receive: async () => {}
+      }
+    }
+  );
+});
+
 test('saved connections cancel a pending check and hide its book after changing accounts', async () => {
   const pending = deferred();
   let signal;
@@ -356,6 +581,7 @@ test('restored connections remain inactive and forgetting them only calls the gu
       api.connections('owner');
       await until(() => button('Forget recovered connection'));
       assert.equal(button('Check current copies'), undefined);
+      assert.equal(window.document.querySelector('input[type=checkbox]'), null);
       assert.match(text(), /Recovery never reconnects a book automatically/);
       // Let StrictMode finish mounting the asynchronously loaded row before input.
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -372,6 +598,159 @@ test('restored connections remain inactive and forgetting them only calls the gu
         connections: async () => rows,
         removeConnection: async (...args) => {
           removals.push(args);
+        }
+      }
+    }
+  );
+});
+
+test('automatic checks default off and save one choice at a time using the latest returned revision', async () => {
+  const saving = deferred();
+  const original = { ...savedConnection('Book'), version: 1 };
+  const calls = [];
+  await fixture(
+    async ({ window, api, until, button, text }) => {
+      api.connections('owner');
+      await until(() => window.document.querySelector('input[type=checkbox]'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const input = window.document.querySelector('input[type=checkbox]');
+      assert.equal(input.checked, false);
+      assert.match(input.labels[0].textContent, /Check Google Drive automatically/);
+      assert.match(
+        window.document.getElementById(input.getAttribute('aria-describedby')).textContent,
+        /while the app is open/
+      );
+      assert.match(text(), /Conflicts, including different starting positions, need your review/);
+      input.focus();
+      input.click();
+      await until(() => calls.length === 1);
+      assert.equal(input.checked, true);
+      assert.equal(input.disabled, true);
+      assert.equal(button('Check current copies').disabled, true);
+      input.click();
+      assert.equal(calls.length, 1);
+      assert.deepEqual(calls[0].slice(0, 4), ['owner', 'Book', '1', true]);
+      saving.resolve({ ...original, version: 2, revision: '2', automaticChecks: true });
+      await until(() => input.disabled === false);
+      assert.equal(
+        window.document.activeElement,
+        input,
+        'Saving consent keeps keyboard focus on its control'
+      );
+      input.click();
+      await until(() => calls.length === 2 && input.disabled === false);
+      assert.deepEqual(calls[1].slice(0, 4), ['owner', 'Book', '2', false]);
+      assert.equal(input.checked, false);
+    },
+    {
+      bridge: {
+        connections: async () => [original],
+        setAutomaticChecks: (...args) => {
+          calls.push(args);
+          return calls.length === 1
+            ? saving.promise
+            : Promise.resolve({ ...original, version: 2, revision: '3', automaticChecks: false });
+        }
+      }
+    }
+  );
+});
+
+test('failed automatic-check consent restores the saved checkbox and gives an inline retry path', async () => {
+  let attempts = 0;
+  const original = { ...savedConnection('Book'), version: 2, automaticChecks: true };
+  await fixture(
+    async ({ window, api, until, text }) => {
+      api.connections('owner');
+      await until(() => window.document.querySelector('input[type=checkbox]'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const input = window.document.querySelector('input[type=checkbox]');
+      assert.equal(input.checked, true);
+      input.click();
+      await until(() => text().includes('automatic check preference could not be confirmed'));
+      assert.equal(input.disabled, false);
+      assert.equal(input.checked, true);
+      input.click();
+      await until(() => attempts === 2 && input.disabled === false);
+      assert.equal(input.checked, false);
+      assert.equal(text().includes('could not be confirmed'), false);
+    },
+    {
+      bridge: {
+        connections: async () => [original],
+        setAutomaticChecks: async () => {
+          if (++attempts === 1) throw new Error('Storage unavailable');
+          return { ...original, revision: '2', automaticChecks: false };
+        }
+      }
+    }
+  );
+});
+
+test('automatic-check consent is revoked when another revision arrives and cannot overwrite it later', async () => {
+  const pending = deferred();
+  let record = { ...savedConnection('Book'), version: 2, automaticChecks: false };
+  let signal;
+  await fixture(
+    async ({ window, api, until, text }) => {
+      api.connections('owner');
+      await until(() => window.document.querySelector('input[type=checkbox]'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const input = window.document.querySelector('input[type=checkbox]');
+      input.click();
+      await until(() => signal);
+      record = { ...record, revision: 'peer-revision' };
+      window.recoveryChanges.dispatchEvent(new window.Event('change'));
+      await until(() => signal.aborted);
+      assert.equal(input.checked, false);
+      assert.equal(input.disabled, false);
+      pending.resolve({ ...record, revision: 'stale-revision', automaticChecks: true });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(input.checked, false);
+      assert.equal(text().includes('Saving automatic check preference'), false);
+    },
+    {
+      bridge: {
+        connections: async () => [record],
+        setAutomaticChecks: (_owner, _id, _revision, _enabled, cancellation) => {
+          signal = cancellation;
+          return pending.promise;
+        }
+      }
+    }
+  );
+});
+
+test('automatic-check updates from a previous account cannot alter the current account interface', async () => {
+  const pending = deferred();
+  let signal;
+  await fixture(
+    async ({ window, api, until, text }) => {
+      api.connections('owner-a');
+      await until(() => window.document.querySelector('input[type=checkbox]'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      window.document.querySelector('input[type=checkbox]').click();
+      await until(() => signal);
+      api.connections('owner-b');
+      await until(() => text().includes('Book for owner-b'));
+      assert.equal(signal.aborted, true);
+      pending.resolve({
+        ...savedConnection('Book for owner-a'),
+        version: 2,
+        revision: '2',
+        automaticChecks: true
+      });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      assert.equal(window.document.querySelector('input[type=checkbox]').checked, false);
+      assert.equal(text().includes('Book for owner-a'), false);
+      assert.equal(text().includes('Saving automatic check preference'), false);
+    },
+    {
+      bridge: {
+        connections: async (owner) => [savedConnection(`Book for ${owner}`)],
+        setAutomaticChecks: (_owner, _id, _revision, _enabled, cancellation) => {
+          signal = cancellation;
+          return pending.promise;
         }
       }
     }

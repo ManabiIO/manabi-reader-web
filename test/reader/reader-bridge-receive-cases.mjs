@@ -4,6 +4,7 @@ import { encodeBook } from '../../apps/web/src/lib/data/database/books-db/book-b
 import { identifyReaderBook } from '../../apps/web/src/lib/manabi/reader-book-identity.ts';
 import { prepareReaderImportContent } from '../../apps/web/src/lib/manabi/reader-import-content.ts';
 import { compareReaderBridgeLocalBook as compare } from '../../apps/web/src/lib/manabi/reader-bridge-local-book.ts';
+import { connectionDigest } from '../../apps/web/src/lib/manabi/reader-bridge-connection-model.ts';
 import { projectReaderBridgeFiles as project } from '../../apps/web/src/lib/manabi/reader-bridge-projection.ts';
 import {
   reviewReaderBridgeLocalChanges as review,
@@ -137,7 +138,139 @@ async function dataState(db) {
     value instanceof ArrayBuffer ? Array.from(new Uint8Array(value)) : value
   );
 }
+async function automaticFixture(db) {
+  const connection = '00000000-0000-4000-8000-000000000002';
+  const binding = await connectionDigest([
+    'google',
+    'alice',
+    connection,
+    'root',
+    'folder',
+    'package'
+  ]);
+  const input = await remote();
+  const incoming = await project(
+    { ...input.snapshot, binding, generation: connection },
+    { title: '本', characters: 100 },
+    input.originals
+  );
+  await db.put('readerLocalIdentity', { bookId: 1, uuid: localUuid });
+  await db.put('readerBookScope', { bookId: 1, accountId: 'alice' });
+  const record = {
+    id: globalThis.crypto.randomUUID(),
+    version: 3,
+    automaticChecks: true,
+    automaticReceive: true,
+    revision: globalThis.crypto.randomUUID(),
+    state: 'linked',
+    accountId: 'alice',
+    binding,
+    bookId: 1,
+    descriptor: {
+      accountId: 'alice',
+      binding,
+      title: '本',
+      fingerprint: incoming.snapshot.fingerprint,
+      characters: 100,
+      local: { bookId: 1, identity: localUuid },
+      source: {
+        provider: 'google',
+        connection,
+        generation: connection,
+        root: 'root',
+        folder: 'folder',
+        packageId: 'package',
+        profile: incoming.snapshot.profile,
+        observedRevision: 'a'.repeat(64),
+        files: [{ role: 'book', id: 'package', version: '1', md5: '0'.repeat(32) }]
+      }
+    }
+  };
+  await db.put('readerBridgeConnection', record);
+  return { record, incoming };
+}
 const cases = {
+  async 'automatic receipt accepts safe additions and unchanged agreement requires no further acceptance'() {
+    await setup(async (db) => {
+      const { record, incoming } = await automaticFixture(db);
+      const pending = await prepare(db, incoming);
+      assert(pending.needsAcceptance, 'New values did not need agreement');
+      await receive(pending, 'incoming', async () => {}, undefined, record);
+      assert((await db.get('bookmark', 1)).progress === 0.5, 'Automatic receipt did not apply');
+      const again = await prepare(db, incoming);
+      assert(
+        again.plan.state === 'ready' && !again.needsAcceptance,
+        'Unchanged state would create repeated journals'
+      );
+    });
+  },
+  async 'automatic receipt rechecks revoked forgotten or replaced consent inside its write transaction'() {
+    for (const mode of ['revoked', 'forgotten', 'replaced'])
+      await setup(async (db) => {
+        const { record, incoming } = await automaticFixture(db);
+        const pending = await prepare(db, incoming);
+        const before = await dataState(db);
+        let observations = 0;
+        await rejects(() =>
+          receive(
+            pending,
+            'incoming',
+            async () => {
+              if (++observations !== 2) return;
+              if (mode === 'forgotten') await db.delete('readerBridgeConnection', record.id);
+              else
+                await db.put('readerBridgeConnection', {
+                  ...record,
+                  ...(mode === 'revoked'
+                    ? { automaticReceive: false }
+                    : { revision: globalThis.crypto.randomUUID() })
+                });
+            },
+            undefined,
+            record
+          )
+        );
+        assert(
+          observations === 2 && before === (await dataState(db)),
+          'Stale automatic work changed reading data'
+        );
+        assert(
+          !(await db.getAll('readerBridgeJournal')).some((row) => row.phase === 'accepted'),
+          'Stale work was acknowledged'
+        );
+      });
+  },
+  async 'automatic receipt cannot use manual conflict override or another connection generation'() {
+    await setup(async (db) => {
+      const { record, incoming } = await automaticFixture(db);
+      await db.put('bookmark', mark(0.8));
+      const pending = await prepare(db, incoming);
+      const before = await dataState(db);
+      await rejects(
+        () => receive(pending, 'use-drive', async () => {}, undefined, record),
+        'changed'
+      );
+      assert(
+        before === (await dataState(db)) && (await db.count('readerBridgeJournal')) === 0,
+        'Automatic conflict override wrote intent'
+      );
+    });
+    await setup(async (db) => {
+      const { record, incoming } = await automaticFixture(db);
+      record.descriptor.source.generation = globalThis.crypto.randomUUID();
+      await db.put('readerBridgeConnection', record);
+      const pending = await prepare(db, incoming),
+        before = await dataState(db);
+      await rejects(
+        () => receive(pending, 'incoming', async () => {}, undefined, record),
+        'changed'
+      );
+      assert(
+        before === (await dataState(db)) && (await db.count('readerBridgeJournal')) === 0,
+        'Another source generation was applied'
+      );
+    });
+  },
   async 'review is read-only and initial receive atomically retains evidence and local data'() {
     await setup(async (db) => {
       const before = await dataState(db),

@@ -18,6 +18,7 @@ import {
 } from './reader-bridge-local-state';
 import { withReaderDataApplyLease } from '../webdav/reader-lock';
 import type { ReaderBridgeReceiveDecision } from './reader-bridge-journal';
+import type { ReaderBridgeConnectionRecord } from './reader-bridge-connection-model';
 import { announceReaderBridgeRecoveryChange } from './reader-bridge-recovery';
 import {
   listReaderBridgeLocalBooks,
@@ -78,7 +79,8 @@ export async function reviewDriveReaderChanges(
 export async function receiveDriveReaderChanges(
   review: ReaderBridgeLocalReview,
   decision: ReaderBridgeReceiveDecision,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  automaticConnection?: ReaderBridgeConnectionRecord
 ) {
   const preview = driveReviews.get(review);
   if (!preview) throw new Error('Review the current copies before saving reading data.');
@@ -89,7 +91,8 @@ export async function receiveDriveReaderChanges(
           review,
           decision,
           () => recheckDriveReaderPreview(preview, scope.signal),
-          scope.signal
+          scope.signal,
+          automaticConnection
         )
       )
     );
@@ -177,6 +180,40 @@ export async function removeDriveReaderConnection(
     return await withConnectionOwner(owner, signal, async (scope) => {
       const { removeReaderBridgeConnection } = await import('./reader-bridge-connection');
       return removeReaderBridgeConnection(await database.db, scope, id, revision);
+    });
+  } finally {
+    announceReaderBridgeRecoveryChange();
+  }
+}
+
+export async function setDriveReaderAutomaticChecks(
+  owner: string,
+  id: string,
+  revision: string,
+  enabled: boolean,
+  signal?: AbortSignal
+) {
+  try {
+    return await withConnectionOwner(owner, signal, async (scope) => {
+      const { setReaderBridgeAutomaticChecks } = await import('./reader-bridge-connection');
+      return setReaderBridgeAutomaticChecks(await database.db, scope, id, revision, enabled);
+    });
+  } finally {
+    announceReaderBridgeRecoveryChange();
+  }
+}
+
+export async function setDriveReaderAutomaticReceive(
+  owner: string,
+  id: string,
+  revision: string,
+  enabled: boolean,
+  signal?: AbortSignal
+) {
+  try {
+    return await withConnectionOwner(owner, signal, async (scope) => {
+      const { setReaderBridgeAutomaticReceive } = await import('./reader-bridge-connection');
+      return setReaderBridgeAutomaticReceive(await database.db, scope, id, revision, enabled);
     });
   } finally {
     announceReaderBridgeRecoveryChange();

@@ -6,6 +6,7 @@
 
 import type { IDBPDatabase } from 'idb';
 import type BooksDb from '../data/database/books-db/versions/books-db';
+import { assertBookPersonalAccess } from '../data/database/books-db/book-records';
 import { commitTransaction } from '../data/database/books-db/commit-transaction.mjs';
 import {
   captureReaderBridgeLocalBook,
@@ -170,7 +171,9 @@ export async function saveReaderBridgeConnection(
       }
       const record: ReaderBridgeConnectionRecord = {
         id: crypto.randomUUID(),
-        version: 1,
+        version: 3,
+        automaticChecks: false,
+        automaticReceive: false,
         revision: crypto.randomUUID(),
         state: 'linked',
         accountId: candidate.accountId,
@@ -241,6 +244,127 @@ export async function removeReaderBridgeConnection(
       validateReaderBridgeConnectionRecord(before);
       await tx.store.delete(id);
       check();
+    });
+  } finally {
+    stop();
+  }
+}
+
+/** Both switches require explicit consent and rotate the CAS revision. Turning
+ * checks off also revokes automatic receipt. No reading data or source changes. */
+export function setReaderBridgeAutomaticChecks(
+  db: IDBPDatabase<BooksDb>,
+  scope: ReaderBridgeLocalScope,
+  id: string,
+  revision: string,
+  enabled: boolean
+) {
+  return setAutomaticConsent(db, scope, id, revision, 'checks', enabled);
+}
+export function setReaderBridgeAutomaticReceive(
+  db: IDBPDatabase<BooksDb>,
+  scope: ReaderBridgeLocalScope,
+  id: string,
+  revision: string,
+  enabled: boolean
+) {
+  return setAutomaticConsent(db, scope, id, revision, 'receive', enabled);
+}
+async function setAutomaticConsent(
+  db: IDBPDatabase<BooksDb>,
+  scope: ReaderBridgeLocalScope,
+  id: string,
+  revision: string,
+  kind: 'checks' | 'receive',
+  enabled: boolean
+): Promise<ReaderBridgeConnectionRecord> {
+  const check = guard(scope);
+  check();
+  if (!connectionUuid(id) || !connectionUuid(revision) || typeof enabled !== 'boolean') changed();
+  const stored = await db.get('readerBridgeConnection', id);
+  check();
+  if (
+    !stored ||
+    stored.accountId !== scope.profileId ||
+    stored.revision !== revision ||
+    stored.state !== 'linked'
+  )
+    changed();
+  const observed = validateReaderBridgeConnectionRecord(stored);
+  await verifyReaderBridgeConnectionDescriptor(observed.descriptor);
+  check();
+  const tx = db.transaction(
+    ['readerBridgeConnection', 'readerLocalIdentity', 'data', 'readerBookScope'],
+    'readwrite'
+  );
+  const stop = cancelTransaction(tx, scope.signal);
+  try {
+    return await commitTransaction(tx, async () => {
+      check();
+      const current = await tx.objectStore('readerBridgeConnection').get(id);
+      check();
+      if (
+        !current ||
+        current.accountId !== scope.profileId ||
+        current.revision !== revision ||
+        current.state !== 'linked' ||
+        canonical(current) !== canonical(observed)
+      )
+        changed();
+      const bookId = observed.descriptor.local.bookId;
+      const [book, identity, identities, owner] = await Promise.all([
+        tx.objectStore('data').get(bookId),
+        tx.objectStore('readerLocalIdentity').get(bookId),
+        tx.objectStore('readerLocalIdentity').getAll(),
+        tx.objectStore('readerBookScope').get(bookId)
+      ]);
+      check();
+      if (
+        !book ||
+        book.id !== bookId ||
+        book.characters !== observed.descriptor.characters ||
+        !identity ||
+        identity.bookId !== bookId ||
+        identity.uuid !== observed.descriptor.local.identity ||
+        !owner ||
+        owner.bookId !== bookId ||
+        owner.accountId !== scope.profileId ||
+        identities.some((row) => row.bookId !== bookId && row.uuid === identity.uuid)
+      )
+        changed();
+      try {
+        assertBookPersonalAccess(book!, owner, scope.profileId);
+      } catch {
+        changed();
+      }
+      const automaticChecks =
+        kind === 'checks' ? enabled : enabled || observed.automaticChecks === true;
+      const automaticReceive =
+        kind === 'receive' ? enabled : enabled && observed.automaticReceive === true;
+      if (
+        (observed.automaticChecks === true) === automaticChecks &&
+        (observed.automaticReceive === true) === automaticReceive
+      )
+        return observed;
+      const next: ReaderBridgeConnectionRecord = {
+        ...observed,
+        version: 3,
+        automaticChecks,
+        automaticReceive,
+        revision: crypto.randomUUID()
+      };
+      validateReaderBridgeConnectionRecord(next);
+      const rows = (
+        await tx
+          .objectStore('readerBridgeConnection')
+          .index('accountId')
+          .getAll(scope.profileId!, READER_BRIDGE_CONNECTION_LIMITS.records + 1)
+      ).map(validateReaderBridgeConnectionRecord);
+      assertReaderBridgeConnectionCapacity([...rows.filter((row) => row.id !== id), next]);
+      check();
+      await tx.objectStore('readerBridgeConnection').put(next);
+      check();
+      return next;
     });
   } finally {
     stop();

@@ -69,7 +69,10 @@ export async function recheckDriveReaderPreview(preview: DriveReaderPreview, sig
   signal?.throwIfAborted();
   const { selection } = prepared;
   const path = `connections/${selection.connection}/reader-bridge/?${new URLSearchParams({ root: selection.root, folder: selection.folder, profile: selection.profile })}`;
-  const current = observation(await request<unknown>(path, { userId: selection.owner }), selection);
+  const current = observation(
+    await request<unknown>(path, { userId: selection.owner, signal }),
+    selection
+  );
   signal?.throwIfAborted();
   prepared.assertCurrent();
   if (canonical(current) !== canonical(prepared.observation))
@@ -199,9 +202,7 @@ function observation(value: unknown, selection: DriveReaderSelection): Observati
   };
 }
 
-/** Explicit read-only preview. No storage, baseline acknowledgement or remote
- * write. All related downloads and decoded identity share one rechecked manifest. */
-export async function previewDriveReaderBridge(input: DriveReaderSelection, signal?: AbortSignal) {
+function selectedReaderLibrary(input: DriveReaderSelection): DriveReaderSelection {
   const selection = { ...input };
   if (
     !selection.owner ||
@@ -212,6 +213,37 @@ export async function previewDriveReaderBridge(input: DriveReaderSelection, sign
     !['ttu-1-6', 'ttu-1-7', 'ttu-1-8', 'yatsu-1-11'].includes(selection.profile)
   )
     throw new Error('Invalid reader library selection.');
+  return selection;
+}
+
+/** Observe only metadata for a saved library. No ZIP/sidecar downloads, local
+ * writes or reading-state claims. Full preview still verifies decoded content. */
+export async function observeDriveReaderBridge(input: DriveReaderSelection, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const selection = selectedReaderLibrary(input);
+  const scope = captureLibraryOperation(selection.owner);
+  const check = () => {
+    signal?.throwIfAborted();
+    scope.assertCurrent();
+  };
+  try {
+    check();
+    const path = `connections/${selection.connection}/reader-bridge/?${new URLSearchParams({ root: selection.root, folder: selection.folder, profile: selection.profile })}`;
+    const value = observation(
+      await request<unknown>(path, { userId: selection.owner, signal }),
+      selection
+    );
+    check();
+    return value;
+  } finally {
+    scope.stop();
+  }
+}
+
+/** Explicit read-only preview. No storage, baseline acknowledgement or remote
+ * write. All related downloads and decoded identity share one rechecked manifest. */
+export async function previewDriveReaderBridge(input: DriveReaderSelection, signal?: AbortSignal) {
+  const selection = selectedReaderLibrary(input);
   const scope = captureLibraryOperation(selection.owner);
   const check = () => {
     signal?.throwIfAborted();
@@ -222,7 +254,7 @@ export async function previewDriveReaderBridge(input: DriveReaderSelection, sign
   try {
     check();
     const before = observation(
-      await request<unknown>(path('reader-bridge'), { userId: selection.owner }),
+      await request<unknown>(path('reader-bridge'), { userId: selection.owner, signal }),
       selection
     );
     check();
@@ -234,7 +266,7 @@ export async function previewDriveReaderBridge(input: DriveReaderSelection, sign
           generation: before.generation,
           id: file.id
         }),
-        { userId: selection.owner, binary: true, maximumBytes: limits[file.role] }
+        { userId: selection.owner, binary: true, maximumBytes: limits[file.role], signal }
       );
       check();
       if (bytes.byteLength !== file.size) throw new IntegrationError('conflict');
@@ -275,7 +307,7 @@ export async function previewDriveReaderBridge(input: DriveReaderSelection, sign
     );
     check();
     const after = observation(
-      await request<unknown>(path('reader-bridge'), { userId: selection.owner }),
+      await request<unknown>(path('reader-bridge'), { userId: selection.owner, signal }),
       selection
     );
     check();

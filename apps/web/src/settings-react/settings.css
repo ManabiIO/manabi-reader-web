@@ -765,3 +765,14 @@
   max-width: 100%;
   white-space: normal;
 }
+.react-settings-connections-screen .reader-bridge-automatic-checks {
+  margin-block: 0.75rem 1rem;
+}
+.react-settings-connections-screen .reader-bridge-automatic-checks [data-ui-toggle] label {
+  flex-wrap: nowrap;
+  margin: 0;
+}
+.react-settings-connections-screen .reader-bridge-automatic-checks .hint {
+  max-width: 65ch;
+  margin-top: 0;
+}

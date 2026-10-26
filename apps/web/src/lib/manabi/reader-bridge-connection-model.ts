@@ -31,11 +31,10 @@ export interface ReaderBridgeConnectionDescriptor {
     files: { role: 'book' | 'resume' | 'statistics'; id: string; version: string; md5: string }[];
   };
 }
-/** A linked record remembers an explicitly verified pair. Neither state grants
- * automatic receive, upload or scheduler authority. Restored local IDs are hints. */
-export interface ReaderBridgeConnectionRecord {
+/** A linked record remembers an explicitly verified pair. Checks and safe local
+ * receipt require separate consent. Neither permits upload; restored IDs are hints. */
+interface ReaderBridgeConnectionFields {
   id: string;
-  version: 1;
   revision: string;
   accountId: string;
   binding: string;
@@ -43,6 +42,12 @@ export interface ReaderBridgeConnectionRecord {
   state: 'linked' | 'restored';
   descriptor: ReaderBridgeConnectionDescriptor;
 }
+export type ReaderBridgeConnectionRecord = ReaderBridgeConnectionFields &
+  (
+    | { version: 1; automaticChecks?: never; automaticReceive?: never }
+    | { version: 2; automaticChecks: boolean; automaticReceive?: never }
+    | { version: 3; automaticChecks: boolean; automaticReceive: boolean }
+  );
 export class ReaderBridgeConnectionError extends Error {
   constructor(public readonly code: 'invalid' | 'changed' | 'exists' | 'capacity') {
     super(
@@ -178,6 +183,7 @@ export async function verifyReaderBridgeConnectionDescriptor(input: unknown) {
   return value;
 }
 export function validateReaderBridgeConnectionRecord(input: unknown): ReaderBridgeConnectionRecord {
+  const version = input && typeof input === 'object' && 'version' in input ? input.version : null;
   const value = object(input, [
     'id',
     'version',
@@ -186,11 +192,20 @@ export function validateReaderBridgeConnectionRecord(input: unknown): ReaderBrid
     'binding',
     'bookId',
     'state',
-    'descriptor'
+    'descriptor',
+    ...(version === 2 || version === 3 ? ['automaticChecks'] : []),
+    ...(version === 3 ? ['automaticReceive'] : [])
   ]);
   const descriptor = validateReaderBridgeConnectionDescriptor(value.descriptor);
   if (
-    value.version !== 1 ||
+    ![1, 2, 3].includes(Number(value.version)) ||
+    typeof value.version !== 'number' ||
+    ((value.version === 2 || value.version === 3) &&
+      (typeof value.automaticChecks !== 'boolean' ||
+        (value.state === 'restored' && value.automaticChecks))) ||
+    (value.version === 3 &&
+      (typeof value.automaticReceive !== 'boolean' ||
+        (value.automaticReceive && value.automaticChecks !== true))) ||
     !connectionUuid(value.revision) ||
     !['linked', 'restored'].includes(String(value.state)) ||
     (value.state === 'linked'

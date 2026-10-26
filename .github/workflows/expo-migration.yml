@@ -349,6 +349,11 @@ jobs:
             JOURNAL_BROWSER="$engine" node test/reader/reader-bridge-journal-browser.mjs || status=1
           done
           exit "$status"
+      - name: Automatic Drive lifecycle and cross-tab ownership
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
+        env:
+          READER_BRIDGE_NATIVE_LOCKS: '1'
+        run: node --test tests/unit/reader-bridge-runtime.test.mjs tests/unit/reader-bridge-scheduler.test.mjs
       - name: Retained actual-app assertions on the same export
         if: ${{ !cancelled() && steps.export.outcome == 'success' && steps.browsers.outcome == 'success' }}
         run: |

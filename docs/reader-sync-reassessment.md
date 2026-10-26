@@ -2,22 +2,90 @@
 
 ## Current scope: continuous Google Drive compatibility
 
-Decision updated 2026-10-22. The user's request for continuous ッツ (Ttsu) and
+Decision updated 2026-10-26. The user's request for continuous ッツ (Ttsu) and
 ideally Yatsu synchronization supersedes the earlier one-time-migration-only
 scope. Google Drive is the first and only transport in this phase. Web is active;
 Android is paused, Windows is deferred, and Apple clients are separate products.
 Import/export stays available and independent of connection setup.
 
 The working branch includes an executable reconciliation contract, bounded
-state-file decoder, read-only Google Drive preview and an explicit local receive
-flow, **not a released continuous-sync service**. The preview uses the existing
-same-origin connection. Selecting and comparing a local book remains read-only;
-a matching result does not save a link or apply reading data. A separate review
+state-file decoder, read-only Google Drive preview, reviewed local receive and
+opt-in automatic safe receive, **not a released two-way continuous-sync service**.
+The preview uses the existing same-origin connection. Selecting and comparing a
+local book remains read-only; a matching result does not save a link or apply
+reading data. A separate review
 and save action applies supported incoming reading values with a durable recovery
 journal. Verified pairs can now be remembered and reopened for a fresh manual
-check. There is no automatic scheduler or outgoing Drive writer.
+check. Automatic checks and safe incoming merges are separate per-book opt-ins.
+There is no outgoing Drive writer.
 Existing TTU-shaped Drive handlers and shared-folder auto import/export are not
 evidence that the proposed safety requirements are already implemented.
+
+### Automatic incoming changes
+
+Saved connection v3 adds `automaticReceive` alongside v2's `automaticChecks`.
+Both default off; enabling receive also enables checks, and disabling checks
+revokes both. Legacy records remain readable and off. The original explicit
+pairing still binds account, local UUID, book fingerprint, Drive IDs and provider
+generation. A new connection does not treat an empty library as a deletion.
+Recovery v3 exports connection descriptors only: neither opt-in, pending timers,
+nor runtime status is restored. Restored descriptors remain inactive hints.
+
+The web runtime admits checks only after authenticated session resolution, while
+online and visible. A single foreground tab holds an origin-local Web Lock;
+other eligible tabs wait without making duplicate requests. Losing visibility,
+connectivity, account generation or the runtime cancels pending work. Unsupported
+lock environments retain manual checks. New leaders wait one minute; each pass
+checks at most five pairs and performs at most one full receive comparison.
+Unchanged pairs are sampled every five minutes; failures back off up to thirty
+minutes and respect provider Retry-After. Permanent identity/access failures wait
+for review. Cooldowns survive offline and visibility changes within the current
+runtime account lifetime; browser restart and transfer to another tab do not share
+that memory. Full comparisons rotate independently of metadata checks so a busy
+book cannot monopolize the receive budget. A known conflict stays visible while
+its refreshed comparison waits for that budget.
+Polling uses schema v16's additive local-UUID and book-owner indexes,
+without loading book payloads or scanning all local identities. Full content and
+reading-data validation remains mandatory before applying changes.
+
+Incoming merge uses three-way semantic comparison against the last accepted
+state. A remote-only change can be received; local-only edits remain pending;
+identical state establishes agreement. Different initial values, changes on both
+sides, deletions, unsupported mappings or unresolved recovery require review.
+A later timestamp alone does not establish causal order across devices, and daily
+aggregate counters are never added together. The first explicit review can
+establish a baseline for later automatic merges. Only the safe `incoming`
+decision is used automatically; the explicit `use-drive` replacement action is
+never inferred from opt-in. Before commit, the same transaction rechecks saved
+consent/revision, book ownership, unchanged local values and the accepted
+baseline. Reader lifetime locks prevent background changes behind an open reader.
+Previous values and original remote bytes remain in the durable recovery journal.
+Unchanged comparisons do not repeatedly append journal entries.
+
+The web consent controls use the shared Expo UI `CheckboxField` and existing
+platform adapters. Associated help text describes the actual web inputs; controls
+remain disabled during a preference save. Routine results stay inline, and a newer
+automatic result replaces an older completed-action message. Actual Expo UI and
+React Native Web rendering, consent races and narrow browser layouts are tested.
+This preserves the shared control boundary without resuming Android qualification.
+
+Source setup preservation is covered in the companion backend's real Django and
+PostgreSQL tests with production Google adapters over a stateful HTTP fixture.
+They compare all cloud bytes, names, parents, IDs, revisions, metadata and private
+state after each OAuth, folder-selection, retry, reconnect and preview action.
+The wire audit also rejects attempted storage mutations even if the provider
+would refuse them. This proves the fixture-backed adapter contract; live Google
+consent and interoperability with two real reader clients remain release checks.
+
+The automatic incoming checkpoint passes 2,007 unit tests (including actual
+cross-tab Web Locks in Chromium and WebKit), 696 Expo integration checks, strict
+types and scoped lint. The final export also passes four persistent-browser
+offline/restart journeys in each browser. Three composed Drive journeys per
+browser cover reviewed receive, automatic receive after reload, opt-out,
+recovery, duplicate suppression and preserved cloud data. The companion backend
+passes 33 cloud/bridge tests. Desktop and 320px layouts use the real Expo controls.
+These checks qualify the fixture-backed incoming path, not live Google access or
+outgoing compatibility.
 
 ### Public Hoshi reference, without implementation source
 
@@ -173,8 +241,8 @@ The normal `CloudLibrary.read()` EPUB/TXT/HTMLZ filter remains unchanged.
 
 In Accounts and libraries, browsing a supported Google book directory offers an
 inline preview of its saved position and reading days. It explicitly says that
-automatic sync is not connected. Navigation, account changes and canceled work
-must not publish an older preview. This gives the snapshot adapter a production
+previewing does not enable automatic updates. Navigation, account changes and
+canceled work must not publish an older preview. This gives the snapshot adapter a production
 caller without representing a read as permission to sync.
 
 `identifyReaderBook()` is shared with one-time import and retains the exact prior
@@ -248,8 +316,9 @@ navigation. Explicit import now resolves the initial unknown profile before
 admission, then retains the normal account/cancellation fences. Settled offline
 and anonymous imports stay local. This does not add a database or backup format.
 
-Continuous sync still requires scheduling,
-compatibility OAuth, richer Yatsu mappings and a qualified outgoing serializer.
+Two-way continuous sync still requires compatibility OAuth, richer Yatsu mappings
+and a qualified outgoing serializer. Bounded foreground scheduling for incoming
+changes is implemented as described above.
 The provider tests use real HTTP against a stateful vendor-wire fixture and
 PostgreSQL. They do not establish real Google consent, Drive listing consistency
 or live cross-app write safety. Rechecking observed versions is not an atomic
