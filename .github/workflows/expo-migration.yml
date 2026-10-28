@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       qualify_android:
-        description: Explicitly resume the deferred Android build and device qualification
+        description: Build Android and run packaged control and persistence qualification
         required: false
         type: boolean
         default: false
@@ -473,7 +473,7 @@ jobs:
   android:
     name: Android export, APK assets and synthetic packaged-host runtime
     # Missing/private visibility fails closed; no runner is allocated.
-    # Paused by product scope. Allocate no Android runner unless explicitly requested.
+    # Android runtime qualification uses an explicit dispatch on a disposable stock runner.
     if: >-
       github.event_name == 'workflow_dispatch' && inputs.qualify_android == true &&
       github.event.repository.visibility == 'public' &&

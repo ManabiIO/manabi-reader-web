@@ -102,6 +102,8 @@ public final class PackagedReaderTest {
       offline.put("notice", "native-details-open-and-dismissed").put("webViewOnline", false);
       if (phase.equals("verify")) qualifyNativeFontPicker(phase);
       qualifyNativeFontManager();
+      qualifyNativePageTurn(phase);
+      qualifyNativeStatisticsTextField();
       if (!phase.equals("verify")) qualifyNativeFontPicker(phase);
       qualifyNativeBackgrounds(phase);
       evidence.put("nativeBookExport", new PackagedBookExport(instrumentation, new PackagedBookExport.Driver() {
@@ -129,6 +131,7 @@ public final class PackagedReaderTest {
             "false", evaluate("navigator.onLine"));
         evidence.put("afterReload", runProbe("verify"));
         if (phase.equals("seed")) evidence.put("nativeFontAfterReload", runFontProbe("selected"));
+        if (phase.equals("seed")) verifyNativePageTurnReload();
         evidence.put("navigation", navigationRestrictions());
         preserve = phase.equals("seed");
       }
@@ -332,23 +335,23 @@ public final class PackagedReaderTest {
         {"fontFamilyGroupTwo", "Sans-serif font"}}) {
       String key = field[0], label = field[1];
       String original = evaluate("localStorage.getItem('" + key + "')");
-      String initialText = awaitFontInput(label, null);
+      String initialText = awaitNativeTextInput(label, null);
       String replacement = "\"Native qualification font\", serif";
       assertNotEquals("Disposable fixture must differ from initial preference", initialText, replacement);
       try {
-        setFontInput(label, replacement);
+        setNativeTextInput(label, replacement);
         assertEquals("Typing a font must not save it", original, evaluate("localStorage.getItem('" + key + "')"));
         clickAccessibleText("Cancel edit");
-        awaitFontInput(label, initialText);
+        awaitNativeTextInput(label, initialText);
         assertEquals("Cancel must retain the original raw preference", original, evaluate("localStorage.getItem('" + key + "')"));
-        setFontInput(label, replacement);
+        setNativeTextInput(label, replacement);
         clickAccessibleText("Apply " + label);
         awaitRawPreference(key, JSONObject.quote(replacement));
-        awaitFontInput(label, replacement);
-        setFontInput(label, initialText);
+        awaitNativeTextInput(label, replacement);
+        setNativeTextInput(label, initialText);
         clickAccessibleText("Apply " + label);
         awaitRawPreference(key, JSONObject.quote(initialText));
-        awaitFontInput(label, initialText);
+        awaitNativeTextInput(label, initialText);
       } finally {
         evaluate(original.equals("null") ? "localStorage.removeItem('" + key + "'); true;"
             : "localStorage.setItem('" + key + "', " + original + "); true;");
@@ -367,6 +370,212 @@ public final class PackagedReaderTest {
     throw new AssertionError("Native preference did not reach the local owner: " + key);
   }
 
+  /** Test-only metadata in a run-scoped namespace survives both app processes. */
+  private void qualifyNativePageTurn(String phase) throws Exception {
+    android.content.SharedPreferences saved = instrumentation.getTargetContext().getSharedPreferences(
+        "manabi-controls-qualification-" + config.getString("id"), Context.MODE_PRIVATE);
+    boolean verifying = phase.equals("verify"), retain = false;
+    String original, selected;
+    if (verifying) {
+      assertTrue("Page-turn restart requires the seed's original value", saved.contains("original"));
+      original = saved.getString("original", null);
+      selected = saved.getString("selected", null);
+      assertTrue("The seed must record a supported page-turn effect", "slide".equals(selected) || "none".equals(selected));
+    } else {
+      assertFalse("Never overwrite another page-turn fixture", saved.contains("original"));
+      original = evaluate("localStorage.getItem('pageTurnEffect')");
+      selected = original.equals(JSONObject.quote("none")) ? "slide" : "none";
+      assertTrue("Save exact cleanup metadata before changing the app", saved.edit()
+          .putString("original", original).putString("selected", selected).commit());
+    }
+    String originalValue = original.equals(JSONObject.quote("none")) ? "none" : "slide";
+    assertTrue("Unexpected initial page-turn effect", original.equals("null") ||
+        original.equals(JSONObject.quote("slide")) || original.equals(JSONObject.quote("none")));
+    assertNotEquals("Restart selection must differ from the original effect", originalValue, selected);
+    JSONArray selections = new JSONArray();
+    try {
+      if (verifying) awaitRawPreference("pageTurnEffect", JSONObject.quote(selected));
+      openNativePageLayout();
+      String displayed = verifying ? selected : originalValue;
+      awaitPageTurnPicker(pageTurnLabel(displayed), false);
+      awaitPageTurnPicker(pageTurnLabel(displayed), true);
+      instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
+      awaitPageTurnPicker(pageTurnLabel(displayed), false);
+      assertEquals("Dismissing the actual menu must not save a preference",
+          verifying ? JSONObject.quote(selected) : original, evaluate("localStorage.getItem('pageTurnEffect')"));
+      // Exercise both values, always changing the actual selection. End on the
+      // restart sentinel in seed, or the original choice in verification.
+      String[] effects = verifying
+          ? new String[] {originalValue, selected, originalValue}
+          : new String[] {selected, originalValue, selected};
+      for (String next : effects) {
+        awaitPageTurnPicker(pageTurnLabel(displayed), true);
+        clickAccessibleText(pageTurnLabel(next));
+        awaitRawPreference("pageTurnEffect", JSONObject.quote(next));
+        awaitPageTurnPicker(pageTurnLabel(next), false);
+        selections.put(next);
+        displayed = next;
+      }
+      clickAccessibleText("Back");
+      awaitNativeLibraryReply();
+      openNativePageLayout();
+      awaitPageTurnPicker(pageTurnLabel(displayed), false);
+      if (phase.equals("full")) {
+        awaitPageTurnPicker(pageTurnLabel(selected), true);
+        clickAccessibleText(pageTurnLabel(originalValue));
+        awaitRawPreference("pageTurnEffect", JSONObject.quote(originalValue));
+        awaitPageTurnPicker(pageTurnLabel(originalValue), false);
+      }
+      clickAccessibleText("Back");
+      awaitNativeLibraryReply();
+      retain = phase.equals("seed");
+      evidence.put("nativePageTurn", new JSONObject()
+          .put("journey", verifying ? "retained-after-process-restart-and-native-restore" : "native-picker-dismiss-select-and-reopen")
+          .put("initial", originalValue).put("selections", selections)
+          .put("selected", selected).put("namedField", "Page turn effect")
+          .put("routeReopen", true).put("exactRawPreferenceRestored", false));
+    } finally {
+      if (!retain) {
+        evaluate(original.equals("null") ? "localStorage.removeItem('pageTurnEffect'); true;"
+            : "localStorage.setItem('pageTurnEffect', " + original + "); true;");
+        assertEquals("Restore exact raw page-turn preference including absence", original,
+            evaluate("localStorage.getItem('pageTurnEffect')"));
+        assertTrue("Remove only this run's page-turn metadata", saved.edit().clear().commit());
+        if (evidence.has("nativePageTurn"))
+          evidence.getJSONObject("nativePageTurn").put("exactRawPreferenceRestored", true);
+      }
+    }
+  }
+
+  private String pageTurnLabel(String value) { return value.equals("none") ? "None" : "Slide"; }
+
+  private void openNativePageLayout() throws Exception {
+    clickAccessibleText("Manabi Reader actions");
+    clickAccessibleText("Settings");
+    clickAccessibleText("Page layout");
+    // The disposable profile starts paginated; don't silently change another setting.
+    awaitSelectedChoice("View mode: Paginated");
+  }
+
+  private void verifyNativePageTurnReload() throws Exception {
+    String selected = evidence.getJSONObject("nativePageTurn").getString("selected");
+    awaitRawPreference("pageTurnEffect", JSONObject.quote(selected));
+    awaitNativeLibraryReply();
+    openNativePageLayout();
+    awaitPageTurnPicker(pageTurnLabel(selected), false);
+    clickAccessibleText("Back");
+    awaitNativeLibraryReply();
+    evidence.put("nativePageTurnAfterReload", selected);
+  }
+
+  /** Scope the picker to its named field, never to another same-valued control.
+   * SDK 58's anchor has no direct label prop; this does not qualify TalkBack. */
+  private void awaitPageTurnPicker(String expected, boolean open) throws Exception {
+    long deadline = SystemClock.uptimeMillis() + 45000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
+      if (root != null) {
+        List<AccessibilityNodeInfo> anchors = new ArrayList<>();
+        for (AccessibilityNodeInfo field : findAccessibleText(root, "Page turn effect"))
+          if ("Page turn effect".contentEquals(field.getContentDescription() == null ? "" : field.getContentDescription()))
+            collectPickerAnchors(field, anchors, 0);
+        assertTrue("A named page-turn field must not resolve to multiple native inputs", anchors.size() <= 1);
+        if (anchors.size() == 1) {
+          AccessibilityNodeInfo anchor = anchors.get(0);
+          anchor.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId());
+          if (nativeControlVisible(anchor) && anchor.isEnabled() &&
+              expected.contentEquals(anchor.getText() == null ? "" : anchor.getText())) {
+            if (!open) return;
+            // Compose may put the click action on the immediate menu-anchor parent.
+            AccessibilityNodeInfo action = anchor;
+            for (int depth = 0; action != null && depth < 2; depth++, action = action.getParent())
+              if (nativeControlVisible(action) && action.isEnabled() && action.isClickable() &&
+                  action.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                // Wait for the opposite option before Back/select; an accepted
+                // click alone does not prove Compose has opened its popup yet.
+                awaitAccessibleText(expected.equals("None") ? "Slide" : "None");
+                return;
+              }
+          }
+        }
+        scrollNativeForward(root);
+      }
+      SystemClock.sleep(200);
+    }
+    throw new AssertionError("Named page-turn picker did not expose its actual value/action: " + expected);
+  }
+
+  private void collectPickerAnchors(AccessibilityNodeInfo node,
+      List<AccessibilityNodeInfo> anchors, int depth) {
+    if (node == null || depth > 6 || "android.webkit.WebView".contentEquals(node.getClassName() == null ? "" : node.getClassName())) return;
+    if ("android.widget.EditText".contentEquals(node.getClassName() == null ? "" : node.getClassName()) &&
+        !anchors.contains(node)) anchors.add(node);
+    for (int index = 0; index < node.getChildCount(); index++)
+      collectPickerAnchors(node.getChild(index), anchors, depth + 1);
+  }
+
+  /** The shared field owns an ephemeral title draft, not a persisted filter. */
+  private void qualifyNativeStatisticsTextField() throws Exception {
+    clickAccessibleText("Manabi Reader actions");
+    clickAccessibleText("Statistics");
+    clickAccessibleText("Filter books");
+    String label = "Filter book titles";
+    awaitNativeTextInput(label, "");
+    AccessibilityNodeInfo focused = focusNativeTextInput(label);
+    String draft = "日本語 title " + config.getString("id");
+    setNativeTextInput(label, draft);
+    awaitFocusedNativeTextInput(label, draft, focused);
+    setNativeTextInput(label, draft + " revised");
+    awaitFocusedNativeTextInput(label, draft + " revised", focused);
+    awaitAccessibleText("No Titles to filter");
+    clickAccessibleText("Cancel");
+    clickAccessibleText("Filter books");
+    awaitNativeTextInput(label, "");
+    setNativeTextInput(label, "Discard on close");
+    clickAccessibleText("Close title filter");
+    clickAccessibleText("Filter books");
+    awaitNativeTextInput(label, "");
+    clickAccessibleText("Close title filter");
+    clickAccessibleText("Back");
+    awaitNativeLibraryReply();
+    evidence.put("nativeStatisticsTextField", new JSONObject()
+        .put("journey", "native-named-edit-focus-cancel-and-close-reset")
+        .put("label", label).put("edits", 2).put("focusRetained", true)
+        .put("cancelReset", true).put("closeReset", true));
+  }
+
+  private AccessibilityNodeInfo focusNativeTextInput(String label) throws Exception {
+    long deadline = SystemClock.uptimeMillis() + 15000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
+      if (root != null) for (AccessibilityNodeInfo match : findAccessibleText(root, label)) {
+        AccessibilityNodeInfo input = nativeSemanticControl(match, false);
+        if (input == null || !nativeControlVisible(input) || !input.isEnabled()) continue;
+        assertTrue("Named Expo input must support focus", input.performAction(AccessibilityNodeInfo.ACTION_FOCUS));
+        return input;
+      }
+      SystemClock.sleep(100);
+    }
+    throw new AssertionError("Named Expo input could not be focused: " + label);
+  }
+
+  private void awaitFocusedNativeTextInput(String label, String expected, AccessibilityNodeInfo previous) throws Exception {
+    long deadline = SystemClock.uptimeMillis() + 15000;
+    while (SystemClock.uptimeMillis() < deadline) {
+      AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
+      if (root != null) for (AccessibilityNodeInfo match : findAccessibleText(root, label)) {
+        AccessibilityNodeInfo input = nativeSemanticControl(match, false);
+        if (input != null && nativeControlVisible(input) && input.isEnabled() && input.isFocused() &&
+            expected.contentEquals(input.getText() == null ? "" : input.getText())) {
+          assertEquals("Controlled edits must retain the actual native input identity", previous, input);
+          return;
+        }
+      }
+      SystemClock.sleep(100);
+    }
+    throw new AssertionError("Named native input lost focus/value after a controlled edit: " + label);
+  }
+
   /** Real system picker and ordinary catalog/cache owner. No injected font CSS. */
   private void qualifyNativeFontPicker(String phase) throws Exception {
     String name = "Qualification font " + config.getString("id");
@@ -374,22 +583,22 @@ public final class PackagedReaderTest {
     clickAccessibleText("Manabi Reader actions");
     clickAccessibleText("Settings");
     clickAccessibleText("Fonts & text");
-    if (phase.equals("verify")) awaitFontInput("Primary / Serif font", name);
+    if (phase.equals("verify")) awaitNativeTextInput("Primary / Serif font", name);
     clickAccessibleText("Manage Primary / Serif font files");
     if (!phase.equals("verify")) {
       awaitAccessibleText("No custom fonts yet. Add a font file to make it available here.");
       clickAccessibleText("Custom font views: Add font");
-      setFontInput("Font name", name);
+      setNativeTextInput("Font name", name);
       clickAccessibleText("Choose font file and save");
       awaitDocumentPicker();
       cancelDocumentPicker("font");
-      awaitFontInput("Font name", name);
+      awaitNativeTextInput("Font name", name);
       assertTrue(runFontProbe("cancelled").getBoolean("cancelled"));
       pickPackagedFont(fixture);
       awaitAccessibleText("Stored on this device");
       evidence.put("nativeFontImported", runFontProbe("imported"));
       clickAccessibleText("Use " + name);
-      awaitFontInput("Primary / Serif font", name);
+      awaitNativeTextInput("Primary / Serif font", name);
     } else {
       awaitAccessibleText("Stored on this device · Selected");
       clickAccessibleText("Close font manager");
@@ -783,7 +992,7 @@ public final class PackagedReaderTest {
     throw new AssertionError("Removed native background remains mounted");
   }
 
-  private String awaitFontInput(String label, String expected) throws Exception {
+  private String awaitNativeTextInput(String label, String expected) throws Exception {
     long deadline = SystemClock.uptimeMillis() + 45000;
     while (SystemClock.uptimeMillis() < deadline) {
       AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
@@ -799,10 +1008,10 @@ public final class PackagedReaderTest {
       }
       SystemClock.sleep(200);
     }
-    throw new AssertionError("Named native font input did not display the expected saved/draft value: " + label);
+    throw new AssertionError("Named native text input did not display the expected saved/draft value: " + label);
   }
 
-  private void setFontInput(String label, String value) throws Exception {
+  private void setNativeTextInput(String label, String value) throws Exception {
     long deadline = SystemClock.uptimeMillis() + 45000;
     while (SystemClock.uptimeMillis() < deadline) {
       AccessibilityNodeInfo root = instrumentation.getUiAutomation().getRootInActiveWindow();
@@ -815,14 +1024,14 @@ public final class PackagedReaderTest {
           Bundle arguments = new Bundle();
           arguments.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
           assertTrue("The actual Expo text field must accept an accessible edit", node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments));
-          awaitFontInput(label, value);
+          awaitNativeTextInput(label, value);
           return;
         }
         scrollNativeForward(root);
       }
       SystemClock.sleep(200);
     }
-    throw new AssertionError("Named native font input could not be edited: " + label);
+    throw new AssertionError("Named native text input could not be edited: " + label);
   }
 
   private void qualifyNativeChoices() throws Exception {

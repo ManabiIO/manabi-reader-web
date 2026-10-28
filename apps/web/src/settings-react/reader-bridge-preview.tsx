@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { Button } from './primitives';
+import { ChoiceField } from '../shared-ui/Fields';
 import { ReaderBridgeChanges } from './reader-bridge-changes';
 import type {
   DriveReaderSelection,
@@ -24,7 +25,6 @@ function LocalBookComparison({ preview }: { preview: Preview }) {
   const [busy, setBusy] = React.useState(true);
   const [message, setMessage] = React.useState('');
   const pending = React.useRef<AbortController | null>(null);
-  const selectId = React.useId();
   const labels = React.useMemo(() => {
     const totals = new Map<string, number>();
     const seen = new Map<string, number>();
@@ -126,25 +126,20 @@ function LocalBookComparison({ preview }: { preview: Preview }) {
     <div className="reader-bridge-comparison" aria-busy={busy}>
       {choices.length ? (
         <>
-          <label htmlFor={selectId}>Local copy</label>
-          <select
-            id={selectId}
-            className="settings-select"
+          <ChoiceField
+            label="Local copy"
             value={selected}
             disabled={busy}
-            onChange={(event) => {
-              setSelected(event.currentTarget.value);
+            options={[
+              { value: '', label: 'Choose a book on this device' },
+              ...labels.map((book) => ({ value: String(book.id), label: book.label }))
+            ]}
+            onValueChange={(value) => {
+              setSelected(value);
               setResult(null);
               setMessage('');
             }}
-          >
-            <option value="">Choose a book on this device</option>
-            {labels.map((book) => (
-              <option key={book.id} value={book.id}>
-                {book.label}
-              </option>
-            ))}
-          </select>
+          />
           <Button variant="outline" disabled={!selected || busy} onClick={() => void compare()}>
             {busy ? 'Comparing local copy…' : 'Compare local copy'}
           </Button>

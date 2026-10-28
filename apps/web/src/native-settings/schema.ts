@@ -6,6 +6,7 @@
 
 import { MAX_TRACKER_IDLE_MINUTES } from '../lib/components/settings/settings-number-policy';
 import { matchesSetting } from '../lib/components/settings/settings-context';
+import { pageTurnEffectOptions } from '../lib/foliate-epub/page-turn-effect';
 
 export type SettingValue = string | number | boolean | null;
 export type CategoryId =
@@ -239,7 +240,7 @@ export const nativeSettingDefinitions: readonly SettingDefinition[] = [
     category: 'layout',
     label: 'Page turn effect',
     kind: 'choice',
-    choices: choices(['slide', 'Slide'], ['none', 'None']),
+    choices: pageTurnEffectOptions,
     description: 'Paginated EPUBs only. Continuous scrolling is unchanged.',
     when: paginated
   },

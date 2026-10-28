@@ -6,6 +6,11 @@
 
 export type PageTurnEffect = 'slide' | 'none';
 
+export const pageTurnEffectOptions = [
+  { value: 'slide', label: 'Slide' },
+  { value: 'none', label: 'None' }
+] as const;
+
 export function normalizePageTurnEffect(value: unknown): PageTurnEffect {
   return value === 'none' ? 'none' : 'slide';
 }

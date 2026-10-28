@@ -159,6 +159,34 @@ class SettingsControlsBrowser(LibraryBase):
         self.page.get_by_role('navigation', name='Settings categories').get_by_role('link', name='Page layout', exact=True).click()
         expect(horizontal).to_have_attribute('aria-pressed', 'true')
 
+    def test_page_turn_expo_picker_keeps_keyboard_save_reload_and_narrow_layout(self):
+        self.settings('Page layout', {'pageTurnEffect': 'slide'})
+        field = self.page.locator('[data-setting="page-turn-effect"]')
+        picker = field.get_by_role('combobox', name='Page turn effect', exact=True)
+        expect(picker).to_have_value('slide')
+        self.assertEqual(field.locator('[data-ui-control="picker"]').count(), 1)
+        help_id = picker.get_attribute('aria-describedby')
+        self.assertIn('Scrolling is unchanged.', self.page.locator('[id="' + help_id + '"]').inner_text())
+        picker.focus()
+        # Native select typeahead exercises real keyboard selection in both
+        # engines; macOS headless popup arrow navigation does not commit it.
+        picker.press('n')
+        picker.press('Enter')
+        expect(picker).to_have_value('none')
+        expect(picker).to_be_focused()
+        self.page.wait_for_function('() => localStorage.getItem("pageTurnEffect") === "none"')
+        for width, scale in ((1200, 100), (390, 100), (320, 200)):
+            self.page.set_viewport_size({'width': width, 'height': 900})
+            self.page.evaluate('scale => document.documentElement.style.fontSize=scale+"%"', scale)
+            self.assert_reachable(picker)
+            self.assertLessEqual(self.page.locator('html').evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+            self.capture(f'page-turn-picker-{width}-{scale}', animations='disabled')
+        self.page.reload()
+        self.page.get_by_role('navigation', name='Settings categories').get_by_role('link', name='Page layout', exact=True).click()
+        expect(picker).to_have_value('none')
+        picker.select_option('slide')
+        self.page.wait_for_function('() => localStorage.getItem("pageTurnEffect") === "slide"')
+
     def test_shared_appearance_choices_wrap_and_preserve_theme_controls(self):
         self.settings('Appearance', {'appearance': 'light'})
         group = self.page.get_by_role('group', name='Appearance mode', exact=True)

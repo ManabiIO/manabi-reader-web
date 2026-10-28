@@ -426,6 +426,20 @@ test('runtime evidence requires an actual native roundtrip in both process phase
       libraryCopyRemoved: true
     },
     nativeChoices: 'color-mode-selection-local-save-and-restore',
+    nativePageTurn: {
+      initial: 'slide',
+      selected: 'none',
+      namedField: 'Page turn effect',
+      routeReopen: true
+    },
+    nativeStatisticsTextField: {
+      journey: 'native-named-edit-focus-cancel-and-close-reset',
+      label: 'Filter book titles',
+      edits: 2,
+      focusRetained: true,
+      cancelReset: true,
+      closeReset: true
+    },
     nativeFontPreferences: 'explicit-font-draft-cancel-apply-and-exact-restore',
     nativeThemeChooser: 'add-dialog-back-and-close-without-save',
     nativeDimensions: 'slider-completion-and-automatic-local-save-with-exact-restore',
@@ -445,6 +459,13 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     ...base,
     phase: 'seed',
     processId: 200,
+    nativePageTurn: {
+      ...base.nativePageTurn,
+      journey: 'native-picker-dismiss-select-and-reopen',
+      selections: ['none', 'slide', 'none'],
+      exactRawPreferenceRestored: false
+    },
+    nativePageTurnAfterReload: 'none',
     nativeBookExport: {
       ...base.nativeBookExport,
       journey: 'system-picker-cancel-import-export-and-remove',
@@ -476,6 +497,12 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     ...base,
     phase: 'verify',
     processId: 300,
+    nativePageTurn: {
+      ...base.nativePageTurn,
+      journey: 'retained-after-process-restart-and-native-restore',
+      selections: ['slide', 'none', 'slide'],
+      exactRawPreferenceRestored: true
+    },
     nativeBookExport: {
       ...base.nativeBookExport,
       journey: 'retained-after-process-restart',
@@ -502,6 +529,14 @@ test('runtime evidence requires an actual native roundtrip in both process phase
   verifyEvidencePair(seed, verify);
   for (const mutate of [
     (value) => (value.processId = seed.processId),
+    (value) => (value.nativePageTurn.selected = 'slide'),
+    (value) => {
+      value.nativePageTurn.initial = 'none';
+      value.nativePageTurn.selected = 'slide';
+      value.nativePageTurn.selections = ['none', 'slide', 'none'];
+      // Each phase is internally valid, but it is a different saved selection.
+      verifyEvidence(value, 'verify', id);
+    },
     (value) => (value.nativeFontPicker.font.sha256 = 'b'.repeat(64)),
     (value) => (value.nativeBackgrounds.records['library-light'].sha256 = 'b'.repeat(64)),
     (value) => (value.nativeBookExport.sha256 = 'd'.repeat(64)),
@@ -574,6 +609,42 @@ test('runtime evidence requires an actual native roundtrip in both process phase
       );
     for (const nativeChoices of [undefined, 'component-mounted', false])
       assert.throws(() => verifyEvidence({ ...evidence, nativeChoices }, evidence.phase, id));
+    for (const nativePageTurn of [
+      undefined,
+      {},
+      { ...evidence.nativePageTurn, journey: 'component-mounted' },
+      { ...evidence.nativePageTurn, selected: 'unknown' },
+      { ...evidence.nativePageTurn, namedField: 'Another control' },
+      { ...evidence.nativePageTurn, routeReopen: false },
+      { ...evidence.nativePageTurn, initial: evidence.nativePageTurn.selected },
+      { ...evidence.nativePageTurn, selections: ['none'] },
+      { ...evidence.nativePageTurn, selections: ['none', 'none', 'none'] },
+      {
+        ...evidence.nativePageTurn,
+        exactRawPreferenceRestored: !evidence.nativePageTurn.exactRawPreferenceRestored
+      }
+    ])
+      assert.throws(() => verifyEvidence({ ...evidence, nativePageTurn }, evidence.phase, id));
+    if (evidence.phase === 'seed')
+      for (const nativePageTurnAfterReload of [undefined, 'slide'])
+        assert.throws(() =>
+          verifyEvidence({ ...evidence, nativePageTurnAfterReload }, evidence.phase, id)
+        );
+    for (const nativeStatisticsTextField of [
+      undefined,
+      {},
+      ...Object.entries({
+        journey: 'component-mounted',
+        label: 'An arbitrary input',
+        edits: 1,
+        focusRetained: false,
+        cancelReset: false,
+        closeReset: false
+      }).map(([key, value]) => ({ ...evidence.nativeStatisticsTextField, [key]: value }))
+    ])
+      assert.throws(() =>
+        verifyEvidence({ ...evidence, nativeStatisticsTextField }, evidence.phase, id)
+      );
     for (const nativeThemeChooser of [undefined, 'component-mounted', false])
       assert.throws(() => verifyEvidence({ ...evidence, nativeThemeChooser }, evidence.phase, id));
     for (const nativeDimensions of [undefined, 'component-mounted', false])
@@ -764,6 +835,60 @@ test('picker cancellation waits for new navigation before another Back, preservi
     );
     execFileSync('javac', ['--release', '21', '-d', temp, runner], { encoding: 'utf8' });
     execFileSync('java', ['-cp', temp, 'PickerCancellationTest'], { encoding: 'utf8' });
+  } finally {
+    await trashTemporary(temp);
+  }
+});
+
+test('actual native-control selectors refuse unrelated, hidden, disabled or replaced controls', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-native-controls-'));
+  try {
+    const source = await fs.readFile(new URL('PackagedReaderTest.java', import.meta.url), 'utf8');
+    const methods = [
+      'awaitPageTurnPicker',
+      'collectPickerAnchors',
+      'focusNativeTextInput',
+      'awaitFocusedNativeTextInput',
+      'nativeSemanticControl'
+    ].map((name) => {
+      const start = source.search(
+        new RegExp(`  private (?:void|AccessibilityNodeInfo) ${name}\\(`)
+      );
+      const end = source.indexOf('\n  }', start);
+      assert.ok(start > 0 && end > start, name);
+      return source.slice(start, end + 4);
+    });
+    const fixture = await fs.readFile(
+      new URL('native-controls-fixture.java.txt', import.meta.url),
+      'utf8'
+    );
+    const runner = path.join(temp, 'NativeControlsTest.java');
+    await fs.writeFile(runner, fixture.replace('/* ACTUAL_CONTROL_METHODS */', methods.join('\n')));
+    execFileSync('javac', ['--release', '21', '-d', temp, runner], { encoding: 'utf8' });
+    execFileSync('java', ['-cp', temp, 'NativeControlsTest'], { encoding: 'utf8' });
+  } finally {
+    await trashTemporary(temp);
+  }
+});
+
+test('actual native page-turn journey restores exact preferences on success and interrupted saves', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-page-turn-picker-'));
+  try {
+    const source = await fs.readFile(new URL('PackagedReaderTest.java', import.meta.url), 'utf8');
+    const start = source.indexOf('  private void qualifyNativePageTurn(');
+    const end = source.indexOf('  private void openNativePageLayout(', start);
+    assert.ok(start > 0 && end > start);
+    const fixture = await fs.readFile(
+      new URL('page-turn-picker-fixture.java.txt', import.meta.url),
+      'utf8'
+    );
+    const runner = path.join(temp, 'PageTurnPickerTest.java');
+    await fs.writeFile(
+      runner,
+      fixture.replace('/* ACTUAL_PAGE_TURN_METHOD */', source.slice(start, end))
+    );
+    execFileSync('javac', ['--release', '21', '-d', temp, runner], { encoding: 'utf8' });
+    execFileSync('java', ['-cp', temp, 'PageTurnPickerTest'], { encoding: 'utf8' });
   } finally {
     await trashTemporary(temp);
   }

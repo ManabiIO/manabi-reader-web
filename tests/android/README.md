@@ -209,6 +209,42 @@ be `slider-completion-and-automatic-local-save-with-exact-restore`. This exercis
 accessible range completion and the save bridge; it does not prove physical
 drag/rotation/cancellation, spoken TalkBack, or the device/large-text matrix.
 
+### Shared page-turn Picker and Statistics TextInput (runtime result pending)
+
+The current gate adds two product journeys. In Page layout, it opens the actual
+Expo Picker inside the named Page turn effect field, dismisses it without saving,
+then selects both supported values through the dropdown. Seed retains the other
+choice, while verification ends on the original choice. The retained choice must
+return in the native control after leaving and reopening Settings, after reloading the packaged
+WebView, and in the second application process. Verification restores the
+original choice through the picker and restores the exact raw localStorage value,
+including absence. Cleanup metadata lives in an instrumentation-only preference
+namespace in the disposable app profile, under the random qualification ID. No
+product data is cleared. The fresh profile must already be paginated; the journey
+does not change View mode. The picker selector rejects ambiguous inputs,
+other fields, hidden/disabled anchors and WebView descendants. It scopes to the
+named wrapper because Expo UI 58's Android Picker has no anchor-label prop; this
+does not establish the name that TalkBack speaks.
+
+In Statistics, both processes open Filter books and enter two successive drafts
+through `ACTION_SET_TEXT` on the named native `android.widget.EditText`. The
+same control must keep input focus, identity, its exact text and its accessible
+name after each controlled update. Cancel and the explicit Close action must
+each discard the draft on reopening. The journey operates on the disposable
+profile's empty library and never applies a filter or edits reading history.
+It does not establish filtering with a populated library, IME composition or
+submission, date/number keyboards, rejected-edit reconciliation, TalkBack speech,
+or small-screen/enlarged-text geometry.
+
+The evidence verifier now requires `nativePageTurn`, its reload value and an
+identical selection across both processes, plus the full
+`nativeStatisticsTextField` result. Historical passing evidence lacks these
+fields and cannot qualify the new controls. Host tests execute the actual Java
+selection/focus helper methods against platform stand-ins, execute the actual
+two-phase journey with interrupted-save and exact-cleanup cases, and reject
+missing, partial or mismatched evidence. These are harness tests only. No local Android
+device is attached; an exact-source packaged run remains required.
+
 ### Native background image journey (current gate; runtime result pending)
 
 The background journey requires API 29+ (CI uses API 35). On the fresh disposable

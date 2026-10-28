@@ -1,13 +1,13 @@
 # Shared Android/web UI convergence
 
-**Current priority, October 22, 2026:** web delivery and web UX. Android
-implementation, device qualification and Android-only capability gaps are deferred
-at the user's request. Keep Expo UI, shared feature/domain code and bounded
-platform adapters so future Android work can reuse them; do not expand or qualify
-native flows during this phase. The Android items below are a retained backlog,
-not current web acceptance gates. Native Windows remains removed. Existing web
+**Target reaffirmed October 28, 2026:** web and Android, using Expo UI universal
+controls where they satisfy the interaction contract. Missing universal behavior
+belongs in a bounded native Android or web adapter; Android must use native
+controls when available. Native Windows remains removed. Existing web
 functionality, local data safety, keyboard/accessibility and responsive mobile/
-desktop browser layouts remain required.
+desktop layouts remain required. The prior web-first checkpoints do not establish
+Android completion: native rendering, input, navigation and persistence still need
+packaged runtime qualification for the current source.
 
 The target is **one nonreader screen composition, interaction model and branded
 style vocabulary** for Android and web. Android-specific controls and system
@@ -875,3 +875,40 @@ its TCP listener refuses connections and require the reload response to come
 from the installed service worker. The saved choice, actual book ordering and
 bookmark/statistics records must survive. This proves offline editing and
 cached reopening with the origin unavailable, not an OS-level network outage.
+
+### Shared page-turn, Drive choice and native text controls (October 28)
+
+Page-turn Settings now uses the same `SettingsPageTurnEffect` composition and
+Expo UI universal Picker on web and Android. The pure option inventory is shared
+with the native schema. Existing settings owners retain validation, persistence
+and stale-save guards; unsupported values remain visible without being replaced.
+Drive's Local copy selector also uses the shared Picker and retains duplicate
+book labels, the empty prompt and comparison ownership.
+
+The browser field adapter gives the real select an exact caption association,
+keeps descriptions current, and protects its full-width layout from enclosing
+screen label styles. This fixes a regression found by the actual Drive journeys:
+the wrapping label's option text prevented exact label lookup, and generic
+connection-screen CSS centered and shrank the field.
+
+Shared Android text fields now render Expo UI universal TextInput with native
+observable state, controlled draft reconciliation, Compose naming and keyboard
+options. The small web input adapter retains date/number constraints and native
+Enter/form/focus behavior unavailable through the installed universal input.
+No store, migration, recovery record or backup format changes are introduced.
+
+Local validation includes all 704 Expo tests, strict application types, scoped
+lint, production web export/post-build and Android export/asset qualification.
+All 70 Settings/Statistics browser cases and six composed Drive journeys pass
+against the corrected export in Chromium and WebKit, including cloud preservation. Evidence lives in
+`../evidence/shared-controls-u24kuh3h/` and
+`../evidence/shared-controls-browser-final-lngr8okt/`. The original failed browser
+run is retained separately; it is not counted as a pass.
+
+The Android packaged gate now requires actual page-turn selection, cancellation,
+route reopening, reload and process restart, plus named Statistics input edits,
+retained focus/identity and draft reset on dismissal. All 17 host harness tests
+pass, including interrupted-save cleanup and strict cross-process evidence.
+Those tests and the export do not establish Android device rendering, IME,
+TalkBack or small-screen/enlarged-text geometry; the exact-source packaged run
+remains required.

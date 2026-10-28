@@ -31,6 +31,7 @@ import { themeCopyOptions } from '../features/settings/theme-editor';
 import { SettingsDimensionEditor } from '../features/settings/SettingsDimensionEditor';
 import { SettingsSwitch } from '../features/settings/SettingsSwitch';
 import { SettingsChoices } from '../features/settings/SettingsChoices';
+import { SettingsPageTurnEffect } from '../features/settings/SettingsPageTurnEffect';
 import { SettingsThemeChoices, AddThemeButton } from '../features/settings/SettingsThemeChoices';
 import { ExpoButton as Button } from '../shared-ui/ExpoButton';
 import { MenuAction, NativeScreenHeader } from '../screens/NativeScreens';
@@ -235,6 +236,15 @@ export function NativeSettingFieldEditor({
         <SettingsSwitch
           label={field.label}
           value={field.value === true}
+          disabled={disabled}
+          onValueChange={(value) => {
+            void save(value);
+          }}
+        />
+      ) : field.kind === 'choice' && field.key === 'pageTurnEffect' ? (
+        <SettingsPageTurnEffect
+          value={String(field.value)}
+          showLabel={false}
           disabled={disabled}
           onValueChange={(value) => {
             void save(value);

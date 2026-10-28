@@ -46,6 +46,44 @@ export function verifyEvidence(evidence, phase, id) {
     'explicit-font-draft-cancel-apply-and-exact-restore'
   );
   assert.equal(evidence.nativeChoices, 'color-mode-selection-local-save-and-restore');
+  assert.equal(
+    evidence.nativePageTurn?.journey,
+    phase === 'seed'
+      ? 'native-picker-dismiss-select-and-reopen'
+      : 'retained-after-process-restart-and-native-restore'
+  );
+  assert.ok(['slide', 'none'].includes(evidence.nativePageTurn.selected));
+  assert.equal(
+    evidence.nativePageTurn.initial,
+    evidence.nativePageTurn.selected === 'none' ? 'slide' : 'none'
+  );
+  assert.deepEqual(
+    evidence.nativePageTurn.selections,
+    phase === 'seed'
+      ? [
+          evidence.nativePageTurn.selected,
+          evidence.nativePageTurn.initial,
+          evidence.nativePageTurn.selected
+        ]
+      : [
+          evidence.nativePageTurn.initial,
+          evidence.nativePageTurn.selected,
+          evidence.nativePageTurn.initial
+        ]
+  );
+  assert.equal(evidence.nativePageTurn.namedField, 'Page turn effect');
+  assert.equal(evidence.nativePageTurn.routeReopen, true);
+  assert.equal(evidence.nativePageTurn.exactRawPreferenceRestored, phase === 'verify');
+  if (phase === 'seed')
+    assert.equal(evidence.nativePageTurnAfterReload, evidence.nativePageTurn.selected);
+  assert.deepEqual(evidence.nativeStatisticsTextField, {
+    journey: 'native-named-edit-focus-cancel-and-close-reset',
+    label: 'Filter book titles',
+    edits: 2,
+    focusRetained: true,
+    cancelReset: true,
+    closeReset: true
+  });
   assert.equal(evidence.nativeThemeChooser, 'add-dialog-back-and-close-without-save');
   assert.equal(
     evidence.nativeDimensions,
@@ -117,6 +155,11 @@ export function verifyEvidencePair(first, second) {
   verifyEvidence(second, 'verify', first.id);
   assert.equal(first.entry, second.entry, 'Entry changed unexpectedly between process launches');
   assert.notEqual(first.processId, second.processId, 'Both phases used the same process');
+  assert.equal(
+    first.nativePageTurn.selected,
+    second.nativePageTurn.selected,
+    'The actual native page-turn selection must survive process restart'
+  );
   assert.deepEqual(
     first.nativeFontPicker.font,
     second.nativeFontPicker.font,
