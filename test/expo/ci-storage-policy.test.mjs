@@ -216,6 +216,7 @@ for (const [name, fixture, migrationExpected, legacyExpected] of cases) {
 
 test('edition qualification is manual, public and default-branch only', () => {
   const workflow = workflows['reader-editions.yml'];
+  assert.equal(workflow.jobs.web.name, 'Reader edition qualification');
   assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch']);
   const guard = workflow.jobs.web.if;
   assert.equal(admits(guard, context({ event: 'workflow_dispatch', head: 'main' })), true);

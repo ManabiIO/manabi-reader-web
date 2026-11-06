@@ -8,6 +8,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   web:
+    name: Reader edition qualification
     if: >-
       github.repository == 'ManabiIO/manabi-reader-web' &&
       github.event.repository.visibility == 'public' &&
