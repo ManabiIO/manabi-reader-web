@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ReaderLanguageBook } from '$lib/preprocessing/reader-book.mjs';
 import { sha256 } from '$lib/preprocessing/contracts.mjs';
 import { sanitizeProcessedChapter } from '$lib/preprocessing/sanitizer';
@@ -93,6 +93,8 @@ export async function createReaderLanguageBook({
   });
 }
 
+export const READER_LANGUAGE_STARTUP_TIMEOUT_MS = 60_000;
+
 /** Public selection interaction needs no provider startup. Private analysis is
  * admitted through the selected provider and shares its existing tab lease. */
 export function useReaderLanguageBook(
@@ -102,51 +104,112 @@ export function useReaderLanguageBook(
     viewMode?: string;
   }
 ) {
+  const [attempt, setAttempt] = useState({ bookKey: props.bookKey, revision: 0, original: false });
+  const original = attempt.bookKey === props.bookKey && attempt.original;
+  const revision = attempt.bookKey === props.bookKey ? attempt.revision : 0;
+  useEffect(() => {
+    setAttempt({ bookKey: props.bookKey, revision: 0, original: false });
+  }, [props.bookKey]);
+  const retry = () =>
+    setAttempt((previous) => ({
+      bookKey: props.bookKey,
+      revision: previous.revision + 1,
+      original: false
+    }));
+  const readOriginal = () =>
+    setAttempt((previous) => ({
+      bookKey: props.bookKey,
+      revision: previous.revision + 1,
+      original: true
+    }));
+  const actions = {
+    retry,
+    readOriginal,
+    original,
+    canReadOriginal:
+      readerEdition === 'manabi' && !!props.bookKey && !!props.htmlContent && !original
+  };
+  // A return to the same book/source after navigation is a fresh owner, even
+  // when an earlier (now disposed) state's scalar fields happen to match.
+  const owner = useMemo(
+    () => ({}),
+    [
+      props.bookKey,
+      props.htmlContent,
+      props.imageBindings,
+      props.publicationManifest,
+      props.viewMode,
+      revision,
+      original
+    ]
+  );
   const [state, setState] = useState<{
-    source?: string;
-    bookKey?: string;
-    mode?: string;
-    bindings?: ReadonlyMap<string, string>;
-    manifest?: PublicationManifest;
+    owner?: object;
     book?: ReaderLanguageBook;
     error?: string;
   }>({});
   useEffect(() => {
     if (!props.bookKey || !props.htmlContent) return;
     let live = true;
+    let retired = false;
     let book: ReaderLanguageBook | undefined;
-    const lease = readerEdition === 'manabi' ? dictionaryLease() : null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const lease = readerEdition === 'manabi' && !original ? dictionaryLease() : null;
+    const retire = () => {
+      if (retired) return;
+      retired = true;
+      clearTimeout(timer);
+      try {
+        book?.dispose();
+      } catch {
+        // Retire the provider lease even if an interaction disposer fails.
+      } finally {
+        lease?.release();
+      }
+    };
     void (async () => {
       try {
-        const runtime = await lease?.get();
-        if (!live) return;
-        book = await createReaderLanguageBook({
-          bookKey: props.bookKey!,
-          htmlContent: props.htmlContent!,
-          imageBindings: props.imageBindings,
-          manifest: props.publicationManifest,
-          runtime
-        });
-        if (!live) {
-          book.dispose();
-          return;
-        }
+        const opening = (async () => {
+          const runtime = await lease?.get();
+          if (retired) return undefined;
+          const created = await createReaderLanguageBook({
+            bookKey: props.bookKey!,
+            htmlContent: props.htmlContent!,
+            imageBindings: props.imageBindings,
+            manifest: props.publicationManifest,
+            runtime
+          });
+          if (retired) {
+            created.dispose();
+            return undefined;
+          }
+          book = created;
+          return created;
+        })();
+        // Timing out retires only this consumer's lease. The runtime owner still
+        // serializes disposal before replacement; never race two storage owners.
+        const opened = lease
+          ? await Promise.race([
+              opening,
+              new Promise<never>((_, reject) => {
+                timer = setTimeout(
+                  () => reject(new Error('Language tools are taking too long to open.')),
+                  READER_LANGUAGE_STARTUP_TIMEOUT_MS
+                );
+              })
+            ])
+          : await opening;
+        clearTimeout(timer);
+        if (!live || retired || !opened) return;
         setState({
-          source: props.htmlContent,
-          bookKey: props.bookKey,
-          mode: props.viewMode,
-          bindings: props.imageBindings,
-          manifest: props.publicationManifest,
-          book
+          owner,
+          book: opened
         });
       } catch (error) {
+        retire();
         if (live)
           setState({
-            source: props.htmlContent,
-            bookKey: props.bookKey,
-            mode: props.viewMode,
-            bindings: props.imageBindings,
-            manifest: props.publicationManifest,
+            owner,
             error:
               error instanceof Error ? error.message : 'The book’s language tools could not open.'
           });
@@ -154,25 +217,21 @@ export function useReaderLanguageBook(
     })();
     return () => {
       live = false;
-      book?.dispose();
-      lease?.release();
+      retire();
     };
   }, [
     props.bookKey,
     props.htmlContent,
     props.imageBindings,
     props.publicationManifest,
-    props.viewMode
+    props.viewMode,
+    revision,
+    original,
+    owner
   ]);
-  if (!props.htmlContent) return { book: undefined, error: undefined, loading: false };
-  if (!props.bookKey) return { book: undefined, error: undefined, loading: true };
-  if (
-    state.source !== props.htmlContent ||
-    state.bookKey !== props.bookKey ||
-    state.mode !== props.viewMode ||
-    state.bindings !== props.imageBindings ||
-    state.manifest !== props.publicationManifest
-  )
-    return { book: undefined, error: undefined, loading: true };
-  return { book: state.book, error: state.error, loading: !state.book && !state.error };
+  if (!props.htmlContent) return { book: undefined, error: undefined, loading: false, ...actions };
+  if (!props.bookKey) return { book: undefined, error: undefined, loading: true, ...actions };
+  if (state.owner !== owner)
+    return { book: undefined, error: undefined, loading: true, ...actions };
+  return { book: state.book, error: state.error, loading: !state.book && !state.error, ...actions };
 }

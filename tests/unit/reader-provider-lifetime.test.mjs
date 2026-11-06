@@ -100,3 +100,83 @@ test('analysis cleanup failure still closes dictionary storage', async () => {
   await drain();
   assert.deepEqual(events, ['client-close']);
 });
+
+test('released startup waiting for retirement never opens an unnecessary storage owner', async () => {
+  const events = [];
+  let finishFirst,
+    opens = 0;
+  const firstRuntime = provider(events);
+  const { api } = loadOfflineModule('apps/web/src/lib/search/dictionary-runtime.ts', {
+    modules: {
+      './dictionary-provider-selection': {
+        openDictionaryProvider: () => {
+          opens++;
+          return opens === 1
+            ? new Promise((resolve) => {
+                finishFirst = resolve;
+              })
+            : Promise.resolve(provider(events));
+        }
+      }
+    }
+  });
+  const first = api.dictionaryLease();
+  const opening = first.get();
+  await drain();
+  first.release();
+  const cancelled = api.dictionaryLease();
+  const queued = cancelled.get();
+  const rejected = assert.rejects(queued, { name: 'AbortError' });
+  cancelled.release();
+  const replacement = api.dictionaryLease();
+  const next = replacement.get();
+  await drain();
+  assert.equal(opens, 1);
+  finishFirst(firstRuntime);
+  await opening;
+  await rejected;
+  await next;
+  assert.equal(opens, 2, 'Only the live replacement may start after disposal');
+  assert.deepEqual(events, ['analysis-dispose', 'client-close']);
+  replacement.release();
+  await drain();
+  assert.deepEqual(events, [
+    'analysis-dispose',
+    'client-close',
+    'analysis-dispose',
+    'client-close'
+  ]);
+});
+
+test('one departing consumer cannot cancel another consumer waiting on the same startup', async () => {
+  const events = [];
+  let finish,
+    opens = 0;
+  const { api } = loadOfflineModule('apps/web/src/lib/search/dictionary-runtime.ts', {
+    modules: {
+      './dictionary-provider-selection': {
+        openDictionaryProvider: () => {
+          opens++;
+          return new Promise((resolve) => {
+            finish = resolve;
+          });
+        }
+      }
+    }
+  });
+  const first = api.dictionaryLease(),
+    second = api.dictionaryLease();
+  const one = first.get(),
+    two = second.get();
+  await drain();
+  first.release();
+  const shared = provider(events);
+  finish(shared);
+  assert.equal(await one, shared);
+  assert.equal(await two, shared);
+  assert.equal(opens, 1);
+  assert.deepEqual(events, []);
+  second.release();
+  await drain();
+  assert.deepEqual(events, ['analysis-dispose', 'client-close']);
+});

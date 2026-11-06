@@ -28,8 +28,11 @@ async function closeRuntime(runtime: DictionaryRuntime | undefined) {
   }
 }
 
-async function open(): Promise<DictionaryRuntime> {
+async function open(isCurrent: () => boolean): Promise<DictionaryRuntime> {
   await retirement;
+  // A consumer can time out while waiting for the previous owner's disposal.
+  // Do not start a new storage owner after every lease for this attempt left.
+  if (!isCurrent()) throw new DOMException('Dictionary search is closed.', 'AbortError');
   const runtime = await openDictionaryProvider();
   try {
     validateDictionaryRuntime(runtime);
@@ -52,7 +55,7 @@ export function dictionaryLease() {
     get() {
       if (released) return Promise.reject(new Error('Dictionary search is closed.'));
       if (!active) {
-        const pending = open();
+        const pending = open(() => active === pending && leases > 0);
         active = pending;
         void pending.catch(() => {
           if (active === pending) active = undefined;
