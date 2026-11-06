@@ -19,6 +19,54 @@ class LibraryNoticesBrowser(LibraryBase):
             StaticHandler.personal_enabled = False
             StaticHandler.personal_mutations = []
 
+    def test_failed_bookmark_commit_shows_retry_and_only_confirms_after_commit(self):
+        self.page.evaluate(reader_fixture("localStorage.setItem('autoBookmark','false')"))
+        self.go_library()  # Load the preference before creating the reader session.
+        self.import_book('Save acknowledgement')
+        self.page.get_by_role('button', name='Read Save acknowledgement', exact=True).click()
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
+        self.page.keyboard.press('PageDown')
+        expect(self.page.get_by_role('button', name='0%', exact=True)).to_have_count(0)
+        # Fail the real bookmark transaction, rather than injecting a UI status.
+        self.page.evaluate("""() => {
+          window.failBookmarkCommit=true;window.bookmarkFailures=0;
+          const put=IDBObjectStore.prototype.put;
+          IDBObjectStore.prototype.put=function(...args){
+            if(this.name==='bookmark' && window.failBookmarkCommit){
+              window.bookmarkFailures++;
+              throw new DOMException('Qualification storage failure','QuotaExceededError');
+            }
+            return put.apply(this,args);
+          };
+        }""")
+        controls=self.page.locator('button[data-reader-controls]')
+        controls.focus()
+        self.page.keyboard.press('Tab')
+        expect(controls).to_have_attribute('aria-expanded','true')
+        self.page.get_by_role('button', name='Reading tools', exact=True).click()
+        self.page.get_by_role('menuitem', name='Save Reading Position', exact=True).click()
+        attention=self.page.get_by_role('button', name='Save needs attention. Connection details', exact=True)
+        self.page.wait_for_function('window.bookmarkFailures>0')
+        expect(attention).to_be_visible()
+        before=self.stores('books',['bookmark'])
+        attention.click()
+        dialog=self.page.get_by_role('dialog',name='Reading on this device',exact=True)
+        expect(dialog).to_contain_text('hasn’t been saved')
+        retry=dialog.get_by_role('button',name='Retry saving progress',exact=True)
+        retry.click()
+        expect(retry).to_be_visible()
+        self.assertEqual(before,self.stores('books',['bookmark']))
+        self.page.evaluate('window.failBookmarkCommit=false')
+        retry.click()
+        expect(dialog).to_contain_text('Your last saved reading position is stored on this device')
+        expect(retry).to_have_count(0)
+        saved=self.stores('books',['bookmark'])['bookmark']
+        self.assertEqual(1,len(saved))
+        self.assertGreater(saved[0]['lastBookmarkModified'],0)
+        self.page.keyboard.press('Escape')
+        self.page.keyboard.press('Tab')
+        expect(attention).to_have_count(0)
+
     def test_offline_and_sync_notices_reflow_without_hiding_text_or_actions(self):
         # Real imports with ambiguous legacy history make the existing sync
         # service publish attention. No runtime-store or DOM status injection.
@@ -88,7 +136,7 @@ class LibraryNoticesBrowser(LibraryBase):
                 notice.tap()
                 dialog = self.page.get_by_role('dialog', name='Reading on this device', exact=True)
                 expect(dialog).to_be_visible()
-                expect(dialog).to_contain_text('Reading progress is saved on this device')
+                expect(dialog).to_contain_text('Reading progress is stored on this device when a save completes')
                 expect(dialog).to_contain_text('Reading sync needs attention')
                 expect(sync).to_be_visible()
                 self.page.keyboard.press('Escape')

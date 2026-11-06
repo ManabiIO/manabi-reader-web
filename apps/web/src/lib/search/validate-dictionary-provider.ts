@@ -11,6 +11,18 @@ import { validateProvider } from '../preprocessing/contracts.mjs';
 export function validateDictionaryRuntime(value: unknown): asserts value is DictionaryRuntime {
   if (!value || typeof value !== 'object') throw new Error('Missing dictionary provider.');
   const runtime = value as Record<string, unknown>;
+  if (runtime.capabilities !== undefined) {
+    if (
+      !runtime.capabilities ||
+      typeof runtime.capabilities !== 'object' ||
+      Array.isArray(runtime.capabilities)
+    )
+      throw new Error('Invalid dictionary capabilities.');
+    const capabilities = runtime.capabilities as Record<string, unknown>;
+    for (const name of ['prefixSearch', 'defaultInstall'])
+      if (capabilities[name] !== undefined && typeof capabilities[name] !== 'boolean')
+        throw new Error(`Invalid dictionary capability: ${name}.`);
+  }
   for (const name of ['render', 'installDefault', 'recommendations'])
     if (typeof runtime[name] !== 'function')
       throw new Error(`Dictionary provider is missing ${name}.`);

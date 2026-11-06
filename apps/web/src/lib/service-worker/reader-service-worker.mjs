@@ -256,9 +256,10 @@ export function registerReaderServiceWorker(worker, config) {
 
   async function readOptionalRuntime(request, key) {
     let cache;
+    const reload = request.cache === 'reload';
     try {
       cache = await storage.open(runtimeName);
-      const saved = await cache.match(key);
+      const saved = !reload && (await cache.match(key));
       if (isUsableRuntimeResponse(saved, key)) return saved;
     } catch {
       /* Online use can continue when optional storage is unavailable. */
@@ -267,7 +268,7 @@ export function registerReaderServiceWorker(worker, config) {
     // first document. Read only that registration's explicitly persisted assets.
     try {
       const name = verifiedRuntimeCacheName(scope);
-      if ((await storage.keys()).includes(name)) {
+      if (!reload && (await storage.keys()).includes(name)) {
         const saved = await (await storage.open(name)).match(key);
         if (isUsableRuntimeResponse(saved, key)) return saved;
       }

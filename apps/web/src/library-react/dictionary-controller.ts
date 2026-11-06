@@ -9,6 +9,7 @@
  */
 
 import { queryTask, type SearchState } from '$lib/search/query-task.mjs';
+import { dictionaryCapabilities } from '$lib/search/dictionary-provider';
 import {
   dictionaryLease,
   type DictionaryResult,
@@ -60,6 +61,9 @@ export class DictionaryController extends ObservableController {
   }
   get disabledTitles() {
     return new Set(this.dictionaryStatus?.preferences.disabled ?? []);
+  }
+  get capabilities() {
+    return dictionaryCapabilities(this.runtime);
   }
   search() {
     this.task.stop();
@@ -115,7 +119,10 @@ export class DictionaryController extends ObservableController {
       controller.signal.throwIfAborted();
       const next = await opened.client.status({ signal: controller.signal });
       controller.signal.throwIfAborted();
-      if (this.mounted && this.full) this.dictionaryStatus = next;
+      if (this.mounted && this.full) {
+        this.runtime = opened;
+        this.dictionaryStatus = next;
+      }
     } catch (error) {
       if (!controller.signal.aborted && this.mounted && this.full)
         this.statusError =
@@ -193,6 +200,8 @@ export class DictionaryController extends ObservableController {
     try {
       const opened = await this.lease.get();
       controller.signal.throwIfAborted();
+      if (!file && !dictionaryCapabilities(opened).defaultInstall)
+        throw new Error('Choose a dictionary ZIP to install.');
       const blob =
         file ??
         (await opened.installDefault({

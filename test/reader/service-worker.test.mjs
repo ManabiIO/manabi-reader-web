@@ -791,3 +791,36 @@ test('static fonts bypass stale HTTP cache on cache miss; hashed fonts still reu
   await h.request('/fonts/default.woff2');
   assert.equal(cacheModes.length, 2, 'a saved font needs no further network request');
 });
+
+test('verified reload bypasses both optional copies and repairs without removing user data', async () => {
+  const scope = url('/reader/'),
+    key = url('/reader/engine/runtime.js');
+  const h = makeHarness({ scope, optionalRuntimeAssets: [key] });
+  const headers = { 'Content-Type': 'text/javascript' };
+  await (await h.storage.open(h.runtime)).put(key, new Response('bad optional', { headers }));
+  await (
+    await h.storage.open(verifiedRuntimeCacheName(scope))
+  ).put(key, new Response('bad verified', { headers }));
+  const user = await h.storage.open('user-books');
+  await user.put(url('/book'), new Response('preserved'));
+  let reads = 0;
+  h.setFetch(async (request) => {
+    assert.equal(request.cache, 'reload');
+    reads++;
+    return new Response('repaired', { headers });
+  });
+  const result = await loadVerifiedRuntimeAsset(
+    scope,
+    key,
+    { sha256: createHash('sha256').update('repaired').digest('hex'), bytes: 8 },
+    { storage: h.storage, fetch: (resource, init) => h.request(resource, init) }
+  );
+  assert.equal(new TextDecoder().decode(result), 'repaired');
+  assert.equal(reads, 1);
+  h.setFetch(async () => {
+    throw new Error('offline');
+  });
+  assert.equal(await body(await h.request(key)), 'repaired');
+  assert.equal(await body(await user.match(url('/book'))), 'preserved');
+  assert.deepEqual(h.removed, []);
+});

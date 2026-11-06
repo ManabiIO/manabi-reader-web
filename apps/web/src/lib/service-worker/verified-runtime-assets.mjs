@@ -89,7 +89,9 @@ export async function loadVerifiedRuntimeAsset(
         chunks.push(next.value);
       }
     } finally {
-      await reader.cancel().catch(() => {});
+      // A CacheStorage/Response clone can tee the stream. Cancellation of one
+      // branch need not settle until its retained sibling is consumed.
+      void reader.cancel().catch(() => {});
       reader.releaseLock();
     }
     check();
@@ -123,7 +125,7 @@ export async function loadVerifiedRuntimeAsset(
     }
   }
   const value = await read(
-    await fetch(url.href, { credentials: 'omit', redirect: 'error', signal })
+    await fetch(url.href, { credentials: 'omit', redirect: 'error', cache: 'reload', signal })
   );
   check();
   if (cache) {

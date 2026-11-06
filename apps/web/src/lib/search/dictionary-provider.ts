@@ -55,7 +55,26 @@ export interface DictionaryClient {
   close(): Promise<void>;
 }
 
+export interface DictionaryCapabilities {
+  /** Explicit trailing-* searches are understood by this implementation. */
+  prefixSearch: boolean;
+  /** The implementation can supply its recommended default dictionary archive. */
+  defaultInstall: boolean;
+}
+
+/** Older providers implement both capabilities; explicit false opts out. */
+export function dictionaryCapabilities(
+  runtime?: Pick<DictionaryRuntime, 'capabilities'>
+): Readonly<DictionaryCapabilities> {
+  return {
+    prefixSearch: runtime?.capabilities?.prefixSearch ?? true,
+    defaultInstall: runtime?.capabilities?.defaultInstall ?? true
+  };
+}
+
 export interface DictionaryRuntime {
+  /** Optional additions preserve the behavior of existing contract-v1 providers. */
+  capabilities?: Partial<DictionaryCapabilities>;
   /** Optional proactive analysis; shares this runtime's resource lifetime. */
   preprocessor?: Preprocessor;
   /** Optional on-demand interaction; valid even without proactive analysis. */

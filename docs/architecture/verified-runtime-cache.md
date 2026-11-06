@@ -6,7 +6,11 @@ its optional-runtime fetch cache. HTTP caching alone does not establish offline
 availability on a later visit.
 
 Web provider hosts can use `loadVerifiedRuntimeAsset(scope, resource, expected)`
-before importing their selected entrypoint or transferring Worker/WASM bytes.
+before transferring Worker/WASM bytes or separately admitting a module for execution.
+Caching verification alone does **not** authorize a subsequent URL import: on an
+uncontrolled page that import may fetch different bytes. The importing host must
+bind the executed response to the selected digest (for example, an SRI module
+script plus its document module-map namespace, with a self-contained bundle).
 The expected SHA-256 must come from a verified, build-selected manifest. Requests
 are same-origin and scope-bound, without query fragments or credentials; code,
 JSON and WASM bytes have explicit limits and are checked before publication.
@@ -31,3 +35,10 @@ imports it through the worker after an offline navigation. Chromium and WebKit
 run the same assertions with Playwright 1.64.1; older WebKit offline emulation
 has an upstream local-resource failure. This is cache-protocol qualification,
 not language-engine or dictionary semantic parity.
+
+A verifier cache miss or damaged copy uses an explicit `cache: reload` request.
+The shell worker honors that request by bypassing both optional runtime caches,
+then refreshes only the requested tool URL. Failed validation never publishes a
+verified copy. This repair does not clear databases, user dictionaries, books,
+foreign caches, or the application shell. Offline verified cache hits remain
+usable without requesting the network.
