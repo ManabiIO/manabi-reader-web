@@ -109,6 +109,20 @@ test('online and unknown connectivity do not advertise sync success', () => {
   }
 });
 
+test('save attention can open with unknown connectivity without claiming the device is connected', () => {
+  const f = mount(undefined, { progressState: 'failed' });
+  try {
+    act(() => f.container.querySelector('[aria-haspopup="dialog"]').click());
+    const dialog = document.querySelector('dialog[open]');
+    assert.ok(dialog);
+    assert.doesNotMatch(dialog.textContent, /Your device is connected/);
+    assert.match(dialog.textContent, /connection status isn’t available/);
+    assert.match(dialog.textContent, /hasn’t been saved/);
+  } finally {
+    f.cleanup();
+  }
+});
+
 test('offline explanation distinguishes local progress, linked sync, and backup; Escape returns focus', () => {
   const f = mount(false);
   try {

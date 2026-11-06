@@ -1655,29 +1655,38 @@ export function createSession(
       return;
     const bookId = getBookIdSync();
     if (!bookId || !bookmarkManager) return;
-    let data: BooksDbBookmarkData | undefined;
-    if (isPaginated) {
-      const userSelectedRange = $selectionToBookmarkEnabled$
-        ? getRangeForUserSelection(window, lastSelectedRange)
-        : undefined;
-      const bookmarkRange = userSelectedRange || customReadingPointRange;
-      pulseElement(bookmarkRange?.endContainer?.parentElement, 'add', 0.5, 500);
-      data = bookmarkManager.formatBookmarkDataByRange(bookId, bookmarkRange);
-      // A resume save must not dismiss a selection that the reader is using
-      // for a dictionary lookup or a new highlight.
-    } else {
-      data = bookmarkManager.formatBookmarkData(bookId, customReadingPointScrollOffset);
-    }
-    // A font/layout pass has not produced a trustworthy reading position yet.
-    // Keep the last good bookmark rather than saving a sentinel or zero progress.
-    if (!data) return;
-    const snapshot = structuredClone(data);
     const saveOwner = ownProgressStatus(bookId);
+    let snapshot: BooksDbBookmarkData;
+    try {
+      let data: BooksDbBookmarkData | undefined;
+      if (isPaginated) {
+        const userSelectedRange = $selectionToBookmarkEnabled$
+          ? getRangeForUserSelection(window, lastSelectedRange)
+          : undefined;
+        const bookmarkRange = userSelectedRange || customReadingPointRange;
+        pulseElement(bookmarkRange?.endContainer?.parentElement, 'add', 0.5, 500);
+        data = bookmarkManager.formatBookmarkDataByRange(bookId, bookmarkRange);
+        // A resume save must not dismiss a selection that the reader is using
+        // for a dictionary lookup or a new highlight.
+      } else {
+        data = bookmarkManager.formatBookmarkData(bookId, customReadingPointScrollOffset);
+      }
+      // A font/layout pass has not produced a trustworthy reading position yet.
+      // Keep the last good bookmark rather than saving a sentinel or zero progress.
+      if (!data) return;
+      snapshot = structuredClone(data);
+    } catch (error) {
+      saveOwner.fail();
+      throw error;
+    }
     const writing = (async () => {
-      await saveOwner.track(() => database.putBookmark(snapshot));
-      if (__readerController.disposed) return;
-      __readerController.changed((bookmarkData = Promise.resolve(snapshot)));
-      scheduleReplication(StorageDataType.PROGRESS);
+      await saveOwner.track(
+        () => database.putBookmark(snapshot),
+        () => {
+          __readerController.changed((bookmarkData = Promise.resolve(snapshot)));
+          scheduleReplication(StorageDataType.PROGRESS);
+        }
+      );
     })();
     pendingBookmarkWrites.add(writing);
     void writing.then(

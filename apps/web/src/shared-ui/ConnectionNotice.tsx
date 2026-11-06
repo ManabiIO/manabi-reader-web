@@ -92,7 +92,9 @@ export function ConnectionNotice({
           <UiText role="status" accessibilityLiveRegion="polite" style={{ fontWeight: '600' }}>
             {online === false
               ? 'You’re offline. You can keep reading.'
-              : 'Your device is connected.'}
+              : online === true
+                ? 'Your device is connected.'
+                : 'Your device’s connection status isn’t available.'}
           </UiText>
           <UiText>
             Books already saved on this device are available offline. Books and media you haven’t

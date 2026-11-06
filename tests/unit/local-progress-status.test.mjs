@@ -148,6 +148,7 @@ test('profile revocation and disposal cannot publish acknowledgements or retry s
   assert.equal(f.value(), null);
 });
 function connectionFixture() {
+  const retries = [];
   const data = {
     online: true,
     personal: { state: 'idle' },
@@ -172,10 +173,16 @@ function connectionFixture() {
     './stores': { page: 'page' },
     './local-progress-status': {
       localProgressStatus: 'progress',
-      retryLocalProgressSave: async () => {}
+      retryLocalProgressSave: async (status) => {
+        retries.push(status);
+      }
     }
   });
-  return { data, props: (path = '/b') => WebConnectionStatus({ path }).props.children.props };
+  return {
+    data,
+    retries,
+    props: (path = '/b') => WebConnectionStatus({ path }).props.children.props
+  };
 }
 test('web status only displays the acknowledged save for this book, account and generation', () => {
   const f = connectionFixture();
@@ -202,6 +209,18 @@ test('automatic Drive changes, review, retry and pause surface only for the curr
   assert.equal(f.props().syncAction, undefined);
 });
 
+test('the web retry handler carries the failed status it actually rendered', () => {
+  const f = connectionFixture();
+  f.props().retryProgress();
+  assert.equal(f.retries.length, 0, 'an acknowledged save does not start a retry');
+  f.data.progress = { ...f.data.progress, state: 'failed' };
+  const failed = f.data.progress;
+  const retry = f.props().retryProgress;
+  f.data.progress = { ...failed, bookId: 2 };
+  retry();
+  assert.deepEqual(f.retries, [failed]);
+});
+
 test('a late save from an already retired session cannot take the new reader status slot', async () => {
   const f = fixture();
   const current = f.owner({ scope: { ...f.scope, bookId: 2 } });
@@ -212,4 +231,51 @@ test('a late save from an already retired session cannot take the new reader sta
   assert.equal(f.value().bookId, 2);
   assert.equal(f.value().state, 'saved');
   current.dispose();
+});
+
+test('repeated retry requests share one settlement and a failed retry remains retryable', async () => {
+  const f = fixture(),
+    gate = deferred();
+  let calls = 0;
+  const owner = f.owner({
+    retry: async () => {
+      calls++;
+      await owner.track(() => gate.promise);
+    }
+  });
+  await assert.rejects(
+    owner.track(async () => {
+      throw new Error('initial failure');
+    })
+  );
+  const failed = f.value();
+  const first = f.api.retryLocalProgressSave(failed);
+  const second = f.api.retryLocalProgressSave(failed);
+  assert.equal(calls, 1);
+  gate.reject(new Error('retry failed'));
+  await Promise.all([
+    assert.rejects(first, /retry failed/),
+    assert.rejects(second, /retry failed/)
+  ]);
+  await assert.rejects(f.api.retryLocalProgressSave(f.value()), /retry failed/);
+  assert.equal(calls, 2);
+  owner.dispose();
+});
+
+test('a retry captured for an older status cannot save a replacement reader', async () => {
+  const f = fixture();
+  const first = f.owner();
+  first.fail();
+  const oldStatus = f.value();
+  let retries = 0;
+  const second = f.owner({ retry: async () => retries++ });
+  await f.api.retryLocalProgressSave(f.value());
+  assert.equal(retries, 0, 'a reader without a failed save has nothing to retry');
+  second.fail();
+  await f.api.retryLocalProgressSave(oldStatus);
+  assert.equal(retries, 0, 'even reopening the same book creates a different status owner');
+  await f.api.retryLocalProgressSave(f.value());
+  assert.equal(retries, 1);
+  first.dispose();
+  second.dispose();
 });

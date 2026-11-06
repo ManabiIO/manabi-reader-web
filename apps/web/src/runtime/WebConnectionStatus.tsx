@@ -57,7 +57,8 @@ export function WebConnectionStatus({ path }: { path: string }) {
         retryProgress={() => {
           // The owning commit publishes failure; this handler only contains its
           // rejection so the persistent explanation remains available.
-          void retryLocalProgressSave().catch(() => {});
+          if (progressState === 'failed' && progress)
+            void retryLocalProgressSave(progress).catch(() => {});
         }}
         statusIcon={
           online === false ? (

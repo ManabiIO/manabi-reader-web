@@ -1,7 +1,7 @@
 /** @license BSD-3-Clause */
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdtempSync, mkdirSync, renameSync } from 'node:fs';
+import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import test from 'node:test';
@@ -21,6 +21,7 @@ try {
       export {dialogManager} from './apps/web/src/lib/data/dialog-manager';
       export {account} from './apps/web/src/lib/manabi/client';
       export {StorageDataType, StorageKey} from './apps/web/src/lib/data/storage/storage-types';
+      export {localProgressStatus, retryLocalProgressSave} from './apps/web/src/runtime/local-progress-status';
     `,
       resolveDir: process.cwd()
     },
@@ -36,7 +37,9 @@ try {
   });
   production = require(join(directory, 'session.cjs'));
 } finally {
-  rmSync(directory, { recursive: true, force: true });
+  const trash = join(homedir(), '.Trash');
+  mkdirSync(trash, { recursive: true });
+  renameSync(directory, join(trash, `reader-session-close-${Date.now()}`));
 }
 const {
   createSession,
@@ -47,7 +50,9 @@ const {
   dialogManager,
   account,
   StorageDataType,
-  StorageKey
+  StorageKey,
+  localProgressStatus,
+  retryLocalProgressSave
 } = production;
 const turn = async () => {
   for (let i = 0; i < 15; i++) await Promise.resolve();
@@ -429,4 +434,54 @@ test('confirmation samples the current continuous point before deferred view bin
   assert.equal(await closing, false);
   assert.equal(h.writes.length, 0);
   assert.equal(h.c.blockDataUpdates, false);
+});
+
+test('formatting failure is visible and retry saves after a trustworthy point returns', async (t) => {
+  const h = fixture(t);
+  let status;
+  const stop = localProgressStatus.subscribe((value) => (status = value));
+  t.after(stop);
+  const format = h.c.bookmarkManager.formatBookmarkData;
+  h.c.bookmarkManager.formatBookmarkData = () => {
+    throw new Error('Position unavailable');
+  };
+  await h.c.saveBookmark();
+  assert.equal(status?.state, 'failed');
+  assert.equal(h.writes.length, 0);
+  h.c.bookmarkManager.formatBookmarkData = () => undefined;
+  await retryLocalProgressSave();
+  assert.equal(status?.state, 'failed', 'a skipped save cannot acknowledge the failed position');
+  h.c.bookmarkManager.formatBookmarkData = format;
+  await retryLocalProgressSave();
+  assert.equal(status?.state, 'saved');
+  assert.equal(h.writes.length, 1);
+});
+
+test('an older acknowledgement cannot replace a newer bookmark in the live session', async (t) => {
+  const old = deferred();
+  let attempts = 0;
+  const h = fixture(t, { write: () => (++attempts === 1 ? old.promise : undefined) });
+  let point = 0.4;
+  h.c.bookmarkManager.formatBookmarkData = (id) => ({ dataId: id, progress: point });
+  const first = h.c.saveBookmark();
+  point = 0.8;
+  await h.c.saveBookmark();
+  assert.equal((await h.c.bookmarkData).progress, 0.8);
+  old.resolve();
+  await first;
+  assert.equal((await h.c.bookmarkData).progress, 0.8);
+});
+
+test('an old-account acknowledgement cannot update the current session bookmark or sync queue', async (t) => {
+  const gate = deferred();
+  const h = fixture(t, { write: () => gate.promise });
+  const initial = { dataId: 7, progress: 0.1 };
+  h.c.bookmarkData = Promise.resolve(initial);
+  h.c.upSyncEnabled = true;
+  const saving = h.c.saveBookmark();
+  user('bob');
+  gate.resolve();
+  await saving;
+  assert.equal(await h.c.bookmarkData, initial);
+  assert.deepEqual(h.c.dataToReplicate, []);
 });
