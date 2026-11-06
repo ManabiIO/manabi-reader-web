@@ -5,7 +5,7 @@ from playwright.sync_api import expect
 def exercise_dictionary_management(page, title, archive):
     setup = page.locator('details.setup')
     if setup.get_attribute('open') is None:
-        setup.locator('summary').click()
+        setup.locator(':scope > summary').click()
     disable = page.get_by_role('button', name='Disable ' + title, exact=True)
     expect(disable).to_be_enabled()
     disable.click()
