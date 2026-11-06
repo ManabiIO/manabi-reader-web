@@ -84,6 +84,18 @@ function trashTemporary(directory) {
 
 const cases = [
   [
+    'edition branch push uses its dedicated manual qualification',
+    { event: 'push', head: 'feat/manabitan-reader-editions' },
+    false,
+    false
+  ],
+  [
+    'edition branch PR skips legacy qualification',
+    { head: 'feat/manabitan-reader-editions' },
+    false,
+    false
+  ],
+  [
     'Retired experiment branch push',
     { event: 'push', head: 'codex/reader-windows-sdk56-20261020' },
     false,
