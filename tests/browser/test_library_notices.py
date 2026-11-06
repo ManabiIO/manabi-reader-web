@@ -5,6 +5,7 @@ from playwright.sync_api import expect
 from test_books_library import LibraryBase
 from test_static_reader import StaticHandler
 from reader_fixture import reader_fixture, reader_product_name
+from reader_controls import reveal_reader_controls
 
 
 class LibraryNoticesBrowser(LibraryBase):
@@ -50,11 +51,7 @@ class LibraryNoticesBrowser(LibraryBase):
             return put.apply(this,args);
           };
         }""")
-        controls=self.page.locator('button[data-reader-controls]')
-        controls.focus()
-        if controls.get_attribute('aria-expanded') != 'true':
-            controls.press('Enter')
-        expect(controls).to_have_attribute('aria-expanded','true')
+        reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Save Reading Position', exact=True).click()
         attention=self.page.get_by_role('button', name='Save needs attention. Connection details', exact=True)
