@@ -185,6 +185,10 @@ class MigrationBrowser(unittest.TestCase):
         self.assertEqual([],self.errors)
 
     def load(self, raw=None, name='Ttu backup.zip'):
+        # set_input_files can dispatch on a disabled, server-rendered input.
+        # Real users wait for admission/hydration before choosing an archive;
+        # the upstream roundtrip opens this page outside the normal setUp gate.
+        expect(self.page.get_by_label('Choose Ttu export ZIPs', exact=True)).to_be_enabled(timeout=30000)
         self.page.get_by_label('Choose Ttu export ZIPs', exact=True).set_input_files(
             {'name':name,'mimeType':'application/zip','buffer':self.source if raw is None else raw})
         expect(self.page.get_by_label('Choose Ttu export ZIPs', exact=True)).to_be_enabled()
