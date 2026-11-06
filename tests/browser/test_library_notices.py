@@ -27,6 +27,17 @@ class LibraryNoticesBrowser(LibraryBase):
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
         self.page.keyboard.press('PageDown')
         expect(self.page.get_by_role('button', name='0%', exact=True)).to_have_count(0)
+        self.page.evaluate('''async () => {
+          let previous, stable=0;
+          for(let i=0;i<120;i++){
+            await new Promise(resolve=>requestAnimationFrame(resolve));
+            const host=document.querySelector('.book-content');
+            const now=host.scrollLeft+','+host.scrollTop;
+            stable=now===previous?stable+1:0;previous=now;
+            if(stable>=6)return;
+          }
+          throw new Error('Reading page turn did not settle');
+        }''')
         # Fail the real bookmark transaction, rather than injecting a UI status.
         self.page.evaluate("""() => {
           window.failBookmarkCommit=true;window.bookmarkFailures=0;
@@ -41,12 +52,13 @@ class LibraryNoticesBrowser(LibraryBase):
         }""")
         controls=self.page.locator('button[data-reader-controls]')
         controls.focus()
-        self.page.keyboard.press('Tab')
+        if controls.get_attribute('aria-expanded') != 'true':
+            controls.press('Enter')
         expect(controls).to_have_attribute('aria-expanded','true')
         self.page.get_by_role('button', name='Reading tools', exact=True).click()
         self.page.get_by_role('menuitem', name='Save Reading Position', exact=True).click()
         attention=self.page.get_by_role('button', name='Save needs attention. Connection details', exact=True)
-        self.page.wait_for_function('window.bookmarkFailures>0')
+        self.page.wait_for_function('() => window.bookmarkFailures>0')
         expect(attention).to_be_visible()
         before=self.stores('books',['bookmark'])
         attention.click()
