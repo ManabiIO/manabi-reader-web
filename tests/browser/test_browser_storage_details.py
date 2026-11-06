@@ -1,6 +1,6 @@
 """Built Settings storage observations and non-destructive permission feedback.
 
-The controlled case replaces only the three browser StorageManager observations;
+Controlled cases retain the native manager and replace only its three observations;
 IndexedDB, book import, production UI and the native offline shell remain real.
 """
 import unittest
@@ -62,6 +62,8 @@ class BrowserStorageDetails(LibraryBase):
         before = self.stores('books', ['data', 'bookmark', 'statistic'])
         self.context.add_init_script('''(() => {
             const manager=navigator.storage;
+            // Keep all later API reads on the native object instrumented here.
+            Object.defineProperty(navigator,'storage',{value:manager,configurable:true});
             const fixture=window.storageFixture={requests:0,granted:false,events:[]};
             Object.defineProperties(manager, {
                 persisted:{value:async()=>{fixture.events.push('persisted');return fixture.granted;},configurable:true},
@@ -113,8 +115,10 @@ class BrowserStorageDetails(LibraryBase):
 
     def test_pending_request_does_not_repeat_or_steal_focus_from_another_control(self):
         self.context.add_init_script('''(() => {
+            const manager=navigator.storage;
+            Object.defineProperty(navigator,'storage',{value:manager,configurable:true});
             window.storageFixture={requests:0};
-            Object.defineProperties(navigator.storage, {
+            Object.defineProperties(manager, {
                 persisted:{value:async()=>false,configurable:true},
                 persist:{value:()=>{
                     storageFixture.requests++;
