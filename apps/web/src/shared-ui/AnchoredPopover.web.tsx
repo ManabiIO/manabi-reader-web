@@ -110,6 +110,7 @@ export function AnchoredPopover({
       aria-label={label}
       className="heatmap-details"
       style={{
+        writingMode: 'horizontal-tb',
         position: 'fixed',
         zIndex: 80,
         ...position,

@@ -5,6 +5,7 @@
  */
 
 import type { DictionaryRuntime } from './dictionary-provider';
+import { validateProvider } from '../preprocessing/contracts.mjs';
 
 /** Admission checks the selected implementation; there is no fallback provider. */
 export function validateDictionaryRuntime(value: unknown): asserts value is DictionaryRuntime {
@@ -29,4 +30,5 @@ export function validateDictionaryRuntime(value: unknown): asserts value is Dict
       throw new Error(`Dictionary client is missing ${name}.`);
   if (runtime.attachChapter !== undefined && typeof runtime.attachChapter !== 'function')
     throw new Error('Invalid dictionary chapter interaction.');
+  if (runtime.preprocessor !== undefined) validateProvider(runtime.preprocessor);
 }

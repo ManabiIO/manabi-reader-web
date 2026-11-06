@@ -1,0 +1,203 @@
+@charset "UTF-8";
+/** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors */
+.dictionary-search section {
+  min-width: 0;
+}
+.dictionary-search header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.dictionary-search h2 {
+  font-size: 1.125rem;
+  font-weight: 650;
+}
+.dictionary-search button,
+.dictionary-search summary,
+.dictionary-search .upload {
+  min-height: 44px;
+  border-radius: 0.65rem;
+  padding: 0.65rem 0.8rem;
+}
+.dictionary-search button:focus-visible,
+.dictionary-search summary:focus-visible,
+.dictionary-search .upload:focus-within {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+.dictionary-search header button,
+.dictionary-search .note button {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+.dictionary-search ul {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.dictionary-search .preview {
+  display: block;
+  text-align: start;
+  width: 100%;
+  padding: 1rem;
+  border: 1px solid var(--border);
+}
+.dictionary-search .preview:hover {
+  background: var(--muted);
+}
+.dictionary-search .headword {
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+.dictionary-search .reading {
+  font-size: 0.9rem;
+  margin-inline-start: 0.7rem;
+}
+.dictionary-search .sense {
+  display: block;
+  margin-top: 0.4rem;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.dictionary-search small {
+  display: block;
+  font-size: 0.75rem;
+  opacity: 0.75;
+}
+.dictionary-search .note {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+  margin: 0.7rem 0;
+  overflow-wrap: anywhere;
+}
+.dictionary-search .spinner {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: dictionary-spin 0.8s linear infinite;
+  margin-inline-end: 0.4rem;
+}
+.dictionary-search .setup {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.5rem;
+}
+.dictionary-search .dictionary-list,
+.dictionary-search .recommendation-list {
+  margin-block: 0.75rem 1rem;
+}
+.dictionary-search .dictionary-row,
+.dictionary-search .recommendation-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.dictionary-search .dictionary-copy {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.dictionary-search .dictionary-actions,
+.dictionary-search .delete-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.dictionary-search .delete-confirm > span {
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+.dictionary-search .recommendations {
+  margin-top: 0.75rem;
+}
+.dictionary-search .recommendation-row a {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.65rem;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+.dictionary-search .recommendation-row a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+.dictionary-search .setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.dictionary-search .setup-actions > button,
+.dictionary-search .upload {
+  background: var(--muted);
+}
+.dictionary-search .upload {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+.dictionary-search .upload input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  cursor: pointer;
+}
+.dictionary-search .full-dictionary .dictionary-entry {
+  border-bottom: 1px solid var(--border);
+  padding: 1.5rem 0;
+}
+.dictionary-search .full-dictionary .headword {
+  font-size: 1.6rem;
+  line-height: 2;
+}
+.dictionary-search .full-dictionary .dictionary-name,
+.dictionary-search .full-dictionary .frequency {
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+  margin: 0.8rem 0 0.4rem;
+}
+.dictionary-search .full-dictionary ol {
+  list-style: decimal;
+  padding-inline-start: 1.5rem;
+  line-height: 1.75;
+}
+.dictionary-search .full-dictionary img {
+  max-width: 100%;
+  height: auto;
+}
+.dictionary-search .full-dictionary {
+  overflow-wrap: anywhere;
+}
+@keyframes dictionary-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (max-width: 640px) {
+  .dictionary-search .dictionary-row,
+  .dictionary-search .recommendation-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dictionary-search .spinner {
+    animation: none;
+  }
+}

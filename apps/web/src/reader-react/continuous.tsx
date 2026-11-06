@@ -27,7 +27,8 @@ export function BookReaderContinuous(props: Partial<ContinuousProps> & ReaderVie
       createContinuous(props as ContinuousProps, (name, detail) =>
         latest.current.events?.[name]?.({ detail })
       ),
-    props
+    props,
+    props.languageBook
   );
   useReaderBindings(c, props);
   if (!c) return null;
@@ -39,6 +40,7 @@ export function BookReaderContinuous(props: Partial<ContinuousProps> & ReaderVie
           c.contentEl = value;
         }}
         aria-busy={!c.allowDisplay || c.loadingState}
+        inert={!c.allowDisplay}
         html={c.htmlContent}
         onHtmlLoad={c.onHtmlLoad}
         className={[
@@ -60,6 +62,8 @@ export function BookReaderContinuous(props: Partial<ContinuousProps> & ReaderVie
           .filter(Boolean)
           .join(' ')}
         style={{
+          opacity: c.allowDisplay ? 1 : 0,
+          pointerEvents: c.allowDisplay ? undefined : 'none',
           color: c.fontColor,
           fontSize: String(c.fontSize ?? '') + 'px',
           lineHeight: c.lineHeight,
@@ -181,7 +185,13 @@ export function BookReaderContinuous(props: Partial<ContinuousProps> & ReaderVie
               .join(' ')}
             style={{ color: c.fontColor, backgroundColor: c.backgroundColor }}
           >
-            <AppIcon icon={faSpinner} spin={true}></AppIcon>
+            {c.openingError ? (
+              <Dom as="div" role="alert" className="max-w-lg p-6 text-base">
+                {c.openingError}
+              </Dom>
+            ) : (
+              <AppIcon icon={faSpinner} spin={true}></AppIcon>
+            )}
           </Dom>
         </>
       ) : null}

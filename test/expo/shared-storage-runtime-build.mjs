@@ -12,6 +12,7 @@ import { fileURLToPath, URL } from 'node:url';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const appRequire = createRequire(path.join(root, 'apps/web/package.json'));
 export const runtimeModules = {
+  'runtime/edition.ts': ['storageName'],
   'lib/data/store.ts': ['database'],
   'lib/manabi/shared-library.ts': ['transferSharedBooks'],
   'lib/manabi/persistence.ts': ['integrationDB'],

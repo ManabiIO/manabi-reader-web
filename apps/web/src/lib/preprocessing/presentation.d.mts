@@ -22,6 +22,7 @@ export class ChapterOpeningController {
     isVisible?: () => boolean;
   });
   open(index: number): Promise<PreparedChapter>;
+  retire(): void;
   dispose(): void;
 }
 export function chapterForResume(sectionCounts: number[], exploredCharCount: number): number;

@@ -5,6 +5,7 @@
  */
 
 import { useReaderController } from './controller';
+import { useReaderLanguageBook } from './reader-language';
 import {
   Dom,
   SurfaceEvents,
@@ -21,6 +22,7 @@ import { BookReaderPaginated } from './paginated';
 
 export function BookReader(props: Partial<BookReaderProps> & ReaderViewProps) {
   const latest = useLatest(props);
+  const language = useReaderLanguageBook(props);
   const c = useReaderController(
     () =>
       createBookReader(props as BookReaderProps, (name, detail) =>
@@ -30,6 +32,25 @@ export function BookReader(props: Partial<BookReaderProps> & ReaderViewProps) {
   );
   useReaderBindings(c, props);
   if (!c) return null;
+  if (language.error)
+    return (
+      <Dom as="div" role="alert" className="p-6">
+        {language.error}
+      </Dom>
+    );
+  if (language.loading)
+    return (
+      <Dom as="div" role="status" className="p-6">
+        Opening language tools…
+      </Dom>
+    );
+  if (language.book?.hasAnalysis && c.useFoliatePaginator)
+    return (
+      <Dom as="div" role="alert" className="p-6">
+        Chapter analysis requires the standard paginator. Turn off the experimental Foliate preview
+        to open this book.
+      </Dom>
+    );
   return (
     <ReaderScope name="react-reader-book-reader">
       {c.showBlurMessage ? (
@@ -67,6 +88,7 @@ export function BookReader(props: Partial<BookReaderProps> & ReaderViewProps) {
           <>
             <BookReaderContinuous
               htmlContent={c.htmlContent}
+              languageBook={language.book}
               previewNavigationActive={c.previewNavigationActive}
               width={c.$contentViewportWidth$ ?? 0}
               height={c.$contentViewportHeight$ ?? 0}
@@ -244,6 +266,7 @@ export function BookReader(props: Partial<BookReaderProps> & ReaderViewProps) {
                 {' '}
                 <BookReaderPaginated
                   htmlContent={c.htmlContent}
+                  languageBook={language.book}
                   width={c.$contentViewportWidth$ ?? 0}
                   height={c.$contentViewportHeight$ ?? 0}
                   verticalMode={c.verticalMode}

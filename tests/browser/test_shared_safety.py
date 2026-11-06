@@ -273,13 +273,15 @@ class SharedStorageRuntime(static.ReaderBrowser):
           await links.delete('books', 'foreign-link');
           let acquired, release;
           const ready = new Promise(resolve => acquired = resolve);
-          const held = navigator.locks.request('manabi-reader:shared-ttu/' + source.name,
+          const {storageName} = await import('/reader-web/src/runtime/edition.ts');
+          const lockName = storageName('manabi-reader:shared-ttu/' + source.name);
+          const held = navigator.locks.request(lockName,
             () => new Promise(resolve => { release = resolve; acquired(); }));
           await ready;
           const pending = transferSharedBooks(source, 'publish', [title]).then(
             () => 'unexpected success', error => error.message);
           const deadline = Date.now() + 5000;
-          while (!(await navigator.locks.query()).pending.some(lock => lock.name === 'manabi-reader:shared-ttu/' + source.name)) {
+          while (!(await navigator.locks.query()).pending.some(lock => lock.name === lockName)) {
             if (Date.now() > deadline) throw new Error('The actual source lock request was not queued');
             await new Promise(resolve => setTimeout(resolve, 10));
           }

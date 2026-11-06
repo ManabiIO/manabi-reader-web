@@ -280,7 +280,10 @@ class ReaderBrowser(unittest.TestCase):
         cls.thread.start()
         cls.origin = 'http://127.0.0.1:' + str(cls.server.server_port)
         cls.playwright = sync_playwright().start()
-        cls.browser = cls.playwright.chromium.launch(**launch_options())
+        engine = os.environ.get('READER_BROWSER', 'chromium')
+        if engine not in ('chromium', 'webkit'):
+            raise ValueError('READER_BROWSER must be chromium or webkit')
+        cls.browser = getattr(cls.playwright, engine).launch(**launch_options(engine))
 
     @classmethod
     def tearDownClass(cls):

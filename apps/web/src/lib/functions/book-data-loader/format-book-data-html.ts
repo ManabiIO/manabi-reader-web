@@ -32,7 +32,7 @@ export default function formatBookDataHtml(
   parentSelector = '.book-content'
 ) {
   return getHtmlWithImageSource(bookData, document, isPaginated).pipe(
-    map(({ html, imageUrls, resources }) => {
+    map(({ html, imageUrls, resources, imageBindings }) => {
       const element = document.createElement('div');
       element.innerHTML = html;
 
@@ -57,6 +57,7 @@ export default function formatBookDataHtml(
         throw new Error('Prepared EPUB resources do not match the publication.');
       return {
         htmlContent,
+        imageBindings,
         epubStyleSheet: resources
           ? epubCompatibilityStyles(resources, document, parentSelector)
           : undefined,
@@ -78,6 +79,7 @@ function getHtmlWithImageSource(
   return new Observable<{
     html: string;
     imageUrls: ReadonlySet<string>;
+    imageBindings: ReadonlyMap<string, string>;
     resources?: EpubResourceData[];
   }>((subscriber) => {
     const objectUrls: string[] = [];
@@ -140,6 +142,7 @@ function getHtmlWithImageSource(
       subscriber.next({
         html,
         imageUrls,
+        imageBindings: replacements,
         resources: publication ? epubResourceContents(publication, sourceHtml) : undefined
       });
       if (!cancelled && !subscriber.closed) {

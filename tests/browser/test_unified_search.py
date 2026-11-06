@@ -10,7 +10,7 @@ import unittest
 import zipfile
 from playwright.sync_api import expect
 from test_product_journeys import ProductJourneyBase
-from reader_fixture import reader_fixture
+from reader_fixture import reader_fixture, reader_storage_name
 
 
 def dictionary_archive():
@@ -81,7 +81,7 @@ class UnifiedSearch(ProductJourneyBase):
         }"""), {'title': title, 'cues': cues, 'delay': delay})
 
     def replace_video_cues(self, identity, cues):
-        self.page.evaluate(reader_fixture("""async ({identity,cues}) => {
+        self.page.evaluate(reader_fixture("""async ({identity,cues,channelName}) => {
           const canonical=value=>{
             if(value===null||typeof value!=='object')return JSON.stringify(value);
             if(Array.isArray(value))return '['+value.map(canonical).join(',')+']';
@@ -113,9 +113,10 @@ class UnifiedSearch(ProductJourneyBase):
             tx.oncomplete=yes;tx.onerror=()=>no(tx.error);tx.onabort=()=>no(tx.error);
           });
           db.close();
-          const channel=new BroadcastChannel('manabi-media-v1');
+          const channel=new BroadcastChannel(channelName);
           channel.postMessage({type:'media-change',captions:true});channel.close();
-        }"""), {'identity': identity, 'cues': cues})
+        }"""), {'identity': identity, 'cues': cues,
+                 'channelName': reader_storage_name('manabi-media-v1')})
 
     def assert_no_document_horizontal_overflow(self):
         diagnostic = self.page.evaluate(r"""() => {
@@ -729,24 +730,24 @@ class UnifiedSearch(ProductJourneyBase):
           });
         }""")
 
-        self.page.evaluate("""() => {
-          const channel = new BroadcastChannel('manabi-media-v1');
+        self.page.evaluate("""channelName => {
+          const channel = new BroadcastChannel(channelName);
           channel.postMessage({type: 'media-change', captions: true, metadata: false});
           channel.close();
-        }""")
+        }""", reader_storage_name('manabi-media-v1'))
         self.page.wait_for_function("() => window.__searchInvalidation.contentBusy > 0")
         expect(content_section).to_have_attribute('aria-busy', 'false', timeout=30000)
         counters = self.page.evaluate("() => ({...window.__searchInvalidation})")
         self.assertEqual(0, counters['titleBusy'])
         self.assertGreaterEqual(counters['contentBusy'], 1)
 
-        self.page.evaluate("""() => {
+        self.page.evaluate("""channelName => {
           window.__searchInvalidation.titleBusy = 0;
           window.__searchInvalidation.contentBusy = 0;
-          const channel = new BroadcastChannel('manabi-media-v1');
+          const channel = new BroadcastChannel(channelName);
           channel.postMessage({type: 'media-change', captions: false, metadata: true});
           channel.close();
-        }""")
+        }""", reader_storage_name('manabi-media-v1'))
         self.page.wait_for_function(
             "() => window.__searchInvalidation.titleBusy > 0 && "
             "window.__searchInvalidation.contentBusy > 0"

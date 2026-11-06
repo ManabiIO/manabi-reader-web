@@ -267,6 +267,8 @@ export function ReaderScreen(props: Partial<SessionProps> & ReaderViewProps) {
           ) : null}
           <StyleSheetRenderer styleSheet={c.$bookData$.styleSheet}></StyleSheetRenderer>
           <BookReader
+            bookKey={c.readerBookKey}
+            imageBindings={c.$bookData$.imageBindings}
             sheetPagination={c.foliatePagination}
             controlsVisible={c.showHeader}
             previewNavigationActive={c.navigationPreviewing || c.suppressResumeSave}

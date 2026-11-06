@@ -20,6 +20,14 @@ let active: Promise<DictionaryRuntime> | undefined;
 let retirement = Promise.resolve();
 let leases = 0;
 
+async function closeRuntime(runtime: DictionaryRuntime | undefined) {
+  try {
+    await runtime?.preprocessor?.dispose();
+  } finally {
+    await runtime?.client?.close?.();
+  }
+}
+
 async function open(): Promise<DictionaryRuntime> {
   await retirement;
   const runtime = await openDictionaryProvider();
@@ -28,7 +36,7 @@ async function open(): Promise<DictionaryRuntime> {
     return runtime;
   } catch (error) {
     try {
-      await runtime?.client?.close?.();
+      await closeRuntime(runtime);
     } catch {
       /* Preserve admission failure. */
     }
@@ -61,7 +69,7 @@ export function dictionaryLease() {
       retirement = retirement
         .then(async () => {
           const runtime = await previous;
-          await runtime?.client.close();
+          await closeRuntime(runtime);
         })
         .catch(() => {});
     }

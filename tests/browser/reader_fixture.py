@@ -77,3 +77,16 @@ def reader_fixture(source, product=None):
 
 def reader_product_name():
     return reader_product()['name']
+
+
+def reader_storage_name(logical_name, product=None):
+    """Pass a physical identity as a Playwright argument, without rewriting JS."""
+    product = reader_product() if product is None else product
+    if not isinstance(logical_name, str) or not logical_name:
+        raise ValueError('A fixture storage identity needs a nonempty logical name.')
+    return product['storageNamespace'] + ':' + logical_name
+
+
+def reader_init_script(function, arguments):
+    """Bind explicit JSON operands for add_init_script, which has no arg API."""
+    return '(' + function + ')(' + json.dumps(arguments, ensure_ascii=True) + ');'

@@ -114,6 +114,10 @@ export function ModalSurface({
       : {
           top: '50%',
           left: '50%',
+          // Native dialog UA styles also set the opposite inset. In a reader
+          // with RTL direction that over-constrains centering and ignores left.
+          right: 'auto',
+          bottom: 'auto',
           transform: 'translate(-50%, -50%)',
           margin: 0,
           width: 'calc(100vw - 32px)',
@@ -182,6 +186,7 @@ export function ModalSurface({
           border: '1px solid var(--border)',
           background: 'var(--popover)',
           color: 'var(--foreground)',
+          writingMode: 'horizontal-tb',
           overflow: 'auto',
           maxWidth: `min(${maxWidth}px, 100vw)`,
           ...geometry

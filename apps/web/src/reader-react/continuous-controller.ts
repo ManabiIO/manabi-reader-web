@@ -4,6 +4,12 @@
  * All rights reserved.
  */
 
+import type { ReaderLanguageBook } from '$lib/preprocessing/reader-book.mjs';
+import { waitForChapterLayout } from '$lib/preprocessing/layout-readiness.mjs';
+import { chapterForResume } from '$lib/preprocessing/presentation.mjs';
+import { getParagraphNodes } from '$lib/components/book-reader/get-paragraph-nodes';
+import { getCharacterCount } from '$lib/functions/get-character-count';
+import { projectResource, rangeAt } from '$lib/reader-location';
 import { bookFragmentElement } from '../lib/functions/book-security/book-fragment';
 import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
 import { browser } from '../runtime/environment';
@@ -56,8 +62,9 @@ import {
 import { CharacterStatsCalculator } from '../lib/components/book-reader/book-reader-continuous/character-stats-calculator';
 import { horizontalMouseWheel } from '../lib/components/book-reader/book-reader-continuous/horizontal-mouse-wheel';
 import { PageManagerContinuous } from '../lib/components/book-reader/book-reader-continuous/page-manager-continuous';
-import { ReaderController, type StoreValue } from './controller';
+import { ReaderController, readerTick, type StoreValue } from './controller';
 export interface ContinuousProps {
+  languageBook?: ReaderLanguageBook;
   htmlContent: string;
   previewNavigationActive?: boolean;
   width: number;
@@ -107,6 +114,12 @@ export function createContinuous(
   emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
+  const languageBook = props.languageBook;
+  let openingError = '';
+  let languageChapter = -1;
+  let languageGeneration = 0;
+  let openingLanguage = false;
+  let layoutTask: Promise<void> | undefined;
   let fullLengthDimension: 'height' | 'width';
   let modifyingDimension: 'width' | 'height';
   let boundSide: readonly ['left', 'right'] | readonly ['top', 'bottom'];
@@ -404,6 +417,8 @@ export function createContinuous(
   /** Experimental Code - May be removed any time without warning */
   __readerController.onDestroy(() => {
     stopFontLayout?.();
+    languageBook?.retire();
+    languageGeneration++;
     document.removeEventListener('ttu-action', handleAction, false);
     destroy$.next();
     destroy$.complete();
@@ -503,7 +518,22 @@ export function createContinuous(
       (customReadingPointScrollOffset = customReadingPointTop - firstDimensionMarginValue)
     );
   }
-  function onContentDisplayChange(_calculator: CharacterStatsCalculator) {
+  function onContentDisplayChange(_calculator: CharacterStatsCalculator): Promise<void> {
+    if (languageBook && layoutTask) return layoutTask;
+    const task = finishContentDisplay(_calculator);
+    if (languageBook) {
+      layoutTask = task;
+      void task
+        .finally(() => {
+          if (layoutTask === task) layoutTask = undefined;
+        })
+        .catch(() => {});
+    }
+    return task;
+  }
+  async function finishContentDisplay(_calculator: CharacterStatsCalculator) {
+    const generation = languageGeneration;
+    if (__readerController.disposed || _calculator !== calculator) return;
     _calculator.updateParagraphPos();
     updateCustomReadingPointPosition();
     __readerController.changed(
@@ -511,16 +541,27 @@ export function createContinuous(
     );
     if (scrollWhenReady) {
       __readerController.changed((scrollWhenReady = false));
-      bookmarkData
+      await bookmarkData
         .then((data) => {
-          if (__readerController.disposed || !data || !bookmarkManager) {
+          if (
+            __readerController.disposed ||
+            generation !== languageGeneration ||
+            _calculator !== calculator ||
+            !data ||
+            !bookmarkManager
+          ) {
             return;
           }
           __readerController.changed((prevIntendedCharCount = data.exploredCharCount || 0));
           bookmarkManager.scrollToBookmark(data, customReadingPointScrollOffset);
         })
         .finally(() => {
-          if (__readerController.disposed) return;
+          if (
+            __readerController.disposed ||
+            generation !== languageGeneration ||
+            _calculator !== calculator
+          )
+            return;
           if (autoBookmark) {
             fromEvent(window, 'scroll')
               .pipe(skip(1), debounceTime(autoBookmarkTime * 1000), takeUntil(destroy$))
@@ -565,8 +606,14 @@ export function createContinuous(
             .subscribe(updateSectionProgress);
         });
     }
+    if (
+      __readerController.disposed ||
+      generation !== languageGeneration ||
+      _calculator !== calculator
+    )
+      return;
     __readerController.changed((contentReadyEvent = {}));
-    __readerController.changed((allowDisplay = true));
+    if (!languageBook) __readerController.changed((allowDisplay = true));
   }
   function updateSectionProgress() {
     const entries = [...sectionData.entries()];
@@ -627,6 +674,143 @@ export function createContinuous(
     });
   }
   function onHtmlLoad() {
+    if (!languageBook) {
+      initializeLayout();
+      return;
+    }
+    if (!contentEl) return;
+    const root = contentEl;
+    void bookmarkData
+      .then((bookmark) => {
+        if (__readerController.disposed || contentEl !== root) return;
+        const counts = Array.from(root.children).map((section) =>
+          getParagraphNodes(section).reduce((count, node) => count + getCharacterCount(node), 0)
+        );
+        return openLanguageChapter(chapterForResume(counts, bookmark?.exploredCharCount ?? 0));
+      })
+      .catch((error) => {
+        if (!__readerController.disposed && error.name !== 'AbortError')
+          __readerController.changed((openingError = error.message));
+      });
+  }
+  // Source-position anchor, independent of generated wrappers and ruby. On a
+  // chapter boundary the same visible character retains its viewport position.
+  function captureLanguageAnchor() {
+    if (!contentEl) return;
+    const resource = { href: 'book', sectionId: 'book', spineIndex: 0 };
+    const projected = projectResource(contentEl, resource);
+    const visible = (range: Range) =>
+      Array.from(range.getClientRects()).some(
+        (box) =>
+          box.width > 0 &&
+          box.height > 0 &&
+          box.right > 0 &&
+          box.left < window.innerWidth &&
+          box.bottom > 0 &&
+          box.top < window.innerHeight
+      );
+    for (const run of projected.runs) {
+      const characters = Array.from(run.node.data);
+      if (!characters.length) continue;
+      const range = run.node.ownerDocument.createRange();
+      range.selectNodeContents(run.node);
+      if (!visible(range)) continue;
+      let start = 0,
+        end = characters.length;
+      while (end - start > 1) {
+        const middle = Math.floor((start + end) / 2);
+        range.setStart(run.node, characters.slice(0, start).join('').length);
+        range.setEnd(run.node, characters.slice(0, middle).join('').length);
+        if (visible(range)) end = middle;
+        else start = middle;
+      }
+      const point = run.start + start;
+      const anchor = rangeAt(projected, point, point + 1);
+      if (anchor) {
+        const rect = anchor.getBoundingClientRect();
+        return { point, top: rect.top, left: rect.left };
+      }
+    }
+    return undefined;
+  }
+  async function openLanguageChapter(index: number) {
+    if (!languageBook || !contentEl || index < 0 || index >= contentEl.children.length) return;
+    const root = contentEl;
+    const chapter = root.children[index] as HTMLElement;
+    const anchor = allowDisplay ? captureLanguageAnchor() : undefined;
+    languageBook.retire();
+    const generation = ++languageGeneration;
+    languageChapter = index;
+    openingLanguage = true;
+    layoutTask = undefined;
+    stopFontLayout?.();
+    __readerController.changed((openingError = ''));
+    __readerController.changed((allowDisplay = false));
+    // Mask synchronously in the scroll event, before any chapter transformation.
+    root.style.opacity = '0';
+    root.inert = true;
+    try {
+      await languageBook.open(index, chapter, {
+        async prepare(signal) {
+          await languageBook!.attachSiblings(root, index);
+          await waitForChapterLayout(root, signal);
+          signal.throwIfAborted();
+          initializeLayout();
+          await readerTick();
+          signal.throwIfAborted();
+          if (calculator) await onContentDisplayChange(calculator);
+          if (anchor) {
+            const projected = projectResource(root, {
+              href: 'book',
+              sectionId: 'book',
+              spineIndex: 0
+            });
+            const range = rangeAt(projected, anchor.point, anchor.point + 1);
+            if (!range)
+              throw new Error('The reading position could not be restored after analysis.');
+            const rect = range.getBoundingClientRect();
+            window.scrollBy(
+              verticalMode ? rect.left - anchor.left : 0,
+              verticalMode ? 0 : rect.top - anchor.top
+            );
+          }
+        },
+        commit() {
+          if (__readerController.disposed || generation !== languageGeneration)
+            throw new DOMException('Superseded chapter', 'AbortError');
+          __readerController.changed((allowDisplay = true));
+          root.style.opacity = '1';
+          root.inert = false;
+        }
+      });
+    } catch (error) {
+      if (
+        !__readerController.disposed &&
+        generation === languageGeneration &&
+        (error as Error).name !== 'AbortError'
+      )
+        __readerController.changed((openingError = (error as Error).message));
+    } finally {
+      if (generation === languageGeneration) openingLanguage = false;
+    }
+  }
+  function checkLanguageChapter() {
+    if (!languageBook?.hasAnalysis || !contentEl || !allowDisplay || openingLanguage) return;
+    const children = Array.from(contentEl.children);
+    const index = children.findIndex((section) => {
+      const rect = section.getBoundingClientRect();
+      return verticalMode
+        ? rect.left < window.innerWidth && rect.right > 0
+        : rect.top < window.innerHeight && rect.bottom > 0;
+    });
+    if (index >= 0 && index !== languageChapter) void openLanguageChapter(index);
+  }
+  __readerController.onMount(() => {
+    if (!languageBook) return;
+    window.addEventListener('scroll', checkLanguageChapter, { passive: true });
+    return () => window.removeEventListener('scroll', checkLanguageChapter);
+  });
+  function initializeLayout() {
     if (!contentEl) return;
     __readerController.changed(
       (calculator = new CharacterStatsCalculator(
@@ -746,6 +930,9 @@ export function createContinuous(
   );
   const api = {
     controller: __readerController,
+    get openingError() {
+      return openingError;
+    },
     handleAction,
     needScroll,
     layoutScrollPosition,

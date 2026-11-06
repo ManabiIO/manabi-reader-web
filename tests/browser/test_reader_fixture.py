@@ -9,10 +9,35 @@ from tempfile import TemporaryDirectory
 from types import ModuleType
 import unittest
 from unittest.mock import patch
-from reader_fixture import reader_fixture, reader_fixture_path, reader_product
+from reader_fixture import (reader_fixture, reader_fixture_path, reader_product,
+                            reader_storage_name, reader_init_script)
 
 
 class ReaderFixtureIdentity(unittest.TestCase):
+    def test_explicit_operands_bind_fault_targets_without_rewriting_javascript(self):
+        product = {'storageNamespace': 'fixture-v1'}
+        operands = {
+            'database': reader_storage_name('manabi-reader-integrations', product),
+            'channel': reader_storage_name('books-organization-v1', product),
+            'lock': reader_storage_name('manabi-reader:import-library-book', product),
+        }
+        source = '''names => {
+          const database = {name: names.database};
+          const unrelated = {name: 'manabi-reader-integrations'};
+          console.log(JSON.stringify({
+            owned: database.name === names.database,
+            foreign: unrelated.name !== names.database,
+            objectStore: 'metadata', api: '/api/reader-web/session/', names
+          }));
+        }'''
+        bound = reader_init_script(source, operands)
+        self.assertIn(source, bound)
+        result = subprocess.run(['node', '-e', bound], capture_output=True, text=True, check=True)
+        self.assertEqual({'owned': True, 'foreign': True, 'objectStore': 'metadata',
+                          'api': '/api/reader-web/session/', 'names': operands}, json.loads(result.stdout))
+        with self.assertRaises(ValueError):
+            reader_storage_name('', product)
+
     def test_browser_fixture_import_needs_no_default_export_but_reads_still_validate_it(self):
         with TemporaryDirectory(prefix='reader-fixture-no-export-') as temporary:
             root = Path(temporary).resolve() / 'checkout'

@@ -5,6 +5,7 @@
  */
 
 import { Fragment, type ReactNode } from 'react';
+import './dictionary.css';
 /**
  * React/controller port of lib/search/dictionary-search.svelte; transactions retain their original guards.
  */
@@ -15,28 +16,33 @@ import { Action } from './primitives';
 
 export function DictionaryView({
   c,
+  showHeading = true,
   children: _children
 }: {
   c: DictionaryController;
+  showHeading?: boolean;
   children?: ReactNode;
 }) {
   return (
     <>
       <section
-        aria-labelledby={'dictionary-search-heading'}
+        aria-labelledby={showHeading ? 'dictionary-search-heading' : undefined}
+        aria-label={showHeading ? undefined : 'Dictionary results'}
         aria-busy={c.state.state === 'loading' || c.installing || c.statusLoading || !!c.managing}
       >
-        <header>
-          <h2 id={'dictionary-search-heading'}>{'Dictionary'}</h2>
-          {!c.full ? (
-            <>
-              <button type={'button'} onClick={c.expand}>
-                {'See all dictionary results '}
-                <span aria-hidden={'true'}>{'→'}</span>
-              </button>
-            </>
-          ) : null}
-        </header>
+        {showHeading && (
+          <header>
+            <h2 id={'dictionary-search-heading'}>{'Dictionary'}</h2>
+            {!c.full ? (
+              <>
+                <button type={'button'} onClick={c.expand}>
+                  {'See all dictionary results '}
+                  <span aria-hidden={'true'}>{'→'}</span>
+                </button>
+              </>
+            ) : null}
+          </header>
+        )}
         {c.state.state === 'loading' ? (
           <>
             <p role={'status'} className={['note'].filter(Boolean).join(' ')}>
@@ -438,14 +444,17 @@ export function DictionaryView({
   );
 }
 import { useController, useControllerProps } from './use-controller';
-export function DictionarySearch(
-  props: Pick<DictionaryController, 'query' | 'full' | 'expand' | 'onquery'>
-) {
+export function DictionarySearch({
+  hideHeading = false,
+  ...props
+}: Pick<DictionaryController, 'query' | 'full' | 'expand' | 'onquery'> & {
+  hideHeading?: boolean;
+}) {
   const c = useController(() => Object.assign(new DictionaryController(), props));
   useControllerProps(c, props);
   return (
     <div className="dictionary-search">
-      <DictionaryView c={c} />
+      <DictionaryView c={c} showHeading={!hideHeading} />
     </div>
   );
 }

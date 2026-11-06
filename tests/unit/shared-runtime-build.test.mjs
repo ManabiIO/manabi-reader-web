@@ -50,6 +50,11 @@ test('isolated shared-storage fixture mounts real React owners and reexports one
     assert.match(html, /type="module" src="\/reader-web\/shared-runtime\.js"/);
     assert.match(html, /href="\/reader-web\/shared-runtime\.css"/);
   } finally {
-    await fs.rm(directory, { recursive: true, force: true });
+    const trash = path.join(os.homedir(), '.Trash');
+    await fs.mkdir(trash, { recursive: true });
+    await fs.rename(
+      directory,
+      path.join(trash, `shared-runtime-${Date.now()}-${path.basename(directory)}`)
+    );
   }
 });

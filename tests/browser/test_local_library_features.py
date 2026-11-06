@@ -27,7 +27,7 @@ from reader_controls import reveal_reader_controls
 from offline_shell import enter_offline_shell
 from test_static_reader import ThreadingHTTPServer, StaticHandler
 from test_books_library import LibraryBase, book, cross_resource_book
-from reader_fixture import reader_fixture
+from reader_fixture import reader_fixture, reader_storage_name
 from browser_launch import launch_options
 
 TITLE = 'Manabi Yatsu Portability Fixture'
@@ -727,7 +727,7 @@ class LocalFeatureBrowser(LibraryBase):
 
     def wait_source_operation_queued(self):
         deadline = time.monotonic() + 10
-        while not any(lock['name'].startswith('manabi-reader:webdav-source:')
+        while not any(lock['name'].startswith(reader_storage_name('manabi-reader:webdav-source:'))
                       for lock in self.page.evaluate('navigator.locks.query()')['pending']):
             self.assertLess(time.monotonic(), deadline, 'Source change bypassed the active sync')
             self.page.wait_for_timeout(20)

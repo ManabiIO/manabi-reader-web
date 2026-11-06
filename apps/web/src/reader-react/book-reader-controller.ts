@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import type { ReaderLanguageProps } from './reader-language';
 import { localStorage } from '$lib/data/window/local-storage';
 
 import type { createFoliate } from './foliate-controller';
@@ -55,7 +56,7 @@ import {
   type ReaderLocator
 } from '$lib/reader-location';
 import { ReaderController, writeStore, type StoreValue } from './controller';
-export interface BookReaderProps {
+export interface BookReaderProps extends ReaderLanguageProps {
   sheetPagination?: boolean;
   controlsVisible?: boolean;
   htmlContent: string;

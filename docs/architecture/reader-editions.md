@@ -37,11 +37,11 @@ The shell service worker is scoped to the deployment path. Optional engines are 
 
 ## Analysis and interaction
 
-Proactive preprocessing and mounted-chapter interaction are separate capabilities. An on-demand provider may attach to unchanged source without fabricating an analysis sidecar. The chapter-opening controller owns attachment/disposal and guards stale work before publication. Connecting the full Manabi engine to both reader modes remains a separate end-to-end qualification gate.
+Proactive preprocessing and mounted-chapter interaction are separate capabilities. An on-demand provider may attach to unchanged source without fabricating an analysis sidecar. Ordinary pagination and continuous reading now use the chapter-opening controller for attachment/disposal, generation admission, resource readiness and resume restoration before publication. Reader-owned text selection opens the installed dictionary from either mode without starting the engine until lookup is requested. The experimental Foliate renderer reports proactive-analysis incompatibility explicitly. The full Manabi engine and its browser storage remain a separate end-to-end qualification gate.
 
 ## Current qualification
 
-Run `pnpm test:edition`, `pnpm test:expo`, the unit suites, `pnpm --dir apps/web check`, `pnpm check`, and the final export verifiers. `tests/browser/test_reader_editions.py` exercises the actual exported app in Chromium and WebKit, small/large layouts, book import/open/offline reopen, and unrelated-data preservation. It defaults to `apps/web/build`; private composition sets `READER_EDITION_TEST_OUTPUT` to its exact `dist` directory. An explicit output must be absolute, exist, and contain no symlink components; invalid overrides fail rather than testing a different build. The local receipt inventories that same output before and after browser qualification.
+Run `pnpm test:edition`, `pnpm test:expo`, the unit suites, `pnpm --dir apps/web check`, `pnpm check`, and the final export verifiers. `tests/browser/test_reader_editions.py` exercises the actual exported app in Chromium and WebKit, small/large layouts, book import/open/offline reopen, in-reader selected-text dictionary lookup online/offline, and unrelated-data preservation. It defaults to `apps/web/build`; private composition sets `READER_EDITION_TEST_OUTPUT` to its exact `dist` directory. An explicit output must be absolute, exist, and contain no symlink components; invalid overrides fail rather than testing a different build. The local receipt inventories that same output before and after browser qualification.
 
 Legacy public browser fixtures derive their physical storage names, app branding
 and navigation prefix from the built product marker. Browser APIs and upstream

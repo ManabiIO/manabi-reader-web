@@ -115,6 +115,20 @@ export class ChapterOpeningController {
       throw error;
     }
   }
+  /** Reusable renderer roots retire their bindings BEFORE replacing children.
+   * Detached stages may keep the previous publication until a successor commits. */
+  retire() {
+    if (this.disposed) return;
+    ++this.ticket;
+    this.session.invalidate();
+    const previous = this.current;
+    this.current = null;
+    try {
+      previous?.unmount?.();
+    } finally {
+      previous?.stage.rollback();
+    }
+  }
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
