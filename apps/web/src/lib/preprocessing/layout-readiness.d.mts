@@ -2,5 +2,6 @@
 export function waitForChapterLayout(
   root: HTMLElement,
   signal: AbortSignal,
-  timeoutMs?: number
+  timeoutMs?: number,
+  fontGraceMs?: number
 ): Promise<void>;

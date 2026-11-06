@@ -1,7 +1,8 @@
 """Actual Rhea UI plus the complete inherited appearance/reader suite.
 
-No UI replacements, request interception, or fake font availability. Book and
-wallpaper fixtures are generated locally by the existing acceptance harness.
+No UI replacements, browser request interception, or fake font availability.
+One named slow-font case holds a real server response before serving its original
+bytes. Book and wallpaper fixtures use the existing acceptance harness.
 """
 from reader_controls import reveal_reader_controls
 from pathlib import Path
@@ -10,8 +11,9 @@ import zipfile
 import json
 import os
 import tempfile
+import threading
 import time
-from test_static_reader import epub, TITLE
+from test_static_reader import epub, TITLE, StaticHandler
 from test_appearance import png
 import unittest
 from playwright.sync_api import expect
@@ -201,6 +203,45 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_in_book_appearance_persists_and_owns_keys_horizontal_desktop(self):
         self.verify_reading_appearance('horizontal-tb', 1440)
+
+    def test_slow_packaged_font_allows_fallback_reading_and_late_layout(self):
+        self.open_book(writing='horizontal-tb', font='Klee One')
+        self.wait_for_fonts()
+        # Select a real packaged face not requested by the initial reader. The
+        # new document must remain usable while this optional HTTP response is
+        # pending, then incorporate the exact font bytes without remounting prose.
+        self.page.evaluate(reader_fixture(
+            'localStorage.setItem("fontFamilyGroupOne", "Noto Serif JP")'))
+        handler_class = StaticHandler
+        original_get = handler_class.do_GET
+        requested = threading.Event()
+        release = threading.Event()
+
+        def delayed_get(handler):
+            if 'NotoSerifJP-Regular.' in handler.path and handler.path.endswith('.woff2'):
+                requested.set()
+                release.wait(timeout=20)
+            return original_get(handler)
+
+        handler_class.do_GET = delayed_get
+        try:
+            self.page.reload(wait_until='domcontentloaded')
+            self.assertTrue(requested.wait(timeout=5), 'The actual selected font was not requested')
+            content = self.page.locator('.book-content')
+            expect(content).to_have_attribute('aria-busy', 'false', timeout=5000)
+            self.assertFalse(content.evaluate('node => node.inert'))
+            self.assertEqual('Noto Serif JP', self.first_font())
+            self.assertFalse(release.is_set())
+            content.evaluate('node => node.dataset.slowFontOwner = "retained"')
+            self.assertGreaterEqual(content.evaluate('node => node.getBoundingClientRect().width'), 100)
+            release.set()
+            self.wait_for_fonts()
+            expect(content).to_have_attribute('data-slow-font-owner', 'retained')
+            expect(content).to_have_attribute('aria-busy', 'false')
+            self.assertFalse(content.evaluate('node => node.inert'))
+        finally:
+            release.set()
+            handler_class.do_GET = original_get
 
     def verify_reading_appearance(self, writing, width):
         self.open_book(writing=writing, font='Klee One')

@@ -186,3 +186,40 @@ test('chapter layout waits for actual images and cleans up after cancellation an
     dom.window.close();
   }
 });
+test('an unresolved optional font permits fallback layout without bypassing pending images', async () => {
+  const dom = new JSDOM('<div><p>猫</p></div>');
+  const root = dom.window.document.querySelector('div');
+  Object.defineProperty(dom.window.document, 'fonts', {
+    value: { ready: new Promise(() => {}) }
+  });
+  try {
+    await waitForChapterLayout(root, new AbortController().signal, 100, 5);
+    const image = dom.window.document.createElement('img');
+    image.src = 'https://image.invalid/pending';
+    root.append(image);
+    await assert.rejects(
+      waitForChapterLayout(root, new AbortController().signal, 15, 1),
+      /too long/
+    );
+    const abort = new AbortController();
+    const waiting = waitForChapterLayout(root, abort.signal, 100, 50);
+    abort.abort();
+    await assert.rejects(waiting, { name: 'AbortError' });
+  } finally {
+    dom.window.close();
+  }
+});
+test('a rejected font-ready signal preserves reading with fallback typography', async () => {
+  const dom = new JSDOM('<div><p>猫</p></div>');
+  Object.defineProperty(dom.window.document, 'fonts', {
+    value: { ready: Promise.reject(new Error('Optional font unavailable')) }
+  });
+  try {
+    await waitForChapterLayout(
+      dom.window.document.querySelector('div'),
+      new AbortController().signal
+    );
+  } finally {
+    dom.window.close();
+  }
+});
