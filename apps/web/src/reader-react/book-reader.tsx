@@ -6,6 +6,7 @@
 
 import { useReaderController } from './controller';
 import { useReaderLanguageBook } from './reader-language';
+import { ActionButton } from '../shared-ui/ActionButton';
 import {
   Dom,
   SurfaceEvents,
@@ -32,16 +33,33 @@ export function BookReader(props: Partial<BookReaderProps> & ReaderViewProps) {
   );
   useReaderBindings(c, props);
   if (!c) return null;
-  if (language.error)
+  if (language.error || language.loading)
     return (
-      <Dom as="div" role="alert" className="p-6">
-        {language.error}
-      </Dom>
-    );
-  if (language.loading)
-    return (
-      <Dom as="div" role="status" className="p-6">
-        Opening language tools…
+      <Dom as="div" className="mx-auto max-w-xl space-y-4 p-6">
+        {language.error ? (
+          <>
+            <Dom as="p" role="alert">
+              {language.error}
+            </Dom>
+            {language.canReadOriginal ? (
+              <Dom as="p">You can read the original text without language analysis.</Dom>
+            ) : null}
+          </>
+        ) : (
+          <Dom as="p" role="status">
+            {language.original ? 'Opening original text…' : 'Opening language tools…'}
+          </Dom>
+        )}
+        <Dom as="div" className="flex flex-wrap gap-3">
+          {language.error ? (
+            <ActionButton onPress={language.retry}>Retry language tools</ActionButton>
+          ) : null}
+          {language.canReadOriginal ? (
+            <ActionButton variant="outline" onPress={language.readOriginal}>
+              Read original text
+            </ActionButton>
+          ) : null}
+        </Dom>
       </Dom>
     );
   if (language.book?.hasAnalysis && c.useFoliatePaginator)
