@@ -698,7 +698,7 @@ test('both production exports retain the same exact shared Library shelf/editor 
   );
   assert.equal(result.status, 0, result.stderr);
   const cases = JSON.parse(result.stdout);
-  assert.equal(cases.length, 13);
+  assert.equal(cases.length, 14);
   assert.ok(
     cases.some((value) =>
       value.endsWith('test_enlarged_list_keeps_titles_readable_and_actions_separate')

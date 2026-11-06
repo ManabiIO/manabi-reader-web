@@ -428,6 +428,9 @@ async function readerFixture(t, expected = target()) {
   let getHook = async () => {};
   let account = 'alice';
   const context = {
+    // Save-state ownership is qualified separately; this extracted load fixture
+    // owns only content identity admission and its storage side effects.
+    ownProgressStatus() {},
     readerLoadGeneration: 0,
     readerLeaseLifetime: lifetime,
     readerLease: undefined,

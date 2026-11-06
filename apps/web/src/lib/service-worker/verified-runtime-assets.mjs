@@ -1,4 +1,5 @@
 /** @license BSD-3-Clause */
+export const VERIFIED_RUNTIME_RELOAD_HEADER = 'X-Reader-Runtime-Reload';
 const maximum = 128 * 1024 * 1024;
 /** @param {string|URL} scope */
 export function verifiedRuntimeCacheName(scope) {
@@ -89,7 +90,9 @@ export async function loadVerifiedRuntimeAsset(
         chunks.push(next.value);
       }
     } finally {
-      await reader.cancel().catch(() => {});
+      // A CacheStorage/Response clone can tee the stream. Cancellation of one
+      // branch need not settle until its retained sibling is consumed.
+      void reader.cancel().catch(() => {});
       reader.releaseLock();
     }
     check();
@@ -123,7 +126,13 @@ export async function loadVerifiedRuntimeAsset(
     }
   }
   const value = await read(
-    await fetch(url.href, { credentials: 'omit', redirect: 'error', signal })
+    await fetch(url.href, {
+      credentials: 'omit',
+      redirect: 'error',
+      cache: 'reload',
+      headers: { [VERIFIED_RUNTIME_RELOAD_HEADER]: '1' },
+      signal
+    })
   );
   check();
   if (cache) {

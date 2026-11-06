@@ -203,6 +203,7 @@ import {
 } from '$lib/functions/range-util';
 import { ReaderController, readerTick, writeStore, type StoreValue } from './controller';
 import { suppressReaderShortcuts } from './shortcut-suppression';
+import { createLocalProgressOwner } from '../runtime/local-progress-status';
 import { LogReportDialog, MessageDialog, ConfirmDialog, NumberDialog } from '../ui/dialogs';
 export interface SessionProps {
   routeUrl?: string;
@@ -583,12 +584,36 @@ export function createSession(
     shareReplay({ refCount: true, bufferSize: 1 })
   );
   const readerLeaseLifetime = new AbortController();
+  let progressOwner: ReturnType<typeof createLocalProgressOwner> | undefined;
+  let progressScopeKey = '';
   let readerLoadGeneration = 0;
+  function ownProgressStatus(id: number) {
+    const profileId = localProfileUser()?.id ?? null;
+    const accountEpoch = accountGeneration();
+    const generation = readerLoadGeneration;
+    const key = JSON.stringify([id, profileId, accountEpoch, generation]);
+    if (!progressOwner || progressScopeKey !== key) {
+      progressOwner?.dispose();
+      progressScopeKey = key;
+      progressOwner = createLocalProgressOwner({
+        scope: { bookId: id, profileId, generation: accountEpoch },
+        isCurrent: () =>
+          !__readerController.disposed &&
+          generation === readerLoadGeneration &&
+          accountEpoch === accountGeneration() &&
+          profileId === (localProfileUser()?.id ?? null),
+        retry: () => writeBookmark(false),
+        onFailure: () => readerChrome?.pin()
+      });
+    }
+    return progressOwner;
+  }
   let readerLease: Promise<void> | undefined;
   const rawBookData$ = bookId$.pipe(
     switchMap(async (id) => {
       const generation = ++readerLoadGeneration;
       const operation = captureLibraryOperation();
+      ownProgressStatus(id);
       const assertLoadCurrent = () => {
         readerLeaseLifetime.signal.throwIfAborted();
         bookAuthority?.signal.throwIfAborted();
@@ -1025,6 +1050,7 @@ export function createSession(
   /** Experimental Code - May be removed any time without warning */
   __readerController.onDestroy(() => {
     stopReaderOwner();
+    progressOwner?.dispose();
     readerLeaseLifetime.abort();
     __readerController.changed(libraryNavigationEpoch++);
     if (browser) {
@@ -1616,7 +1642,13 @@ export function createSession(
   // trigger of an open menu or steal keyboard focus while somebody uses it.
   const pendingBookmarkWrites = new Set<Promise<void>>();
   async function saveBookmark() {
-    return writeBookmark(false);
+    try {
+      await writeBookmark(false);
+    } catch {
+      // UI/autosave events do not own a promise consumer. The acknowledged-save
+      // observer exposes this failure and Retry; close still awaits writeBookmark
+      // directly so it cannot silently discard a failed final save.
+    }
   }
   async function writeBookmark(duringClose: boolean) {
     if ((blockDataUpdates && !duringClose) || readerNavigation.previewing || suppressResumeSave)
@@ -1640,8 +1672,9 @@ export function createSession(
     // Keep the last good bookmark rather than saving a sentinel or zero progress.
     if (!data) return;
     const snapshot = structuredClone(data);
+    const saveOwner = ownProgressStatus(bookId);
     const writing = (async () => {
-      await database.putBookmark(snapshot);
+      await saveOwner.track(() => database.putBookmark(snapshot));
       if (__readerController.disposed) return;
       __readerController.changed((bookmarkData = Promise.resolve(snapshot)));
       scheduleReplication(StorageDataType.PROGRESS);

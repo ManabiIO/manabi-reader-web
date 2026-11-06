@@ -80,8 +80,8 @@ function mount(online, props = {}) {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
-  const render = (value) =>
-    act(() => root.render(React.createElement(ConnectionNotice, { online: value, ...props })));
+  const render = (value, nextProps = props) =>
+    act(() => root.render(React.createElement(ConnectionNotice, { online: value, ...nextProps })));
   render(online);
   return {
     container,
@@ -119,7 +119,10 @@ test('offline explanation distinguishes local progress, linked sync, and backup;
     });
     const dialog = document.querySelector('dialog[open]');
     assert.ok(dialog);
-    assert.match(dialog.textContent, /Reading progress is saved on this device/);
+    assert.match(
+      dialog.textContent,
+      /Reading progress is stored on this device when a save completes/
+    );
     assert.match(dialog.textContent, /doesn’t mean everything has synced/);
     assert.match(dialog.textContent, /backup/);
     assert.equal(dialog.getAttribute('aria-modal'), 'true');
@@ -175,6 +178,36 @@ test('inline status combines offline and sync attention behind one control', () 
     assert.match(document.querySelector('dialog[open]').textContent, /Your device is connected/);
     act(() => document.querySelector('[aria-label="Close connection details"]').click());
     assert.equal(f.container.textContent, 'Review sync');
+  } finally {
+    f.cleanup();
+  }
+});
+
+test('only an acknowledged save has success copy; pending and failed saves remain truthful', () => {
+  let retries = 0;
+  const f = mount(true, { progressState: 'failed', retryProgress: () => retries++ });
+  try {
+    const trigger = f.container.querySelector('[aria-haspopup="dialog"]');
+    assert.match(trigger.textContent, /Save needs attention/);
+    assert.equal(f.container.querySelector('[role=alert]'), null);
+    act(() => trigger.click());
+    let dialog = document.querySelector('dialog[open]');
+    assert.match(dialog.textContent, /hasn’t been saved/);
+    assert.match(dialog.textContent, /Keep this tab open/);
+    const retry = [...dialog.querySelectorAll('[role=button],button')].find((button) =>
+      /Retry saving progress/.test(button.textContent)
+    );
+    assert.ok(retry);
+    act(() => retry.click());
+    assert.equal(retries, 1);
+    f.render(true, { progressState: 'saving' });
+    dialog = document.querySelector('dialog[open]');
+    assert.match(dialog.textContent, /Saving your reading position/);
+    assert.doesNotMatch(dialog.textContent, /Reading progress is saved/);
+    f.render(true, { progressState: 'saved' });
+    assert.match(dialog.textContent, /Your last saved reading position is stored on this device/);
+    f.render(true, { progressState: 'unknown' });
+    assert.doesNotMatch(dialog.textContent, /Reading progress is saved/);
   } finally {
     f.cleanup();
   }

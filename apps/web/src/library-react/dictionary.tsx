@@ -171,9 +171,9 @@ export function DictionaryView({
                             {!c.state.value.preview.items.length ? (
                               <>
                                 <p className={['note'].filter(Boolean).join(' ')}>
-                                  {
-                                    ' No dictionary matches. Keep typing, try kana or another spelling, or use a trailing * for an explicit prefix search. '
-                                  }
+                                  {c.capabilities.prefixSearch
+                                    ? ' No dictionary matches. Keep typing, try kana or another spelling, or use a trailing * for an explicit prefix search. '
+                                    : ' No dictionary matches. Try kana or another spelling. '}
                                 </p>
                               </>
                             ) : null}
@@ -198,9 +198,9 @@ export function DictionaryView({
             >
               <summary>{'Local dictionaries'}</summary>
               <p className={['note'].filter(Boolean).join(' ')}>
-                {
-                  ' These dictionaries stay in this browser and are separate from your extension’s dictionaries. Import a compatible dictionary ZIP or install Jitendex. Nothing installs automatically. '
-                }
+                {c.capabilities.defaultInstall
+                  ? ' These dictionaries stay in this browser and are separate from your extension’s dictionaries. Import a compatible dictionary ZIP or install Jitendex. Nothing installs automatically. '
+                  : ' These dictionaries stay in this browser and are separate from your extension’s dictionaries. Import a compatible dictionary ZIP. Nothing installs automatically. '}
               </p>
               {c.statusLoading ? (
                 <>
@@ -328,13 +328,15 @@ export function DictionaryView({
                 </>
               )}
               <div className={['setup-actions'].filter(Boolean).join(' ')}>
-                <button
-                  type={'button'}
-                  disabled={c.installing || c.statusLoading || !!c.managing}
-                  onClick={() => void c.install()}
-                >
-                  {'Install Jitendex'}
-                </button>
+                {c.capabilities.defaultInstall && (
+                  <button
+                    type={'button'}
+                    disabled={c.installing || c.statusLoading || !!c.managing}
+                    onClick={() => void c.install()}
+                  >
+                    {'Install Jitendex'}
+                  </button>
+                )}
                 <label className={['upload'].filter(Boolean).join(' ')}>
                   {'Import dictionary ZIP'}
                   <input
@@ -352,11 +354,13 @@ export function DictionaryView({
                   </>
                 ) : null}
               </div>
-              <p className={['note'].filter(Boolean).join(' ')}>
-                {
-                  ' Jitendex by Stephen Kraus · CC BY-SA 4.0. Includes JMdict, Tatoeba and JmdictFurigana data. The full dictionary retains its source labels. '
-                }
-              </p>
+              {c.capabilities.defaultInstall && (
+                <p className={['note'].filter(Boolean).join(' ')}>
+                  {
+                    ' Jitendex by Stephen Kraus · CC BY-SA 4.0. Includes JMdict, Tatoeba and JmdictFurigana data. The full dictionary retains its source labels. '
+                  }
+                </p>
+              )}
               <details
                 onToggle={c.recommendationToggle}
                 className={['recommendations'].filter(Boolean).join(' ')}

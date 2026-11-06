@@ -67,7 +67,9 @@ async function matrix(engine, width, mode, enlarged = false) {
     await notice.click();
     const dialog = page.getByRole('dialog', { name: 'Reading on this device' });
     await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText('Reading progress is saved on this device');
+    await expect(dialog).toContainText(
+      'Reading progress is stored on this device when a save completes'
+    );
     await expect(dialog).toContainText('doesn’t mean everything has synced');
     for (let i = 0; i < 6; i++) {
       await page.keyboard.press('Tab');

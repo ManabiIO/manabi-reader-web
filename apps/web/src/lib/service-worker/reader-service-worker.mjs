@@ -11,7 +11,10 @@ import {
   isUsableShellResponse,
   OFFLINE_STATUS_REQUEST
 } from './offline-status.mjs';
-import { verifiedRuntimeCacheName } from './verified-runtime-assets.mjs';
+import {
+  verifiedRuntimeCacheName,
+  VERIFIED_RUNTIME_RELOAD_HEADER
+} from './verified-runtime-assets.mjs';
 
 /**
  * Register Reader's static application-shell worker. Cache ownership includes
@@ -256,23 +259,28 @@ export function registerReaderServiceWorker(worker, config) {
 
   async function readOptionalRuntime(request, key) {
     let cache;
-    try {
-      cache = await storage.open(runtimeName);
-      const saved = await cache.match(key);
-      if (isUsableRuntimeResponse(saved, key)) return saved;
-    } catch {
-      /* Online use can continue when optional storage is unavailable. */
-    }
-    // A user may have loaded verified tools before this worker controlled the
-    // first document. Read only that registration's explicitly persisted assets.
+    // Browsers (and disabled HTTP caches) can mark ordinary loads as reload.
+    // Only the descriptor-verifying host may request this explicit repair path.
+    const reload = request.headers.get(VERIFIED_RUNTIME_RELOAD_HEADER) === '1';
+    // Prefer the host-verified copy: an older optional fetch may contain a
+    // different, MIME-valid response. SRI module execution must see the same
+    // verified bytes that the host just admitted, including during offline Retry.
+    // Read only this registration's explicitly persisted assets.
     try {
       const name = verifiedRuntimeCacheName(scope);
-      if ((await storage.keys()).includes(name)) {
+      if (!reload && (await storage.keys()).includes(name)) {
         const saved = await (await storage.open(name)).match(key);
         if (isUsableRuntimeResponse(saved, key)) return saved;
       }
     } catch {
       /* An optional cache failure still permits a network retry. */
+    }
+    try {
+      cache = await storage.open(runtimeName);
+      const saved = !reload && (await cache.match(key));
+      if (isUsableRuntimeResponse(saved, key)) return saved;
+    } catch {
+      /* Online use can continue when optional storage is unavailable. */
     }
     let response;
     try {

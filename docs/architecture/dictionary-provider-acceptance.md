@@ -14,6 +14,18 @@ The TypeScript source of truth for shapes is `apps/web/src/lib/search/dictionary
 
 The provider may use any independently implemented storage engine or internal data model.
 
+## Optional search and installation capabilities
+
+`runtime.capabilities` may declare boolean `prefixSearch` and `defaultInstall`
+fields. Omitted fields preserve the existing contract-v1 behavior (`true`). New
+providers must explicitly set unsupported features to `false`.
+
+`prefixSearch: false` removes the trailing-`*` search hint; it does not change or
+rewrite submitted queries. `defaultInstall: false` removes the default archive
+action and its accompanying copy, while keeping user-selected ZIP imports
+available. Reader also checks the capability before requesting a default archive.
+These declarations describe available behavior, independently of installed data.
+
 ## Optional chapter capabilities
 
 `runtime.preprocessor` may supply the provider-neutral preprocessing contract.
