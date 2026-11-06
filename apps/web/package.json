@@ -21,7 +21,6 @@
     "@tailwindcss/vite": "4.3.3",
     "@types/balanced-match": "3.0.2",
     "@types/path-browserify": "1.0.3",
-    "@types/ua-parser-js": "0.7.39",
     "@types/webappsec-credential-management": "0.6.9",
     "@types/wicg-file-system-access": "2023.10.7",
     "bits-ui": "2.19.2",
@@ -53,7 +52,6 @@
     "path-browserify": "1.0.1",
     "rxjs": "7.8.2",
     "svelte-gestures": "5.0.7",
-    "svelte-meta-tags": "3.1.4",
-    "ua-parser-js": "2.0.10"
+    "svelte-meta-tags": "3.1.4"
   }
 }
