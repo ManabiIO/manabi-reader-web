@@ -12,13 +12,28 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { chromium, webkit, expect as baseExpect } from '@playwright/test';
 const url = process.env.SNIPPETS_URL ?? 'http://127.0.0.1:4178/reader-web';
+const productResponse = await globalThis.fetch(url.replace(/\/$/, '') + '/reader-product.json');
+assert(productResponse.ok, 'Snippet acceptance needs the actual exported Reader identity.');
+const product = await productResponse.json();
+assert.equal(product.schema, 1);
+assert(['manabitan', 'manabi'].includes(product.edition));
+assert.match(product.storageNamespace, /^[a-z][a-z0-9-]*$/);
+assert.equal(product.basePath, new URL(url).pathname.replace(/\/$/, ''));
+const integrationDatabase = product.storageNamespace + ':manabi-reader-integrations';
 const engine = process.env.SNIPPETS_BROWSER ?? 'chromium';
 const browser = await (engine === 'webkit' ? webkit : chromium).launch({
   headless: true,
   ...(engine === 'chromium' && existsSync('/usr/bin/chromium')
-    ? { executablePath: '/usr/bin/chromium', args: ['--no-sandbox'] }
-    : {})
+    ? { executablePath: '/usr/bin/chromium' }
+    : {}),
+  args: [
+    ...(engine === 'chromium' && existsSync('/usr/bin/chromium') ? ['--no-sandbox'] : []),
+    ...(engine === 'chromium' && process.platform === 'darwin'
+      ? ['--disable-features=MacAppCodeSignClone']
+      : [])
+  ]
 });
+const contexts = new Set();
 const expect = baseExpect.configure({ timeout: 15000 });
 const providers = [
   {
@@ -59,6 +74,7 @@ async function context(user = null, available = true) {
     serviceWorkers: 'block',
     acceptDownloads: true
   });
+  contexts.add(ctx);
   const session = { user, available };
   await ctx.route('**/api/reader-web/**', async (route) => {
     const request = route.request(),
@@ -201,9 +217,9 @@ async function context(user = null, available = true) {
 }
 async function records(page, store = 'snippets') {
   return page.evaluate(
-    (store) =>
+    ({ store, databaseName }) =>
       new Promise((resolve, reject) => {
-        const open = indexedDB.open('manabi-reader-integrations');
+        const open = indexedDB.open(databaseName);
         open.onerror = () => reject(open.error);
         open.onsuccess = () => {
           const db = open.result;
@@ -219,7 +235,7 @@ async function records(page, store = 'snippets') {
           tx.oncomplete = () => db.close();
         };
       }),
-    store
+    { store, databaseName: integrationDatabase }
   );
 }
 async function openLibrary(page) {
@@ -1100,5 +1116,9 @@ try {
   console.error('Page errors:', errors);
   process.exitCode = 1;
 } finally {
-  await browser.close();
+  try {
+    for (const ctx of contexts) await ctx.close();
+  } finally {
+    await browser.close();
+  }
 }

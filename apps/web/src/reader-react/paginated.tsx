@@ -28,7 +28,8 @@ export function BookReaderPaginated(props: Partial<PaginatedProps> & ReaderViewP
       createPaginated(props as PaginatedProps, (name, detail) =>
         latest.current.events?.[name]?.({ detail })
       ),
-    props
+    props,
+    props.languageBook
   );
   useReaderBindings(c, props);
   if (!c) return null;
@@ -40,6 +41,7 @@ export function BookReaderPaginated(props: Partial<PaginatedProps> & ReaderViewP
           c.scrollEl = value;
         }}
         data-manabi-resource-count={c.sections.length}
+        inert={!c.allowDisplay}
         aria-busy={!c.allowDisplay || c.loadingState}
         className={[
           c.avoidPageBreak && 'book-content--avoid-page-break',
@@ -61,6 +63,8 @@ export function BookReaderPaginated(props: Partial<PaginatedProps> & ReaderViewP
           .filter(Boolean)
           .join(' ')}
         style={{
+          opacity: c.allowDisplay ? 1 : 0,
+          pointerEvents: c.allowDisplay ? undefined : 'none',
           color: c.fontColor,
           fontSize: String(c.fontSize ?? '') + 'px',
           lineHeight: c.lineHeight,
@@ -119,7 +123,13 @@ export function BookReaderPaginated(props: Partial<PaginatedProps> & ReaderViewP
               .join(' ')}
             style={{ color: c.fontColor, backgroundColor: c.backgroundColor }}
           >
-            <AppIcon icon={faSpinner} spin={true}></AppIcon>
+            {c.openingError ? (
+              <Dom as="div" role="alert" className="max-w-lg p-6 text-base">
+                {c.openingError}
+              </Dom>
+            ) : (
+              <AppIcon icon={faSpinner} spin={true}></AppIcon>
+            )}
           </Dom>
         </>
       ) : null}

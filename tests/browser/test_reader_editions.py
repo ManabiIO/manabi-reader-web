@@ -24,7 +24,10 @@ class EditionHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         if self.network_disabled:
-            self.connection.shutdown(socket.SHUT_RDWR)
+            try:
+                self.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass  # The browser may already have canceled its offline request.
             self.connection.close()
             return
         super().do_GET()
@@ -48,6 +51,48 @@ class EditionHandler(SimpleHTTPRequestHandler):
 
 
 class ReaderEditionBrowser(unittest.TestCase):
+    def lookup_selected_word(self, page, engine, evidence, offline):
+        expect(page.locator('.book-content').first).to_have_attribute('aria-busy', 'false')
+        page.wait_for_function("document.querySelector('[data-reader-dictionary-attached]') !== null")
+        page.evaluate("""() => {
+          const root = document.querySelector('[data-reader-dictionary-attached]');
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          let node;
+          while ((node = walker.nextNode())) {
+            const start = node.textContent.indexOf('猫');
+            if (start < 0) continue;
+            const range = document.createRange();
+            range.setStart(node, start); range.setEnd(node, start + 1);
+            const selection = document.getSelection();
+            selection.removeAllRanges(); selection.addRange(range);
+            document.dispatchEvent(new Event('selectionchange'));
+            return;
+          }
+          throw new Error('Missing real book word');
+        }""")
+        page.get_by_role('button', name='Look up selected text', exact=True).click()
+        popup = page.get_by_test_id('reader-dictionary-lookup')
+        expect(popup).to_be_visible()
+        self.assertEqual('horizontal-tb', popup.evaluate('node => getComputedStyle(node).writingMode'))
+        expect(popup.locator('.full-dictionary .headword')).to_contain_text('猫', timeout=30000)
+        expect(popup.locator('script, iframe')).to_have_count(0)
+        geometry = popup.evaluate("""node => {
+          const rect = node.getBoundingClientRect(), style = getComputedStyle(node);
+          return {left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom,
+            width:rect.width,style:{position:style.position,left:style.left,right:style.right,
+              width:style.width,transform:style.transform,margin:style.margin},
+            scrollX,innerWidth,html:getComputedStyle(document.documentElement).cssText,
+            body:{width:document.body.getBoundingClientRect().width,writingMode:getComputedStyle(document.body).writingMode}};
+        }""")
+        self.assertGreaterEqual(geometry['left'], 7, str(geometry))
+        self.assertGreaterEqual(geometry['top'], 7, str(geometry))
+        self.assertLessEqual(geometry['bottom'], page.viewport_size['height'] - 7, str(geometry))
+        self.assertLessEqual(geometry['right'], page.viewport_size['width'] - 7, str(geometry))
+        page.screenshot(path=str(evidence / f'{engine}-chapter-lookup-{page.viewport_size["width"]}-{"offline" if offline else "online"}.png'))
+        page.get_by_role('button', name='Close dictionary', exact=True).click()
+        expect(popup).to_have_count(0)
+        expect(page.get_by_role('button', name='Look up selected text', exact=True)).to_be_focused()
+
     def test_real_edition_keeps_books_offline_and_other_app_data_untouched(self):
         self.assertIsNotNone(IDENTITY, 'Build and postbuild the selected edition first.')
         server = ThreadingHTTPServer(('127.0.0.1', 0), EditionHandler)
@@ -93,7 +138,7 @@ class ReaderEditionBrowser(unittest.TestCase):
                             expect(page.get_by_role('heading', name=IDENTITY['name'], exact=True)).to_be_visible()
                             page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
                                 'name': 'Edition acceptance.epub', 'mimeType': 'application/epub+zip',
-                                'buffer': book('Edition acceptance')})
+                                'buffer': book('Edition acceptance', body='<p>猫と学校で日本語を読みます。</p>')})
                             read = page.get_by_role('button', name='Read Edition acceptance', exact=True)
                             expect(read).to_be_visible()
                             for width, height, scale in ((1200, 900, '100%'), (390, 780, '100%'), (320, 568, '200%')):
@@ -130,6 +175,14 @@ class ReaderEditionBrowser(unittest.TestCase):
                                 expect(page.locator('.full-dictionary .headword')).to_contain_text('猫')
                                 expect(page.locator('.full-dictionary script, .full-dictionary iframe')).to_have_count(0)
                                 page.goto(base + '/manage')
+                                read.click()
+                                for lookup_width, lookup_height, lookup_scale in ((1200, 900, '100%'), (390, 780, '100%'), (320, 568, '200%')):
+                                    page.set_viewport_size({'width': lookup_width, 'height': lookup_height})
+                                    page.evaluate('value => document.documentElement.style.fontSize = value', lookup_scale)
+                                    self.lookup_selected_word(page, engine, evidence, offline=False)
+                                page.set_viewport_size({'width': 1200, 'height': 900})
+                                page.evaluate('document.documentElement.style.fontSize = "100%"')
+                                page.goto(base + '/manage')
                             page.evaluate('''() => Promise.race([
                               navigator.serviceWorker.ready,
                               new Promise((_, reject) => setTimeout(() => reject(new Error('Offline shell did not activate')), 30000))
@@ -151,6 +204,7 @@ class ReaderEditionBrowser(unittest.TestCase):
                             read.click()
                             expect(page.locator('.book-content').first).to_have_attribute('aria-busy', 'false')
                             if IDENTITY['provider'] == 'manabitan':
+                                self.lookup_selected_word(page, engine, evidence, offline=True)
                                 page.goto(base + '/manage')
                                 page.get_by_role('searchbox', name='Search library', exact=True).fill('neko')
                                 page.get_by_role('group', name='Show', exact=True).get_by_role('button', name='Dictionary', exact=True).click()

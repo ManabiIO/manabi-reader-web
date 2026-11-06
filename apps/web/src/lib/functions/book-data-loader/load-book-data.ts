@@ -18,8 +18,9 @@ export default function loadBookData(
   blurMode: BlurMode
 ) {
   return formatBookDataHtml(bookData, document, isPaginated, blurMode, parentSelector).pipe(
-    map(({ htmlContent, epubResources, epubStyleSheet }) => ({
+    map(({ htmlContent, epubResources, epubStyleSheet, imageBindings }) => ({
       htmlContent,
+      imageBindings,
       epubResources,
       styleSheet: epubStyleSheet ?? formatStyleSheet(bookData, parentSelector, document)
     }))

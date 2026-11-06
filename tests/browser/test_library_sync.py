@@ -4,6 +4,7 @@ from offline_shell import enter_offline_shell
 import copy
 import time
 import unittest
+from urllib.parse import urlsplit
 
 from playwright.sync_api import expect
 from test_books_library import LibraryBase, book
@@ -34,7 +35,7 @@ class LibraryOrganizationSync(LibraryBase):
           const original = window.fetch.bind(window);
           window.__sessionKeepalive = [];
           window.fetch = (input, options) => {
-            if (String(input).endsWith('/api/reader-web/session/'))
+            if (new URL(typeof input === 'string' ? input : input.url, location.href).pathname === '/api/reader-web/session/')
               window.__sessionKeepalive.push(options?.keepalive);
             return original(input, options);
           };
@@ -43,8 +44,8 @@ class LibraryOrganizationSync(LibraryBase):
             'user': {'id': 'bob', 'username': 'reader-bob'},
             'csrf_token': 'c' * 64, 'providers': []
         }
-        with self.page.expect_response(lambda response: response.url.endswith(
-                '/api/reader-web/session/') and response.status == 200):
+        with self.page.expect_response(lambda response: urlsplit(response.url).path ==
+                '/api/reader-web/session/' and response.status == 200):
             self.page.evaluate("window.dispatchEvent(new Event('online'))")
         expect(self.page.get_by_text('reader-bob', exact=True)).to_be_visible()
         probes = self.page.evaluate('window.__sessionKeepalive')

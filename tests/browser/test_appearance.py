@@ -5,6 +5,7 @@ import struct
 import threading
 import unittest
 import zlib
+from urllib.parse import quote, urlsplit
 from playwright.sync_api import expect
 import test_static_reader as baseline
 from reader_fixture import reader_fixture
@@ -31,7 +32,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         # body, before a subsequent deliberate navigation. Do not intercept or
         # replace it, and do not wait for unrelated global network idleness.
         with self.page.expect_request_finished(
-            predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
+            predicate=lambda r: urlsplit(r.url).path == '/api/reader-web/session/'
         ) as probe:
             if reload:
                 self.page.reload()
@@ -66,7 +67,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         self.context.on(
             'request',
             lambda request: probes.append(request.url)
-            if request.url == self.origin + '/api/reader-web/session/' else None
+            if urlsplit(request.url).path == '/api/reader-web/session/' else None
         )
         self.settings()
         self.assertEqual(1, len(probes))
@@ -84,12 +85,12 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         # First exercise consecutive real documents. Each document may probe the
         # optional account endpoint, and neither probe may leak a browser error.
         with page.expect_request_finished(
-            predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
+            predicate=lambda r: urlsplit(r.url).path == '/api/reader-web/session/'
         ):
             page.goto(self.origin + reader_fixture('/reader-web/manage'))
         self.wait_for_optional_catalog(page)
         with page.expect_request_finished(
-            predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
+            predicate=lambda r: urlsplit(r.url).path == '/api/reader-web/session/'
         ):
             page.goto(self.origin + reader_fixture('/reader-web/settings'))
 
@@ -178,7 +179,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         sign_in = self.page.get_by_role('link', name='Sign in to Manabi', exact=True)
         expect(sign_in).to_be_visible()
         self.assertEqual(
-            '/accounts/login/?next=%2Freader-web%2Fconnections',
+            '/accounts/login/?next=' + quote(reader_fixture('/reader-web/connections'), safe=''),
             sign_in.get_attribute('href')
         )
         logout = next(

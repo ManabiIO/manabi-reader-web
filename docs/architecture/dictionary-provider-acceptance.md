@@ -9,10 +9,38 @@ The TypeScript source of truth for shapes is `apps/web/src/lib/search/dictionary
 - Provider code is loaded lazily. Opening the Reader or library must not require initializing dictionary storage.
 - `openDictionaryProvider()` resolves to one `DictionaryRuntime`.
 - Reader may share that runtime between simultaneous dictionary consumers in a tab.
-- When the final Reader lease is released, `client.close()` must settle and release provider-owned resources.
+- When the final Reader lease is released, Reader disposes optional preprocessing and then closes the dictionary client. Both operations must settle and release their owned resources; client cleanup still runs if preprocessing cleanup fails.
 - A failed open must not leave a permanently live provider owner. A later Reader retry must be able to attempt a new open.
 
 The provider may use any independently implemented storage engine or internal data model.
+
+## Optional chapter capabilities
+
+`runtime.preprocessor` may supply the provider-neutral preprocessing contract.
+It is independent of `runtime.attachChapter`; an on-demand provider does not need
+to fabricate analysis or a sidecar. Both share the selected runtime's tab lease.
+A book disposes its sessions and attachments, while the runtime lease owns engine
+disposal.
+
+`attachChapter(root, { bookKey, chapterID, signal, analysis })` attaches only to
+the supplied chapter and returns a disposer. The host aborts the signal and
+retires bindings before reusing chapter DOM. A late asynchronous attachment must
+be disposed without publication. Callbacks which can open mining or other UI
+must check this lifetime as well as account ownership.
+
+Reader's ordinary pagination and continuous modes prepare analysis before
+geometry/resume restoration and visible publication. The source supplied for
+analysis is independent of inserted annotation markup and renewable resource
+URLs. Processed output passes the normal book sanitizer and must preserve source
+text coordinates. Resource or engine changes must invalidate pending results.
+Failed analysis remains an explicit opening error rather than a silent private
+provider fallback.
+
+Reader also offers explicit text-selection lookup through the existing local
+dictionary search/rendering contract. This Reader-owned interaction does not
+implement a provider's scanner or lexical algorithms. Attaching it must not
+initialize dictionary storage, install dictionaries, intercept page turns or
+alter book prose. Closing/navigating a chapter dismisses its selection popup.
 
 ## Status
 

@@ -45,27 +45,31 @@ function clock() {
   };
 }
 function lockManager() {
-  const queue = [];
-  let held;
-  const grant = () => {
-    if (held) return;
+  const queues = new Map();
+  const held = new Map();
+  const grant = (name) => {
+    if (held.has(name)) return;
+    const queue = queues.get(name) ?? [];
     const item = queue.shift();
     if (!item) return;
-    held = item;
+    held.set(name, item);
     item.options.signal.removeEventListener('abort', item.abort);
     Promise.resolve()
       .then(() => item.work({ name: item.name }))
       .then(item.resolve, item.reject)
       .finally(() => {
-        held = undefined;
-        grant();
+        held.delete(name);
+        grant(name);
       });
   };
   return {
-    pending: () => queue.length,
-    active: () => !!held,
+    pending: () => [...queues.values()].reduce((total, queue) => total + queue.length, 0),
+    active: () => held.size > 0,
+    heldNames: () => [...held.keys()].sort(),
     request(name, options, work) {
       return new Promise((resolve, reject) => {
+        const queue = queues.get(name) ?? [];
+        queues.set(name, queue);
         const item = { name, options, work, resolve, reject };
         item.abort = () => {
           const index = queue.indexOf(item);
@@ -78,7 +82,7 @@ function lockManager() {
         }
         options.signal.addEventListener('abort', item.abort, { once: true });
         queue.push(item);
-        grant();
+        grant(name);
       });
     }
   };
@@ -90,7 +94,8 @@ function fixture({
   observe,
   receive,
   initialStatus = 'available',
-  online = true
+  online = true,
+  edition = 'manabitan'
 } = {}) {
   const account = storeBoundary().writable({
     status: initialStatus,
@@ -138,6 +143,7 @@ function fixture({
       './reader-bridge-recovery': { readerBridgeRecoveryChanges: recovery }
     },
     globals: {
+      process: { env: { EXPO_PUBLIC_READER_EDITION: edition } },
       navigator: { locks },
       document,
       performance: { now: timer.now },
@@ -280,6 +286,52 @@ test('two visible tabs use one leader and a hidden follower leaves the lock queu
   assert.equal(timer.timers.size, 0);
   assert.equal(locks.active(), false);
   assert.equal(locks.pending(), 0);
+});
+
+test('simultaneous Reader editions each retain one independent automatic Drive leader', async () => {
+  const locks = lockManager(),
+    timer = clock();
+  const openLeader = fixture({ locks, timer }),
+    openFollower = fixture({ locks, timer });
+  const privateLeader = fixture({ locks, timer, edition: 'manabi' });
+  const privateFollower = fixture({ locks, timer, edition: 'manabi' });
+  const all = [openLeader, openFollower, privateLeader, privateFollower];
+  try {
+    all.forEach((runtime) => runtime.start());
+    await drain();
+    assert.deepEqual(locks.heldNames(), [
+      'manabi-reader-v1:manabi-reader-bridge-automatic-v1',
+      'manabitan-reader-v1:manabi-reader-bridge-automatic-v1'
+    ]);
+    assert.equal(locks.pending(), 2);
+    await timer.advance(60_000);
+    assert.deepEqual(
+      all.map((runtime) => runtime.observations.length),
+      [1, 0, 1, 0]
+    );
+    openLeader.stop();
+    await drain();
+    assert.equal(locks.pending(), 1);
+    await timer.advance(59_999);
+    assert.equal(openFollower.observations.length, 0, 'New leader keeps its own initial delay');
+    assert.equal(
+      privateFollower.observations.length,
+      0,
+      'Other edition retains its existing leader'
+    );
+    await timer.advance(1);
+    assert.equal(openFollower.observations.length, 1);
+    privateLeader.stop();
+    await drain();
+    await timer.advance(60_000);
+    assert.equal(privateFollower.observations.length, 1);
+  } finally {
+    all.forEach((runtime) => runtime.stop());
+    await drain();
+  }
+  assert.equal(locks.active(), false);
+  assert.equal(locks.pending(), 0);
+  assert.equal(timer.timers.size, 0);
 });
 
 test('no Web Locks means no automatic work', async () => {
@@ -432,62 +484,65 @@ test('returning from a cancelled pass does not redisplay a stale checking spinne
 // cross-page Web Locks; deterministic tests above cover the additional failures.
 for (const engine of ['chromium', 'webkit']) {
   test(
-    `native ${engine} locks transfer one automatic leader across pages`,
+    `native ${engine} locks isolate simultaneous editions and transfer one leader per edition`,
     {
       skip: process.env.READER_BRIDGE_NATIVE_LOCKS !== '1'
     },
     async () => {
       const root = fileURLToPath(new URL('../../', import.meta.url));
-      const compiled = await build({
-        stdin: {
-          contents: `import { startReaderBridgeAutomaticChecks, readerBridgeAutomaticStatus } from './apps/web/src/lib/manabi/reader-bridge-automatic.ts';
+      const compiled = await Promise.all(
+        ['manabitan', 'manabi'].map((edition) =>
+          build({
+            stdin: {
+              contents: `import { startReaderBridgeAutomaticChecks, readerBridgeAutomaticStatus } from './apps/web/src/lib/manabi/reader-bridge-automatic.ts';
         window.startRuntime=()=>{window.stopRuntime=startReaderBridgeAutomaticChecks();};
         readerBridgeAutomaticStatus.subscribe(value=>window.latestStatus=value);
         window.runtimeReady=true;`,
-          resolveDir: root
-        },
-        bundle: true,
-        write: false,
-        format: 'iife',
-        platform: 'browser',
-        plugins: [
-          {
-            name: 'runtime-browser-boundaries',
-            setup(builder) {
-              builder.onResolve(
-                {
-                  filter:
-                    /^(?:\.\/client|\.\.\/data\/store|\.\/reader-bridge-(?:local|saved|automatic-receive|recovery))$/
-                },
-                ({ path }) => ({ path, namespace: 'boundary' })
-              );
-              builder.onLoad({ filter: /.*/, namespace: 'boundary' }, ({ path }) => ({
-                contents:
-                  path === './client'
-                    ? 'export const account=window.harness.account; export const accountGeneration=()=>window.harness.generation;'
-                    : path === '../data/store'
-                      ? 'export const isOnline$=window.harness.online;'
-                      : path === './reader-bridge-local'
-                        ? 'export const listDriveReaderConnections=async()=>window.harness.rows;'
-                        : path === './reader-bridge-saved'
-                          ? 'export const observeSavedDriveReaderConnection=async (...args)=>window.harness.observe(...args);'
-                          : path === './reader-bridge-automatic-receive'
-                            ? 'export const receiveSavedDriveReaderChanges=async()=>{throw new Error("Not opted in");};'
-                            : 'export const readerBridgeRecoveryChanges=window.harness.recovery;'
-              }));
-            }
-          }
-        ]
-      });
+              resolveDir: root
+            },
+            bundle: true,
+            write: false,
+            format: 'iife',
+            platform: 'browser',
+            define: { 'process.env.EXPO_PUBLIC_READER_EDITION': JSON.stringify(edition) },
+            plugins: [
+              {
+                name: 'runtime-browser-boundaries',
+                setup(builder) {
+                  builder.onResolve(
+                    {
+                      filter:
+                        /^(?:\.\/client|\.\.\/data\/store|\.\/reader-bridge-(?:local|saved|automatic-receive|recovery))$/
+                    },
+                    ({ path }) => ({ path, namespace: 'boundary' })
+                  );
+                  builder.onLoad({ filter: /.*/, namespace: 'boundary' }, ({ path }) => ({
+                    contents:
+                      path === './client'
+                        ? 'export const account=window.harness.account; export const accountGeneration=()=>window.harness.generation;'
+                        : path === '../data/store'
+                          ? 'export const isOnline$=window.harness.online;'
+                          : path === './reader-bridge-local'
+                            ? 'export const listDriveReaderConnections=async()=>window.harness.rows;'
+                            : path === './reader-bridge-saved'
+                              ? 'export const observeSavedDriveReaderConnection=async (...args)=>window.harness.observe(...args);'
+                              : path === './reader-bridge-automatic-receive'
+                                ? 'export const receiveSavedDriveReaderChanges=async()=>{throw new Error("Not opted in");};'
+                                : 'export const readerBridgeRecoveryChanges=window.harness.recovery;'
+                  }));
+                }
+              }
+            ]
+          })
+        )
+      );
       const server = createServer((request, response) => {
-        response.setHeader(
-          'Content-Type',
-          request.url === '/runtime.js' ? 'text/javascript' : 'text/html'
-        );
+        const script = request.url === '/runtime.js' || request.url === '/manabi/runtime.js';
+        response.setHeader('Content-Type', script ? 'text/javascript' : 'text/html');
         response.end(
-          request.url === '/runtime.js'
-            ? compiled.outputFiles[0].text
-            : '<!doctype html><title>Native reader bridge locks</title><script src="/runtime.js"></script>'
+          script
+            ? compiled[request.url.startsWith('/manabi/') ? 1 : 0].outputFiles[0].text
+            : `<!doctype html><title>Native reader bridge locks</title><script src="${request.url.startsWith('/manabi') ? '/manabi' : ''}/runtime.js"></script>`
         );
       });
       await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -578,9 +633,20 @@ for (const engine of ['chromium', 'webkit']) {
         await first.waitForFunction(
           async () => (await navigator.locks.query()).pending.length === 1
         );
+        // Same origin, same account, two differently built runtime editions.
+        // The private edition must lead while the open edition has a follower queued.
+        const privateEdition = await context.newPage();
+        await privateEdition.goto(url + '/manabi');
+        await privateEdition.waitForFunction(() => window.runtimeReady);
+        await privateEdition.evaluate(() => window.startRuntime());
+        await privateEdition.waitForFunction(
+          async () => (await navigator.locks.query()).held.length === 2
+        );
         await first.evaluate(() => window.advance(60_000));
         await second.evaluate(() => window.advance(60_000));
+        await privateEdition.evaluate(() => window.advance(60_000));
         await first.waitForFunction(() => window.harness.observations === 1);
+        await privateEdition.waitForFunction(() => window.harness.observations === 1);
         assert.equal(await second.evaluate(() => window.harness.observations), 0);
         await first.evaluate(() => window.hide());
         await second.waitForFunction(
@@ -588,8 +654,10 @@ for (const engine of ['chromium', 'webkit']) {
         );
         await second.evaluate(() => window.advance(60_000));
         await second.waitForFunction(() => window.harness.observations === 1);
+        assert.equal(await privateEdition.evaluate(() => window.harness.observations), 1);
         await first.evaluate(() => window.stopRuntime());
         await second.evaluate(() => window.stopRuntime());
+        await privateEdition.evaluate(() => window.stopRuntime());
         await second.waitForFunction(async () => (await navigator.locks.query()).held.length === 0);
         await second.reload();
         await second.waitForFunction(() => window.runtimeReady);

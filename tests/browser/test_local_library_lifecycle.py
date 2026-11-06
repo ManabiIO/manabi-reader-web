@@ -6,7 +6,7 @@ import unittest
 from playwright.sync_api import expect
 from reader_controls import reveal_reader_controls
 from test_local_library_features import LocalFeatureBrowser
-from reader_fixture import reader_fixture
+from reader_fixture import reader_fixture, reader_storage_name
 
 
 class LocalLibraryLifecycle(LocalFeatureBrowser):
@@ -19,13 +19,13 @@ class LocalLibraryLifecycle(LocalFeatureBrowser):
         return self.page.get_by_role('form', name='WebDAV connection', exact=True)
 
     def hold_source_lock(self, source_id):
-        self.page.evaluate("""async id => {
+        self.page.evaluate("""async lockName => {
             window.sourceLockHeld = new Promise(acquired => {
-                window.sourceLockWork = navigator.locks.request('manabi-reader:webdav-source:' + id,
+                window.sourceLockWork = navigator.locks.request(lockName,
                     () => new Promise(release => { window.releaseSourceLock = release; acquired(); }));
             });
             await window.sourceLockHeld;
-        }""", source_id)
+        }""", reader_storage_name('manabi-reader:webdav-source:' + source_id))
 
     def release_source_lock(self):
         self.page.evaluate('async () => { window.releaseSourceLock(); await window.sourceLockWork; }')
@@ -98,7 +98,8 @@ class LocalLibraryLifecycle(LocalFeatureBrowser):
         finally:
             self.release_source_lock()
         # A subsequent lock acquisition drains the canceled predecessor.
-        self.page.evaluate("async id => navigator.locks.request('manabi-reader:webdav-source:' + id, () => {})", before['id'])
+        self.page.evaluate("async lockName => navigator.locks.request(lockName, () => {})",
+                           reader_storage_name('manabi-reader:webdav-source:' + before['id']))
         self.assertEqual(before, self.connection_row())
 
     def test_disconnect_transaction_failure_preserves_connection_and_can_retry(self):

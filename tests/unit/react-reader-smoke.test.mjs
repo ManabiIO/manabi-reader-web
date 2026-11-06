@@ -10,8 +10,11 @@ import { build } from 'esbuild';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import * as fakeIndexedDB from 'fake-indexeddb';
 import { webcrypto } from 'node:crypto';
+import { createRequire } from 'node:module';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
+const appRequire = createRequire(join(root, 'apps/web/package.json'));
+const expoRequire = createRequire(appRequire.resolve('expo/package.json'));
 const entry = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -141,8 +144,12 @@ test(
         outdir: directory,
         entryNames: 'reader',
         tsconfig: join(root, 'apps/web/tsconfig.json'),
-        loader: { '.wasm': 'file', '.onnx': 'file', '.css': 'empty' },
+        conditions: ['browser', 'expo-source'],
+        resolveExtensions: ['.web.tsx', '.tsx', '.web.ts', '.ts', '.web.js', '.js', '.json'],
+        alias: { 'react-native': appRequire.resolve('react-native-web') },
+        loader: { '.wasm': 'file', '.onnx': 'file', '.png': 'file', '.css': 'empty' },
         define: {
+          __DEV__: 'false',
           'process.env.NODE_ENV': '"development"',
           'import.meta.url': '"http://localhost/reader.js"'
         },
@@ -150,6 +157,14 @@ test(
           {
             name: 'delayed-reader-identity',
             setup(b) {
+              // Use the published browser entry, just as the shared real-adapter
+              // fixture does; the npm archive does not ship Router's source export.
+              b.onResolve({ filter: /^expo-router$/ }, () => ({
+                path: appRequire.resolve('expo-router')
+              }));
+              b.onResolve({ filter: /^@expo\/log-box-utils$/ }, () => ({
+                path: expoRequire.resolve('@expo/log-box-utils')
+              }));
               // Delay the real identity lookup to expose the mounted toolbar's
               // startup boundary; keep the reader, database and notes unchanged.
               b.onResolve({ filter: /^\$lib\/reader-identity$/ }, () => ({
@@ -178,7 +193,10 @@ test(
           if (predicate()) return;
           await pause();
         }
-        assert.ok(predicate(), message);
+        assert.ok(
+          predicate(),
+          `${message}: ${window.__fixtureError?.stack ?? ''} ${JSON.stringify(errors)} ${window.document.body.textContent.slice(-1800)}`
+        );
       };
       const click = (label) => {
         const button = window.document.querySelector(`button[aria-label="${label}"]`);
@@ -192,16 +210,21 @@ test(
           await pause();
         }
       };
+      const notes = () => window.document.querySelector('button[aria-label="Bookmarks and Notes"]');
       await until(
-        () => window.document.querySelector('.book-content')?.getAttribute('aria-busy') === 'false',
-        'the active React reader becomes ready'
+        () => notes()?.disabled && /Opening language tools/.test(window.document.body.textContent),
+        'the toolbar and chapter wait for durable identity admission'
       );
       assert.equal(window.__fixtureError, undefined);
-      const notes = () => window.document.querySelector('button[aria-label="Bookmarks and Notes"]');
       assert.ok(notes()?.disabled, 'Notes waits for the durable book identity');
+      assert.match(window.document.body.textContent, /Opening language tools/);
       notes().click();
       assert.equal(window.document.querySelector('.reader-modal'), null);
       releaseIdentity();
+      await until(
+        () => window.document.querySelector('.book-content')?.getAttribute('aria-busy') === 'false',
+        'the active React reader becomes ready after chapter identity admission'
+      );
       await until(() => notes() && !notes().disabled, 'Notes becomes actionable after lookup');
       notes().click();
       await until(

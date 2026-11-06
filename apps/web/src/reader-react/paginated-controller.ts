@@ -4,6 +4,11 @@
  * All rights reserved.
  */
 
+import type { ReaderLanguageBook } from '$lib/preprocessing/reader-book.mjs';
+import { waitForChapterLayout } from '$lib/preprocessing/layout-readiness.mjs';
+import { chapterForResume } from '$lib/preprocessing/presentation.mjs';
+import { getParagraphNodes } from '$lib/components/book-reader/get-paragraph-nodes';
+import { getCharacterCount } from '$lib/functions/get-character-count';
 import { bookFragmentElement } from '../lib/functions/book-security/book-fragment';
 import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
 import { projectResource, rangeAt, resolveLocator, type ReaderLocator } from '$lib/reader-location';
@@ -45,6 +50,7 @@ import { PageManagerPaginated } from '../lib/components/book-reader/book-reader-
 import { SectionCharacterStatsCalculator } from '../lib/components/book-reader/book-reader-paginated/section-character-stats-calculator';
 import { ReaderController, readerTick, type StoreValue } from './controller';
 export interface PaginatedProps {
+  languageBook?: ReaderLanguageBook;
   htmlContent: string;
   width: number;
   height: number;
@@ -90,6 +96,9 @@ export function createPaginated(
   emit: (name: string, detail?: unknown) => void = () => {}
 ) {
   const __readerController = new ReaderController();
+  const languageBook = props.languageBook;
+  let openingError = '';
+  let layoutTask: Promise<void> | undefined;
   let columnCount: number;
   let $selectionToBookmarkEnabled$: StoreValue<typeof selectionToBookmarkEnabled$> =
     __readerController.read(selectionToBookmarkEnabled$);
@@ -230,7 +239,21 @@ export function createPaginated(
         const tempContainer = document.createElement('div');
         tempContainer.innerHTML = htmlContent;
         __readerController.changed((sections = Array.from(tempContainer.children)));
-        sectionIndex$.next(0);
+        const source = htmlContent;
+        if (languageBook) {
+          void bookmarkData
+            .then((bookmark) => {
+              if (disposed || htmlContent !== source) return;
+              const counts = sections.map((section) =>
+                getParagraphNodes(section).reduce(
+                  (count, node) => count + getCharacterCount(node),
+                  0
+                )
+              );
+              sectionIndex$.next(chapterForResume(counts, bookmark?.exploredCharCount ?? 0));
+            })
+            .catch((error) => __readerController.changed((openingError = error.message)));
+        } else sectionIndex$.next(0);
       }
     }
   );
@@ -393,6 +416,7 @@ export function createPaginated(
     __readerController.changed((disposed = true));
     __readerController.changed((renderGeneration += 1));
     stopFontLayout?.();
+    languageBook?.retire();
     sectionReady$.complete();
     sectionRenderComplete$.complete();
     document.removeEventListener('ttu-action', handleAction, false);
@@ -452,8 +476,12 @@ export function createPaginated(
       takeUntil(destroy$)
     )
     .subscribe(({ index, id, html }) => {
+      if (index < 0) return;
+      languageBook?.retire();
       const generation = __readerController.changed(++renderGeneration);
       __readerController.changed((allowDisplay = false));
+      __readerController.changed((openingError = ''));
+      layoutTask = undefined;
       __readerController.changed((calculator = undefined));
       stopFontLayout?.();
       const nestAnimationFrame = (fn: () => void, count: number) => {
@@ -507,6 +535,38 @@ export function createPaginated(
     );
   }
   function onHtmlLoad() {
+    if (!languageBook) {
+      initializeLayout();
+      return;
+    }
+    if (!contentEl || !scrollEl || currentSpineIndex < 0) return;
+    const generation = renderGeneration;
+    const root = contentEl;
+    void languageBook
+      .open(currentSpineIndex, root, {
+        async prepare(signal) {
+          await waitForChapterLayout(root, signal);
+          signal.throwIfAborted();
+          if (generation !== renderGeneration)
+            throw new DOMException('Superseded chapter', 'AbortError');
+          initializeLayout();
+          await readerTick();
+          signal.throwIfAborted();
+          if (calculator) await onContentDisplayChange(calculator);
+        },
+        commit() {
+          if (disposed || generation !== renderGeneration)
+            throw new DOMException('Superseded chapter', 'AbortError');
+          __readerController.changed((allowDisplay = true));
+          sectionRenderComplete$.next(currentSpineIndex);
+        }
+      })
+      .catch((error) => {
+        if (!disposed && generation === renderGeneration && error.name !== 'AbortError')
+          __readerController.changed((openingError = error.message));
+      });
+  }
+  function initializeLayout() {
     if (!scrollEl || currentSpineIndex < 0 || !displayedHtml) return;
     __readerController.changed(
       (calculator = new SectionCharacterStatsCalculator(
@@ -543,7 +603,20 @@ export function createPaginated(
     }
     dispatch('contentChange', scrollEl);
   }
-  function onContentDisplayChange(_calculator: SectionCharacterStatsCalculator) {
+  function onContentDisplayChange(_calculator: SectionCharacterStatsCalculator): Promise<void> {
+    if (languageBook && layoutTask) return layoutTask;
+    const task = finishContentDisplay(_calculator);
+    if (languageBook) {
+      layoutTask = task;
+      void task
+        .finally(() => {
+          if (layoutTask === task) layoutTask = undefined;
+        })
+        .catch(() => {});
+    }
+    return task;
+  }
+  async function finishContentDisplay(_calculator: SectionCharacterStatsCalculator) {
     if (
       disposed ||
       _calculator !== calculator ||
@@ -565,31 +638,26 @@ export function createPaginated(
     // reader can open Search before the observer has emitted its first change.
     if (scrollEl) dispatch('contentChange', scrollEl);
     if (scrollWhenReady) {
-      const generation = renderGeneration;
-      bookmarkData.then((data) => {
-        if (disposed || generation !== renderGeneration || _calculator !== calculator) return;
-        if (!data) {
-          __readerController.changed((scrollWhenReady = false));
-          return;
-        }
-        // Use this component's actual owner, not the asynchronously propagated
-        // parent binding. Keep restoration pending until its geometry is valid.
-        if (!concreteBookmarkManager) return;
-        if (concreteBookmarkManager.scrollToBookmark(data)) {
-          __readerController.changed((scrollWhenReady = false));
-          __readerController.changed((exploredCharCount = data.exploredCharCount || 0));
-          __readerController.changed((previousIntendedCount = exploredCharCount));
-        }
-      });
+      const data = await bookmarkData;
+      if (disposed || generation !== renderGeneration || _calculator !== calculator) return;
+      if (!data) __readerController.changed((scrollWhenReady = false));
+      else if (concreteBookmarkManager?.scrollToBookmark(data)) {
+        __readerController.changed((scrollWhenReady = false));
+        __readerController.changed((exploredCharCount = data.exploredCharCount || 0));
+        __readerController.changed((previousIntendedCount = exploredCharCount));
+      }
     } else {
-      bookmarkData.then(updateBookmarkScreen);
+      const data = await bookmarkData;
+      if (disposed || generation !== renderGeneration || _calculator !== calculator) return;
+      updateBookmarkScreen(data);
     }
     if (generation !== renderGeneration || _calculator !== calculator) return;
-    __readerController.changed((allowDisplay = true));
-    // Consumers may now navigate within this exact mounted occurrence. Never
-    // acknowledge a pending chapter using the previous chapter's calculator.
-    sectionRenderComplete$.next(currentSpineIndex);
+    if (!languageBook) {
+      __readerController.changed((allowDisplay = true));
+      sectionRenderComplete$.next(currentSpineIndex);
+    }
   }
+
   function updateBookmarkScreen(data: BooksDbBookmarkData | undefined) {
     const bookmarkCharCount = data?.exploredCharCount;
     if (!calculator || !bookmarkCharCount) return;
@@ -797,6 +865,9 @@ export function createPaginated(
   );
   const api = {
     controller: __readerController,
+    get openingError() {
+      return openingError;
+    },
     getContentElement,
     getDocumentSelection,
     handleAction,

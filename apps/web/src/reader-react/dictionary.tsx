@@ -15,9 +15,10 @@ import {
   type ReaderViewProps
 } from './dom';
 import { createDictionary, type DictionaryProps } from './dictionary-controller';
+import { ReaderDictionaryLookup } from './dictionary-lookup';
+import { openReaderDictionaryLookup } from '../lib/search/reader-dictionary-interaction';
 import {
   PREFERRED_DICTIONARY_EXTENSION_NAME,
-  PREFERRED_DICTIONARY_EXTENSION_DESCRIPTION,
   PREFERRED_DEFAULT_INSTALL_BUTTON_ATTRIBUTES
 } from '$lib/integrations/external-dictionary-interop';
 
@@ -34,6 +35,7 @@ export function DictionarySetup(props: Partial<DictionaryProps> & ReaderViewProp
   if (!c) return null;
   return (
     <ReaderScope name="react-reader-dictionary">
+      <ReaderDictionaryLookup />
       <Dialog.Root
         open={c.open}
         bindings={{
@@ -62,10 +64,22 @@ export function DictionarySetup(props: Partial<DictionaryProps> & ReaderViewProp
             <Dialog.Description
               className={['text-sm text-muted-foreground'].filter(Boolean).join(' ')}
             >
-              {` ${PREFERRED_DICTIONARY_EXTENSION_DESCRIPTION} `}
+              {
+                'Select text in the book and choose Look up to use your installed dictionaries, including offline. You can also use a browser extension.'
+              }
             </Dialog.Description>
           </Dialog.Header>
           <Dom as="div" className={['grid gap-2'].filter(Boolean).join(' ')}>
+            <Button
+              variant={'secondary'}
+              onClick={() => {
+                c.choose('done');
+                openReaderDictionaryLookup();
+              }}
+              className={['min-h-11 justify-center'].filter(Boolean).join(' ')}
+            >
+              {'Open built-in dictionary'}
+            </Button>
             {c.bridgeReady ? (
               <>
                 <Button

@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect
 from test_books_library import LibraryBase
 from test_static_reader import StaticHandler
-from reader_fixture import reader_fixture
+from reader_fixture import reader_fixture, reader_storage_name, reader_init_script
 
 
 TRACE = reader_fixture(r'''() => {
@@ -168,17 +168,21 @@ class CollectionCommitBrowser(LibraryBase):
         self.import_book('Local messaging book')
         # Deny only organization notifications; other app channels are unchanged.
         # The native browser database and compiled Svelte UI still perform all I/O.
-        self.context.add_init_script('''(() => {
+        self.context.add_init_script(reader_init_script('''channelName => {
+          window.__organizationChannelsDenied = 0;
           const NativeChannel = window.BroadcastChannel;
           window.BroadcastChannel = new Proxy(NativeChannel, {
             construct(Target, args) {
-              if (args[0] === 'books-organization-v1')
+              if (args[0] === channelName) {
+                window.__organizationChannelsDenied++;
                 throw new DOMException('Messaging denied by fixture', 'SecurityError');
+              }
               return Reflect.construct(Target, args);
             }
           });
-        })()''')
+        }''', reader_storage_name('books-organization-v1')))
         self.go_library()
+        self.assertGreater(self.page.evaluate('window.__organizationChannelsDenied'), 0)
         self.add_collection('Local messaging book', 'Local shelf')
         self.page.reload()
         self.choose_collection('Local shelf')
@@ -319,14 +323,14 @@ class CollectionCommitBrowser(LibraryBase):
                     self.assertLess(time.monotonic(), deadline,
                                     'Preference restoration did not reach the API outage')
                     self.page.wait_for_timeout(25)
-            self.page.evaluate('''() => {
+            self.page.evaluate('''databaseName => {
               window.__failPreferenceSave = true;
               window.__preferenceSaveAborts = 0;
               window.__preferenceRecoveryEvents = [];
               const put = IDBObjectStore.prototype.put;
               IDBObjectStore.prototype.put = function(value, key) {
                 const request = put.apply(this, arguments);
-                if (this.transaction.db.name !== 'manabi-reader-integrations' ||
+                if (this.transaction.db.name !== databaseName ||
                     this.name !== 'metadata' || key !== 'preferences/42') return request;
                 const tx = this.transaction;
                 window.__preferenceRecoveryEvents.push({kind: 'put', theme: value.local.theme});
@@ -339,7 +343,7 @@ class CollectionCommitBrowser(LibraryBase):
                 }
                 return request;
               };
-            }''')
+            }''', reader_storage_name('manabi-reader-integrations'))
             self.page.get_by_role('group', name='Appearance mode').get_by_role(
                 'button', name='Dark', exact=True).click()
             self.wait_for_recovery_probe('__preferenceSaveAborts')
@@ -368,14 +372,14 @@ class CollectionCommitBrowser(LibraryBase):
         old_settings = StaticHandler.preference_settings
         try:
             self.prepare_preference_recovery(restore_collection=True)
-            self.context.add_init_script('''(() => {
+            self.context.add_init_script(reader_init_script('''databaseName => {
               window.__failOrganizationApply = true;
               window.__organizationApplyAborts = 0;
               window.__preferenceRecoveryEvents = [];
               const put = IDBObjectStore.prototype.put;
               IDBObjectStore.prototype.put = function(value, key) {
                 const request = put.apply(this, arguments);
-                if (this.transaction.db.name !== 'manabi-reader-integrations' ||
+                if (this.transaction.db.name !== databaseName ||
                     this.name !== 'metadata' || key !== 'books-organization-v1' ||
                     !value.collections.some(item => item.id === 'offline-restored')) return request;
                 const tx = this.transaction;
@@ -389,7 +393,7 @@ class CollectionCommitBrowser(LibraryBase):
                 }
                 return request;
               };
-            })();''')
+            }''', reader_storage_name('manabi-reader-integrations')))
             self.enter_preference_outage()
             self.page.goto(self.origin + reader_fixture('/reader-web/settings'))
             self.wait_for_recovery_probe('__organizationApplyAborts')

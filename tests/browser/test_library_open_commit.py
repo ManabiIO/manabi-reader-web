@@ -14,7 +14,7 @@ from test_book_save_cancellation import BookSaveCancellation
 from test_books_library import LibraryBase, cross_resource_book
 from test_editors_picks import EditorsPicksBrowser
 from test_local_library_features import LocalFeatureBrowser
-from reader_fixture import reader_fixture
+from reader_fixture import reader_fixture, reader_storage_name
 
 
 ABORT_LAST_ITEM = reader_fixture("""() => {
@@ -343,12 +343,12 @@ class LibraryOpenCommitStatic(LibraryBase):
         self.page.get_by_role('link',name='Back',exact=True).click()
         expect(self.page.get_by_role('region',name='Library shelves')).to_have_attribute('data-hydrated','true')
         self.assertTrue(self.page.evaluate('window.sameOpenDocument === true'))
-        self.page.evaluate("""()=>{
+        self.page.evaluate("""dbName=>{
           const original=IDBDatabase.prototype.transaction;
           window.restoreResumeTransaction=()=>{IDBDatabase.prototype.transaction=original;};
           IDBDatabase.prototype.transaction=function(names,mode,...args){
             const scope=typeof names==='string'?[names]:Array.from(names);
-            if(this.name!=='books'||mode!=='readwrite'||!scope.includes('lastItem'))
+            if(this.name!==dbName||mode!=='readwrite'||!scope.includes('lastItem'))
               return original.call(this,names,mode,...args);
             // Install the real overlapping blocker at the actual resume boundary,
             // after local preparation has completed, then enqueue the target.
@@ -366,7 +366,7 @@ class LibraryOpenCommitStatic(LibraryBase):
             target.addEventListener('abort',()=>{document.documentElement.dataset.resumeTargetOutcome='aborted';});
             return target;
           };
-        }""")
+        }""", reader_storage_name('books'))
         try:
             self.page.get_by_role('button',name='Read Phase queued book',exact=True).click()
             expect(self.page.locator('html')).to_have_attribute('data-resume-target-outcome','pending')

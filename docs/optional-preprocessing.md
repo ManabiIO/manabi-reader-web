@@ -1,6 +1,8 @@
 # Optional chapter preprocessing
 
-Status: foundation patch, NOT an enabled end-to-end product integration.
+Status: the React reader host consumes the selected runtime’s optional preprocessor
+and independent chapter interaction. The real private engine and its complete
+chapter-to-popup/offline path still require qualification.
 The public source builds without a proprietary module. It does not fetch a plugin
 unless a deployment explicitly configures a manifest. A missing manifest (404)
 is supported absence, not a separate reader mode. The identity preprocessor uses
@@ -56,28 +58,53 @@ storage. Errors/quota failures must not destroy books or label an import complet
 Dictionary/update events call session.invalidate(); already visible prose is not
 replaced. Next navigation passes through opening again.
 
-## Renderer integration still required
+## React renderer integration
 
-The current paginated component's `displayedHtml = html` assignment is the correct
-pre-render interception point, but the surrounding bookmark and font/geometry
-owners must be integrated and tested together. Mount must precede sectionReady$ /
-allowDisplay, and disposers must track renderGeneration and component teardown.
+`ReaderScreen` passes its stable book key and the current loader-owned image
+bindings into `BookReader`. `reader-language.ts` canonicalizes image placeholders,
+validates transformed markup through the normal book sanitizer, and rejects source
+text changes that would invalidate semantic coordinates. Only loader-issued image
+URLs may be rebound. A bounded memory cache belongs to this book lifetime;
+persistent derived caches remain disabled.
 
-Continuous mode renders the entire htmlContent currently. It needs chapter-aware
-staging/virtualization to honor current-chapter-first processing. Do NOT implement
-it as post-load wrapping, and do NOT block opening on preprocessing the whole book.
-Do not advertise preprocessing as complete until both rendering modes meet the contract.
+The public edition attaches Reader-owned selection interaction without initializing
+dictionary storage. The private edition acquires the selected dictionary lease and
+uses its optional `preprocessor` and `attachChapter`; provider-owned interaction
+replaces the generic interaction for that chapter. Provider disposal remains owned
+by the shared deployment lease, never by a renderer.
 
-Keep existing section roots/IDs, author ruby, links, bookmarks, keyboard navigation,
-vertical writing and original TTU counting semantics intact. The new vocabulary
-component uses incremental chapter projections, not native Realm tracking state.
+Ordinary pagination resolves the saved chapter before analysis. Its reusable DOM
+root stays masked and inert through preprocessing, mount, interaction, resource
+readiness, geometry and bookmark restoration. Generation admission precedes reveal.
+Retirement releases bindings before React replaces that root’s children.
+
+Continuous reading analyzes the saved/current chapter first. Adjacent source
+chapters retain generic selection interaction. Entering another primary visible
+chapter passes through the same visibility barrier, then restores a canonical text
+anchor before revealing; background work only fills the bounded memory cache.
+This is chapter-aware opening without whole-book analysis blocking startup. The
+current implementation masks the reading surface during a chapter transition;
+virtualized chapter staging is a later performance/UX improvement to qualify.
+
+Experimental Foliate pagination does not yet implement this lifecycle. A build
+with proactive analysis reports that incompatibility explicitly rather than
+silently showing unprocessed text. Public extension-only Foliate preview remains
+available.
+
+Both ordinary renderers preserve section identities, author ruby, links,
+bookmarks, vertical writing and TTU’s reading-character counts. Real engine,
+browser geometry and performance qualification remain required before claiming
+private feature parity.
 
 ## Tests
 
 `node --test test/preprocessing/*.test.mjs`
 
-These test the foundation, not a compiled private engine, the Svelte components,
-a real installed extension, IndexedDB durability or mobile layout. Run the
+These test contracts and the production composition.
+`tests/unit/reader-chapter-lifecycle.test.mjs` additionally exercises both actual
+React controllers with a test-only provider, including resume-first ordering and
+teardown during asynchronous mount. These are not a compiled private engine, a
+real installed extension, IndexedDB durability or mobile browser geometry. Run the
 separate cross-repository browser/native gates before enabling a deployment.
 
 ## Dictionary setup is independent of preprocessing readiness
@@ -125,8 +152,9 @@ validation failure. Intentional no-op output uses the ordinary single result sha
 sanitize/configure/bindResources/restore from the real TTU adapter. `stage.prepare`
 runs AFTER private runtime mount; final admission runs after restoration and BEFORE
 commit. Returned cleanup belongs solely to that stage. An aborted successor cannot
-remove its visible predecessor. This still needs actual paginated/continuous Svelte
-wiring; the helper alone does not implement either renderer.
+remove its visible predecessor. The React reader composition now wires ordinary paginated and continuous
+opening through the same session/presentation contract; the hidden-root helper is
+also retained for future detached/virtualized renderer stages.
 
 Use original `bookData.elementHtml` with TTU's stable image placeholders for analysis
 and persistent cache identity. `formatBookDataHtml` currently binds Blob URLs and

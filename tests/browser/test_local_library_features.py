@@ -27,7 +27,7 @@ from reader_controls import reveal_reader_controls
 from offline_shell import enter_offline_shell
 from test_static_reader import ThreadingHTTPServer, StaticHandler
 from test_books_library import LibraryBase, book, cross_resource_book
-from reader_fixture import reader_fixture
+from reader_fixture import reader_fixture, reader_storage_name
 from browser_launch import launch_options
 
 TITLE = 'Manabi Yatsu Portability Fixture'
@@ -364,7 +364,15 @@ class LocalFeatureBrowser(LibraryBase):
             shelf = self.page.get_by_role('region', name='Library shelves')
             expect(shelf).to_have_attribute('data-hydrated', 'true', timeout=30000)
             expect(shelf).to_have_attribute('aria-busy', 'false', timeout=30000)
-            self.search('WEBDAV_SEARCH_NEEDLE')
+            # An uncached optional dictionary must be a contained lookup error,
+            # never an uncaught service-worker rejection or a blocked local book.
+            field = self.page.get_by_role('searchbox', name='Search library', exact=True)
+            if not field.count() or not field.is_visible():
+                self.page.get_by_role('button', name='Search library', exact=True).click()
+            field.fill('WEBDAV_SEARCH_NEEDLE')
+            self.page.locator('[data-search-scope="everything"]').click()
+            expect(self.page.get_by_role('status').filter(has_text='Dictionary tools are unavailable')).to_be_visible()
+            self.page.locator('[data-search-scope="books"]').click()
             expect(self.page.get_by_role('button',name='Open passage in WebDAV offline book: WEBDAV_SEARCH_NEEDLE',exact=True)).to_be_visible()
         self.assertEqual(original,self.dav.state['files']['/Books/Offline.epub'])
 
@@ -534,7 +542,7 @@ class LocalFeatureBrowser(LibraryBase):
         # Closing a Playwright page acknowledges its UI closure, not the browser
         # process releasing its locks. Poll actual ownership, never a settling sleep.
         deadline = time.monotonic() + 10
-        while any(lock['name'] == 'manabi-webdav-reader-lifetime-v1'
+        while any(lock['name'] == reader_storage_name('manabi-webdav-reader-lifetime-v1')
                   for lock in self.page.evaluate('navigator.locks.query()')['held']):
             self.assertLess(time.monotonic(), deadline, 'Closed reader retained its lease')
             self.page.wait_for_timeout(20)
@@ -727,7 +735,7 @@ class LocalFeatureBrowser(LibraryBase):
 
     def wait_source_operation_queued(self):
         deadline = time.monotonic() + 10
-        while not any(lock['name'].startswith('manabi-reader:webdav-source:')
+        while not any(lock['name'].startswith(reader_storage_name('manabi-reader:webdav-source:'))
                       for lock in self.page.evaluate('navigator.locks.query()')['pending']):
             self.assertLess(time.monotonic(), deadline, 'Source change bypassed the active sync')
             self.page.wait_for_timeout(20)

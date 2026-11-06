@@ -9,7 +9,7 @@ import unittest
 
 from playwright.sync_api import expect
 import test_books_library as library
-from reader_fixture import reader_fixture
+from reader_fixture import reader_fixture, reader_storage_name
 
 
 class LocalMoveRecoveryBrowser(library.LibraryBase):
@@ -76,13 +76,14 @@ class LocalMoveRecoveryBrowser(library.LibraryBase):
     def test_queued_move_cannot_use_a_source_removed_before_lock_admission(self):
         self.seed_files({'First.epub': library.book('Move first'), 'Second.epub': library.book('Move second')})
         before = self.disk()
-        self.page.evaluate('''() => {
+        lock_name = reader_storage_name('manabi-reader:import-library-book')
+        self.page.evaluate('''lockName => {
           window.moveLockHeld = false;
-          window.moveLockTask = navigator.locks.request('manabi-reader:import-library-book', async () => {
+          window.moveLockTask = navigator.locks.request(lockName, async () => {
             window.moveLockHeld = true;
             await new Promise(resolve => window.releaseMoveLock = resolve);
           });
-        }''')
+        }''', lock_name)
         self.page.wait_for_function('window.moveLockHeld === true')
         self.open_organize_menu()
         self.page.get_by_role('menuitem', name='Create Series from Books…', exact=True).click()
@@ -94,8 +95,8 @@ class LocalMoveRecoveryBrowser(library.LibraryBase):
         self.dialog().get_by_role('button', name='Move into Series', exact=True).click()
         # Admission is blocked by a real origin lock, not a mocked importer.
         deadline = time.monotonic() + 20
-        while not self.page.evaluate("""async () => (await navigator.locks.query()).pending.some(
-                lock => lock.name === 'manabi-reader:import-library-book')"""):
+        while not self.page.evaluate("""async lockName => (await navigator.locks.query()).pending.some(
+                lock => lock.name === lockName)""", lock_name):
             self.assertLess(time.monotonic(), deadline, 'Move never requested its admission lock')
             self.page.wait_for_timeout(25)
         self.page.evaluate(reader_fixture('''async sourceId => {

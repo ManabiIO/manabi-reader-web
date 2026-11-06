@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import type { Preprocessor } from '../preprocessing/index.d.mts';
+
 export interface DictionaryPreview {
   id: string;
   term: string;
@@ -54,6 +56,8 @@ export interface DictionaryClient {
 }
 
 export interface DictionaryRuntime {
+  /** Optional proactive analysis; shares this runtime's resource lifetime. */
+  preprocessor?: Preprocessor;
   /** Optional on-demand interaction; valid even without proactive analysis. */
   attachChapter?: (
     root: HTMLElement,

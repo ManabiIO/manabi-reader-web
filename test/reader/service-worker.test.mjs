@@ -255,7 +255,16 @@ test('optional engine files cache only after demand and reopen offline without i
     throw new Error('offline');
   });
   assert.equal(await body(await h.request(key)), `engine:${key}`);
-  await assert.rejects(h.request('/engine/runtime.js'), /offline/);
+  const unavailable = await h.request('/engine/runtime.js');
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailable.headers.get('Cache-Control'), 'no-store');
+  assert.equal(await (await h.storage.open(h.runtime)).match(url('/engine/runtime.js')), undefined);
+  h.setFetch(async () => new Response('ready', { headers: { 'Content-Type': 'text/javascript' } }));
+  assert.equal(await body(await h.request('/engine/runtime.js')), 'ready');
+  h.setFetch(async () => {
+    throw new Error('offline again');
+  });
+  assert.equal(await body(await h.request('/engine/runtime.js')), 'ready');
   assert.equal(h.request('/dictionary-archives/default.zip'), undefined);
 });
 

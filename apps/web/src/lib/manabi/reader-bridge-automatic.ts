@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { storageName } from '../../runtime/edition';
 import { account, accountGeneration } from './client';
 import { isOnline$ } from '../data/store';
 import { get, writable, readonly } from '../state/store';
@@ -28,7 +29,7 @@ const status = writable<ReaderBridgeAutomaticStatus>({
 });
 export const readerBridgeAutomaticStatus = readonly(status);
 const interval = 60_000;
-const lockName = 'manabi-reader-bridge-automatic-v1';
+const lockName = storageName('manabi-reader-bridge-automatic-v1');
 
 /** A queued origin-local Web Lock gives exactly one visible online tab ownership.
  * Every new leader waits a minute before its first pass, including after reload.

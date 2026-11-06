@@ -57,14 +57,21 @@ function ensureOwner(link: BookLink) {
     throw new IntegrationError('account_changed');
 }
 let linkRefreshGeneration = 0;
-export async function refreshLinkedBooks() {
+export async function refreshLinkedBooks(signal?: AbortSignal) {
+  signal?.throwIfAborted();
   const generation = ++linkRefreshGeneration;
   const owner = localProfileUser()?.id ?? null;
   const current = () =>
-    generation === linkRefreshGeneration && (localProfileUser()?.id ?? null) === owner;
-  const books = await (await integrationDB()).getAll('books');
+    !signal?.aborted &&
+    generation === linkRefreshGeneration &&
+    (localProfileUser()?.id ?? null) === owner;
+  const integration = await integrationDB();
   if (!current()) return;
-  const records = await readIndexedBookIdentities(await database.db);
+  const books = await integration.getAll('books');
+  if (!current()) return;
+  const bookDatabase = await database.db;
+  if (!current()) return;
+  const records = await readIndexedBookIdentities(bookDatabase);
   if (!current()) return;
   const accountEntries = visibleLibraryEntries(records, books, owner);
   const visible = accountEntries.links;
@@ -270,6 +277,29 @@ export async function syncAllLinkedBooks() {
 
 export function startBookSync() {
   const stop = startPersonalSync();
+  let stopped = false;
+  let suspended = false;
+  let refreshLifetime = new AbortController();
+  const refresh = () => {
+    if (stopped || suspended) return;
+    const signal = refreshLifetime.signal;
+    // A full document navigation can terminate WebKit's pending IDB requests.
+    // Background reads must own their rejection without clearing saved links;
+    // explicit/manual refresh callers still receive the original storage error.
+    void refreshLinkedBooks(signal).catch((error) => {
+      if (!signal.aborted) console.warn('Saved library links could not refresh', error);
+    });
+  };
+  const suspend = () => {
+    suspended = true;
+    refreshLifetime.abort();
+  };
+  const resume = () => {
+    if (stopped || !suspended) return;
+    suspended = false;
+    refreshLifetime = new AbortController();
+    refresh();
+  };
   const updateStatuses = () => {
     const status = get(personalSyncStatus);
     const entries: Record<string, SyncStatus> = {};
@@ -318,17 +348,21 @@ export function startBookSync() {
   window.addEventListener('online', syncDav);
   document.addEventListener('visibilitychange', syncDav);
   const unsubscribeBooks = linkedBooks.subscribe(updateStatuses);
-  const unsubscribeAccount = localUser.subscribe(() => {
-    void refreshLinkedBooks();
-  });
-  void refreshLinkedBooks();
+  // Stores emit their current value on subscribe; that is the initial refresh.
+  const unsubscribeAccount = localUser.subscribe(refresh);
+  window.addEventListener('pagehide', suspend);
+  window.addEventListener('pageshow', resume);
   return () => {
+    stopped = true;
+    refreshLifetime.abort();
     stop();
     unsubscribeStatus();
     unsubscribeDav();
     clearInterval(davTimer);
     window.removeEventListener('online', syncDav);
     document.removeEventListener('visibilitychange', syncDav);
+    window.removeEventListener('pagehide', suspend);
+    window.removeEventListener('pageshow', resume);
     unsubscribeBooks();
     unsubscribeAccount();
   };
