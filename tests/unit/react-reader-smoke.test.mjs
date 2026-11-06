@@ -1,8 +1,8 @@
 /** @license BSD-3-Clause
  * Copyright (c) 2026, ッツ Reader Authors. All rights reserved. */
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdtemp, readFile, mkdir, rename } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -49,6 +49,10 @@ test(
       virtualConsole: console
     });
     const window = dom.window;
+    let releaseIdentity;
+    window.__identityReady = new Promise((resolve) => {
+      releaseIdentity = resolve;
+    });
     try {
       for (const [name, value] of Object.entries(fakeIndexedDB))
         if (name.startsWith('IDB') || name === 'indexedDB')
@@ -142,6 +146,29 @@ test(
           'process.env.NODE_ENV': '"development"',
           'import.meta.url': '"http://localhost/reader.js"'
         },
+        plugins: [
+          {
+            name: 'delayed-reader-identity',
+            setup(b) {
+              // Delay the real identity lookup to expose the mounted toolbar's
+              // startup boundary; keep the reader, database and notes unchanged.
+              b.onResolve({ filter: /^\$lib\/reader-identity$/ }, () => ({
+                path: 'reader-identity',
+                namespace: 'delayed-identity'
+              }));
+              b.onLoad({ filter: /.*/, namespace: 'delayed-identity' }, () => ({
+                contents: `
+                  import { readerBookKeyFor as lookup } from ${JSON.stringify(join(root, 'apps/web/src/lib/reader-identity.ts'))};
+                  export async function readerBookKeyFor(...args) {
+                    await window.__identityReady;
+                    return lookup(...args);
+                  }
+                `,
+                resolveDir: root
+              }));
+            }
+          }
+        ],
         logLevel: 'warning'
       });
       window.eval(await readFile(join(directory, 'reader.js'), 'utf8'));
@@ -170,6 +197,20 @@ test(
         'the active React reader becomes ready'
       );
       assert.equal(window.__fixtureError, undefined);
+      const notes = () => window.document.querySelector('button[aria-label="Bookmarks and Notes"]');
+      assert.ok(notes()?.disabled, 'Notes waits for the durable book identity');
+      notes().click();
+      assert.equal(window.document.querySelector('.reader-modal'), null);
+      releaseIdentity();
+      await until(() => notes() && !notes().disabled, 'Notes becomes actionable after lookup');
+      notes().click();
+      await until(
+        () => !!window.document.querySelector('.reader-modal'),
+        'first enabled click opens notes'
+      );
+      click('Close bookmarks and notes');
+      await until(() => !window.document.querySelector('.reader-modal'), 'notes close normally');
+      await reveal();
       const originalRuby = window.document.querySelector('.book-content ruby');
       assert.ok(originalRuby);
       originalRuby.classList.add('reveal-rt');
@@ -268,7 +309,12 @@ test(
       window.__unmount?.();
       await Promise.resolve();
       window.close();
-      await rm(directory, { recursive: true, force: true });
+      const trash = join(homedir(), '.Trash');
+      await mkdir(trash, { recursive: true });
+      await rename(
+        directory,
+        join(trash, `reader-smoke-${Date.now()}-${directory.split('/').at(-1)}`)
+      );
     }
   }
 );

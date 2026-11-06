@@ -4,12 +4,12 @@
  * All rights reserved.
  */
 
-import { useCallback, type ForwardedRef } from 'react';
+import { useCallback, type ComponentRef, type ForwardedRef } from 'react';
 import type { View } from 'react-native';
 /** RNW 0.21 filters title on View; keep this DOM attribute at the primitive leaf. */
-export function useActionRef(ref: ForwardedRef<View>, title?: string) {
+export function useActionRef(ref: ForwardedRef<ComponentRef<typeof View>>, title?: string) {
   return useCallback(
-    (view: View | null) => {
+    (view: ComponentRef<typeof View> | null) => {
       const element = view as unknown as HTMLElement | null;
       if (title) element?.setAttribute('title', title);
       else element?.removeAttribute('title');

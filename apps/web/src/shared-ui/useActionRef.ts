@@ -4,8 +4,8 @@
  * All rights reserved.
  */
 
-import type { ForwardedRef } from 'react';
+import type { ComponentRef, ForwardedRef } from 'react';
 import type { View } from 'react-native';
-export function useActionRef(ref: ForwardedRef<View>, _title?: string) {
+export function useActionRef(ref: ForwardedRef<ComponentRef<typeof View>>, _title?: string) {
   return ref;
 }

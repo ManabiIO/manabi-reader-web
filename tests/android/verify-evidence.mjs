@@ -14,8 +14,113 @@ export function verifyEvidence(evidence, phase, id) {
   assert.equal(evidence.id, id);
   assert.equal(evidence.target, 'io.manabi.reader');
   assert.equal(evidence.targetDebuggable, false);
+  assert.equal(evidence.nativeOffline?.notice, 'native-details-open-and-dismissed');
+  assert.equal(evidence.nativeOffline.webViewOnline, false);
+  for (const point of ['beforeLaunch', 'afterJourneys', 'afterStorageChecks'])
+    assert.deepEqual(evidence.nativeOffline[point], {
+      airplaneMode: true,
+      activeNetwork: false,
+      networkCount: 0
+    });
   assert.equal(evidence.nativeRoundTrip, 'snapshot-route-and-library-state-reply');
-  assert.equal(evidence.nativeFontManager, 'settings-typography-font-cache-read-and-close');
+  assert.equal(evidence.nativeFontManager, 'shared-font-list-add-back-and-close-without-save');
+  assert.equal(
+    evidence.nativeFontPicker?.picker,
+    phase === 'seed' ? 'system-picker-cancel-import-and-select' : 'retained-from-previous-process'
+  );
+  assert.equal(evidence.nativeFontPicker.removed, phase === 'verify');
+  const font = evidence.nativeFontPicker.font;
+  assert.equal(font.name, `Qualification font ${id}`);
+  assert.equal(font.fileName, `manabi-font-${id}.woff2`);
+  assert.equal(font.path, `/userfonts/${font.fileName}`);
+  assert.ok(Number.isSafeInteger(font.bytes) && font.bytes > 0);
+  assert.match(font.sha256, /^[a-f0-9]{64}$/);
+  assert.equal(font.selected, true);
+  assert.equal(font.productionCss, 'cached-blob-face-loaded');
+  if (phase === 'seed') {
+    assert.deepEqual(evidence.nativeFontImported, { ...font, selected: false });
+    assert.deepEqual(evidence.nativeFontAfterReload, font);
+  } else assert.deepEqual(evidence.nativeFontCleanup, { removed: true, restored: true });
+  assert.equal(
+    evidence.nativeFontPreferences,
+    'explicit-font-draft-cancel-apply-and-exact-restore'
+  );
+  assert.equal(evidence.nativeChoices, 'color-mode-selection-local-save-and-restore');
+  assert.equal(
+    evidence.nativePageTurn?.journey,
+    phase === 'seed'
+      ? 'native-picker-dismiss-select-and-reopen'
+      : 'retained-after-process-restart-and-native-restore'
+  );
+  assert.ok(['slide', 'none'].includes(evidence.nativePageTurn.selected));
+  assert.equal(
+    evidence.nativePageTurn.initial,
+    evidence.nativePageTurn.selected === 'none' ? 'slide' : 'none'
+  );
+  assert.deepEqual(
+    evidence.nativePageTurn.selections,
+    phase === 'seed'
+      ? [
+          evidence.nativePageTurn.selected,
+          evidence.nativePageTurn.initial,
+          evidence.nativePageTurn.selected
+        ]
+      : [
+          evidence.nativePageTurn.initial,
+          evidence.nativePageTurn.selected,
+          evidence.nativePageTurn.initial
+        ]
+  );
+  assert.equal(evidence.nativePageTurn.namedField, 'Page turn effect');
+  assert.equal(evidence.nativePageTurn.routeReopen, true);
+  assert.equal(evidence.nativePageTurn.exactRawPreferenceRestored, phase === 'verify');
+  if (phase === 'seed')
+    assert.equal(evidence.nativePageTurnAfterReload, evidence.nativePageTurn.selected);
+  assert.deepEqual(evidence.nativeStatisticsTextField, {
+    journey: 'native-named-edit-focus-cancel-and-close-reset',
+    label: 'Filter book titles',
+    edits: 2,
+    focusRetained: true,
+    cancelReset: true,
+    closeReset: true
+  });
+  assert.equal(evidence.nativeThemeChooser, 'add-dialog-back-and-close-without-save');
+  assert.equal(
+    evidence.nativeDimensions,
+    'slider-completion-and-automatic-local-save-with-exact-restore'
+  );
+  assert.equal(evidence.nativeBackgrounds?.rendered, 'native-light-and-dark-decoded-pixels');
+  assert.equal(evidence.nativeBackgrounds.removed, phase === 'verify');
+  assert.equal(
+    evidence.nativeBackgrounds.picker,
+    phase === 'seed' ? 'system-picker-cancel-and-three-imports' : 'retained-from-previous-process'
+  );
+  assert.deepEqual(Object.keys(evidence.nativeBackgrounds.records).sort(), [
+    'library-dark',
+    'library-light',
+    'reader-light'
+  ]);
+  for (const [slot, image] of Object.entries(evidence.nativeBackgrounds.records)) {
+    assert.equal(image.name, `manabi-background-${id}-${slot}.png`);
+    assert.ok(Number.isSafeInteger(image.bytes) && image.bytes > 0);
+    assert.match(image.sha256, /^[a-f0-9]{64}$/);
+  }
+  const archive = evidence.nativeBookExport;
+  assert.equal(
+    archive?.journey,
+    phase === 'seed'
+      ? 'system-picker-cancel-import-export-and-remove'
+      : 'retained-after-process-restart'
+  );
+  assert.equal(archive.removed, phase === 'verify');
+  assert.equal(archive.libraryCopyRemoved, true);
+  assert.equal(archive.zip, 'independent-nested-zip-and-stored-html-verification');
+  assert.equal(archive.title, `manabi-export-${id}`);
+  assert.match(archive.filename, /^ttu-reader-export-[0-9-]+-[A-Za-z0-9_-]+\.zip$/);
+  assert.ok(Number.isSafeInteger(archive.bytes) && archive.bytes > 256 * 1024);
+  assert.ok(Number.isSafeInteger(archive.htmlBytes) && archive.htmlBytes > 256 * 1024);
+  for (const key of ['sha256', 'contentHash', 'htmlSha256'])
+    assert.match(archive[key], /^[a-f0-9]{64}$/);
   assert.match(
     evidence.entry,
     /^https:\/\/appassets\.androidplatform\.net\/www\.bundle\/[a-f0-9]{32}\.html$/
@@ -45,14 +150,44 @@ export function verifyEvidence(evidence, phase, id) {
   }
   return evidence;
 }
+export function verifyEvidencePair(first, second) {
+  verifyEvidence(first, 'seed', first.id);
+  verifyEvidence(second, 'verify', first.id);
+  assert.equal(first.entry, second.entry, 'Entry changed unexpectedly between process launches');
+  assert.notEqual(first.processId, second.processId, 'Both phases used the same process');
+  assert.equal(
+    first.nativePageTurn.selected,
+    second.nativePageTurn.selected,
+    'The actual native page-turn selection must survive process restart'
+  );
+  assert.deepEqual(
+    first.nativeFontPicker.font,
+    second.nativeFontPicker.font,
+    'Selected font identity, cached bytes and production loading must survive a real process restart'
+  );
+  assert.deepEqual(
+    first.nativeBackgrounds.records,
+    second.nativeBackgrounds.records,
+    'Exact persisted background bytes must survive a real process restart'
+  );
+  const firstArchive = { ...first.nativeBookExport };
+  const secondArchive = { ...second.nativeBookExport };
+  for (const archive of [firstArchive, secondArchive]) {
+    delete archive.journey;
+    delete archive.removed;
+  }
+  assert.deepEqual(
+    firstArchive,
+    secondArchive,
+    'The same complete ZIP must survive process restart'
+  );
+  return { first, second };
+}
 if (process.argv[1] && import.meta.url === new URL(process.argv[1], 'file:').href) {
   if (process.argv[2] === '--pair') {
     const first = readEvidence(await fs.readFile(process.argv[3], 'utf8'));
     const second = readEvidence(await fs.readFile(process.argv[4], 'utf8'));
-    verifyEvidence(first, 'seed', first.id);
-    verifyEvidence(second, 'verify', first.id);
-    assert.equal(first.entry, second.entry, 'Entry changed unexpectedly between process launches');
-    assert.notEqual(first.processId, second.processId, 'Both phases used the same process');
+    verifyEvidencePair(first, second);
     console.log(
       'Packaged Android host smoke passed, including synthetic storage after process restart.'
     );

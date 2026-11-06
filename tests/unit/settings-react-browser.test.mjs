@@ -7,8 +7,11 @@ import { build } from 'esbuild';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import * as fakeIndexedDB from 'fake-indexeddb';
 import { webcrypto } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { MessageChannel } from 'node:worker_threads';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
+const appRequire = createRequire(new URL('../../apps/web/package.json', import.meta.url));
 const { outputFiles } = await build({
   stdin: {
     contents: `
@@ -16,6 +19,9 @@ const { outputFiles } = await build({
       import { createRoot } from 'react-dom/client';
       import { Dom } from './apps/web/src/settings-react/primitives';
       import { SettingsScreen } from './apps/web/src/settings-react/settings-screen';
+      import { SettingsThemeEditor } from './apps/web/src/features/settings/SettingsThemeEditor';
+      import { SettingsChoices } from './apps/web/src/features/settings/SettingsChoices';
+      import { SettingsThemeChoices, AddThemeButton } from './apps/web/src/features/settings/SettingsThemeChoices';
       import SettingsRoute from './apps/web/src/screens/routes/settings.web';
       import { ConnectionsScreen } from './apps/web/src/settings-react/connections-screen';
       import { startPreferenceSync, preferenceStatus } from './apps/web/src/lib/manabi/preferences';
@@ -38,6 +44,25 @@ const { outputFiles } = await build({
           events={binding ? {} : { change: event => update(event.currentTarget.checked) }} />;
       }
       window.controls = {
+        finishThemeSave: async result => {
+          // Flush the owner's reply and RNW's passive PressResponder configuration
+          // before the fixture can synthesize another click in the same JS task.
+          const previous = window.IS_REACT_ACT_ENVIRONMENT;
+          window.IS_REACT_ACT_ENVIRONMENT = true;
+          try { await React.act(async () => window.finishThemeSave(result)); }
+          finally { window.IS_REACT_ACT_ENVIRONMENT = previous; }
+        },
+        renderThemeEditor: props => root.render(<React.StrictMode><SettingsThemeEditor {...props}
+          onSave={(name, palette) => { window.changes.push(['save',name,palette]); return new Promise(resolve => window.finishThemeSave = resolve); }}
+          onClose={() => window.changes.push(['close'])} /></React.StrictMode>),
+        renderThemes: props => root.render(<React.StrictMode><SettingsThemeChoices {...props}
+          onValueChange={id => window.changes.push(['select', id])}
+          onEdit={id => window.changes.push(['edit', id])}
+          onDelete={id => window.changes.push(['delete', id])}>
+          <AddThemeButton disabled={props.disabled || props.actionsDisabled} onPress={() => window.changes.push(['add'])} />
+        </SettingsThemeChoices></React.StrictMode>),
+        renderChoices: props => root.render(<React.StrictMode><SettingsChoices {...props}
+          onValueChange={value => window.changes.push(value)} /></React.StrictMode>),
         goto, installRouter, beforeNavigate, afterNavigate, refreshAccount,
         location: () => get(page).url.href,
         renderRoute: (strict = true) => root.render(strict ? <React.StrictMode><SettingsRoute /></React.StrictMode> : <SettingsRoute />),
@@ -102,8 +127,12 @@ const { outputFiles } = await build({
   write: false,
   outdir: '/tmp/manabi-settings-browser-bundle',
   jsx: 'automatic',
+  conditions: ['browser', 'expo-source'],
+  resolveExtensions: ['.web.tsx', '.tsx', '.web.ts', '.ts', '.web.js', '.js'],
+  alias: { 'react-native': appRequire.resolve('react-native-web') },
   loader: { '.css': 'empty', '.wasm': 'file', '.onnx': 'file' },
   define: {
+    __DEV__: 'false',
     'process.env.NODE_ENV': '"development"',
     'import.meta.url': '"https://reader.example/fixture.js"'
   },
@@ -121,6 +150,7 @@ const { outputFiles } = await build({
       export const useLocalSearchParams = () => window.routeParams ?? {};
       export const usePathname = () => window.location.pathname.replace("/reader-web", "");
       export const useRoute = () => ({ key: window.routeKey ?? 'settings-visit-1', params: window.routeParams ?? {} });
+      export const Link = () => null;
     `,
           loader: 'js'
         }));
@@ -145,6 +175,7 @@ async function fixture(run, fetch = async () => new Response('', { status: 503 }
     }
   );
   const { window } = dom;
+  const ports = [];
   Object.assign(window, {
     ...fakeIndexedDB,
     indexedDB: new fakeIndexedDB.IDBFactory(),
@@ -157,6 +188,12 @@ async function fixture(run, fetch = async () => new Response('', { status: 503 }
     Request,
     Headers,
     fetch,
+    MessageChannel: class extends MessageChannel {
+      constructor() {
+        super();
+        ports.push(this.port1, this.port2);
+      }
+    },
     CSS: {
       escape: (value) => String(value).replace(/[^a-zA-Z0-9_-]/g, (character) => '\\' + character)
     },
@@ -209,11 +246,257 @@ async function fixture(run, fetch = async () => new Response('', { status: 503 }
   try {
     await run({ window, api, until });
   } finally {
-    await api.unmount();
-    window.close();
+    try {
+      await api.unmount();
+    } finally {
+      for (const port of ports) port.close();
+      window.close();
+    }
   }
   assert.deepEqual(errors, [], 'mounted Settings must not emit React or DOM errors');
 }
+
+test('shared Settings choices preserve unknown and typed IDs, controlled selection, focus and disabled behavior', async () => {
+  await fixture(async ({ window, api, until }) => {
+    const options = [
+      { value: 0, label: 'Zero' },
+      { value: '0', label: 'String zero' }
+    ];
+    const render = (value, disabled = false) =>
+      api.renderChoices({ label: 'Saved option', value, disabled, options });
+    await render('unknown');
+    const document = window.document;
+    await until(() => document.querySelector('[role="group"]'), 'choice group mounts');
+    const group = document.querySelector('[role="group"]');
+    assert.equal(group.getAttribute('aria-label'), 'Saved option');
+    assert.match(document.body.textContent, /Saved value: unknown/);
+    assert.equal(group.querySelectorAll('[aria-pressed="true"]').length, 0);
+    assert.equal(window.changes.length, 0, 'mounting must not replace an unknown saved value');
+    const buttons = [...group.querySelectorAll('[role="button"]')];
+    assert.equal(buttons.length, 2);
+    buttons[0].focus();
+    buttons[0].click();
+    await until(() => window.changes.length === 1, 'numeric choice emits');
+    assert.equal(window.changes[0], 0);
+    assert.equal(
+      group.querySelectorAll('[aria-pressed="true"]').length,
+      0,
+      'selection waits for the owner'
+    );
+    await render(0);
+    await until(
+      () => buttons[0].getAttribute('aria-pressed') === 'true',
+      'owner updates selection'
+    );
+    assert.equal(document.activeElement, buttons[0], 'saving retains the focused control');
+    assert.doesNotMatch(document.body.textContent, /Saved value:/);
+    buttons[0].click();
+    assert.equal(window.changes.length, 1, 'selecting the current value does not resave');
+    await render(0, true);
+    await until(
+      () => buttons[1].getAttribute('aria-disabled') === 'true',
+      'pending state disables choices'
+    );
+    buttons[1].click();
+    assert.equal(window.changes.length, 1);
+    await render(0);
+    await until(() => buttons[1].getAttribute('aria-disabled') !== 'true', 'choices reenable');
+    buttons[1].click();
+    await until(() => window.changes.length === 2, 'string choice emits');
+    assert.equal(window.changes[1], '0');
+    await render('0');
+    await until(
+      () => buttons[1].getAttribute('aria-pressed') === 'true',
+      'string value remains distinct'
+    );
+    assert.equal(buttons[0].getAttribute('aria-pressed'), 'false');
+  });
+});
+
+test('shared theme chooser retains palettes, selected custom actions, child action and independent disabled states', async () => {
+  await fixture(async ({ window, api, until }) => {
+    const options = [
+      {
+        value: 'builtin',
+        label: 'Built in',
+        custom: false,
+        colors: { foreground: '#112233', background: '#ddeeff' }
+      },
+      {
+        value: 'custom-value',
+        label: 'Personal',
+        custom: true,
+        colors: { foreground: '#334455', background: 'rgba(240, 245, 255, 0.5)' }
+      }
+    ];
+    const render = (value, extra = {}) => api.renderThemes({ value, options, ...extra });
+    const { document } = window;
+    const named = (name) => document.querySelector('button[aria-label="' + name + '"]');
+    await render('builtin');
+    await until(() => document.querySelector('button[title="builtin"]'), 'theme choices mount');
+    const builtin = document.querySelector('button[title="builtin"]');
+    const personal = document.querySelector('button[title="custom-value"]');
+    assert.equal(document.querySelector('[role="group"]').getAttribute('aria-label'), 'Theme');
+    assert.equal(builtin.style.backgroundColor, 'rgb(221, 238, 255)');
+    assert.equal(personal.style.backgroundColor, 'rgba(240, 245, 255, 0.5)');
+    assert.equal(personal.firstElementChild.style.color, 'rgb(51, 68, 85)');
+    assert.equal(named('Edit Personal theme'), null);
+    assert.equal(named('Edit Built in theme'), null);
+    personal.click();
+    await until(() => window.changes.length === 1, 'selection emits');
+    assert.deepEqual(Array.from(window.changes[0]), ['select', 'custom-value']);
+    assert.equal(named('Edit Personal theme'), null, 'selection waits for the owner');
+    await render('custom-value');
+    await until(() => named('Edit Personal theme'), 'custom actions appear');
+    const edit = named('Edit Personal theme');
+    edit.focus();
+    edit.click();
+    named('Delete Personal theme').click();
+    const add = [...document.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Add custom theme'
+    );
+    assert.ok(add);
+    add.click();
+    assert.deepEqual(
+      Array.from(window.changes, (value) => Array.from(value)),
+      [['select', 'custom-value'], ['edit', 'custom-value'], ['delete', 'custom-value'], ['add']]
+    );
+    await render('custom-value', { actionsDisabled: true });
+    await until(() => edit.getAttribute('aria-disabled') === 'true', 'editor disables management');
+    assert.notEqual(
+      builtin.getAttribute('aria-disabled'),
+      'true',
+      'selection can remain available'
+    );
+    edit.click();
+    named('Delete Personal theme').click();
+    add.click();
+    assert.equal(window.changes.length, 4);
+    await render('custom-value', { disabled: true, actionsDisabled: false });
+    await until(
+      () => builtin.getAttribute('aria-disabled') === 'true',
+      'pending save disables all controls'
+    );
+    edit.click();
+    builtin.click();
+    assert.equal(window.changes.length, 4);
+    await render('missing');
+    await until(() => !named('Edit Personal theme'), 'unknown value retires custom actions');
+    assert.match(document.body.textContent, /Saved value: missing/);
+    assert.equal(document.querySelectorAll('[aria-pressed="true"]').length, 0);
+    assert.equal(window.changes.length, 4, 'unknown value does not select or save a fallback');
+  });
+});
+
+test('shared theme draft copies without writing, rejects duplicates and keeps pending saves single', async () => {
+  await fixture(async ({ window, api, until }) => {
+    const { document } = window;
+    const palette = {
+      fontColor: '#112233',
+      backgroundColor: 'rgba(240, 245, 255, 0)',
+      selectionFontColor: '#ffffff',
+      selectionBackgroundColor: '#24506c',
+      hintFuriganaFontColor: 'rgba(1, 2, 3, 0.2)',
+      hintFuriganaShadowColor: '#000000',
+      tooltipTextFontColor: '#112233'
+    };
+    const copied = { ...palette, fontColor: '#445566', backgroundColor: '#abcdef' };
+    await api.renderThemeEditor({
+      initialPalette: palette,
+      previousName: 'Original',
+      activeTheme: 'Active',
+      existingNames: ['Original', 'Other'],
+      options: [
+        { id: 'First', label: 'First', colors: palette },
+        { id: 'Active', label: 'Active', colors: copied }
+      ]
+    });
+    const input = (label) => document.querySelector(`input[aria-label="${label}"]`);
+    const button = (text) =>
+      [...document.querySelectorAll('button')].find((el) => el.textContent === text);
+    const fill = (element, value) => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(
+        element,
+        value
+      );
+      element.dispatchEvent(new window.Event('input', { bubbles: true }));
+    };
+    await until(() => input('Theme name'), 'editor mounts');
+    assert.equal(
+      document.querySelector('select').value,
+      'Active',
+      'copy starts at active theme, not catalog order'
+    );
+    assert.equal(input('Font color').value, '#112233');
+    assert.equal(input('Background opacity').value, '0');
+    button('Copy').click();
+    await until(() => input('Font color').value === '#445566', 'copy changes only draft');
+    assert.equal(window.changes.length, 0);
+    fill(input('Theme name'), 'Other');
+    await until(() => input('Theme name').value === 'Other', 'name changes');
+    button('Save').click();
+    await until(
+      () => input('Theme name').validationMessage.includes('already exists'),
+      'duplicate rejected'
+    );
+    assert.equal(document.activeElement, input('Theme name'));
+    assert.equal(window.changes.length, 0);
+    fill(input('Theme name'), '  constructor  ');
+    await until(() => !input('Theme name').validationMessage, 'name validation clears');
+    button('Save').click();
+    button('Save').click();
+    await until(() => window.changes.length === 1, 'save dispatched once');
+    assert.equal(window.changes[0][1], 'constructor', 'web-compatible names remain available');
+    assert.deepEqual(JSON.parse(JSON.stringify(window.changes[0][2])), copied);
+    assert.ok(input('Theme name').disabled);
+    assert.ok(input('Font color').disabled);
+    assert.equal(button('Cancel').getAttribute('aria-disabled'), 'true');
+    button('Cancel').click();
+    await api.finishThemeSave(false);
+    await until(() => !input('Theme name').disabled, 'failed owner save leaves editable draft');
+    assert.equal(window.changes.length, 1);
+    assert.equal(input('Theme name').value, 'constructor');
+    button('Save').click();
+    await until(() => window.changes.length === 2, 'retry is explicit');
+    await api.finishThemeSave(true);
+    await until(() => window.changes.length === 3, 'accepted save closes');
+    assert.equal(window.changes[2][0], 'close');
+  });
+});
+
+test('shared theme draft round-trips authored colors and ignores an accepted save after unmount', async () => {
+  await fixture(async ({ window, api, until }) => {
+    const palette = {
+      fontColor: '#112233',
+      backgroundColor: 'rgba(240, 245, 255, 0)',
+      selectionFontColor: '#ffffff',
+      selectionBackgroundColor: '#24506c',
+      hintFuriganaFontColor: 'rgba(1, 2, 3, 0.2)',
+      hintFuriganaShadowColor: '#000000',
+      tooltipTextFontColor: '#112233'
+    };
+    await api.renderThemeEditor({
+      initialPalette: palette,
+      previousName: 'Original',
+      activeTheme: 'missing',
+      existingNames: ['Original'],
+      options: []
+    });
+    const button = (text) =>
+      [...window.document.querySelectorAll('button')].find((el) => el.textContent === text);
+    await until(() => button('Save'), 'editor mounts');
+    assert.equal(button('Copy').getAttribute('aria-disabled'), 'true');
+    assert.match(window.document.querySelector('select').textContent, /Unavailable theme: missing/);
+    button('Save').click();
+    await until(() => window.changes.length === 1, 'save dispatched');
+    assert.deepEqual(JSON.parse(JSON.stringify(window.changes[0][2])), palette);
+    api.clear();
+    await until(() => !button('Save') && !button('Saving…'), 'draft unmounts');
+    await api.finishThemeSave(true);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(window.changes.length, 1, 'retired editor cannot close its replacement');
+  });
+});
 
 test('Settings category links keep one mounted screen and synchronize browser Back and Forward', async () => {
   for (const strict of [false, true])

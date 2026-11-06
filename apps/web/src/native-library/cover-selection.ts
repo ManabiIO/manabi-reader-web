@@ -22,7 +22,7 @@ interface CoverAsset {
 }
 interface CoverFile {
   size: number;
-  open(): { readBytes(length: number): Uint8Array; close(): void };
+  open(): { readBytes(length: number): Promise<Uint8Array>; close(): void };
 }
 export interface CoverSelectionDependencies {
   scope(): BridgeScope;
@@ -82,7 +82,7 @@ export async function selectNativeLibraryCover(
     let sequence = 0;
     while (sent < size) {
       check();
-      const bytes = handle.readBytes(Math.min(IMPORT_CHUNK_BYTES, size - sent));
+      const bytes = await handle.readBytes(Math.min(IMPORT_CHUNK_BYTES, size - sent));
       check();
       if (!bytes.length || bytes.length > Math.min(IMPORT_CHUNK_BYTES, size - sent))
         throw new Error('The selected cover changed or ended before its declared size.');

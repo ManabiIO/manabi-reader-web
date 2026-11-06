@@ -77,7 +77,10 @@ function profile(initial = 'alice', authenticated = initial) {
   };
   return {
     client,
-    operation: load('manabi/operation-scope.ts', { './client': client }),
+    operation: load('manabi/operation-scope.ts', {
+      './client': client,
+      '../state/store': load('state/store.ts')
+    }),
     change(id) {
       auth = id;
       generation++;

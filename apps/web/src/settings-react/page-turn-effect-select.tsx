@@ -14,6 +14,7 @@ import {
 } from './page-turn-effect-select-controller';
 import { pageTurnEffect$ } from '$lib/data/page-turn-preferences';
 import { normalizePageTurnEffect } from '$lib/foliate-epub/page-turn-effect';
+import { SettingsPageTurnEffect } from '../features/settings/SettingsPageTurnEffect';
 export function PageTurnEffectSelect(
   props: Partial<PageTurnEffectSelectProps> &
     ReaderViewProps & {
@@ -23,6 +24,7 @@ export function PageTurnEffectSelect(
     }
 ) {
   const latest = useLatest(props);
+  const help = React.useId();
   const context = useSettingsContext();
   const c = useReaderController(
     () =>
@@ -41,35 +43,16 @@ export function PageTurnEffectSelect(
   return (
     <SettingsContext.Provider value={context}>
       <div className="react-settings-page-turn-effect-select" style={{ display: 'contents' }}>
+        <SettingsPageTurnEffect
+          value={c.$pageTurnEffect$}
+          accessibilityDescribedBy={help}
+          onValueChange={(value) => pageTurnEffect$.next(normalizePageTurnEffect(value))}
+        />
         <Dom
-          as="label"
-          className={['flex min-w-0 flex-wrap items-center justify-between gap-3 text-sm']
-            .filter(Boolean)
-            .join(' ')}
+          as="p"
+          id={help}
+          className={['mt-2 text-xs text-muted-foreground'].filter(Boolean).join(' ')}
         >
-          <Dom as="span">{'Page turn effect'}</Dom>
-          <Dom
-            as="select"
-            aria-label={'Page turn effect'}
-            value={c.$pageTurnEffect$}
-            onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
-              pageTurnEffect$.next(normalizePageTurnEffect(event.currentTarget.value))
-            }
-            className={[
-              'min-h-11 rounded-lg border border-border bg-background px-3 text-foreground'
-            ]
-              .filter(Boolean)
-              .join(' ')}
-          >
-            <Dom as="option" value={'slide'}>
-              {'Slide'}
-            </Dom>
-            <Dom as="option" value={'none'}>
-              {'None'}
-            </Dom>
-          </Dom>
-        </Dom>
-        <Dom as="p" className={['mt-2 text-xs text-muted-foreground'].filter(Boolean).join(' ')}>
           {
             ' Paginated EPUBs: slide over the next page, or change pages instantly. Scrolling is unchanged. '
           }

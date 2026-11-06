@@ -78,6 +78,7 @@ export class VideoPlayer {
   private waitingForOriginLock?: string;
   private firstWindowJob?: string;
   private firstWindowStartedAt?: number;
+  private firstWindowCompleted = 0;
   private firstWindowClock?: ReturnType<typeof setInterval>;
   private followGeneratedCaptions = false;
   private waitForCaptions = false;
@@ -950,16 +951,33 @@ export class VideoPlayer {
       this.firstWindowClock = undefined;
       this.firstWindowJob = job.id;
       this.firstWindowStartedAt = undefined;
+      this.firstWindowCompleted = 0;
     }
-    if (
-      job.sparse &&
-      !job.sparse.windows.some(Boolean) &&
+    const awaitingFirstSpeechTiming =
+      !!job.sparse &&
       job.status === 'running' &&
-      (stage === 'decoding' || stage === 'transcribing')
-    ) {
-      this.firstWindowStartedAt ??= Date.now();
-      this.firstWindowClock ??= setInterval(() => this.updateBuffering(), 1000);
-    } else if (!job.sparse || job.status !== 'running' || job.sparse.windows.some(Boolean)) {
+      !!this.sparsePlayback &&
+      this.sparsePlayback.inputSeconds === 0;
+    if (awaitingFirstSpeechTiming) {
+      const completed = this.sparsePlayback!.count;
+      // A completed exact-silent core is coverage, not an ASR timing sample.
+      // Retire its elapsed clock; the next decoding notification starts a fresh
+      // clock for the next candidate speech window. Preparation/download stages
+      // belong to the current attempt and must not clear its elapsed time.
+      if (this.firstWindowStartedAt !== undefined && completed > this.firstWindowCompleted) {
+        clearInterval(this.firstWindowClock);
+        this.firstWindowClock = undefined;
+        this.firstWindowStartedAt = undefined;
+      }
+      if (
+        this.firstWindowStartedAt === undefined &&
+        (stage === 'decoding' || (stage === 'transcribing' && completed === 0))
+      ) {
+        this.firstWindowCompleted = completed;
+        this.firstWindowStartedAt = Date.now();
+        this.firstWindowClock = setInterval(() => this.updateBuffering(), 1000);
+      }
+    } else {
       clearInterval(this.firstWindowClock);
       this.firstWindowClock = undefined;
       this.firstWindowStartedAt = undefined;
@@ -1070,7 +1088,7 @@ export class VideoPlayer {
       missing && totalMs > 0 && inputSeconds > 0
         ? `about ${formatMediaTime(Math.ceil((workSeconds * totalMs) / inputSeconds / 1000))}`
         : missing
-          ? `estimating after the first window${this.firstWindowStartedAt ? ` (${formatMediaTime((Date.now() - this.firstWindowStartedAt) / 1000)} elapsed on this device)` : ''}`
+          ? `estimating after the first speech window${this.firstWindowStartedAt ? ` (${formatMediaTime((Date.now() - this.firstWindowStartedAt) / 1000)} elapsed on this device)` : ''}`
           : 'ready';
     const speed =
       count && totalMs > coreSeconds * 1000

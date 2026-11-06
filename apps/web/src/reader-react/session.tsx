@@ -149,6 +149,7 @@ export function ReaderScreen(props: Partial<SessionProps> & ReaderViewProps) {
               fullscreenBusy={c.fullscreenBusy}
               autoScrollMultiplier={c.$multiplier$}
               hasBookmarkData={c.hasBookmarkData}
+              annotationsReady={!!c.bookReaderComponent && !!c.readerBookKey}
               events={{
                 appearanceClick: () => (c.showAppearance = true),
                 tocClick: () => {
@@ -273,6 +274,8 @@ export function ReaderScreen(props: Partial<SessionProps> & ReaderViewProps) {
             epubResources={c.$bookData$.epubResources}
             styleSheet={c.$bookData$.styleSheet}
             publicationManifest={c.$rawBookData$.publicationManifest}
+            language={c.$rawBookData$.language ?? ''}
+            pageDirection={c.$rawBookData$.pageDirection?.value ?? 'unknown'}
             sourceFormat={readerSourceFormat(c.$rawBookData$)}
             width={c.$containerViewportWidth$ ?? 0}
             height={c.$containerViewportHeight$ ?? 0}

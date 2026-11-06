@@ -23,10 +23,10 @@ export function acquireReaderLease(signal: AbortSignal): Promise<void> {
       .catch(reject);
   });
 }
-export async function withWebDavApplyLease<T>(work: () => Promise<T>): Promise<T> {
+export async function withReaderDataApplyLease<T>(work: () => Promise<T>): Promise<T> {
   if (!navigator.locks)
     throw new Error(
-      'Safe WebDAV reading-data sync requires Web Locks in this browser. Book import and local reading still work.'
+      'Safe reading-data sync requires Web Locks in this browser. Book import and local reading still work.'
     );
   return navigator.locks.request(name, { mode: 'exclusive', ifAvailable: true }, (lock) => {
     if (!lock)
@@ -36,3 +36,5 @@ export async function withWebDavApplyLease<T>(work: () => Promise<T>): Promise<T
     return work();
   });
 }
+
+export const withWebDavApplyLease = withReaderDataApplyLease;

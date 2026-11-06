@@ -25,14 +25,16 @@ defaults:
     shell: bash
 jobs:
   application:
-    # This exact migration is qualified once in expo-migration.yml.
+    # Dedicated Expo/Windows qualification branches skip legacy cache/upload jobs.
     if: >-
       !(github.repository == 'ManabiIO/manabi-reader-web' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
-        github.head_ref == 'feat/expo-android-web-migration') ||
+        (github.head_ref == 'feat/expo-android-web-migration' ||
+         github.head_ref == 'codex/reader-windows-sdk56-20261020')) ||
        (github.event_name == 'push' &&
-        github.ref == 'refs/heads/feat/expo-android-web-migration')))
+        (github.ref == 'refs/heads/feat/expo-android-web-migration' ||
+         github.ref == 'refs/heads/codex/reader-windows-sdk56-20261020'))))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -67,14 +69,16 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
   real-cpu:
-    # This exact migration is qualified once in expo-migration.yml.
+    # Dedicated Expo/Windows qualification branches skip legacy cache/upload jobs.
     if: >-
       !(github.repository == 'ManabiIO/manabi-reader-web' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
-        github.head_ref == 'feat/expo-android-web-migration') ||
+        (github.head_ref == 'feat/expo-android-web-migration' ||
+         github.head_ref == 'codex/reader-windows-sdk56-20261020')) ||
        (github.event_name == 'push' &&
-        github.ref == 'refs/heads/feat/expo-android-web-migration')))
+        (github.ref == 'refs/heads/feat/expo-android-web-migration' ||
+         github.ref == 'refs/heads/codex/reader-windows-sdk56-20261020'))))
     # Independent of the application job: an unresolved app lockfile must not
     # prevent discovering whether the C++ browser port actually compiles.
     runs-on: ubuntu-24.04

@@ -24,15 +24,18 @@ import { useStore } from '$runtime/use-store';
 import { USER_GUIDE_URL } from '$lib/components/navigation/docs-link';
 import { contextualDestinations } from '../shared-ui/navigation-context';
 import './navigation.css';
+import { ConnectionStatus } from '../runtime/ConnectionStatus';
 export function ActionMenu({
   label,
   title,
   iconOnly,
+  disabled,
   children
 }: {
   label: string;
   title?: string;
   iconOnly?: boolean;
+  disabled?: boolean;
   children?: ReactNode;
 }) {
   return (
@@ -42,6 +45,7 @@ export function ActionMenu({
           <Button
             {...props}
             variant="outline"
+            disabled={disabled}
             className={iconOnly ? 'size-[44px] min-h-[44px] rounded-full p-0' : 'min-h-9'}
             aria-label={title || label}
             title={title || label}
@@ -141,6 +145,7 @@ export function AppNav({
     <div
       className={['app-navigation', compact && 'app-navigation-compact'].filter(Boolean).join(' ')}
     >
+      <ConnectionStatus />
       <Menu.Root>
         <Menu.Trigger
           child={({ props }: { props: Record<string, any> }) => (
@@ -150,7 +155,7 @@ export function AppNav({
               data-icon-only="true"
               variant="ghost"
               size="icon-lg"
-              shape="circle"
+              shape="rounded"
               aria-label={iconOnly ? 'Main menu' : `${screenTitle} actions`}
               title="More actions"
             >

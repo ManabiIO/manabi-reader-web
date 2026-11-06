@@ -9,6 +9,12 @@
  */
 import { parseFontImportTarget, type FontImportTarget } from '../native-settings/font-contract.ts';
 
+import {
+  parseBackgroundImportTarget,
+  BACKGROUND_IMPORT_MAX_BYTES,
+  type BackgroundImportTarget
+} from '../native-settings/background-contract.ts';
+
 export const BRIDGE_VERSION = 1 as const;
 export const MAX_BRIDGE_BYTES = 768 * 1024;
 export const MAX_IMPORT_BYTES = 256 * 1024 * 1024;
@@ -68,6 +74,10 @@ export const bridgeMethods = [
   'library.query',
   'library.state',
   'library.action',
+  'library.export.start',
+  'library.export.status',
+  'library.export.chunk',
+  'library.export.cancel',
   'library.content.start',
   'library.content.read',
   'library.content.cancel',
@@ -79,8 +89,11 @@ export const bridgeMethods = [
   'library.catalog.cancel',
   'settings.state',
   'settings.action',
+  'settings.backgrounds.read',
+  'appearance.background.read',
   'settings.fonts.read',
   'settings.fonts.action',
+  'settings.backgrounds.action',
   'snippets.state',
   'snippets.action',
   'open',
@@ -104,10 +117,14 @@ export const readOnlyBridgeMethods: readonly BridgeMethod[] = [
   'snapshot',
   'library.query',
   'library.state',
+  'library.export.status',
+  'library.export.chunk',
   'library.content.read',
   'library.cover.read',
   'library.catalog.read',
   'settings.state',
+  'settings.backgrounds.read',
+  'appearance.background.read',
   'settings.fonts.read',
   'snippets.state',
   'statistics.read'
@@ -384,6 +401,7 @@ export class ImportTransfer {
     scope: BridgeScope;
     cover?: CoverImportTarget;
     font?: FontImportTarget;
+    background?: BackgroundImportTarget;
   };
   begin(scope: BridgeScope, id: string, name: string, size: number) {
     if (!/\.(epub|htmlz|txt)$/i.test(name))
@@ -401,13 +419,20 @@ export class ImportTransfer {
       throw new Error('Choose a WOFF2, WOFF, TTF, or OTF font file.');
     this.start(scope, id, name, size, undefined, font);
   }
+  beginBackground(scope: BridgeScope, id: string, name: string, size: number, input: unknown) {
+    const background = parseBackgroundImportTarget(input);
+    if (size > BACKGROUND_IMPORT_MAX_BYTES)
+      throw new Error('Choose a background image no larger than 8 MB.');
+    this.start(scope, id, name, size, undefined, undefined, background);
+  }
   private start(
     scope: BridgeScope,
     id: string,
     name: string,
     size: number,
     cover?: CoverImportTarget,
-    font?: FontImportTarget
+    font?: FontImportTarget,
+    background?: BackgroundImportTarget
   ) {
     if (this.current) throw new Error('Finish or cancel the current import first.');
     if (
@@ -436,7 +461,8 @@ export class ImportTransfer {
       chunks: [],
       scope: { ...scope },
       ...(cover ? { cover } : {}),
-      ...(font ? { font } : {})
+      ...(font ? { font } : {}),
+      ...(background ? { background } : {})
     };
   }
   admitChunk(scope: BridgeScope, id: string, sequence: number) {
@@ -472,7 +498,8 @@ export class ImportTransfer {
       size: current.size,
       chunks: current.chunks,
       ...(current.cover ? { cover: current.cover } : {}),
-      ...(current.font ? { font: current.font } : {})
+      ...(current.font ? { font: current.font } : {}),
+      ...(current.background ? { background: current.background } : {})
     };
   }
   cancel() {

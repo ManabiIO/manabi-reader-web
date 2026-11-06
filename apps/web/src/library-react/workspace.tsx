@@ -6,12 +6,14 @@
 
 import { Fragment, type ReactNode, type CSSProperties } from 'react';
 import { LibraryBookFace } from '../features/library/LibraryBookFace';
+import { LibrarySortMenu } from '../features/library/LibrarySortMenu.web';
 import { bookFaceLayout } from '../features/library/book-face.web';
 /**
  * React/controller port of lib/library/library-workspace.svelte; transactions retain their original guards.
  */
 
 import { librarySelection } from '$lib/library/selection-action';
+import { SortDirection } from '$lib/data/sort-types';
 
 import { resolve } from '$app/paths';
 
@@ -60,6 +62,19 @@ import {
   Trash
 } from '@phosphor-icons/react';
 export function WorkspaceView({ c, children }: { c: WorkspaceController; children?: ReactNode }) {
+  const sortMenu =
+    !c.selectMode && !c.normalizedQuery ? (
+      <LibrarySortMenu
+        property={c.sort.property}
+        direction={c.sort.direction}
+        finishedOrder={c.collectionId === 'finished' && !c.series ? c.finishedOrder : undefined}
+        disabled={!c.alive || c.busy || c.scanning}
+        onSort={(property, direction) =>
+          c.setSort(property, direction === 'asc' ? SortDirection.ASC : SortDirection.DESC)
+        }
+        onFinishedOrder={(value) => c.setFinishedOrder(value)}
+      />
+    ) : null;
   const bookMenu = (book: ShelfBook, labelSuffix: string) => (
     <>
       <Menu.Root>
@@ -274,12 +289,7 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
               <span>{'Books'}</span>
               <span>{c.books.length}</span>
             </button>
-            <a
-              href={resolve('/snippets')}
-              className={['flex items-center gap-3 rounded-xl p-3 text-sm']
-                .filter(Boolean)
-                .join(' ')}
-            >
+            <a href={resolve('/snippets')}>
               <Books aria-hidden={'true'} />
               <span>{'Snippets'}</span>
               <span>{readStore(snippetItems).filter((item) => !item.trashedAt).length}</span>
@@ -357,6 +367,7 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
                 >
                   {c.recentBooks.length ? 'Continue' : 'Books'}
                 </h2>
+                {!c.recentBooks.length && sortMenu}
               </div>
             </>
           ) : null}
@@ -678,28 +689,25 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
                 </div>
               </Action>
             </>
-          ) : (
-            <>
-              {c.recentBooks.length && !c.normalizedQuery ? (
-                <>
-                  <h2
-                    id={'books-heading'}
-                    className={['shelf-heading mb-4'].filter(Boolean).join(' ')}
-                  >
-                    {' Books '}
-                  </h2>
-                </>
-              ) : null}
-            </>
-          )}
+          ) : null}
+          {!c.normalizedQuery &&
+          (c.series || c.collectionId !== 'books' || !!c.recentBooks.length) ? (
+            <div className="library-toolbar library-shelf-tools">
+              {!!c.recentBooks.length && (
+                <h2 id="books-heading" className="shelf-heading">
+                  Books
+                </h2>
+              )}
+              {sortMenu}
+            </div>
+          ) : null}
           {c.normalizedQuery && !c.selectMode ? (
             <>
               <UnifiedSearch
                 query={c.query}
                 searchScope={c.librarySearchScope}
                 books={c.searchableBooks}
-                matches={c.metadataMatches}
-                bookMatchText={c.metadataMatchText}
+                bookSearchSnapshot={c.metadataSearchSnapshot}
                 openBook={c.openBook}
                 onquery={c.setQuery}
                 onscope={c.setSearchScope}
@@ -1060,7 +1068,7 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
                                   : c.notFinished
                                     ? 'All books here are finished'
                                     : c.collectionId === WANT_TO_READ_ID
-                                      ? 'What will you read next?'
+                                      ? 'No books in Want to Read'
                                       : c.selectedCollection
                                         ? 'No books in this collection'
                                         : 'No books here'}

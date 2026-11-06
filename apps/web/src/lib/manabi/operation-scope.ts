@@ -4,7 +4,25 @@
  * All rights reserved.
  */
 
-import { accountScope, localProfileUser, localUser, IntegrationError } from './client';
+import {
+  account,
+  accountScope,
+  localProfileUser,
+  localUser,
+  refreshAccount,
+  IntegrationError
+} from './client';
+import { get } from '../state/store';
+
+/** Resolve only the initial unknown profile before admitting an explicit local
+ * import. A settled offline/anonymous profile never needs another network probe.
+ * After admission, ordinary account fences still revoke the operation. */
+export async function prepareLocalLibraryOperation(signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  if (get(account).status === 'loading') await refreshAccount();
+  signal?.throwIfAborted();
+  return captureLibraryOperation();
+}
 
 /** Capture at the public entry, before admission or asynchronous preparation.
  * Local operations work offline, but a profile change permanently revokes them.

@@ -9,15 +9,6 @@
     font-size: 1.15rem;
     margin-bottom: 0.75rem;
   }
-  .modes {
-    display: inline-flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    padding: 4px;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--background);
-  }
   .description {
     color: var(--muted-foreground);
     max-width: 65ch;
@@ -630,36 +621,6 @@
       padding: 16px;
     }
   }
-}
-.settings-switch {
-  display: inline-flex;
-  width: 2.25rem;
-  height: 1.25rem;
-  align-items: center;
-  flex-shrink: 0;
-  border-radius: 9999px;
-  border: 2px solid transparent;
-  background: var(--input);
-  cursor: pointer;
-}
-.settings-switch[aria-checked='true'] {
-  background: var(--primary);
-}
-.settings-switch span {
-  width: 1rem;
-  height: 1rem;
-  border-radius: 9999px;
-  background: var(--background);
-  box-shadow: 0 1px 2px #0002;
-  transform: translateX(0);
-  transition: transform 0.15s;
-}
-.settings-switch[aria-checked='true'] span {
-  transform: translateX(1rem);
-}
-.settings-switch:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 3px;
 }
 .settings-popover .dimension-presets {
   width: min(20rem, calc(90vw - 1rem - 2px));

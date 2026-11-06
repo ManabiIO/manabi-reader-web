@@ -1,4 +1,5 @@
 import { analyseSwiftF0Window, prepareSwiftF0 } from './swift-f0';
+import { LatestEpochQueue } from './worker-queue';
 
 const scope = globalThis as unknown as {
   onmessage: (event: MessageEvent) => void;
@@ -9,6 +10,33 @@ let epoch = -1;
 let levels: number[] = [];
 let initialized = false;
 let ready = false;
+
+interface AnalysisRequest {
+  id: number;
+  epoch: number;
+  rate: number;
+  samples: Float32Array;
+}
+
+const queue = new LatestEpochQueue<AnalysisRequest>(async (data, current) => {
+  const result = await analyseSwiftF0Window(data.samples, data.rate);
+  if (!current()) return;
+  levels.push(result.rms);
+  if (levels.length > 24) levels.shift();
+  const peak = Math.max(0, ...levels);
+  if (result.rms < peak * 10 ** (-35 / 20)) result.hz = null;
+  scope.postMessage({ type: 'result', id: data.id, epoch: data.epoch, result });
+});
+
+function advanceEpoch(next: number) {
+  if (!Number.isSafeInteger(next) || next < 0 || next < epoch) return false;
+  if (next > epoch) {
+    epoch = next;
+    levels = [];
+    queue.retire(next);
+  }
+  return true;
+}
 
 scope.onmessage = ({ data }) => {
   if (data?.type === 'init') {
@@ -33,27 +61,29 @@ scope.onmessage = ({ data }) => {
       );
     return;
   }
-  if (!ready || data?.type !== 'analyze' || !(data.samples instanceof Float32Array)) return;
-  if (data.epoch !== epoch) {
-    epoch = data.epoch;
-    levels = [];
+  // Retire in-flight/queued work even when a subtitle gap admits no new request.
+  if (data?.type === 'retire') {
+    advanceEpoch(data.epoch);
+    return;
   }
-  void analyseSwiftF0Window(data.samples, data.rate)
-    .then((result) => {
-      if (data.epoch !== epoch) return;
-      levels.push(result.rms);
-      if (levels.length > 24) levels.shift();
-      const peak = Math.max(0, ...levels);
-      if (result.rms < peak * 10 ** (-35 / 20)) result.hz = null;
-      scope.postMessage({ type: 'result', id: data.id, result });
-    })
-    .catch((error) => {
-      if (data.epoch !== epoch) return;
-      scope.postMessage({
-        type: 'error',
-        id: data.id,
-        phase: 'analysis',
-        error: String(error?.message || error || 'SwiftF0 analysis failed')
-      });
+  if (
+    !ready ||
+    data?.type !== 'analyze' ||
+    !(data.samples instanceof Float32Array) ||
+    !Number.isSafeInteger(data.id) ||
+    data.id < 0 ||
+    !advanceEpoch(data.epoch)
+  )
+    return;
+  const request = data as AnalysisRequest;
+  void queue.submit(request).catch((error) => {
+    if (request.epoch !== epoch) return;
+    scope.postMessage({
+      type: 'error',
+      id: request.id,
+      epoch: request.epoch,
+      phase: 'analysis',
+      error: String(error?.message || error || 'SwiftF0 analysis failed')
     });
+  });
 };

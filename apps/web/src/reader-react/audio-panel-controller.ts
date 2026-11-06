@@ -554,6 +554,10 @@ export function createAudioPanel(
     __readerController.changed(
       (current = snapshot.file && snapshot.ready ? timeline.at(snapshot.time, delay) : -1)
     );
+    const cue = current >= 0 ? cues[current] : undefined;
+    // Update before the unchanged-cue shortcut: delay/duration and the gap
+    // clock can change without a different transcript index.
+    pitch?.setSpeechWindow(cue && cueAudioBounds(cue, delay, snapshot.duration), cue);
     navigation?.cueChanged(current);
     if (current === lastCue) return;
     __readerController.changed((lastCue = current));

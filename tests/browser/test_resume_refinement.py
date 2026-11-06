@@ -66,7 +66,7 @@ class ResumeControlsBrowser(deep.DeepControlRefinementBrowser):
             self.assertGreaterEqual(box['x'], 0)
             self.assertLessEqual(box['x'] + box['width'], 320)
         empty = self.page.locator('[data-slot="library-empty-state"]')
-        primary = empty.get_by_role('button', name='Import File(s)', exact=True)
+        primary = empty.get_by_role('button', name='Import files', exact=True)
         self.assertGreaterEqual(primary.evaluate('e => parseFloat(getComputedStyle(e).fontSize)'), 28)
         self.assertGreaterEqual(primary.bounding_box()['width'], 225)
         self.assertLessEqual(primary.bounding_box()['height'], 2 * primary.evaluate('e => parseFloat(getComputedStyle(e).lineHeight)') + 36)

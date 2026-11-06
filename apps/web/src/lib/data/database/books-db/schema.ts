@@ -21,7 +21,12 @@ const schema: Record<StoreNames<BooksDb>, StoreSchema> = {
   data: {
     keyPath: 'id',
     autoIncrement: true,
-    indexes: { title: 'title', contentHash: 'contentHash', libraryOwner: 'libraryOwner' }
+    indexes: {
+      title: 'title',
+      contentHash: 'contentHash',
+      libraryOwner: 'libraryOwner',
+      idLibraryOwner: ['id', 'libraryOwner']
+    }
   },
   bookmark: { keyPath: 'dataId' },
   lastItem: { keyPath: null },
@@ -35,7 +40,7 @@ const schema: Record<StoreNames<BooksDb>, StoreSchema> = {
   audioBook: { keyPath: 'title' },
   subtitle: { keyPath: 'title' },
   handle: { keyPath: ['title', 'dataType'] },
-  readerLocalIdentity: { keyPath: 'bookId' },
+  readerLocalIdentity: { keyPath: 'bookId', indexes: { uuid: 'uuid' } },
   publication: { keyPath: 'bookId' },
   readerAnnotation: { keyPath: 'id', indexes: { bookKey: 'bookKey', kind: 'kind' } },
   readerAnnotationOutbox: {
@@ -54,6 +59,11 @@ const schema: Record<StoreNames<BooksDb>, StoreSchema> = {
   },
   readerSearchProjection: { keyPath: 'bookId' },
   readerExternalSync: { keyPath: 'id' },
+  readerBridgeConnection: {
+    keyPath: 'id',
+    indexes: { accountId: 'accountId', binding: 'binding', bookId: 'bookId' }
+  },
+  readerBridgeJournal: { keyPath: 'id', indexes: { accountId: 'accountId', binding: 'binding' } },
   readerImportRecord: { keyPath: 'id', indexes: { bookKey: 'bookKey' } },
   readerStatistic: { keyPath: ['bookKey', 'dateKey'], indexes: { dateKey: 'dateKey' } },
   readerStatisticMigration: { keyPath: 'title' }

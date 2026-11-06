@@ -9,7 +9,10 @@
  */
 
 import { foldSearch } from '$lib/library/search-normalization';
-import { bookTitleMatchIndex } from '$lib/search/book-title-match-text';
+import {
+  buildBookTitleSearchSnapshot,
+  type BookTitleSearchSnapshot
+} from '$lib/search/book-title-match-text';
 
 import { librarySelectionScopeKey, type LibrarySelectionEligibility } from '$lib/library/selection';
 import type { BookPresentation, PresentationChange } from '$lib/library/organization';
@@ -103,6 +106,16 @@ import {
 } from '../features/library/layout-preferences';
 import { continueBooks, finishedGroups, seriesReadingTarget } from '$lib/library/reading-state';
 import { ObservableController, readStore, tick } from './observable-controller';
+
+interface LibraryCorpusSnapshot {
+  inputs: readonly unknown[];
+  entries: ReturnType<typeof visibleLibraryEntries>;
+  tree: ShelfNode[];
+  books: ShelfBook[];
+  search: BookTitleSearchSnapshot;
+}
+const libraryCorpusSnapshots = new WeakMap<object, LibraryCorpusSnapshot>();
+
 export class WorkspaceController extends ObservableController {
   private incomingRouteUrl: string | undefined;
   private routeUrlSnapshot: string | undefined;
@@ -266,21 +279,58 @@ export class WorkspaceController extends ObservableController {
   get viewerId() {
     return readStore(localUser)?.id ?? null;
   }
-  get accountEntries() {
-    return visibleLibraryEntries(this.bookCards, readStore(allLinkedBooks), this.viewerId);
-  }
-  get tree() {
-    return buildShelf(
-      this.accountEntries.cards,
-      this.accountEntries.links,
+  libraryCorpusSnapshot(): LibraryCorpusSnapshot {
+    const links = readStore(allLinkedBooks),
+      viewerId = this.viewerId,
+      currentOrganization = readStore(organization),
+      currentPreviews = readStore(previews),
+      inputs = [
+        this.bookCards,
+        links,
+        viewerId,
+        this.catalogs,
+        this.sources,
+        currentOrganization,
+        currentPreviews
+      ] as const;
+    const cached = libraryCorpusSnapshots.get(this);
+    if (
+      cached &&
+      cached.inputs.length === inputs.length &&
+      inputs.every((value, index) => Object.is(value, cached.inputs[index]))
+    )
+      return cached;
+    const entries = visibleLibraryEntries(this.bookCards, links, viewerId);
+    const tree = buildShelf(
+      entries.cards,
+      entries.links,
       this.catalogs,
       this.sources,
-      readStore(organization),
-      readStore(previews)
+      currentOrganization,
+      currentPreviews
     );
+    const books = allBooks(tree);
+    const snapshot = {
+      inputs,
+      entries,
+      tree,
+      books,
+      search: buildBookTitleSearchSnapshot(books, tree, currentOrganization.collections)
+    };
+    libraryCorpusSnapshots.set(this, snapshot);
+    return snapshot;
+  }
+  get accountEntries() {
+    return this.libraryCorpusSnapshot().entries;
+  }
+  get tree() {
+    return this.libraryCorpusSnapshot().tree;
   }
   get books() {
-    return allBooks(this.tree);
+    return this.libraryCorpusSnapshot().books;
+  }
+  get metadataSearchSnapshot() {
+    return this.libraryCorpusSnapshot().search;
   }
   get collectionId() {
     return this.url.searchParams.get('collection') || 'books';
@@ -372,24 +422,6 @@ export class WorkspaceController extends ObservableController {
   }
   get shelfQuery() {
     return libraryShelfSearchQuery(this.normalizedQuery, this.selectMode);
-  }
-  get metadataMatchIndex() {
-    return bookTitleMatchIndex(
-      this.searchableBooks,
-      this.tree,
-      readStore(organization).collections,
-      this.normalizedQuery
-    );
-  }
-  get metadataMatchText() {
-    return this.metadataMatchIndex.textByBook;
-  }
-  get metadataMatches() {
-    return this.searchableBooks.filter(
-      (book) =>
-        this.matchesBookQuery(book, this.normalizedQuery, []) ||
-        this.metadataMatchIndex.matchedKeys.has(book.key)
-    );
   }
   get flatDestination() {
     return !this.series && (this.collectionId === 'finished' || !!this.selectedCollection);

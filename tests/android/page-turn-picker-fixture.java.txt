@@ -1,0 +1,156 @@
+/* SPDX-License-Identifier: BSD-3-Clause */
+// Isolated execution of the actual two-phase journey. No Android/runtime claim.
+import java.util.*;
+import java.util.regex.*;
+
+class PageTurnPickerTest {
+  private final Map<String, String> storage = new LinkedHashMap<>();
+  private final JSONObject evidence = new JSONObject();
+  private final JSONObject config = new JSONObject().put("id", "synthetic-run");
+  private final Instrumentation instrumentation = new Instrumentation();
+  private final List<String> selections = new ArrayList<>();
+  private String failure;
+  private boolean menuOpen, saved;
+  private int cleanupWrites, routeOpens;
+
+  public static void main(String[] args) throws Exception {
+    for (String initial : new String[] {null, "slide", "none"}) {
+      run(initial, "seed", null);
+      run(initial, "full", null);
+      for (String phase : new String[] {"seed", "verify"})
+        for (String failure : new String[] {"open", "save", "selection-confirm", "route-reopen"})
+          run(initial, phase, failure);
+      run(initial, "verify", "restart-mismatch");
+    }
+  }
+  private static void run(String initial, String phase, String failure) throws Exception {
+    PageTurnPickerTest test = new PageTurnPickerTest();
+    if (initial != null) test.storage.put("pageTurnEffect", initial);
+    test.storage.put("unrelated-user-preference", "untouched");
+    Map<String, String> original = new LinkedHashMap<>(test.storage);
+    String value = initial == null ? "slide" : initial;
+    String selected = value.equals("slide") ? "none" : "slide";
+    if (phase.equals("verify")) {
+      test.qualifyNativePageTurn("seed");
+      test.evidence.values.clear(); test.selections.clear(); test.routeOpens = 0;
+      if ("restart-mismatch".equals(failure)) test.storage.put("pageTurnEffect", value);
+    }
+    test.failure = failure;
+    boolean failed = false;
+    try { test.qualifyNativePageTurn(phase); }
+    catch (AssertionError error) {
+      if (failure == null || !(error.getMessage().equals("injected " + failure) ||
+          failure.equals("restart-mismatch") && error.getMessage().contains("Every UI save"))) throw error;
+      failed = true;
+    }
+    assertEquals("Expected failure injection", failure != null, failed);
+    if (failure == null && phase.equals("seed")) {
+      assertEquals("Both choices must be selected before retaining the sentinel",
+          List.of(selected, value, selected), test.selections);
+      assertEquals("Seed must retain the native selection for restart", selected, test.storage.get("pageTurnEffect"));
+      assertTrue("Run-scoped metadata survives restart", test.instrumentation.context.prefs.contains("original"));
+      assertEquals("Seed cannot claim restoration", false,
+          test.evidence.getJSONObject("nativePageTurn").values.get("exactRawPreferenceRestored"));
+      test.selections.clear(); test.evidence.values.clear(); test.routeOpens = 0;
+      test.qualifyNativePageTurn("verify");
+      assertEquals("Verification exercises both choices and restores the original",
+          List.of(value, selected, value), test.selections);
+    }
+    assertEquals("Exact raw values and unrelated keys survive", original, test.storage);
+    assertEquals("Only the owned preference receives a cleanup write", 1, test.cleanupWrites);
+    assertTrue("Only completed cleanup retires test metadata", test.instrumentation.context.prefs.values.isEmpty());
+    if (failure == null) {
+      JSONObject result = test.evidence.getJSONObject("nativePageTurn");
+      assertEquals("Exact raw cleanup reported", true, result.values.get("exactRawPreferenceRestored"));
+    } else assertTrue("Failure must not emit successful journey evidence", !test.evidence.has("nativePageTurn"));
+  }
+
+  /* ACTUAL_PAGE_TURN_METHOD */
+
+  private void openNativePageLayout() {
+    if (++routeOpens > 1) inject("route-reopen");
+    assertTrue("Previous picker must be closed", !menuOpen);
+  }
+  private void awaitNativeLibraryReply() { assertTrue("Picker must be dismissed", !menuOpen); }
+  private void clickAccessibleText(String label) {
+    if (label.equals("Back")) { assertTrue("Close popup before leaving Settings", !menuOpen); return; }
+    assertTrue("Native dropdown must open before selecting", menuOpen);
+    assertTrue("Only exact options may be selected", label.equals("Slide") || label.equals("None"));
+    String value = label.toLowerCase(Locale.ROOT);
+    assertNotEquals("Every selection must change value", storage.getOrDefault("pageTurnEffect", "slide"), value);
+    storage.put("pageTurnEffect", value);
+    selections.add(value); menuOpen = false; saved = true;
+  }
+  private void awaitPageTurnPicker(String value, boolean open) {
+    assertEquals("Actual selected label must match saved value", value.toLowerCase(Locale.ROOT),
+        storage.getOrDefault("pageTurnEffect", "slide"));
+    if (open) { inject("open"); assertTrue("Menu cannot open twice", !menuOpen); menuOpen = true; }
+    else if (saved) inject("selection-confirm");
+  }
+  private void awaitRawPreference(String key, String expected) {
+    if (saved) inject("save");
+    assertEquals("Every UI save reaches owner storage", expected, JSONObject.quote(storage.get(key)));
+  }
+  private void inject(String point) { if (point.equals(failure)) throw new AssertionError("injected " + point); }
+  private String evaluate(String script) {
+    Matcher read = Pattern.compile("localStorage\\.getItem\\('([A-Za-z]+)'\\)").matcher(script);
+    if (read.matches()) {
+      String value = storage.get(read.group(1));
+      return value == null ? "null" : JSONObject.quote(value);
+    }
+    Matcher remove = Pattern.compile("localStorage\\.removeItem\\('([A-Za-z]+)'\\); true;").matcher(script);
+    Matcher write = Pattern.compile("localStorage\\.setItem\\('([A-Za-z]+)', \"([A-Za-z]+)\"\\); true;").matcher(script);
+    String key;
+    if (remove.matches()) { key = remove.group(1); storage.remove(key); }
+    else if (write.matches()) { key = write.group(1); storage.put(key, write.group(2)); }
+    else throw new AssertionError("Unadmitted evaluation: " + script);
+    assertEquals("Cleanup only touches the exact owned preference", "pageTurnEffect", key);
+    cleanupWrites++; return "true";
+  }
+  private static void assertEquals(String message, Object expected, Object actual) {
+    if (!Objects.equals(expected, actual)) throw new AssertionError(message + ": " + expected + " != " + actual);
+  }
+  private static void assertNotEquals(String message, Object expected, Object actual) {
+    assertTrue(message, !Objects.equals(expected, actual));
+  }
+  private static void assertTrue(String message, boolean value) { if (!value) throw new AssertionError(message); }
+  private static void assertFalse(String message, boolean value) { assertTrue(message, !value); }
+  static final class JSONObject {
+    final Map<String, Object> values = new LinkedHashMap<>();
+    JSONObject put(String key, Object value) { values.put(key, value); return this; }
+    String getString(String key) { return (String) values.get(key); }
+    JSONObject getJSONObject(String key) { return (JSONObject) values.get(key); }
+    boolean has(String key) { return values.containsKey(key); }
+    static String quote(String value) { return "\"" + value + "\""; }
+  }
+  static final class JSONArray { final List<String> values = new ArrayList<>(); JSONArray put(String value) { values.add(value); return this; } }
+  static final class KeyEvent { static final int KEYCODE_BACK = 4; }
+  final class Instrumentation {
+    final Context context = new Context();
+    Context getTargetContext() { return context; }
+    void sendKeyDownUpSync(int key) {
+      assertTrue("Only dismiss an open native picker", key == KeyEvent.KEYCODE_BACK && menuOpen);
+      menuOpen = false;
+    }
+  }
+  static class Context {
+    static final int MODE_PRIVATE = 0;
+    final android.content.SharedPreferences prefs = new android.content.SharedPreferences();
+    android.content.SharedPreferences getSharedPreferences(String name, int mode) {
+      assertEquals("Only the run's test metadata is admitted", "manabi-controls-qualification-synthetic-run", name);
+      return prefs;
+    }
+  }
+  static class android { static class content { static class SharedPreferences {
+    final Map<String, String> values = new HashMap<>();
+    boolean contains(String key) { return values.containsKey(key); }
+    String getString(String key, String fallback) { return values.getOrDefault(key, fallback); }
+    Editor edit() { return new Editor(); }
+    class Editor {
+      final Map<String, String> next = new HashMap<>(values);
+      Editor putString(String key, String value) { next.put(key, value); return this; }
+      Editor clear() { next.clear(); return this; }
+      boolean commit() { values.clear(); values.putAll(next); return true; }
+    }
+  } } }
+}

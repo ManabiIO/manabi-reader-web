@@ -14,7 +14,12 @@
   import SearchExcerpt from '../components/search-excerpt.svelte';
   import DictionarySearch from './dictionary-search.svelte';
   import { searchBookContents } from './book-content-source';
-  import type { BookTitleMatchContext } from './book-title-match-text';
+  import {
+    queryBookTitleSearchSnapshot,
+    type BookTitleMatchContext,
+    type BookTitleSearchSnapshot
+  } from './book-title-match-text';
+  import { foldSearch } from '../library/search-normalization';
   import {
     bookTitleRows,
     scopedSnippetTitleRows,
@@ -29,10 +34,13 @@
   import { queryTask, type SearchState } from './query-task.mjs';
   import {
     advanceMediaSearchRevisions,
+    arrayRevision,
+    referenceRevision,
     searchResultPlan,
     type SearchResultFilter
   } from './invalidation';
   import {
+    librarySearchQueryWithinLimit,
     librarySearchScopePlan,
     librarySearchScopes,
     type LibrarySearchScope
@@ -40,8 +48,7 @@
   export let query = '';
   export let searchScope: LibrarySearchScope = 'everything';
   export let books: ShelfBook[] = [];
-  export let matches: ShelfBook[] = [];
-  export let bookMatchText: Record<string, readonly BookTitleMatchContext[]> = {};
+  export let bookSearchSnapshot: BookTitleSearchSnapshot = { direct: [], contexts: [] };
   export let snippetMembers: string[] | undefined = undefined;
   export let returnTo = '/manage';
   export let openBook: (book: ShelfBook, locator?: ReaderLocator) => void;
@@ -78,6 +85,23 @@
   let stopMedia: () => void = () => {};
   let mediaTitleRevision = 0;
   let mediaContentRevision = 0;
+  const bookSearchSnapshotRevisionFor = referenceRevision<BookTitleSearchSnapshot>();
+  const snippetTitleRevisionFor = arrayRevision<SnippetSummary>(
+    (left, right) => left.id === right.id && left.key === right.key && left.title === right.title
+  );
+  const snippetContentRevisionFor = arrayRevision<SnippetSummary>(
+    (left, right) =>
+      left.key === right.key && left.title === right.title && left.revision === right.revision
+  );
+  const contentBooksRevisionFor = arrayRevision<ShelfBook>(
+    (left, right) =>
+      left.key === right.key &&
+      left.bookId === right.bookId &&
+      left.isPlaceholder === right.isPlaceholder &&
+      left.title === right.title &&
+      left.contentHash === right.contentHash &&
+      left.lastBookModified === right.lastBookModified
+  );
   async function mediaRuntime(): Promise<LazyMediaRuntime> {
     if (!videoLearningEnabled) throw new Error('Video learning is disabled.');
     if (!mediaRuntimePromise) {
@@ -116,8 +140,17 @@
   $: eligible = $snippetItems.filter(
     (item) => !item.trashedAt && (!snippetMembers || snippetMembers.includes(snippetKey(item.id)))
   );
+  $: queryWithinLimit = librarySearchQueryWithinLimit(query);
   $: scopePlan = librarySearchScopePlan(searchScope);
   $: resultPlan = searchResultPlan(filter);
+  $: bookSearchSnapshotRevision =
+    resultPlan.titles && scopePlan.books ? bookSearchSnapshotRevisionFor(bookSearchSnapshot) : 0;
+  $: snippetTitleRevision =
+    resultPlan.titles && scopePlan.snippets ? snippetTitleRevisionFor(eligible) : 0;
+  $: snippetContentRevision =
+    resultPlan.content && scopePlan.snippets ? snippetContentRevisionFor(eligible) : 0;
+  $: contentBooksRevision =
+    resultPlan.content && scopePlan.books ? contentBooksRevisionFor(books) : 0;
   $: availableFilters = scopePlan.dictionary
     ? filters
     : filters.filter((item) => item.id !== 'dictionary');
@@ -129,17 +162,8 @@
         query,
         owner,
         searchScope,
-        scopePlan.books
-          ? matches.map((book) => [
-              book.key,
-              book.title,
-              book.canonicalTitle,
-              (book.creators ?? []).map((creator) => creator.name),
-              book.series?.name ?? null,
-              bookMatchText[book.key] ?? []
-            ])
-          : [],
-        scopePlan.snippets ? eligible.map((item) => [item.key, item.title]) : [],
+        scopePlan.books ? bookSearchSnapshotRevision : 0,
+        scopePlan.snippets ? snippetTitleRevision : 0,
         videoLearningEnabled && searchScope === 'everything' ? mediaTitleRevision : 0
       ])
     : 'inactive';
@@ -148,18 +172,8 @@
         query,
         owner,
         searchScope,
-        scopePlan.books
-          ? books.map((book) => [
-              book.key,
-              book.bookId,
-              book.title,
-              book.contentHash,
-              book.lastBookModified
-            ])
-          : [],
-        scopePlan.snippets
-          ? eligible.map((item) => [item.key, item.title, item.revision])
-          : [],
+        scopePlan.books ? contentBooksRevision : 0,
+        scopePlan.snippets ? snippetContentRevision : 0,
         videoLearningEnabled && searchScope === 'everything' ? mediaContentRevision : 0
       ])
     : 'inactive';
@@ -192,12 +206,12 @@
   }
   function startTitles() {
     const plan = librarySearchScopePlan(searchScope);
-    const selectedBooks = plan.books ? [...matches] : [],
-      selectedSnippets = plan.snippets ? [...eligible] : [],
+    const selectedBookCorpus = plan.books ? books : [],
+      selectedBookSnapshot = bookSearchSnapshot,
+      selectedSnippets = plan.snippets ? eligible : [],
       selectedOwner = owner,
       selectedQuery = query,
-      runVideos = videoLearningEnabled && searchScope === 'everything',
-      selectedBookMatchText = bookMatchText;
+      runVideos = videoLearningEnabled && searchScope === 'everything';
     titleTask.start(async (signal, publish) => {
       const guard = () => {
         signal.throwIfAborted();
@@ -228,7 +242,19 @@
         }
       };
       // Metadata stays local and independent of dictionary initialization and
-      // expensive body projection. Do not normalize the editable query to kana.
+      // expensive body projection. Query the immutable Book snapshot only after
+      // this task owns the debounced generation; never scan the corpus in the
+      // synchronous input/reactive path.
+      let selectedBooks: ShelfBook[] = [],
+        selectedBookMatchText: Record<string, readonly BookTitleMatchContext[]> = {};
+      if (plan.books) {
+        const index = queryBookTitleSearchSnapshot(
+          selectedBookSnapshot,
+          foldSearch(selectedQuery.trim())
+        );
+        selectedBooks = selectedBookCorpus.filter((book) => index.matchedKeys.has(book.key));
+        selectedBookMatchText = index.textByBook;
+      }
       const bookRows = bookTitleRows(selectedBooks, selectedBookMatchText, selectedQuery);
       refreshSnippetRows();
       guard();
@@ -272,19 +298,19 @@
           truncated: videoTruncated
         }
       });
-    }, 0);
+    });
   }
   function startContent() {
     const plan = librarySearchScopePlan(searchScope);
-    const selectedBooks = plan.books ? [...books] : [],
-      selectedSnippets = plan.snippets ? [...eligible] : [],
+    const selectedBooks = plan.books ? books : [],
+      selectedSnippets = plan.snippets ? eligible : [],
       needle = query,
       selectedOwner = owner,
-      runVideos = videoLearningEnabled && searchScope === 'everything',
-      selectedBooksById = new Map(
+      runVideos = videoLearningEnabled && searchScope === 'everything';
+    contentTask.start((signal, publish) => {
+      const selectedBooksById = new Map(
         selectedBooks.flatMap((book) => (book.bookId ? [[book.bookId, book] as const] : []))
       );
-    contentTask.start((signal, publish) => {
       const guard = () => {
         signal.throwIfAborted();
         if (selectedOwner !== (localProfileUser()?.id ?? null))
@@ -369,7 +395,7 @@
     titleTask.stop();
     titles = { state: 'idle' };
     titleLimit = 30;
-    if (!resultPlan.titles || !query.trim() || [...query].length > 512) return;
+    if (!resultPlan.titles || !query.trim() || !queryWithinLimit) return;
     startTitles();
   }
   function refreshContent() {
@@ -377,7 +403,7 @@
     contentTask.stop();
     content = { state: 'idle' };
     contentLimit = 30;
-    if (!resultPlan.content || !query.trim() || [...query].length > 512) return;
+    if (!resultPlan.content || !query.trim() || !queryWithinLimit) return;
     startContent();
   }
   async function choose(value: SearchResultFilter) {
@@ -457,7 +483,7 @@
       expand={() => void choose('dictionary')}
       {onquery}
     />{/if}
-  {#if [...query].length > 512 && filter !== 'dictionary'}<p role="alert">
+  {#if !queryWithinLimit && filter !== 'dictionary'}<p role="alert">
       Use a search of 512 characters or fewer.
     </p>{/if}
   {#if filter === 'all' || filter === 'titles'}

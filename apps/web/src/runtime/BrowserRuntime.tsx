@@ -10,6 +10,7 @@ import { base } from './paths';
 import { retireImportBootstrapOutsideRoute } from './import-bootstrap';
 import { refreshAccount } from '$lib/manabi/client';
 import { startPreferenceSync } from '$lib/manabi/preferences';
+import { startReaderBridgeAutomaticChecks } from '$lib/manabi/reader-bridge-automatic';
 import { startBookSync, bookSyncStatus } from '$lib/manabi/books';
 import { personalSyncStatus } from '$lib/manabi/personal-sync';
 import { startSnippets } from '$lib/snippets/service';
@@ -44,8 +45,16 @@ import { DialogHost } from '../ui/dialogs';
 import { bundledFontCSS } from './font-assets';
 import { embeddedFontStyleSheet } from './embedded-fonts';
 import { SnippetCapture } from '../snippets-react';
+import { observeBrowserConnectivity } from './browser-connectivity';
+import './connection-notice.css';
 
-export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
+export function BrowserRuntime({
+  embedded = false,
+  routePath
+}: {
+  embedded?: boolean;
+  routePath?: string;
+}) {
   const appearance = useStore(appearance$);
   const mode = useStore(resolvedMode$);
   const theme = useStore(theme$);
@@ -59,6 +68,11 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
   const personal = useStore(personalSyncStatus);
   const books = useStore(bookSyncStatus);
   useEffect(() => {
+    const stopConnectivity = observeBrowserConnectivity((value) => isOnline$.next(value), {
+      window,
+      document,
+      navigator
+    });
     const fontStyle = document.createElement('style');
     fontStyle.id = 'manabi-packaged-fonts';
     fontStyle.textContent = bundledFontCSS;
@@ -73,6 +87,7 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
       startAppearanceSync(),
       startBackgrounds(),
       startPreferenceSync(),
+      ...(!embedded ? [startReaderBridgeAutomaticChecks()] : []),
       startBookSync(),
       startSnippets(derived(page, (current) => isSnippetLibraryPath(current.url.pathname, base)))
     ];
@@ -84,14 +99,11 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
       void refreshAccount(force);
     };
     const online = () => {
-      isOnline$.next(navigator.onLine);
       refresh(true);
     };
-    const offline = () => isOnline$.next(false);
     const focus = () => refresh();
     refresh();
     window.addEventListener('online', online);
-    window.addEventListener('offline', offline);
     window.addEventListener('focus', focus);
     if (!embedded && 'serviceWorker' in navigator && process.env.NODE_ENV === 'production')
       void navigator.serviceWorker
@@ -101,8 +113,8 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
       fontStyle.remove();
       active = false;
       stops.forEach((stop) => stop());
+      stopConnectivity();
       window.removeEventListener('online', online);
-      window.removeEventListener('offline', offline);
       window.removeEventListener('focus', focus);
     };
   }, [embedded]);
@@ -161,7 +173,8 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
     style.textContent = css;
     return undefined;
   }, [fonts, embedded]);
-  const path = location.url.pathname.slice(base.length).replace(/\/$/, '');
+  // The web shell supplies Expo's committed path; embedded hosts retain their explicit route bridge.
+  const path = (routePath ?? location.url.pathname.slice(base.length)).replace(/\/$/, '');
   const target = path === '/manage' ? 'library' : path === '/b' ? 'reader' : undefined;
   const background = target ? sets[target]?.[mode] : undefined;
   const options = target === 'reader' ? readerOptions : libraryOptions;
@@ -186,7 +199,7 @@ export function BrowserRuntime({ embedded = false }: { embedded?: boolean }) {
           aria-hidden="true"
         />
       )}
-      {attention && path !== '/connections' && (
+      {embedded && attention && path !== '/connections' && (
         <aside
           role="status"
           className="fixed right-4 bottom-14 z-30 max-w-sm rounded-lg border bg-card p-3"

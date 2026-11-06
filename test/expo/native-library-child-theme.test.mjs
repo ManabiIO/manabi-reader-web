@@ -17,6 +17,7 @@ Object.assign(globalThis, {
 });
 const { createRoot } = require('react-dom/client');
 const fixture = `import React,{useRef} from 'react';
+export const semantics=value=>({type:'semantics',...value});
 const flatten=x=>Object.assign({},...(Array.isArray(x)?x.flat(Infinity):[x]).filter(Boolean));
 export const StyleSheet={create:x=>x,flatten}; export const Platform={OS:'android'};
 export const useColorScheme=()=>'light';
@@ -28,7 +29,7 @@ export const Image=({source})=><img src={source.uri}/>;
 export const FlatList=({data,renderItem,ListEmptyComponent})=><div>{data.length?data.map(item=><div key={item.key}>{renderItem({item})}</div>):ListEmptyComponent}</div>;
 export const Host=({children,colorScheme,seedColor})=><div data-host="true" data-mode={colorScheme} data-seed={seedColor}>{children}</div>;
 export const useNativeState=value=>useRef({value}).current;
-export const TextInput=({value,onChangeText})=><input value={value.value} onInput={event=>onChangeText(event.currentTarget.value)} readOnly/>;
+export const TextInput=({value,onChangeText,modifiers})=><input aria-label={modifiers?.find(item=>item.type==='semantics')?.contentDescription} value={value.value} onInput={event=>onChangeText(event.currentTarget.value)} readOnly/>;
 export const ActivityIndicator=({color})=><div data-spinner={color}/>;
 export const Action=({label,onPress,disabled,theme})=><button data-action="true" data-mode={theme?.mode} data-seed={theme?.seedColor} disabled={disabled} onClick={onPress}>{label}</button>;
 export const AppState={addEventListener:()=>({remove(){}})};
@@ -60,7 +61,7 @@ const output = await build({
         b.onResolve(
           {
             filter:
-              /^(react-native|react-native-safe-area-context|@expo\/ui|expo-router)$|\/NativeScreens$|\/RuntimeProvider\.native$/
+              /^(react-native|react-native-safe-area-context|@expo\/ui(?:\/jetpack-compose\/modifiers)?|expo-router)$|\/NativeScreens$|\/RuntimeProvider\.native$/
           },
           () => ({ path: 'native', namespace: 'fixture' })
         );
@@ -172,11 +173,14 @@ for (const themeProps of appearances) {
     const host = container.querySelector('[data-host]');
     assert.equal(host.dataset.mode, 'dark');
     assert.equal(host.dataset.seed, theme.seedColor);
-    const input = container.querySelector('input');
+    const input = container.querySelector('input[aria-label="Text inside saved books"]');
+    assert.ok(input);
     await act(() => {
       input.value = 'saved';
       input.dispatchEvent(new Event('input', { bubbles: true }));
     });
+    assert.equal(input.value, 'saved');
+    assert.equal(input.getAttribute('aria-label'), 'Text inside saved books');
     const search = [...container.querySelectorAll('button')].find(
       (node) => node.textContent === 'Search passages'
     );

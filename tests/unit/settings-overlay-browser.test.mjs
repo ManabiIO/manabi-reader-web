@@ -7,8 +7,10 @@ import { build } from 'esbuild';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import * as fakeIndexedDB from 'fake-indexeddb';
 import { webcrypto } from 'node:crypto';
+import { createRequire } from 'node:module';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
+const appRequire = createRequire(new URL('../../apps/web/package.json', import.meta.url));
 const { outputFiles } = await build({
   stdin: {
     contents: `
@@ -41,12 +43,32 @@ const { outputFiles } = await build({
   write: false,
   outdir: '/tmp/manabi-settings-overlay-bundle',
   jsx: 'automatic',
+  conditions: ['browser', 'expo-source'],
+  resolveExtensions: ['.web.tsx', '.tsx', '.web.ts', '.ts', '.web.js', '.js'],
+  alias: { 'react-native': appRequire.resolve('react-native-web') },
   loader: { '.css': 'empty', '.wasm': 'file', '.onnx': 'file' },
   define: {
+    __DEV__: 'false',
     'process.env.NODE_ENV': '"development"',
     'import.meta.url': '"https://reader.example/fixture.js"'
   },
-  logLevel: 'warning'
+  logLevel: 'warning',
+  plugins: [
+    {
+      name: 'unused-navigation-boundary',
+      setup(builder) {
+        // This fixture mounts Settings editors, never a Router Link. Keep actual
+        // RNW controls while leaving the navigation runtime to its own tests.
+        builder.onResolve({ filter: /^expo-router$/ }, () => ({
+          path: 'router',
+          namespace: 'router'
+        }));
+        builder.onLoad({ filter: /.*/, namespace: 'router' }, () => ({
+          contents: 'export const Link = () => null;'
+        }));
+      }
+    }
+  ]
 });
 const javascript = outputFiles.find((file) => file.path.endsWith('.js')).text;
 

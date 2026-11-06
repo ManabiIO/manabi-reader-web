@@ -17,6 +17,7 @@ for (const key of [
   'sessionStorage',
   'Element',
   'HTMLElement',
+  'ShadowRoot',
   'HTMLInputElement',
   'MutationObserver',
   'Event',
@@ -35,7 +36,13 @@ globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.windo
 Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
 Object.assign(globalThis, indexedDB);
 Object.assign(window, { indexedDB: globalThis.indexedDB, IDBKeyRange: globalThis.IDBKeyRange });
-window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+window.matchMedia = () => ({
+  matches: false,
+  addListener() {},
+  removeListener() {},
+  addEventListener() {},
+  removeEventListener() {}
+});
 window.scrollTo = () => {};
 window.HTMLDialogElement.prototype.showModal = function () {
   this.open = true;
@@ -72,7 +79,11 @@ const {
   reloadSnippets,
   createSnippet,
   plainContent,
-  RouteParams
+  RouteParams,
+  createBrowserHistory,
+  applyRouterHistoryAction,
+  restoreNavigationFromBrowser,
+  createBrowserHistoryAdapter
 } = require(process.argv[2]);
 const strict = process.argv[3] === 'true';
 const origin = location.origin;
@@ -192,15 +203,21 @@ try {
   const history = window.history;
   const savedHistoryState = structuredClone(history.state),
     savedHistoryURL = location.href;
-  const { createMemoryHistory } = appRequire('expo-router/build/fork/createMemoryHistory');
-  const memory = createMemoryHistory();
+  const adapter = createBrowserHistoryAdapter();
   const stateRouter = WebSlotRouter({ initialRouteName: 'manage' });
   const config = { routeNames: ['manage', 'settings'], routeParamList: {}, routeGetIdList: {} };
-  let routeState = stateRouter.getInitialState(config);
+  const { createInitialState } = appRequire(
+    'expo-router/build/react-navigation/core/createInitialState'
+  );
+  let routeState = createInitialState({
+    routeNames: config.routeNames,
+    initialRouteName: 'manage',
+    parentChain: 'root'
+  });
   const visited = {};
   const readyHistory = (library, workspace) => Object.assign(visited, { library, workspace });
-  const historyURL = () => {
-    const route = routeState.routes[routeState.index];
+  const historyURL = (state = routeState) => {
+    const route = state.routes[state.index];
     const url = new URL(`/reader-web/${route.name}`, origin);
     for (const [name, value] of Object.entries(route.params ?? {}))
       url.searchParams.set(name, value);
@@ -214,10 +231,25 @@ try {
         onReady: readyHistory
       })
     );
-  memory.replace({ path: historyURL().pathname, state: routeState });
+  const historyConfig = {
+    browserHistoryIdPrefix: 'qualification',
+    linking: { getPathFromState: (state) => historyURL(state).pathname + historyURL(state).search }
+  };
+  let projection = createBrowserHistory(routeState, historyConfig);
+  for (const event of projection.events) adapter.apply(event);
+  await delay(0);
   let traversals = 0;
-  const stopHistory = memory.listen(() => {
-    routeState = stateRouter.getRehydratedState(memory.get(memory.index).state, config);
+  const stopHistory = adapter.listen((change) => {
+    const restored = restoreNavigationFromBrowser(
+      projection.history,
+      { state: routeState },
+      change,
+      historyConfig,
+      (result, intent) => stateRouter.getStateForAction(result.state, intent.payload.action, config)
+    );
+    routeState = restored.result.state;
+    projection = restored;
+    for (const event of projection.events) adapter.apply(event);
     traversals++;
   });
   const stopQualified = installQualifiedWebNavigation(
@@ -225,7 +257,7 @@ try {
     {
       push(path) {
         const target = new URL(path, origin);
-        routeState = stateRouter.getStateForAction(
+        const result = stateRouter.getStateForAction(
           routeState,
           {
             type: 'PUSH',
@@ -236,7 +268,14 @@ try {
           },
           config
         );
-        memory.push({ path: historyURL().pathname + historyURL().search, state: routeState });
+        routeState = result.state;
+        projection = applyRouterHistoryAction(
+          projection.history,
+          routeState,
+          historyConfig,
+          result.browserHistory
+        );
+        for (const event of projection.events) adapter.apply(event);
       },
       replace() {
         throw new Error('Unexpected replace in a Library push journey');
@@ -311,6 +350,24 @@ try {
     assert.equal(workspace.collectionId, 'finished');
     assert.equal(visited.library, library);
     assert.equal(library.lastExportNotice, 'Keep the completed export notice');
+    await act(async () => {
+      await goto('/reader-web/manage?collection=want-to-read');
+    });
+    await renderHistory();
+    const popped = stateRouter.getStateForAction(routeState, { type: 'POP_TO_TOP' }, config);
+    const destination = applyRouterHistoryAction(
+      projection.history,
+      popped.state,
+      historyConfig,
+      popped.browserHistory
+    );
+    assert.equal(
+      destination.history.index,
+      0,
+      'pop-to-top skips all intermediate visits sharing the mounted key'
+    );
+    assert.equal(destination.events.find((event) => event.op === 'go').delta, -2);
+    assert.equal(destination.history.entries[0].id, firstEntry);
   } finally {
     stopQualified();
     stopHistory();

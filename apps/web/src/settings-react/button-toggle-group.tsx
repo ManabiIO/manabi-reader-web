@@ -6,15 +6,7 @@
 
 import React from 'react';
 import { useReaderController } from '../reader-react/controller';
-import {
-  Dom,
-  Button,
-  Switch,
-  useLatest,
-  useReaderBindings,
-  slotContent,
-  type ReaderViewProps
-} from './primitives';
+import { useLatest, useReaderBindings, slotContent, type ReaderViewProps } from './primitives';
 import { SettingsContext, useSettingsContext } from './context';
 import {
   createButtonToggleGroup,
@@ -22,6 +14,9 @@ import {
 } from './button-toggle-group-controller';
 
 import { availableThemes } from '$lib/data/theme-option';
+import { SettingsSwitch } from '../features/settings/SettingsSwitch';
+import { SettingsChoices } from '../features/settings/SettingsChoices';
+import { SettingsThemeChoices } from '../features/settings/SettingsThemeChoices';
 export function ButtonToggleGroup(
   props: Partial<ButtonToggleGroupProps> &
     ReaderViewProps & {
@@ -50,80 +45,45 @@ export function ButtonToggleGroup(
     <SettingsContext.Provider value={context}>
       <div className="react-settings-button-toggle-group" style={{ display: 'contents' }}>
         {c.isBoolean ? (
-          <>
-            <Dom as="div" className={['flex min-h-9 items-center gap-3'].filter(Boolean).join(' ')}>
-              <Switch
-                aria-label={c.fieldName()}
-                checked={c.selectedOptionId === true}
-                onCheckedChange={(value) => c.controller.changed((c.selectedOptionId = value))}
-              ></Switch>
-              <Dom
-                as="span"
-                className={['text-sm text-muted-foreground'].filter(Boolean).join(' ')}
-              >
-                {c.selectedOptionId ? 'On' : 'Off'}
-              </Dom>
-            </Dom>
-          </>
+          <SettingsSwitch
+            label={c.fieldName()}
+            value={c.selectedOptionId === true}
+            onValueChange={(value) => c.controller.changed((c.selectedOptionId = value))}
+          />
         ) : (
-          <>
-            {' '}
-            <Dom
-              as="div"
-              role={'group'}
-              aria-label={c.fieldName()}
-              className={['flex flex-wrap gap-2', c.invertColors && 'legacy-invert']
-                .filter(Boolean)
-                .join(' ')}
-            >
-              {(c.options ?? []).map((option, _index0) => (
-                <React.Fragment key={option.id}>
-                  <Dom
-                    as="div"
-                    className={['flex flex-wrap items-center gap-1'].filter(Boolean).join(' ')}
-                  >
-                    <Button
-                      title={String(option.id)}
-                      variant={option.id === c.selectedOptionId ? 'secondary' : 'outline'}
-                      aria-pressed={option.id === c.selectedOptionId}
-                      styleText={c.styles(option.style)}
-                      onClick={() => c.controller.changed((c.selectedOptionId = option.id))}
-                      className={[
-                        option.id === c.selectedOptionId
-                          ? 'border-2 border-primary'
-                          : 'border-border'
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                    >
-                      {option.text}
-                    </Button>
-                    {option.showIcons &&
-                    option.id === c.selectedOptionId &&
-                    !availableThemes.has(option.id) ? (
-                      <>
-                        <Button
-                          variant={'ghost'}
-                          aria-label={`Edit ${option.text} theme`}
-                          onClick={() => c.dispatch('edit', option.id)}
-                        >
-                          {'Edit'}
-                        </Button>
-                        <Button
-                          variant={'ghost'}
-                          aria-label={`Delete ${option.text} theme`}
-                          onClick={() => c.dispatch('delete', option.id)}
-                        >
-                          {'Delete'}
-                        </Button>
-                      </>
-                    ) : null}
-                  </Dom>
-                </React.Fragment>
-              ))}
-              {slotContent(props.children, undefined)}
-            </Dom>
-          </>
+          <div className={c.invertColors ? 'legacy-invert' : undefined}>
+            {c.options.some((option) => option.showIcons) ? (
+              <SettingsThemeChoices
+                label={c.fieldName()}
+                value={c.selectedOptionId}
+                options={c.options.map((option) => ({
+                  value: option.id,
+                  label: option.text,
+                  custom: !!option.showIcons && !availableThemes.has(option.id),
+                  colors: option.style
+                    ? {
+                        foreground: option.style.color,
+                        background: option.style['background-color']
+                      }
+                    : undefined
+                }))}
+                onValueChange={(value) => c.controller.changed((c.selectedOptionId = value))}
+                onEdit={(value) => c.dispatch('edit', value)}
+                onDelete={(value) => c.dispatch('delete', value)}
+              >
+                {slotContent(props.children, undefined)}
+              </SettingsThemeChoices>
+            ) : (
+              <SettingsChoices
+                label={c.fieldName()}
+                value={c.selectedOptionId}
+                options={c.options.map((option) => ({ value: option.id, label: option.text }))}
+                onValueChange={(value) => c.controller.changed((c.selectedOptionId = value))}
+              >
+                {slotContent(props.children, undefined)}
+              </SettingsChoices>
+            )}
+          </div>
         )}
       </div>
     </SettingsContext.Provider>

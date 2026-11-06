@@ -25,6 +25,29 @@ export interface UserFont {
   fileName: string;
 }
 
+/** The same packaged catalog and order on web and Android. Native-face probing
+ * belongs to the reader owner; an unresolved probe never advertises a face. */
+export const primaryPackagedFonts: readonly LocalFont[] = [
+  LocalFont.NOTOSERIFJP,
+  LocalFont.KZUDMINCHO,
+  LocalFont.GENEI,
+  LocalFont.SHIPPORIMINCHO,
+  LocalFont.KLEEONE,
+  LocalFont.KLEEONESEMIBOLD,
+  LocalFont.SERIF
+];
+export const secondaryPackagedFonts: readonly LocalFont[] = [
+  LocalFont.SYSTEMSANS,
+  LocalFont.NOTOSANSJP,
+  LocalFont.KZUDGOTHIC,
+  LocalFont.SANSSERIF
+];
+export function availablePrimaryFonts(yuKyokashoAvailable: boolean | undefined): LocalFont[] {
+  return yuKyokashoAvailable === true
+    ? [LocalFont.YUKYOKASHO, ...primaryPackagedFonts]
+    : [...primaryPackagedFonts];
+}
+
 export const userFontsCacheName = 'ttu-userfonts';
 
 export const reservedFontNames = new Set([

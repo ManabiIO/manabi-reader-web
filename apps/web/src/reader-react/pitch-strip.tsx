@@ -184,7 +184,9 @@ export function PitchStrip(props: Partial<PitchStripProps> & ReaderViewProps) {
                                 {!c.available
                                   ? 'Choose an audio file to see pitch'
                                   : c.state.activity === 'playing'
-                                    ? 'Listening for the voice…'
+                                    ? c.state.speechActive
+                                      ? 'Listening for the voice…'
+                                      : 'Waiting for dialogue…'
                                     : c.state.activity === 'buffering'
                                       ? 'Waiting for audio…'
                                       : 'Press Play to follow the voice'}
@@ -210,7 +212,7 @@ export function PitchStrip(props: Partial<PitchStripProps> & ReaderViewProps) {
                 <Dom as="summary">{'About this view'}</Dom>
                 <Dom as="p">
                   {
-                    ' Yellow follows the voice’s estimated pitch; the shaded waveform shows its volume. Pausing holds the trace. Seeking starts a new one. Gaps can mean silence, unvoiced speech, or a pitch outside 85–520 Hz. This is a listening aid, not a pitch-accent score. Audio stays on your device. '
+                    ' Yellow follows estimated pitch during the active subtitle; the shaded waveform shows the mixed audio level. Between subtitles, analysis waits for dialogue. Music or another speaker overlapping dialogue can still affect the estimate. Pausing holds the trace. Seeking starts a new one. Gaps can mean silence, unvoiced speech, or a pitch outside 85–520 Hz. This is a listening aid, not a pitch-accent score. Audio stays on your device. '
                   }
                 </Dom>
               </Dom>

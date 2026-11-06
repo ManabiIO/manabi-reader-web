@@ -48,6 +48,9 @@ import { ReaderController, readerTick, type StoreValue } from './controller';
 
 export interface FoliateProps {
   htmlContent: string;
+  language?: string;
+  direction?: 'ltr' | 'rtl' | undefined;
+
   styleSheet?: string;
   epubResources: EpubResourceData[] | undefined;
   publicationManifest: PublicationManifest;
@@ -106,6 +109,9 @@ export function createFoliate(
     __readerController.read(disableWheelNavigation$);
   let $resolvedMode$: StoreValue<typeof resolvedMode$> = __readerController.read(resolvedMode$);
   let htmlContent: string = props.htmlContent;
+  let language: string = props.language ?? '';
+  let direction: 'ltr' | 'rtl' | undefined = props.direction;
+
   let styleSheet = props.styleSheet !== undefined ? props.styleSheet : '';
   let epubResources: EpubResourceData[] | undefined = props.epubResources;
   let publicationManifest: PublicationManifest = props.publicationManifest;
@@ -562,7 +568,12 @@ export function createFoliate(
       styleSheet,
       publicationManifest,
       document,
-      { writingMode: verticalMode ? 'vertical-rl' : 'horizontal-tb', resources: epubResources }
+      {
+        language,
+        direction,
+        writingMode: verticalMode ? 'vertical-rl' : 'horizontal-tb',
+        resources: epubResources
+      }
     );
     __readerController.changed((book = publication.book));
     __readerController.changed((sourceSections = publication.sourceSections));
@@ -707,6 +718,22 @@ export function createFoliate(
     handleLoad,
     handlePageTurnStart,
     handleRelocate,
+    get language() {
+      return language;
+    },
+    set language(nextValue: typeof language) {
+      if (Object.is(language, nextValue)) return;
+      language = nextValue;
+      __readerController.invalidate();
+    },
+    get direction() {
+      return direction;
+    },
+    set direction(nextValue: typeof direction) {
+      if (Object.is(direction, nextValue)) return;
+      direction = nextValue;
+      __readerController.invalidate();
+    },
     get htmlContent() {
       return htmlContent;
     },
@@ -1197,6 +1224,9 @@ export function createFoliate(
     },
     updateProps(next: Record<string, unknown>) {
       if ('htmlContent' in next) api.htmlContent = next.htmlContent as typeof htmlContent;
+      if ('language' in next) api.language = next.language as typeof language;
+      if ('direction' in next) api.direction = next.direction as typeof direction;
+
       if ('styleSheet' in next) api.styleSheet = next.styleSheet as typeof styleSheet;
       if ('epubResources' in next) api.epubResources = next.epubResources as typeof epubResources;
       if ('publicationManifest' in next)

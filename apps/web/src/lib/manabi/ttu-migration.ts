@@ -4,8 +4,8 @@
  * All rights reserved.
  */
 
-import { rewriteEpubPublication } from '$lib/foliate-epub/publication-data';
 import { encodeBook } from '$lib/data/database/books-db/book-binary';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { requestPersistentStorageOnce } from '$lib/data/window/navigator/persistent-storage';
 
 import { database, lastReadingGoalsModified$, readingGoal$ } from '$lib/data/store';
@@ -29,13 +29,11 @@ import {
 } from '$lib/functions/file-loaders/utils/limited-archive';
 import { readRestoredBook } from '$lib/functions/file-loaders/utils/restored-book';
 import { bookKey, updateOrganization } from '$lib/library/organization';
-import {
-  sanitizeBookHtml,
-  sanitizeBookStyleSheet
-} from '$lib/functions/book-security/book-content-security';
-import buildDummyBookImage from '$lib/functions/file-loaders/utils/build-dummy-book-image';
+import { prepareReaderImportContent } from './reader-import-content';
 import { exclusive } from './persistence';
 import { localProfileUser } from './client';
+import { prepareLocalLibraryOperation } from './operation-scope';
+import { identifyReaderBook } from './reader-book-identity';
 import { yatsuRows, prepareYatsuEntries, annotationContent, type YatsuPart } from './yatsu-import';
 import { parseYatsuSettings } from './yatsu-settings-format';
 import { importYatsuSettings } from './yatsu-settings';
@@ -115,13 +113,6 @@ function receipt(book: MigratedBook): Receipt | undefined {
     ? value
     : undefined;
 }
-async function hash(value: Blob | string): Promise<string> {
-  const bytes =
-    typeof value === 'string' ? new TextEncoder().encode(value) : await value.arrayBuffer();
-  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (v) =>
-    v.toString(16).padStart(2, '0')
-  ).join('');
-}
 function imageMime(name: string): string {
   const extension = name.split('.').pop()?.toLowerCase() ?? '';
   return (
@@ -143,23 +134,61 @@ function sameSource(book: MigratedBook, title: string, fingerprint?: string): bo
   const value = receipt(book);
   return !!value && value.sourceTitle === title && (!fingerprint || value.content === fingerprint);
 }
-export async function migratedBookChoices(): Promise<MigratedBookChoice[]> {
-  const db = await database.db;
-  const tx = db.transaction('data');
-  const choices: MigratedBookChoice[] = [];
-  let cursor = await tx.store.openCursor();
-  while (cursor) {
-    const prior = receipt(cursor.value);
-    if (prior)
-      choices.push({
-        id: cursor.value.id,
-        title: cursor.value.title,
-        sourceTitle: prior.sourceTitle
-      });
-    cursor = await cursor.continue();
+export async function migratedBookChoices(signal?: AbortSignal): Promise<MigratedBookChoice[]> {
+  const operation = await prepareLocalLibraryOperation(signal);
+  const check = () => {
+    signal?.throwIfAborted();
+    operation.assertCurrent();
+  };
+  try {
+    check();
+    const db = await database.db;
+    check();
+    const tx = db.transaction(['data', 'readerBookScope']);
+    const choices = await commitTransaction(tx, async () => {
+      const data = tx.objectStore('data');
+      const unavailable = new Set<number>();
+      for (
+        let cursor = await data.index('libraryOwner').openKeyCursor();
+        cursor;
+        cursor = await cursor.continue()
+      ) {
+        check();
+        if (cursor.key !== operation.profileId) unavailable.add(cursor.primaryKey);
+      }
+      for (
+        let cursor = await tx.objectStore('readerBookScope').openCursor();
+        cursor;
+        cursor = await cursor.continue()
+      ) {
+        check();
+        if (
+          typeof cursor.value.accountId !== 'string' ||
+          cursor.value.accountId !== operation.profileId
+        )
+          unavailable.add(cursor.primaryKey);
+      }
+      // Import receipts are embedded in data and have no index. Read only
+      // eligible records, one at a time; foreign books' media stays in storage.
+      const result: MigratedBookChoice[] = [];
+      for (let cursor = await data.openKeyCursor(); cursor; cursor = await cursor.continue()) {
+        check();
+        if (unavailable.has(cursor.primaryKey)) continue;
+        const book = await data.get(cursor.primaryKey);
+        check();
+        if (!book || (book.libraryOwner !== undefined && book.libraryOwner !== operation.profileId))
+          continue;
+        const prior = receipt(book);
+        if (prior) result.push({ id: book.id, title: book.title, sourceTitle: prior.sourceTitle });
+      }
+      check();
+      return result;
+    });
+    check();
+    return choices;
+  } finally {
+    operation.stop();
   }
-  await tx.done;
-  return choices;
 }
 
 /** A File-backed import session. Preview holds filenames only, not every decoded book. */
@@ -321,9 +350,13 @@ export class TtuMigration {
   ): Promise<MigrationResult> {
     if (this.importing) throw new Error('An import from this ZIP is already running.');
     this.importing = true;
+    let operation: Awaited<ReturnType<typeof prepareLocalLibraryOperation>> | undefined;
     try {
-      return await this.readAndCommit(id, options, signal);
+      operation = await prepareLocalLibraryOperation(signal);
+      const lifetime = signal ? AbortSignal.any([signal, operation.signal]) : operation.signal;
+      return await this.readAndCommit(id, options, lifetime, operation);
     } finally {
+      operation?.stop();
       this.importing = false;
     }
   }
@@ -331,11 +364,13 @@ export class TtuMigration {
   private async readAndCommit(
     id: string,
     options: MigrationOptions,
-    signal?: AbortSignal
+    signal: AbortSignal,
+    operation: Awaited<ReturnType<typeof prepareLocalLibraryOperation>>
   ): Promise<MigrationResult> {
     signal?.throwIfAborted();
     const accountId = localProfileUser()?.id ?? null;
     const assertAccount = () => {
+      operation.assertCurrent();
       if ((localProfileUser()?.id ?? null) !== accountId)
         throw new Error('Account changed during import.');
     };
@@ -372,54 +407,12 @@ export class TtuMigration {
       });
       if (!data || data.title !== item.title)
         throw new Error('Book Data and its folder title disagree.');
-      const media: [string, string][] = [];
-      for (const name of Object.keys(data.blobs).sort()) {
-        signal?.throwIfAborted();
-        media.push([name, await hash(data.blobs[name])]);
-      }
-      const characters =
-        bookFile.metadata.characters ||
-        Math.max(0, ...data.sections.map((s) => (s.startCharacter ?? 0) + (s.characters ?? 0)));
-      // Hash decoded content, not ZIP timestamps/compression or browser-local IDs.
-      fingerprint = await hash(
-        canonical({
-          html: data.elementHtml,
-          css: data.styleSheet,
-          ...(data.epubPublication ? { epubPublication: data.epubPublication } : {}),
-          sections: data.sections,
-          language: data.language,
-          creators: data.creators,
-          metadata: data.metadata,
-          pageDirection: data.pageDirection,
-          characters,
-          media,
-          cover: data.coverImage ? await hash(data.coverImage) : null
-        })
-      );
-      const imageReferences = new Map<string, string>();
-      for (const name of Object.keys(data.blobs)) {
-        const placeholder = buildDummyBookImage(name);
-        imageReferences.set(placeholder, placeholder);
-        imageReferences.set(`ttu:${name}`, placeholder);
-      }
-      const policy = {
-        document,
-        preserveReaderLinks: true,
-        resolveImage: (source: string) => imageReferences.get(source)
-      };
-      const sanitized = data.epubPublication
-        ? rewriteEpubPublication(data.epubPublication, data.elementHtml, (resource) => ({
-            ...resource,
-            html: sanitizeBookHtml(resource.html, policy),
-            styleSheet: sanitizeBookStyleSheet(resource.styleSheet, document)
-          }))
-        : { elementHtml: sanitizeBookHtml(data.elementHtml, policy) };
+      const identity = await identifyReaderBook(data, bookFile.metadata.characters ?? 0, signal);
+      const { characters } = identity;
+      fingerprint = identity.fingerprint;
       content = {
-        ...data,
+        ...prepareReaderImportContent(data, document),
         title: item.title,
-        ...sanitized,
-        styleSheet: sanitizeBookStyleSheet(data.styleSheet, document),
-        htmlBackup: data.htmlBackup ? sanitizeBookHtml(data.htmlBackup, policy) : undefined,
         characters,
         hasThumb: !!data.coverImage,
         lastBookModified: bookFile.metadata.modified,

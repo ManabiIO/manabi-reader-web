@@ -3,12 +3,14 @@
 // One ESM graph mounts the real web Library and exports its own storage/account
 // instances. No Vite/Svelte runtime, mock adapter, or production debug entry.
 import { build } from 'esbuild';
+import { createRequire } from 'node:module';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath, URL } from 'node:url';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
+const appRequire = createRequire(path.join(root, 'apps/web/package.json'));
 export const runtimeModules = {
   'lib/data/store.ts': ['database'],
   'lib/manabi/shared-library.ts': ['transferSharedBooks'],
@@ -53,15 +55,31 @@ export async function buildSharedRuntime(directory) {
     bundle: true,
     format: 'esm',
     platform: 'browser',
+    conditions: ['browser', 'expo-source'],
+    resolveExtensions: ['.web.tsx', '.tsx', '.web.ts', '.ts', '.web.js', '.js', '.json'],
+    alias: { 'react-native': appRequire.resolve('react-native-web') },
+    plugins: [
+      {
+        name: 'published-router-entry',
+        setup(builder) {
+          // Router's source export is not shipped in its npm archive. Keep its
+          // actual published JS while Expo modules use their shipped web sources.
+          builder.onResolve({ filter: /^expo-router$/ }, () => ({
+            path: appRequire.resolve('expo-router')
+          }));
+        }
+      }
+    ],
     jsx: 'automatic',
     tsconfig: path.join(root, 'apps/web/tsconfig.json'),
     define: {
+      __DEV__: 'false',
       'process.env.NODE_ENV': '"production"',
       'process.env.EXPO_PUBLIC_READER_BASE_PATH': '"/reader-web"',
       'process.env.EXPO_BASE_URL': '"/reader-web"',
       'process.env': '{}'
     },
-    loader: { '.woff': 'file', '.woff2': 'file' },
+    loader: { '.woff': 'file', '.woff2': 'file', '.png': 'file' },
     metafile: true,
     logLevel: 'silent'
   });

@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { Host, TextInput, useNativeState } from '@expo/ui';
+import { semantics } from '@expo/ui/jetpack-compose/modifiers';
 import { router, usePathname } from 'expo-router';
 import { Action } from '../screens/NativeScreens';
 import { UiText as Text } from '../shared-ui/Typography';
@@ -69,6 +70,7 @@ export function NativeLibraryContentSearch({
         </Text>
         <Host matchContents colorScheme={theme.mode} seedColor={theme.seedColor}>
           <TextInput
+            modifiers={[semantics({ contentDescription: 'Text inside saved books' })]}
             value={input}
             placeholder="Text inside saved books"
             maxLength={1024}

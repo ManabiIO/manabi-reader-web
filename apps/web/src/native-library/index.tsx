@@ -25,10 +25,11 @@ import {
   useColorScheme,
   useWindowDimensions,
   View,
-  type ViewToken
+  type FlatListProps
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Host as ExpoHost, TextInput, useNativeState } from '@expo/ui';
+import { semantics } from '@expo/ui/jetpack-compose/modifiers';
 import { Switch } from '../shared-ui/ExpoToggle';
 import { router, usePathname } from 'expo-router';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
@@ -44,15 +45,17 @@ import {
   type NativeLibraryState
 } from './contract';
 import { reconcileNativeSelection } from './selection';
-import {
-  librarySortChoices,
-  readLibrarySort,
-  type LibrarySort
-} from '../features/library/sort-options';
+import { readLibrarySort, type LibrarySort } from '../features/library/sort-options';
 import { NativeLibraryContentSearch } from './content-search';
+import { NativeSavedBackground } from '../native-settings/NativeSavedBackground';
 import { NativeBookCover } from './cover';
 import { formatCalendarDay } from '../lib/library/reading-state';
 import { LibraryBookFace } from '../features/library/LibraryBookFace';
+import { NativeBookExportForm } from './export-sheet';
+import { LibrarySortControls } from '../features/library/LibrarySortControls';
+import { sortLayout } from '../features/library/sort-layout';
+import { LibrarySelectionToolbar } from '../features/library/LibrarySelectionToolbar';
+import { selectionLayout } from '../features/library/selection-layout';
 import { bookFaceLayout } from '../features/library/book-face';
 import {
   LibraryMetadataFields,
@@ -133,6 +136,7 @@ function Field({
         style={{ width: '100%', minHeight: 48 }}
       >
         <TextInput
+          modifiers={[semantics({ contentDescription: label })]}
           value={native}
           placeholder={placeholder ?? label}
           editable={!disabled}
@@ -223,20 +227,28 @@ function Library() {
     publishCoverViewport();
   };
   const onRecentViewableItemsChanged = useRef(
-    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    ({
+      viewableItems
+    }: Parameters<NonNullable<FlatListProps<NativeLibraryBook>['onViewableItemsChanged']>>[0]) => {
       visibleRecent.current = viewableItems
         .filter(({ item }) => item.hasCover)
         .map(({ item }) => item.key);
       publishCoverViewport();
     }
   ).current;
-  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
-    visibleBooks.current = viewableItems
-      .flatMap(({ item }) => (item.kind === 'book' ? [item] : (item.books ?? [])))
-      .filter((book) => book.hasCover)
-      .map((book) => book.key);
-    publishCoverViewport();
-  }).current;
+  const onViewableItemsChanged = useRef(
+    ({
+      viewableItems
+    }: Parameters<
+      NonNullable<FlatListProps<NativeLibraryState['items'][number]>['onViewableItemsChanged']>
+    >[0]) => {
+      visibleBooks.current = viewableItems
+        .flatMap(({ item }) => (item.kind === 'book' ? [item] : (item.books ?? [])))
+        .filter((book) => book.hasCover)
+        .map((book) => book.key);
+      publishCoverViewport();
+    }
+  ).current;
   const viewabilityConfig = useRef(libraryCoverViewability).current;
   const [query, setQuery] = useState<LibraryQuery>({
     query: '',
@@ -264,8 +276,28 @@ function Library() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [exportSelection, setExportSelection] = useState<{
+    token: string;
+    keys: string[];
+    revision: number;
+  }>();
+  const [exportMessage, setExportMessage] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [selecting, setSelecting] = useState(false);
+  const removalIntent = useRef(0);
+  const removalScope = useRef({ selected, selecting, focused, revision: 0 });
+  if (
+    removalScope.current.selected !== selected ||
+    removalScope.current.selecting !== selecting ||
+    removalScope.current.focused !== focused
+  ) {
+    removalScope.current = {
+      selected,
+      selecting,
+      focused,
+      revision: removalScope.current.revision + 1
+    };
+  }
   const grid = state?.layout === 'grid';
   const finishedShelf = query.collection === 'finished' && !query.series;
   const timeline = finishedShelf && !grid;
@@ -369,6 +401,7 @@ function Library() {
         setBusy(false);
       }
       coverOperation.current?.abort();
+      setExportSelection(undefined);
       setCatalogVisible(false);
       setSheet(undefined);
     }
@@ -695,7 +728,7 @@ function Library() {
     }
   }
   function remove() {
-    if (!state || mutationActive.current) return;
+    if (!state || mutationActive.current || loading || !activeRoute.current) return;
     const books = state.items.filter(
       (item): item is NativeLibraryBook => item.kind === 'book' && selected.includes(item.key)
     );
@@ -706,34 +739,56 @@ function Library() {
       setError('Only imported copies can be removed from this device.');
       return;
     }
+    const intent = ++removalIntent.current;
+    const request = serial.current;
+    const revision = removalScope.current.revision;
+    let active = true;
+    const current = () =>
+      mounted.current &&
+      activeRoute.current &&
+      intent === removalIntent.current &&
+      request === serial.current &&
+      revision === removalScope.current.revision;
+    const cancel = () => {
+      active = false;
+    };
     Alert.alert(
       'Remove selected books?',
       'Remove these cached copies from this device? Reading statistics will be kept.',
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel', onPress: cancel },
         {
           text: 'Remove',
           style: 'destructive',
           onPress: () => {
-            if (mutationActive.current) return;
+            if (!active || !current() || mutationActive.current) return;
+            active = false;
             mutationActive.current = true;
             setBusy(true);
             void command('delete', { ids, keepStatistics: true, libraryToken, libraryKeys })
               .then(() => {
-                if (mounted.current) {
+                if (current()) {
                   setSelected([]);
                   setSelecting(false);
                   void refresh();
                 }
               })
-              .catch(() => {})
+              .catch((cause) => {
+                if (current())
+                  setError(
+                    cause instanceof Error
+                      ? cause.message
+                      : 'Removal was not confirmed. Refresh the Library before trying again.'
+                  );
+              })
               .finally(() => {
                 mutationActive.current = false;
                 if (mounted.current) setBusy(false);
               });
           }
         }
-      ]
+      ],
+      { cancelable: true, onDismiss: cancel }
     );
   }
   const actionKeys = selected.length ? selected : state?.detail ? [state.detail.key] : [];
@@ -800,6 +855,7 @@ function Library() {
   }, [seriesOverview]);
   const content = (
     <NativeLibraryFrame
+      background={<NativeSavedBackground target="library" mode={uiTheme.mode} active={focused} />}
       theme={uiTheme}
       onPaneWidth={(paneWidth) =>
         setPane((previous) =>
@@ -910,6 +966,7 @@ function Library() {
         {searchMode === 'metadata' && (
           <Host matchContents={{ vertical: true }} style={{ width: '100%', minHeight: 44 }}>
             <TextInput
+              modifiers={[semantics({ contentDescription: 'Search books, authors, or series' })]}
               value={searchNative}
               placeholder="Search books, authors, or series"
               textStyle={{ color: uiTheme.colors.foreground }}
@@ -959,99 +1016,121 @@ function Library() {
             <Action label="Dismiss" onPress={() => setError('')} />
           </View>
         ) : null}
-        {selecting && (
-          <View style={styles.selection}>
-            <Text>{selected.length} selected on this page</Text>
-            <ScrollView horizontal>
-              <View style={styles.row}>
-                <Action
-                  label="Select page"
-                  onPress={() =>
-                    setSelected(
-                      state?.items.filter((item) => item.kind === 'book').map((item) => item.key) ??
-                        []
+        {exportMessage ? <Text accessibilityLiveRegion="polite">{exportMessage}</Text> : null}
+        {selecting && focused && (
+          <LibrarySelectionToolbar
+            key={state?.token}
+            layout={selectionLayout}
+            count={selected.length}
+            scope="on this page"
+            compact={!wide}
+            busy={busy || loading || importing}
+            selectLabel="Select page"
+            exportAction={{
+              label: 'Export',
+              disabled:
+                !state ||
+                selected.some(
+                  (key) =>
+                    !state.items.some(
+                      (item) =>
+                        item.kind === 'book' && item.key === key && item.available && item.bookId
                     )
-                  }
-                />
-                <Action
-                  label="Add to collection"
-                  disabled={!selected.length || busy}
-                  onPress={() => {
+                ),
+              onActivate: () => {
+                if (!state || busy || loading || importing || !activeRoute.current) return;
+                setExportMessage('');
+                setError('');
+                setExportSelection({
+                  token: state.token,
+                  keys: [...selected],
+                  revision: removalScope.current.revision
+                });
+              }
+            }}
+            onCancel={() => {
+              setSelecting(false);
+              setSelected([]);
+            }}
+            onSelect={() =>
+              setSelected(
+                state?.items.filter((item) => item.kind === 'book').map((item) => item.key) ?? []
+              )
+            }
+            groups={[
+              [
+                {
+                  label: 'Add to collection',
+                  onActivate: () => {
                     setName('');
                     setSheet('membership');
-                  }}
-                />
-                <Action
-                  label="Want to Read"
-                  disabled={!selected.length || busy}
-                  onPress={() => {
+                  }
+                },
+                {
+                  label: 'Set series',
+                  onActivate: () => {
+                    setName('');
+                    setSeriesIndex('');
+                    setSheet('series');
+                  }
+                },
+                {
+                  label: 'Reading status',
+                  onActivate: () => {
+                    setDay('');
+                    setSheet('completion');
+                  }
+                }
+              ],
+              [
+                {
+                  label: 'Want to Read',
+                  onActivate: () => {
                     void mutate({
                       type: 'membership',
                       keys: selected,
                       collection: 'want-to-read',
                       included: true
                     });
-                  }}
-                />
-                <Action
-                  label="Remove from Want to Read"
-                  disabled={!selected.length || busy}
-                  onPress={() => {
+                  }
+                },
+                {
+                  label: 'Remove from Want to Read',
+                  onActivate: () => {
                     void mutate({
                       type: 'membership',
                       keys: selected,
                       collection: 'want-to-read',
                       included: false
                     });
-                  }}
-                />
-                <Action
-                  label="Reading status"
-                  disabled={!selected.length || busy}
-                  onPress={() => {
-                    setDay('');
-                    setSheet('completion');
-                  }}
-                />
-                <Action
-                  label="Set series"
-                  disabled={!selected.length || busy}
-                  onPress={() => {
-                    setName('');
-                    setSeriesIndex('');
-                    setSheet('series');
-                  }}
-                />
-                <Action
-                  label="Blur covers"
-                  disabled={!selected.length || busy}
-                  onPress={() => {
+                  }
+                }
+              ],
+              [
+                {
+                  label: 'Blur covers',
+                  onActivate: () => {
                     void mutate({
                       type: 'presentation',
                       keys: selected,
                       change: { coverBlur: true }
                     });
-                  }}
-                />
-                <Action
-                  label="Reveal covers"
-                  disabled={!selected.length || busy}
-                  onPress={() => {
+                  }
+                },
+                {
+                  label: 'Reveal covers',
+                  onActivate: () => {
                     void mutate({
                       type: 'presentation',
                       keys: selected,
                       change: { coverBlur: false }
                     });
-                  }}
-                />
-                <Action
-                  label="Remove copies"
-                  disabled={!selected.length || busy}
-                  onPress={remove}
-                />
-              </View>
-            </ScrollView>
-          </View>
+                  }
+                }
+              ],
+              [{ label: 'Remove copies', destructive: true, onActivate: remove }]
+            ]}
+          />
         )}
         {(loading || busy) && (
           <ActivityIndicator
@@ -1309,50 +1388,15 @@ function Library() {
           ) : null}
           {sheet === 'filters' && (
             <>
-              {finishedShelf ? (
-                <View style={styles.row}>
-                  <Action
-                    label="Newest first"
-                    variant={state?.finishedOrder !== 'asc' ? 'filled' : 'outlined'}
-                    disabled={busy || loading}
-                    onPress={() => void chooseFinishedOrder('desc')}
-                  />
-                  <Action
-                    label="Oldest first"
-                    variant={state?.finishedOrder === 'asc' ? 'filled' : 'outlined'}
-                    disabled={busy || loading}
-                    onPress={() => void chooseFinishedOrder('asc')}
-                  />
-                </View>
-              ) : (
-                <>
-                  <View style={styles.row}>
-                    {librarySortChoices.map((choice) => (
-                      <Action
-                        key={choice.property}
-                        label={choice.label}
-                        variant={sort.property === choice.property ? 'filled' : 'outlined'}
-                        disabled={busy || loading}
-                        onPress={() => void chooseSort(choice.property)}
-                      />
-                    ))}
-                  </View>
-                  <View style={styles.row}>
-                    <Action
-                      label="Ascending"
-                      variant={sort.direction === 'asc' ? 'filled' : 'outlined'}
-                      disabled={busy || loading}
-                      onPress={() => void chooseSort(sort.property, 'asc')}
-                    />
-                    <Action
-                      label="Descending"
-                      variant={sort.direction === 'desc' ? 'filled' : 'outlined'}
-                      disabled={busy || loading}
-                      onPress={() => void chooseSort(sort.property, 'desc')}
-                    />
-                  </View>
-                </>
-              )}
+              <LibrarySortControls
+                layout={sortLayout}
+                property={sort.property}
+                direction={sort.direction}
+                finishedOrder={finishedShelf ? (state?.finishedOrder ?? 'desc') : undefined}
+                disabled={!state || busy || loading}
+                onSort={(property, direction) => void chooseSort(property, direction)}
+                onFinishedOrder={(value) => void chooseFinishedOrder(value)}
+              />
               <View style={{ gap: 8 }}>
                 {query.collection !== 'finished' && (
                   <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
@@ -1636,6 +1680,29 @@ function Library() {
             ))}
         </Sheet>
       )}
+      {exportSelection &&
+        focused &&
+        exportSelection.token === state?.token &&
+        exportSelection.revision === removalScope.current.revision && (
+          <Sheet
+            title="Export books and reading data"
+            close={() => {
+              setExportSelection(undefined);
+              void refresh(latestQuery.current);
+            }}
+          >
+            <NativeBookExportForm
+              selection={exportSelection}
+              onFinished={(message, failed) => {
+                if (!mounted.current || !activeRoute.current) return;
+                setExportSelection(undefined);
+                if (failed) setError(message);
+                else setExportMessage(message);
+                void refresh(latestQuery.current);
+              }}
+            />
+          </Sheet>
+        )}
     </NativeLibraryFrame>
   );
   return <UiThemeProvider {...state?.uiTheme}>{content}</UiThemeProvider>;
@@ -1724,7 +1791,7 @@ function MetadataEditor({
         }
       />
       <Host matchContents={{ vertical: true }} style={{ width: '100%' }}>
-        <Switch label="Blur cover" value={blur} onValueChange={setBlur} />
+        <Switch label="Blur cover" value={blur} onValueChange={setBlur} disabled={busy} />
       </Host>
       <Text style={styles.label}>Page direction</Text>
       <View style={styles.row}>
@@ -1733,6 +1800,7 @@ function MetadataEditor({
             key={value}
             label={{ unknown: 'Automatic', ltr: 'Left to right', rtl: 'Right to left' }[value]}
             variant={direction === value ? 'filled' : 'outlined'}
+            disabled={busy}
             onPress={() => setDirection(value)}
           />
         ))}
@@ -1767,7 +1835,6 @@ const baseStyles = StyleSheet.create({
     paddingVertical: 8
   },
   selected: { borderColor: '#387147', borderWidth: 2, backgroundColor: '#eef5ea' },
-  selection: { paddingVertical: 7, gap: 6 },
   pagination: {
     flexDirection: 'row',
     justifyContent: 'space-between',

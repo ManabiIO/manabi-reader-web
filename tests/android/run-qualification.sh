@@ -23,15 +23,26 @@ adb shell getprop ro.build.fingerprint > test-results/android/emulator-fingerpri
 sha256sum "$APP" "$TEST" > test-results/android/apk-sha256.txt
 adb install "$APP"
 adb install -t "$TEST"
+# This is the freshly checked, disposable emulator only. Run both application
+# processes disconnected, including the real file pickers and local ZIP export.
+# Airplane mode can retain Wi-Fi, so explicitly disable both network radios.
+adb shell cmd connectivity airplane-mode enable
+adb shell svc wifi disable
+adb shell svc data disable
+[[ "$(adb shell cmd connectivity airplane-mode | tr -d '\r')" == enabled ]] || {
+  echo 'The disposable emulator did not enter airplane mode' >&2; exit 1;
+}
+adb shell dumpsys connectivity > test-results/android/offline-connectivity.txt
 id="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(16).toString("hex"))')"
 run_phase() {
   local phase="$1"
   adb shell am instrument -w -r \
     -e class io.manabi.reader.qualification.PackagedReaderTest \
     -e qualificationPhase "$phase" -e qualificationId "$id" \
-    io.manabi.reader.test/androidx.test.runner.AndroidJUnitRunner \
+    io.manabi.reader.test/io.manabi.reader.qualification.PackagedReaderInstrumentation \
     | tee "test-results/android/$phase-instrumentation.txt"
-  # adb may return zero even when JUnit fails. Require the exact final summary.
+  # adb may return zero even when instrumentation fails. Require completion
+  # plus the original independent Reader evidence, never just an exit code.
   grep -Eq '^OK \(1 test\)' "test-results/android/$phase-instrumentation.txt"
   node tests/android/verify-evidence.mjs "test-results/android/$phase-instrumentation.txt" "$phase" "$id"
 }

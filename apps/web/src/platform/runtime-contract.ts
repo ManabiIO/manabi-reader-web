@@ -35,8 +35,12 @@ export interface RuntimeSnapshot extends BridgeScope {
   libraryPage?: { query: string; offset: number; limit: number };
   settings: SettingField[];
   account: { status: string; username?: string };
+  /** Device connectivity only; not a successful save, shell check, or server sync. */
+  online?: boolean;
   loading: boolean;
   revision: number;
+  /** Invalidation only; image bytes are requested separately and bounded. */
+  backgroundRevision?: number;
 }
 export const EMPTY_SNAPSHOT: RuntimeSnapshot = {
   session: '',

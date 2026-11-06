@@ -1,16 +1,30 @@
 # Packaged Android reader smoke qualification
 
-Status: the harness has local Node tests; **Android compilation and emulator
-execution are separate required gates**. Do not report runtime qualification from
-source checks or from the harness unit tests.
+Status: both packaged instrumentation phases passed on SDK 58 source `9aeb3ad1`
+in [run 39473146431](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39473146431/job/118802173201),
+on API 35 with WebView 124.0.6367.219. This qualifies the synthetic host checks
+below on that exact APK. New source and the wider device/product matrix still
+require their own qualification; local unit tests or compilation alone do not
+establish runtime acceptance.
 
 This suite starts the generated Expo app's real launcher activity using
-AndroidX `ActivityScenario`, traverses its actual view hierarchy (including the
+the platform `Instrumentation.startActivitySync`, traverses its actual view hierarchy (including the
 persistent offscreen reader), and inspects that WebView. It does not construct a
 replacement host, load a fixture HTML page, enable release WebView debugging,
 replace the `WebViewClient`, install a JavaScript interface, or change the host's
 security settings. The test-only probe is read from the separate test APK and
 executed with `WebView.evaluateJavascript` under Android instrumentation.
+
+The system-picker selector supports both exact filenames in list rows and
+DocumentsUI grid descriptions containing the exact filename followed by comma
+and metadata. It is restricted to this run's random source filename while
+DocumentsUI owns the foreground window. Preview labels and filename prefixes
+are not document matches. Application controls still require exact labels.
+Java matcher tests cover the actual description captured in failed run
+[39529342298](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39529342298).
+That run confirmed font import/select/production loading and background-picker
+cancellation (two Back presses), then failed to select the PNG grid tile. It
+does not establish background rendering, restart or book-export acceptance.
 
 ## Build, then run
 
@@ -29,8 +43,12 @@ cd ../../..
 ```
 
 The script adds an idempotent Gradle include and `src/androidTest` files only in
-the ignored generated Android project. Dependencies are test-scoped AndroidX
-`core:1.7.0`, `runner:1.7.0`, and `ext:junit:1.3.0`. The tested build type is the
+the ignored generated Android project. JUnit 4.13.2 assertions are the only
+test dependency. A small platform `Instrumentation` subclass runs this one
+qualification, reports normal instrumentation test status, and emits success
+only after assertions and cleanup complete. It rejects another requested test
+class. This avoids AndroidX Test's dependency on app-shared libraries that R8
+may remove from the release APK. The tested build type is the
 ordinary non-debuggable **release** target. The generated Expo template's local
 CI signing configuration must match the test APK; do not supply production keys.
 No test assets or probe hook are added to the target APK. Clean Expo prebuild
@@ -63,7 +81,7 @@ uninstalls an existing package. It installs the app and test APK on the fresh
 emulator, runs seed instrumentation, force-stops that synthetic app process,
 then runs verification with the same random identifier. Verification requires a
 new process ID, unchanged canonical entry, retained sentinels, and successful
-cleanup. Both JUnit's exact success summary and complete structured evidence are
+cleanup. Both the runner's exact success summary and complete structured evidence are
 required because `adb am instrument` can exit zero for failed tests.
 
 Keep `test-results/android/`, the APKs, and the original APK asset-qualification
@@ -76,14 +94,26 @@ attempts. A failed run is failure evidence, never a pass. If the seed process
 crashes, its synthetic namespace can remain in that disposable AVD; discard the
 AVD rather than clearing any general-purpose app profile.
 
-`connectedReleaseAndroidTest` is also supported for a single-process run. Its
-`full` default checks reload persistence and removes its random namespace, but it
+After these guards and local APK installation, the runner enables airplane mode
+and explicitly disables Wi-Fi and mobile data on that disposable emulator. Both
+application processes run disconnected. A standalone invocation leaves the test
+AVD disconnected for diagnosis; the CI workflow destroys its disposable AVD on
+exit. It does not change the host computer's network or any existing app profile.
+
+The instrumentation's `full` default checks reload persistence and removes its
+random namespace in a single process, but it
 does **not** establish force-stop/process-restart persistence. Use the two-phase
 runner for that claim.
 
 ## Assertions made by a passing two-phase run
 
-- Real native Library heading and non-fallback empty-state pagination, requiring
+- The release app has the normal `ACCESS_NETWORK_STATE` permission; before
+  launch, after the native journeys and after the storage checks, Android reports
+  airplane mode, no active network and zero available networks. The real WebView
+  reports `navigator.onLine === false`; the native offline explanation opens and
+  dismisses through accessible controls in both processes. These new assertions
+  still require an exact-source packaged run.
+- Real native Library app heading, empty-library explanation and non-fallback pagination, requiring
   DOM `onSnapshot` → native routing and native `library.state` → DOM `onReply`;
   the existence of a JavaScript bridge shim alone is insufficient
 - Actual packaged HTTPS root, secure context, read-only Expo DOM bootstrap, no
@@ -107,45 +137,268 @@ runner for that claim.
 
 ## Explicitly still unqualified
 
-This narrow smoke is not complete Android acceptance. It does not test real
-book/annotation/import data, a dictionary open/import/search, SQLite database
+This narrow smoke is not complete Android acceptance. The text-book import and
+ZIP export journey below does not establish EPUB reading/annotation fidelity,
+a dictionary open/import/search, SQLite database
 initialization, ONNX/ORT inference, worker OPFS synchronous handles, an APK update
 with a changed HTML hash, OS reboot, storage eviction/quota, unsupported WebView
 features, same-origin iframe bridge-dispatch rejection, actual scriptless EPUB
 frames, renderer crashes, account changes, repeated native navigation, or
 user-gesture links/Custom Tabs and redirects/popups.
 
-No network-offline or no-DNS claim follows from this suite: it requests canonical
-APK URLs and verifies packaged byte hashes, but does not turn off networking or
-capture network traffic. `javascript:` execution is also not treated as blocked
+The current runner turns networking off and checks real OS/WebView state at the
+boundaries above. It does not capture network traffic, so it makes no claim that
+the application never attempts DNS or external requests. Previous passing runs
+predate the disconnected gate and do not qualify it. `javascript:` execution is also not treated as blocked
 navigation: the test already executes trusted page JavaScript, and Android does
-not deliver every such URL to the navigation callback. Those trust-boundary and
-offline gates remain separate before Android runtime readiness is declared.
+not deliver every such URL to the navigation callback. Full trust-boundary and
+offline reading acceptance remain separate from these selected local journeys.
 
 ## Official API references
 
-- [AndroidX instrumented-test setup](https://developer.android.com/training/testing/instrumented-tests/androidx-test-libraries/test-setup)
-- [AndroidX Test releases and stable dependency versions](https://developer.android.com/jetpack/androidx/releases/test)
-- [ActivityScenario](https://developer.android.com/reference/androidx/test/core/app/ActivityScenario)
+- [Platform Instrumentation lifecycle, activity launch and status reporting](https://developer.android.com/reference/android/app/Instrumentation)
 - [Instrumented tests from the command line](https://developer.android.com/studio/test/command-line)
 - [Official emulator command-line options](https://developer.android.com/studio/run/emulator-commandline)
 - [Local WebView content and HTTPS asset loading](https://developer.android.com/develop/ui/views/layout/webapps/load-local-content)
+- [Chromium WebView network observer and its ACCESS_NETWORK_STATE requirement](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/net/android/java/src/org/chromium/net/NetworkChangeNotifierAutoDetect.java)
+- [Android 15 connectivity shell: airplane-mode enable/disable](https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/heads/android15-release/service/src/com/android/server/ConnectivityService.java)
 
 - [GitHub-supported Android virtualization and its explicit host permission setup](https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/)
 
 ### Native Settings font-manager journey
 
 Both process phases also traverse the actual RN/Compose accessibility hierarchy:
-Library → Settings → Fonts & text → primary font manager → Library. The test
-requires the real cache-read empty state from the DOM owner. It selects no font
-file and changes no built-in preference. Evidence must include
+Library actions → Settings → Fonts & text → primary font manager → Close → Back
+to Library. The test
+requires the real cache-read empty state from the DOM owner. The font-manager
+portion selects no font file or preference. Evidence must include
 `settings-typography-font-cache-read-and-close`; importing a component or merely
-finding a bridge shim is insufficient. This read-only UI journey complements
+finding a bridge shim is insufficient. That read-only font journey complements
 the original synthetic storage/origin probes. It is not proof of the Android
 system file picker, physical-device typography, TalkBack or IME parity.
+
+The choice-control follow-up adds a color-mode interaction in Settings before
+opening Fonts & text. In both process phases it requires the actual accessible
+selected/enabled state, selects a different mode, reads the saved value from the
+real local owner, then restores the original choice through the native control.
+Cleanup restores the exact initial localStorage value, including an absent key.
+The evidence verifier requires `color-mode-selection-local-save-and-restore`;
+merely mounting the component cannot satisfy this gate. This is one native
+interaction with storage verification, not spoken TalkBack or full Settings
+coverage. Its result is only established by a completed run on this source.
+
+Theme chooser qualification additionally opens Add custom theme in the shared
+native dialog, cancels with Android Back, reopens it and uses Close. Both exits
+must restore access to the chooser while leaving the exact `customThemes` local
+value unchanged. The verifier requires `add-dialog-back-and-close-without-save`
+in both process phases. This exercises dialog entry and dismissal, not native
+color entry, IME, editing/saving a palette or spoken TalkBack.
 
 The storage probe also copies one actual packaged font into its random, test-owned
 CacheStorage namespace, loads it through a Blob URL using the WebView FontFace API,
 and repeats that load after reload and process restart. It removes only its own
 cache at cleanup. This qualifies cached-font loading in the host, not a document
 picker import, visual font comparison, or modifications to the user's font catalog.
+
+Size-editor qualification uses the actual Compose range accessibility action in
+both process phases. It checks a positive pixel save in the DOM owner, observes
+the saved range back in the native control, selects the named Automatic action,
+and verifies the zero sentinel. Cleanup restores the exact original raw local
+value (including absence). The evidence verifier requires `nativeDimensions` to
+be `slider-completion-and-automatic-local-save-with-exact-restore`. This exercises
+accessible range completion and the save bridge; it does not prove physical
+drag/rotation/cancellation, spoken TalkBack, or the device/large-text matrix.
+
+### Shared page-turn Picker and Statistics TextInput (runtime result pending)
+
+The current gate adds two product journeys. In Page layout, it opens the actual
+Expo Picker inside the named Page turn effect field, dismisses it without saving,
+then selects both supported values through the dropdown. Seed retains the other
+choice, while verification ends on the original choice. The retained choice must
+return in the native control after leaving and reopening Settings, after reloading the packaged
+WebView, and in the second application process. Verification restores the
+original choice through the picker and restores the exact raw localStorage value,
+including absence. Cleanup metadata lives in an instrumentation-only preference
+namespace in the disposable app profile, under the random qualification ID. No
+product data is cleared. The fresh profile must already be paginated; the journey
+does not change View mode. The picker selector rejects ambiguous inputs,
+other fields, hidden/disabled anchors and WebView descendants. It scopes to the
+named wrapper because Expo UI 58's Android Picker has no anchor-label prop; this
+does not establish the name that TalkBack speaks.
+
+In Statistics, both processes open Filter books and enter two successive drafts
+through `ACTION_SET_TEXT` on the named native `android.widget.EditText`. The
+same control must keep input focus, identity, its exact text and its accessible
+name after each controlled update. Cancel and the explicit Close action must
+each discard the draft on reopening. The journey operates on the disposable
+profile's empty library and never applies a filter or edits reading history.
+It does not establish filtering with a populated library, IME composition or
+submission, date/number keyboards, rejected-edit reconciliation, TalkBack speech,
+or small-screen/enlarged-text geometry.
+
+The evidence verifier now requires `nativePageTurn`, its reload value and an
+identical selection across both processes, plus the full
+`nativeStatisticsTextField` result. Historical passing evidence lacks these
+fields and cannot qualify the new controls. Host tests execute the actual Java
+selection/focus helper methods against platform stand-ins, execute the actual
+two-phase journey with interrupted-save and exact-cleanup cases, and reject
+missing, partial or mismatched evidence. These are harness tests only. No local Android
+device is attached; an exact-source packaged run remains required.
+
+### Native background image journey (current gate; runtime result pending)
+
+The background journey requires API 29+ (CI uses API 35). On the fresh disposable
+emulator, seed opens the native editor, cancels the real Android document picker,
+then selects three test-owned PNGs through that picker. MediaStore fixtures are
+unique to the qualification ID and are removed after each transfer. The app's
+ordinary import path writes library light/dark and reader light into its real
+appearance database; the unselected reader dark slot must remain absent.
+
+Both process phases read SHA-256 hashes of the actual persisted slot bytes and
+require light and dark Library image views to draw the corresponding decoded
+pixels. Native-view capture excludes the separate intentional fade overlay.
+The second phase must retain exactly the same saved image records after a real
+force-stop/process restart. It removes only Library light, verifies the other
+two records are unchanged, then uses both Remove-both actions and requires the
+native background view to disappear. The exact original appearance preference
+is restored. `nativeBackgrounds` evidence and cross-process byte equality are
+required; a missing field, empty record map or component-only result fails.
+
+Unlike the isolated storage sentinel probe, this journey uses the product's real
+appearance store, initially required to be empty. It runs only on the runner's
+fresh disposable emulator, never an existing device profile. If it fails, test
+images may remain there until that emulator is discarded. Compilation and unit
+harness results do not establish a successful system-picker/native-image run.
+
+### Actual custom-font import and restart journey (runtime result pending)
+
+Seed now cancels the real font picker with a named draft, verifies the catalog,
+cache and family preferences remain untouched, and then selects a unique copy
+of a real bundled WOFF2 font from Android Downloads. The product's ordinary
+file-copy/chunk-import path must preserve its bytes. The test-owned source entry
+is deleted afterward. Import must not select a font; the native Use action must
+select it. The product's own `ttu-userfonts` stylesheet must materialize the
+cached face as a Blob URL, and `document.fonts.load` must decode that exact face.
+No test FontFace or CSS is installed into the APK's WebView.
+
+The font must survive both document reload and real process restart, with exact
+name/path/hash comparison across the two evidence records. The second process
+cancels removal once, then confirms it and requires the catalog, bytes and CSS
+to disappear. Only the selected primary family resets; the other family remains
+unchanged. A random test-only localStorage sentinel preserves exact original raw
+preferences for cleanup. The old read-only manager journey runs before seed
+import and after verification cleanup, retaining its empty-catalog assertions.
+
+`nativeFontPicker`, seed `nativeFontImported`/`nativeFontAfterReload`, and verify
+`nativeFontCleanup` are mandatory evidence. Probe unit tests and the separate
+real-browser font codec check do not establish native runtime acceptance.
+
+### Picker source navigation repair
+
+Run [39515114181](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39515114181)
+at `d4063de44ab4aca4b3446ac698b9fae4359530ec` passed both web jobs and built
+both APKs. Its Android seed phase passed the existing choice, dimension and font
+preference/manager controls, then failed before the first background import:
+DocumentsUI showed an empty **Recent images** view and could not find the
+newly created fixture. This run does not qualify background persistence or pixels.
+
+The harness now verifies each source MediaStore record is published, nonempty,
+and has the expected name/MIME type, then navigates the real system picker's
+Images or Downloads root into `ManabiQualification` before selecting the exact
+file. It does not depend on the cached aggregate Recent view. Source-fixture
+cleanup and every existing persistence, decoded-pixel, cancellation and process
+restart assertion remain required. Java/API compilation is not proof that the
+revised picker navigation has passed; the next exact-source emulator run must
+establish that result.
+
+### Persistent font-input accessibility name
+
+Run [39519479119](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39519479119)
+at `9e3f2532a720621d3272547d8990afbc2a07807a` passed both web jobs and built
+both APKs, but stopped in `setFontInput` before launching the font picker. The
+failure hierarchy contains the complete expected font name in an editable
+`android.widget.EditText`. Its content description is empty. The named Host is
+three levels above it, while the editable control's placeholder label disappears
+after entry. The harness correctly refuses to substitute an arbitrary descendant
+or sibling for the named semantic control.
+
+`NativeFontManager` now assigns `semantics({ contentDescription: 'Font name' })`
+directly to the universal TextInput, as the ordinary native Settings font draft
+already does. The installed Android universal implementation forwards modifiers
+to its BasicTextField. The mounted test names the field only through that modifier
+and checks the full fixture text after typing. The original native exact-value,
+picker cancellation, import, cached-byte, selected-face and restart assertions are
+unchanged. A new emulator pass is still required; this failure provides no new
+font-picker or background-picker acceptance. Raw evidence is retained in
+`../evidence/native-export-p7hp3uai/android-9e3f2532.log`.
+
+### Cancellation from a remembered picker folder
+
+Run [39526220239](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39526220239)
+at `c61676970e6eec203ac8fe90150b1006cbb493cf` passed both web jobs and the actual
+font-picker cancel/import/select sequence in the seed process. Evidence includes
+the 3,498,868-byte cached WOFF2, its hash and production Blob stylesheet loading.
+It then stopped during background-picker cancellation: the captured active window
+was still DocumentsUI at Downloads after one Back moved out of the remembered
+`ManabiQualification` folder. This does not qualify background import or the
+second process phase.
+
+Cancellation now waits for the system accessibility queue to settle, checks the
+foreground package before each Back, and walks at most eight picker levels within
+20 seconds. It stops as soon as the app returns and rejects an unrelated window.
+Both callers retain their original exact no-save/draft checks. The evidence also
+records the number of Back presses for each picker. No product behavior or
+persistence changes are involved. Java/harness validation does not establish this
+repair; a new exact-source emulator run is required.
+
+### Selected-book export to a real Android folder
+
+`PackagedBookExport` adds an installed-app journey after the Settings checks. It
+creates one random, test-owned text document under Downloads, imports it through
+Add Books and the actual system picker, and observes the existing IndexedDB
+record through a read-only probe. No book data or bridge calls are injected.
+The source includes Japanese and enough deterministic text for the finished ZIP
+to exceed one 256 KiB transfer chunk.
+
+The same native selection opens Export, cancels the destination picker without
+changing the book or granting a folder, then chooses the test folder and saves.
+An independent Java ZIP reader verifies the provider's actual archive, nested
+book ZIP, canonical content hash and complete stored-HTML hash. It compares any
+initial reading-position record and requires the source file to remain intact.
+The Library copy is removed through the ordinary selection confirmation. Only
+the archive remains in the fixture folder.
+
+The second process must find the exact persisted SAF grant and document, match
+all archive bytes and inspect the nested contents again with the Library empty.
+Cleanup deletes that exact verified archive, then the randomly named folder only
+after confirming it is empty. Test metadata is removed and its grant released.
+A failed run can leave its fixture in the disposable emulator for diagnostics;
+no general app data, other folder or unrelated document is cleared.
+
+`nativeBookExport` evidence is mandatory in both phases, including matching ZIP
+and HTML hashes, a multi-chunk size, Library removal and final cleanup. A success
+message, exported JS, compilation or unit test is insufficient. The suite still
+does not qualify export cancellation during native file writes, error injection
+from arbitrary providers, spoken TalkBack, real user libraries, native ZIP
+restoration, or turning networking off. Existing browser codec tests cover the
+richer book/image/history/audio/subtitle round trip. This new device gate remains
+unqualified until its exact-source emulator run completes.
+
+### Picker navigation acknowledgments
+
+Cancellation sends Back only while DocumentsUI owns the active window. Each
+press now waits for a new `TYPE_WINDOW_STATE_CHANGED` event from that picker or
+the target app before waiting for idle and reading the foreground again.
+DocumentsUI updates the activity title when moving to a parent directory. File
+list updates, events from unrelated packages and missing acknowledgments cannot
+trigger another Back. A missing event fails the journey instead of retrying.
+
+This addresses a race in run 39533224369: two Back presses were recorded during
+font cancellation and the expected font dialog was absent afterward. Android's
+[`UiAutomation.waitForIdle` implementation](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/android15-release/core/java/android/app/UiAutomation.java)
+can return based on an event predating the action. `executeAndWaitForEvent`
+collects events around the action and rejects earlier events. The deterministic
+harness fixture executes the actual Java method against delayed observations and
+covers root/subfolder navigation, unrelated windows, missing acknowledgments and
+the navigation bound. The retained draft and unchanged-storage assertions remain
+required on the device; harness success alone does not qualify cancellation.

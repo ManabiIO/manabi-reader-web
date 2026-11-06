@@ -17,6 +17,7 @@ for (const key of [
   'sessionStorage',
   'Element',
   'HTMLElement',
+  'ShadowRoot',
   'HTMLInputElement',
   'MutationObserver',
   'Event',
@@ -35,7 +36,13 @@ for (const key of [
 Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
 Object.assign(globalThis, indexedDB);
 Object.assign(window, { indexedDB: globalThis.indexedDB, IDBKeyRange: globalThis.IDBKeyRange });
-window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+window.matchMedia = () => ({
+  matches: false,
+  addListener() {},
+  removeListener() {},
+  addEventListener() {},
+  removeEventListener() {}
+});
 window.scrollTo = () => {};
 globalThis.BroadcastChannel = undefined;
 globalThis.IntersectionObserver = class {
@@ -108,7 +115,7 @@ for (const strict of [false, true]) {
   });
   assert.ok(container.querySelector('input[webkitdirectory]'), 'folder import is mounted');
   await settle(() => !library.loading && !workspace.scanning, 'cold IndexedDB work completes');
-  assert.match(container.textContent, /Make room for a good book/);
+  assert.match(container.textContent, /No books in your library/);
   assert.equal(document.querySelectorAll('#manabi-packaged-fonts').length, 1);
   assert.ok(requests.includes('/api/reader-web/session/'));
 

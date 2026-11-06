@@ -15,6 +15,7 @@ import {
 } from '../lib/components/settings/user-font-actions';
 import { ReaderController, writeStore, type StoreValue } from '../reader-react/controller';
 import { type SettingsContextValue } from './context';
+import type { FontManagerView } from '../features/settings/SettingsFontManager';
 
 export interface SettingsUserFontDialogProps {
   fontFamily: BehaviorSubject<string>;
@@ -29,10 +30,11 @@ export function createSettingsUserFontDialog(
 
   let $userFonts$: StoreValue<typeof userFonts$> = __readerController.read(userFonts$);
   let fontFamily: BehaviorSubject<string> = props.fontFamily;
+  let selectedFont = __readerController.read(fontFamily);
   const dispatch = (name: string, detail?: unknown) => emit(name, detail);
   let isLoading = false;
   let cacheLoaded = false;
-  let currentTab = 'Stored';
+  let currentTab: FontManagerView = 'Stored';
   let fontCache: Cache | undefined;
   let availablePaths = new Set<string>();
   let error = '';
@@ -112,6 +114,12 @@ export function createSettingsUserFontDialog(
     }
   }
   __readerController.observeSource(
+    () => fontFamily,
+    (value) => {
+      selectedFont = value;
+    }
+  );
+  __readerController.observeSource(
     () => userFonts$,
     (value) => {
       $userFonts$ = value;
@@ -122,6 +130,9 @@ export function createSettingsUserFontDialog(
     loadCache,
     selectFont,
     removeFont,
+    get selectedFont() {
+      return selectedFont;
+    },
     get fontFamily() {
       return fontFamily;
     },

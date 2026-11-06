@@ -246,6 +246,7 @@ export async function request<T>(
   path: string,
   options: {
     method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+    signal?: AbortSignal;
     value?: unknown;
     revision?: string;
     userId?: string;
@@ -254,6 +255,7 @@ export async function request<T>(
     syncEpoch?: { generation: string; incarnation: string };
   } = {}
 ): Promise<T> {
+  options.signal?.throwIfAborted();
   if (!validInternalPath(path)) throw new Error('Invalid internal API path');
   const scope = accountScope();
   if (options.userId && options.userId !== scope.userId)
@@ -287,11 +289,15 @@ export async function request<T>(
         (path === 'connections/' ||
           path.startsWith('personal/changes/?') ||
           path.split('?', 1)[0] === 'preferences/'),
-      signal: AbortSignal.timeout(45000)
+      signal: options.signal
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(45000)])
+        : AbortSignal.timeout(45000)
     });
   } catch {
+    options.signal?.throwIfAborted();
     throw new IntegrationError(navigator.onLine ? 'unavailable' : 'offline');
   }
+  options.signal?.throwIfAborted();
   if (scope.generation !== generation || currentUser()?.id !== scope.userId)
     throw new IntegrationError('account_changed', 409);
   const responseUser = response.headers.get('X-Manabi-User');
@@ -306,6 +312,7 @@ export async function request<T>(
     const body = await jsonResponse(response).catch(() => ({ error: 'unavailable' }));
     // Response headers and the error body can arrive separately. An old account's
     // delayed 401/409 must not clear the newly authenticated account in this tab.
+    options.signal?.throwIfAborted();
     if (scope.generation !== generation || currentUser()?.id !== scope.userId)
       throw new IntegrationError('account_changed', 409);
     if (response.status === 401 || body.error === 'account_changed') {
@@ -325,11 +332,13 @@ export async function request<T>(
         ? await response.arrayBuffer()
         : await boundedBytes(response, options.maximumBytes);
     if (bytes.byteLength > 128 * 1024 * 1024) throw new IntegrationError('too_large');
+    options.signal?.throwIfAborted();
     if (scope.generation !== generation || currentUser()?.id !== scope.userId)
       throw new IntegrationError('account_changed', 409);
     return bytes as T;
   }
   const value = (await jsonResponse(response)) as T;
+  options.signal?.throwIfAborted();
   if (scope.generation !== generation || currentUser()?.id !== scope.userId)
     throw new IntegrationError('account_changed', 409);
   return value;

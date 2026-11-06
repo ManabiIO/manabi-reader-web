@@ -1,5 +1,14 @@
 # Shared Android/web UI convergence
 
+**Target reaffirmed October 28, 2026:** web and Android, using Expo UI universal
+controls where they satisfy the interaction contract. Missing universal behavior
+belongs in a bounded native Android or web adapter; Android must use native
+controls when available. Native Windows remains removed. Existing web
+functionality, local data safety, keyboard/accessibility and responsive mobile/
+desktop layouts remain required. The prior web-first checkpoints do not establish
+Android completion: native rendering, input, navigation and persistence still need
+packaged runtime qualification for the current source.
+
 The target is **one nonreader screen composition, interaction model and branded
 style vocabulary** for Android and web. Android-specific controls and system
 adapters are justified by actual UX or platform capabilities, not by separate
@@ -27,16 +36,16 @@ interaction, accessibility, persistence, navigation and Android acceptance gates
 ## Component policy
 
 Use owned RN/RNW layout, text, surfaces and branded interactions with the existing
-semantic theme, typography, spacing, radius and state colors. Use SDK 57 Expo UI
+semantic theme, typography, spacing, radius and state colors. Use SDK 58 Expo UI
 universal controls where their actual API satisfies the required behavior.
 Universal controls share an API across Android Compose and web DOM/RNW; that is
 not a promise of identical default geometry or styling. Inspect the installed
-version and qualify both outputs. [Expo UI universal](https://docs.expo.dev/versions/v57.0.0/sdk/ui/universal/)
+version and qualify both outputs. [Expo UI universal](https://docs.expo.dev/versions/v58.0.0/sdk/ui/universal/)
 
 Keep `Host`/`RNHostView` boundaries explicit. An RN container inside an Expo UI host
 changes the rendering boundary; nested universal controls need their own host.
 Do not force the entire branded page into Compose or rely on native-only
-modifiers to reproduce web design. [Universal Host](https://docs.expo.dev/versions/v57.0.0/sdk/ui/universal/host/)
+modifiers to reproduce web design. [Universal Host](https://docs.expo.dev/versions/v58.0.0/sdk/ui/universal/host/)
 
 A small owned primitive layer supplies actions, fields, choices, navigation,
 modal/sheet/popover behavior, semantic headings and layout. A web leaf may retain
@@ -54,7 +63,7 @@ supply complete data and capabilities: the web port calls the existing DOM-owned
 domain in-process; Android uses the existing account/epoch-fenced bridge. Ports
 return data/outcomes, never old whole-page JSX.
 
-The shared source uses actual SDK 57 universal Checkbox, Switch, Picker and
+The shared source uses actual SDK 58 universal Checkbox, Switch, Picker and
 Android Icon controls within small `Host` boundaries. Branded layout, toolbar,
 summary, filters, settings, calendar and interaction state are common RN/RNW.
 Web form, focus, grid, link and nonmodal-popover semantics live in bounded leaves,
@@ -112,10 +121,11 @@ composition around it. Optional video requires domain/view separation before
 its route is counted as shared. File/auth/storage capability differences are
 explicit ports, not alternate complete pages.
 
-All work remains in the same unmerged draft PR. Reuse the existing three-job
-standard-runner [zero-remote-storage CI plan](CI-COVERAGE.md), with no new artifact
-uploads/cache writes or paid resources. A successful export or source test is
-not full UI parity; report evidence for the exact source head.
+Work remains on the unmerged migration branch. Reuse the standard-runner
+[zero-remote-storage CI plan](CI-COVERAGE.md): two web jobs by default and retained
+Android qualification only on explicit manual opt-in. Add no artifact uploads,
+cache writes or paid resources. A successful export or source test is not full UI
+parity; report evidence for the exact source head.
 
 ## Settings field foundation after Statistics qualification
 
@@ -152,3 +162,753 @@ not yet unify every scalar editor, action controller or specialized flow. Browse
 field/filter metadata and native account/blur mutation ownership remain at their
 existing boundaries. No new preference persistence or route-global filter is
 introduced. A common wrapper is not counted as complete screen parity.
+
+Settings now also shares its workspace geometry policy. Both renderers measure
+the available pane after outer padding and maximum-width constraints, then
+account for text scale. Sidebar navigation requires 800 nominal units: 224 for
+categories, 24 for the gap and at least 552 for editors. Smaller panes use
+horizontal category navigation. Android supplies its layout width/font scale;
+web observes the actual workspace and a rem-sized probe, including root text-size
+changes that do not resize the window. No device-idiom check is involved.
+
+This repairs a reproduced web layout at 900px and 200% text where the sidebar
+left only 340px for editors. The compact layout gives editors the full 836px
+workspace. Matched captures retain the normal 1200px and 390px geometry. Search
+query, the exact search input node, keyboard focus and selected category survive
+width/text-scale changes and a narrow pane within a wide window. Persistence,
+schema and backup/restore formats are unchanged.
+
+Local qualification passes strict application types, 1,750 original unit tests,
+619 Expo tests and all 19 Settings browser journeys in each of Chromium and
+WebKit. A mounted native-layout contract exercises the real workspace and
+navigation components with supplied layout/font-scale events. That contract is
+not Android rendering evidence; packaged compact Settings and the wider native
+large-text/device matrix remain separate runtime gates.
+
+Boolean settings now use the same `SettingsSwitch` composition and `SwitchField`
+on Android and web. Web background fading also uses that field. The separate
+button-based browser switch and its CSS are removed. Existing controllers still
+own every save, expected-value check and session lifetime; stored boolean values
+remain `1`/`0`, and background options retain their existing JSON. No persistence
+schema, backup or restore format changes.
+
+The shared setting displays a concise On/Off label because its enclosing card
+already names the setting. A bounded web adapter names Expo's real input;
+Android supplies the same name through Compose semantics. The web adapter owns
+no draft, selection or save state. Native TalkBack behavior still needs actual
+device qualification.
+
+Browser review found and repaired two concrete layout/theme issues: a switch
+beside a cleanup action could overflow its card at 200% text, and Expo's fixed
+white checked thumb had insufficient distinction from the light track in dark
+mode. The common field now constrains its flex width; the web thumb uses the same
+semantic primary foreground as the existing native control. Focus, hit testing,
+Space activation, state-label activation, disabled behavior, live accessible
+names and saved-value reload remain explicit acceptance checks.
+
+Local qualification passes all 1,750 original unit tests, 620 Expo tests, strict
+types, full lint and production web export. The final export passes 22 Settings
+and 21 shared-Statistics journeys in each browser engine. Phone/desktop and
+200% light/dark captures were inspected. The mounted Settings fixtures now resolve
+the installed RNW/Expo browser modules rather than trying to parse native RN
+sources; they retain their existing controller, storage and dialog assertions.
+Native import-boundary checks also pass. A fresh packaged Android run is still
+required for this source; neither these local results nor the prior layout
+commit's CI establish native switch rendering, TalkBack or full screen parity.
+
+Short scalar choices now use `SettingsChoices` and the existing branded
+`ActionButton` on both web and Android. Appearance mode uses the same composition.
+Choices remain visible and wrap with the available pane and enlarged text;
+selected borders reserve their space so selecting another choice does not move
+neighboring controls. Web retains a named button group and pressed states.
+Android names each action with its setting and option, retaining selected and
+disabled semantics. An unknown saved ID is displayed without selecting or saving
+a replacement. The owner supplies selection after saving; the component owns no
+draft or storage state.
+
+This is a deliberate control boundary, not a replacement UI framework. The
+installed Expo UI 58.0.21 universal Picker supports menu/wheel presentation, not
+visible wrapping choices. Its community segmented control's web implementation
+uses a fixed 32px height and equal-width segments. Neither satisfies these short
+Settings groups at enlarged text without a separate presentation. Font catalogs
+and native theme selection retain Expo Picker; web theme swatches, custom-theme
+Edit/Delete and the child action remain specialized. Page-turn's web select also
+remains a separate control, so this does not claim complete Settings convergence.
+
+The existing web controllers and native `save(value, expectedValue)` boundary
+still own writes, pending state and session retirement. IDs, persistence schemas,
+backup/restore formats and existing preference normalization are unchanged.
+Mounted RNW coverage checks unknown values, distinct numeric/string IDs,
+controlled selection, focus retention, repeated selection and disabled actions.
+Production browser coverage checks Enter/Space, saved-value reload, theme-editor
+availability and 320px/200% text in both light and dark appearance. These browser
+and import-graph checks do not establish Android rendering or TalkBack behavior.
+
+Local qualification for this choice-control slice passes 1,751 original unit
+tests (including the new mounted choice contract), 620 Expo tests, strict types,
+full lint, appearance generation and production web export. Both Chromium and
+WebKit pass all 24 Settings and 21 Statistics journeys on that export: 90 browser
+executions. Desktop, phone and 200% light/dark screenshots were reviewed. The
+existing packaged Android qualification remains necessary for the new source;
+native choice interaction and TalkBack still require their own runtime coverage.
+
+The packaged Android harness now requires one choice interaction in both process
+phases: the real accessible Color mode action changes selection, the local owner
+must contain that value, and selecting the original option must restore it.
+Cleanup also restores an initially absent preference key. The verifier rejects
+missing interaction evidence. Both Java sources compile against the official
+API 35 stub under Java 21, and all eight harness contracts pass locally. Only a
+completed emulator run establishes this new gate; it still does not establish
+spoken TalkBack or the full native choice matrix.
+
+Theme selection now also uses a common `SettingsThemeChoices` composition. Both
+platforms show the resolved preset/custom palette, selected state and the same
+Add/Edit/Delete actions. Edit and Delete remain together when the chooser wraps.
+The earlier separate browser swatch tree and native theme dropdown/action card
+are removed. The browser child-action slot is retained, with a common Add button.
+Unknown saved IDs remain visible without selecting or saving a fallback.
+
+The chooser owns no theme records, confirmation state or persistence. Existing
+browser editor callbacks are unchanged. Android retains its captured session and
+expected palette across the system delete confirmation. Moving those actions
+beside the swatch would leave the former inline editor far down the page, so
+Android now opens that editor in the existing shared dialog surface. Pending
+saves prevent dismissal; completed errors appear inside the dialog, and the
+header Close action allows return to Refresh when reconciliation is required.
+Copying palettes, draft state and saving still belong to the existing editors.
+Their color-input composition remains platform-specific; this does not yet close
+the complete custom-theme editor or Settings fidelity gates.
+
+Mounted RNW tests cover actual swatch colors, controlled selection, selected-only
+custom actions, child Add actions, independent editor/pending disables, and
+unknown values. Browser journeys cover custom palettes, long names, 200% reflow,
+grouped actions, editor cancellation/focus return, reload and scoped deletion.
+Retained appearance tests continue to cover presets, forced colors, palette
+copying, alpha/hex values, duplicate names, renaming and prototype-like names.
+Neither the theme schema nor backup/restore format changes.
+
+The Android harness now requires opening the new theme dialog, canceling once
+with system Back and once with Close, and observing the exact unchanged local
+theme catalog in both process phases. The strict evidence verifier rejects a
+missing journey. Java compilation and harness contracts do not substitute for
+that new exact-source emulator run, nor for native editing/IME/TalkBack coverage.
+
+Local theme-chooser qualification passes the complete 1,752-test original unit
+suite and 620 Expo tests. After grouping actions and moving the Android editor
+into the dialog, the 90 affected mounted/domain/harness/CI-policy checks pass,
+along with strict types, full lint, appearance generation, native import-boundary
+build and API 35/Java 21 compilation of both instrumentation sources. The final
+production web export passes all 25 Settings journeys and five retained theme
+journeys in each browser engine (60 executions); desktop, phone, light/dark and
+200% captures were reviewed. The broad unit runs precede those final layout-only
+changes; affected tests and the browser journeys qualify their final source.
+
+The short-choice native save gate is now qualified by
+[run 39488615430](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39488615430)
+for source `aaba7d06deaf1b4e6d83d30a7c8b6e4f3ed96271`. All three standard-runner
+jobs passed. API 35 / WebView 124.0.6367.219 changed and restored Color mode
+through the actual native controls in both process phases (PIDs 2767 and 3884).
+The verifier also retained the packaged origin, worker, storage, reload and
+process-restart checks. The run uploaded no artifacts. This source predates the
+theme chooser/dialog and shared editor below; it cannot qualify those changes.
+
+Custom-theme editing now uses `SettingsThemeEditor` on Android and web. One
+component owns the name, seven color expressions, copy selection, preview,
+validation, pending state and Save/Cancel composition. Web retains its existing
+dialog scroll region and fixed footer through a layout slot. Native retains the
+shared dialog and its session-owned dismissal restrictions. The old browser
+color-input controllers and native whole-editor implementation are removed.
+
+Only input leaves differ: browser color wells and opacity inputs, versus Expo UI
+native text inputs accepting the existing #RRGGBB/rgb/rgba expressions. Name
+fields preserve browser validity/focus semantics and use Expo's focus API on
+Android. The installed Expo UI 58.0.21 universal exports include Picker and
+TextInput but no color well. Both editors use the same universal Picker for
+copying; its browser leaf receives an explicit accessible name.
+
+Copy selection now starts at the active theme on both platforms, and copying
+resolves the palette for the current appearance. This fixes the former native
+first-catalog-entry/raw-preset behavior. Editing still starts from the original
+stored custom palette, preserving authored expressions and zero alpha until an
+individual color changes. Opposite-appearance copies derive their existing
+counterpart without rewriting the source palette. An unavailable copy ID is
+shown explicitly and cannot replace the draft.
+
+Common validation rejects empty/reserved/duplicate names and invalid colors.
+The browser owner rechecks the live catalog before writing. Native expected
+palettes, bounded transport/catalog/name validation and session retirement still
+run at the original owner boundary; these native restrictions are not imposed
+on browser names such as `constructor`. Pending submissions are single-flight,
+failures retain the editable draft, and a late successful result cannot close a
+replacement editor. No storage schema or backup/restore format changes.
+
+Actual browser qualification caught two integration defects before acceptance:
+the copy select needed an explicit accessible label, and the shared action's
+text child intercepted the retained exact button hit test. Plain ActionButton
+labels now leave hit testing to their owning action on both platforms. Mounted
+coverage exercises copying without writes, duplicate rejection and focus,
+prototype-like web names, pending disables, retry, exact expression round trips,
+unavailable copies and late results after unmount. Android IME, editing, native
+color-field focus/scrolling and TalkBack remain separate runtime gates.
+
+Local shared-editor qualification passes 1,754 original unit tests, 623 Expo
+tests, full lint, strict types, appearance generation, the native import-boundary
+build and a production web export. The final export passes 27 Settings, five
+retained appearance and all 21 shared-Statistics journeys in each of Chromium
+and WebKit: 106 browser executions. Desktop, phone and 320×480 at 200% text
+captures were reviewed, including the fixed dialog actions after scrolling.
+The native text-focus leaf additionally passes strict types and the native build;
+these checks do not establish Android keyboard, focus or TalkBack behavior.
+The new theme dialog/editor source still needs its own packaged Android run.
+
+Reader margin/maximum-size presets now share `SettingsDimensionEditor` and its
+storage-free draft model. Both platforms expose the exact saved pixel value,
+quick-size percentage/pixel preview, two shortcut actions and the existing
+Automatic zero sentinel for maximum size. This replaces Android's ten-button
+preset list and the browser's controller-owned presentation with one composition.
+The browser retains its existing popover, fieldset and pixel-value input; native
+retains its numeric draft Apply/Cancel and disables presets while that draft is
+dirty. Existing owners still handle every save and native expected-value checks.
+
+Opening, previewing, canceling and resizing never save. An in-progress gesture is
+admitted to its original viewport, writing direction, saved value and enabled
+state; a changed context rejects its late finish, even if the original values
+later return. Only an explicit completion/shortcut reaches the owner. Incoming
+saved values are not normalized to the nearest displayed quick-size step.
+Automatic remains available without a measured viewport, but never for margins.
+No persistence schema or backup/restore format changes.
+
+The bounded browser slider leaf keeps native input/change/blur/pointercancel
+events: React's range onChange fires while dragging and cannot represent the
+existing completion contract. The native leaf uses Expo UI's Compose Slider,
+whose installed API and Kotlin implementation provide `onValueChangeFinished`;
+the universal Slider currently omits that callback. Labels, range steps and
+semantic theme colors are supplied at this boundary. The shared model—not the
+control—admits a completion and prevents a retired editor from saving.
+
+The Android harness adds an actual accessible range interaction in both process
+phases, verifies a positive local pixel save and the returned native range,
+selects Automatic through its named action, then restores the exact raw original
+value, including an absent key. Evidence must include
+`nativeDimensions: slider-completion-and-automatic-local-save-with-exact-restore`.
+Java compilation and model/import tests are not execution of this gate. Physical
+touch/IME/rotation/TalkBack and native large-text layouts still require runtime
+qualification.
+
+Local dimension-editor qualification passes all 1,758 original unit tests, 623
+Expo tests and 49 Android-harness/CI-policy checks. Full lint, strict types,
+appearance generation, native import-boundary build, production web export and
+API 35 / Java 21 compilation of both instrumentation sources pass. The final
+export passes 29 Settings journeys, the retained Rhea theme-dialog geometry/focus
+case and five retained theme journeys in each browser engine (70 executions).
+Phone/desktop and 320×480 at 200% light/dark captures were inspected. The Rhea
+case also verifies the restored large, 8px rounded Add theme action identified by
+the earlier CI failure. Full native size/editor qualification remains pending.
+
+Stored-font management now uses `SettingsFontManager` and
+`SettingsFontImportFields` on both platforms: common Stored/Add navigation,
+font rows, availability/selected states, Use/Remove actions, storage recovery,
+and import-form composition. Browser list semantics remain a small `ul`/`li`
+leaf. Common field frames preserve actual HTML label activation and native
+labels. Android now opens the shared responsive Dialog rather than a separate
+full-screen font manager. The shared action row wraps within the available
+width, including 320px at 200% text with long font/file names.
+
+The browser retains its real form and file input, required validation, IME
+Enter guard and explicit Save. Android retains Expo UI's native name field and
+its existing combined system-picker/import command, 200-character name limit
+and 256 MB transfer limit. A cancelled picker retains the draft. An acknowledged
+import returns to Stored; importing never selects a font. These differences are
+bounded file/system adapters, not separate catalog presentations.
+
+Storage owners and mutation contracts remain in place. The browser uses exact
+cache entries and the live catalog; native selection/removal uses the captured
+catalog token and key. Native single-flight leases, account/epoch lifetimes,
+late-confirmation rejection, abort on dismissal and explicit reconciliation
+remain. A browser Save already in progress may finish after dismissal without
+closing a replacement dialog. The new browser Selected indicator observes the
+current preference family and releases its subscription on replacement/teardown.
+No schema, stored preference, font-cache, backup or restore format changes.
+
+Mounted native coverage retains the original lifetime assertions and adds
+missing-file disabling, read-only Add navigation, cancelled-picker draft
+retention, duplicate-import coalescing and the acknowledged return to Stored.
+The actual packaged gate now requires
+`nativeFontManager: shared-font-list-add-back-and-close-without-save` in both
+process phases. It navigates Stored/Add, dismisses with Android Back, reopens,
+closes, and checks the exact raw catalog and both font-family preferences are
+unchanged. It does not import a real font, exercise IME/TalkBack, or qualify
+native large-text/rotation behavior.
+
+Local font-manager qualification passes all 1,759 original unit tests, 626 Expo
+tests and 49 Android-harness/CI-policy checks. Full lint, strict types, appearance
+generation, native import-boundary build (63 modules), production web export,
+and API 35 / Java 21 instrumentation compilation pass. The final export passes
+30 Settings journeys and the retained Rhea theme-dialog geometry/focus case in
+each browser engine: 62 executions. Desktop, phone and 320px/200% light/dark
+captures were inspected. The inner-overflow repair has an additional 39 focused
+controller, mounted-dialog and native-lifetime checks on its final source.
+Packaged Android execution for the new font and preceding size gates remains
+pending; earlier theme-editor APK results do not qualify these controls.
+
+### Shared font choices and explicit native preferences
+
+Both font selectors now consume one packaged catalog and one selection policy.
+YuKyokasho is advertised only after a positive availability probe. Saved strings
+and effective rendering choices remain distinct: opening a picker never writes
+a fallback; an explicit available choice can replace a saved unavailable family.
+Unknown, imported and CSS family lists remain visible as saved preferences.
+Android uses the Expo Picker leaf; web retains the released radio menu, keyboard
+navigation and trigger focus return. Browser labels are limited to three visual
+lines so long names at 200% text leave other choices reachable; the full name
+remains in the accessible label, title and editable preference field.
+
+Android now exposes explicit text drafts for both font families, with Apply and
+Cancel. Dirty drafts disable the picker and Manage action. Saves retain exact
+strings and the existing expected-value/revision guards; external updates and
+rejected or late replies cannot silently replace a newer draft. The actual
+Compose TextInput receives the field name through its semantics modifier.
+Browser freeform field/blur/IME behavior is unchanged. No storage schema, cache,
+backup or restore format changes.
+
+Local qualification: 1,759 unit tests, 634 Expo tests, 49 harness/policy checks,
+full lint/types/appearance checks, native import-boundary build (66 modules),
+production export and API 35 / Java 21 instrumentation compilation. The final
+export passes 33 selected journeys in each browser engine (66 executions),
+including every Settings controls/editor-usability case and retained Rhea font
+keyboard/theme-dialog cases. Desktop/phone and 320px/200% light/dark menu captures
+were inspected. This selected inventory does not establish whole-app parity.
+
+The new native gate requires explicit draft/cancel/apply/exact-restore for both
+families in both process phases. It has not yet executed remotely. The preceding
+source `3ac13264` passed both web jobs in run `39501226500` but failed Android on
+an unreachable named size slider before font-manager navigation. Native size and
+font gates remain open. Bounded native accessibility snapshots now accompany
+failures so the next run can distinguish control naming, visibility and range
+semantics without relaxing the original assertions.
+
+### Background owner preparation
+
+Native background selection still needs its bridge, system picker and Library
+image renderer. The existing DOM-owned image database now accepts a captured
+mutation authority: queued operations recheck their reader lifetime before
+starting, decoding/encoding rechecks before a write, and cancellation aborts an
+in-flight IndexedDB transaction. Once a transaction commits, its durable result
+is retained and refreshed even if the originating editor disappears. A retired
+editor cannot publish its error into a replacement editor. Current browser
+callers retain their existing save behavior and error/retry handling.
+
+Nine owner tests exercise the actual IndexedDB transaction algorithm with a
+synthetic canvas boundary: independent modes, queue retirement, decoder cleanup,
+owner change during encoding, removal after a stale transaction read,
+abort-after-put/before-commit, retirement after commit and explicit retry after
+storage failure. Real browser appearance coverage separately exercises actual
+PNG/JPEG/WebP decoding, canvas, corruption recovery, independent slots,
+cross-tab changes and offline reopening. These contracts prepare native image
+integration; they do not make that capability available yet.
+
+The `manabi-reader-appearance` v1 schema and image record representation are
+unchanged. Existing book ZIP export does not include this appearance database;
+background-image backup/export coverage must remain explicit when wiring native
+selection. The native feature must use the same data owner and image limits,
+then qualify library rendering and process-restart persistence before removing
+its current capability gate.
+
+Local qualification of this preparation: 1,768 unit tests, lint, strict app
+types and a fresh production web export passed. The complete retained appearance
+collection passed 31 cases in each of Chromium and WebKit (62 journeys), including
+actual image reencoding and offline persistence. Native background selection is
+still unavailable and is not qualified by these web results.
+
+### Packaged Android semantic-owner diagnosis
+
+Run `39507202372` at `5622af9e` passed both web jobs, Android compilation, origin
+policy, release packaging and worker checks, then failed the native size-slider
+lookup. Its actual accessibility snapshot contains a visible SeekBar with range
+50–95 and current value 95. The exact “Quick size for maximum page height” label
+is on that SeekBar's immediate child. Expo UI text inputs use the same split:
+an editable EditText owns its named semantics child. The harness now follows
+only the exact label's self or immediate SeekBar/EditText parent. It also checks
+screen and scroll-viewport bounds because Compose reports some offscreen virtual
+children as visible. Named control, enabled state, real native actions, range,
+local save and exact restore assertions remain required. A new packaged run must
+confirm this correction; the failed run does not qualify size or font edits.
+
+The raw log and parsed hierarchy are retained in local
+`native-background-images-sf7gtuop` evidence. This diagnosis changes test lookup,
+not product preference semantics or the installed Expo implementation.
+
+### Shared background editor and native local images
+
+The editor now shares `SettingsBackgroundImages` on web and Android, with small
+HTML/RN layout leaves. Web retains its file inputs, fieldsets, independent mode
+previews and fade controls. Android uses the system document picker and bounded
+native file chunks, then the existing DOM-owned image decoder and transaction.
+Library rendering consumes a separately requested local image resource. Original
+files, native paths and image bytes never enter ordinary runtime snapshots.
+
+All four library/reader × light/dark slots remain in the same
+`manabi-reader-appearance` v1 database. No second native store or migration was
+introduced. The owner keeps its 8 MB, 24 MP and 8192px input limits. Native replies
+preserve aspect ratio and alpha, are reencoded as WebP or PNG, and are bounded to
+2048px and 384 KiB. Late mode/account/revision replies cannot replace a newer
+Library image. Failed native decoding hides the decorative image and can retry
+on a later revision. A picker cancelled or retired by its editor/account cannot
+replay a save; uncertain mutation results require explicit refresh.
+
+Book ZIP backups still omit this image database. Both editors explicitly say
+images stay locally, are not synced or included in book backups, and original
+files are needed on another device. Existing backup/restore formats are unchanged.
+
+Local checks in `native-background-images-sf7gtuop` and
+`background-closeout-cJwIc0S9`: 1,768 units; 651 Expo contracts; six mounted native manager/renderer tests; real
+IndexedDB/decoder/canvas/resource cases in Chromium and WebKit; application types,
+lint, Android graph/export, and Java 21/API 35 instrumentation compilation. The
+production web export passes all 31 retained appearance cases and 31 Settings
+controls/editor-usability cases in each engine (124 journeys). Narrow/wide,
+light/dark image-editor captures were reviewed. These are local results, not
+packaged Android acceptance or full application parity.
+
+The first browser run retained two failures per engine: the formatter removed a
+conditional class-name space, breaking dark previews. An explicit class list
+repairs the real stylesheet/DOM contract; the original assertions remain.
+The image-button label is also a single text child, preventing RN flex gaps
+between words. CI now selects the complete appearance collection for both export
+modes and engines, plus real native-resource raster cases in both engines.
+
+Packaged Android coverage now requires actual picker cancellation and three PNG
+imports, distinct light/dark native image pixels, persisted slot-byte hashes
+across a real process restart, isolated mode removal and complete cleanup. It
+uses only fresh disposable emulator data. This new gate has been compiled and
+its harness tested, but has not executed against the APK yet. The capability is
+implemented in current source; native release qualification remains open.
+
+Run [39511591350](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39511591350)
+completed successfully on `758d76e638f7fd113653b41a3496fdd108e15138`: both web jobs
+and packaged Android passed. The native slider/font semantics repair is therefore
+qualified for that source, including the original save/restore requirements.
+That commit predates the background integration above; its green result does not
+qualify the new background system picker, renderer or restart assertions.
+
+### Actual Android font picker and production font loading gate
+
+The packaged instrumentation now has a font import/select/remove journey in
+addition to its retained read-only manager and font-draft checks. Seed copies
+one actual bundled WOFF2 face into a unique, test-owned Downloads entry, opens
+the Android document picker, verifies cancellation retains the name draft and
+unchanged catalog, and selects that file through the system picker. Import must
+leave both font-family preferences untouched; Use must select the exact new
+name. The ordinary CacheStorage owner must retain byte-identical contents.
+
+The inspection probe waits for BrowserRuntime's own embedded-font stylesheet
+and asks `document.fonts.load` to decode the face it registered. It never installs
+a test FontFace or stylesheet in the packaged app. A document reload and the
+second real process must retain the selected font identity and exact cached-byte
+hash. Verification cancels the native removal once, then confirms it, requires
+catalog/cache/stylesheet removal and the selected-primary reset, and verifies the
+other family never changed. Original raw preferences are restored by test cleanup.
+All source-file fixtures are scoped to the disposable emulator and removed after
+use; the existing suite still refuses installed app profiles and physical devices.
+
+Local harness tests exercise the injected probe, wrong bytes, implicit selection,
+incomplete removal, exact cleanup, and cross-process evidence rejection. Java
+21/API 35 compilation passes. A real browser codec fixture runs the actual
+save/remove and embedded stylesheet helpers with the bundled WOFF2 file in
+Chromium and persistent WebKit, including a document restart. The first temporary
+WebKit context lost its cached font entries on reload while retaining the catalog;
+that failure and an unchanged persistent-profile pass are retained in
+`native-font-picker-2MAtss7h`. Browser profiles close and move to Trash after use.
+This is browser storage/codec evidence, not an Android picker pass.
+
+The new font codec checks run in both CI browser engines and preserve any first
+failure while still running the second engine. The APK font journey remains
+unqualified until a new exact-source packaged run succeeds. This slice changes
+test tooling only; application schemas, font ownership and backup/restore formats
+are unchanged.
+
+### Shared Library selection toolbar
+
+Web and Android now execute `LibrarySelectionToolbar` for cancellation, the live
+selection count, select-all/page, optional export, grouped bulk actions and the
+saved-copy notice. The platform leaves supply controls and menu semantics; they
+do not own selection queries or persistence. Web retains its existing compact
+icon geometry, toolbar labels, focus restoration and saved-copy restrictions.
+Android replaces the horizontal strip of bulk actions with a named Actions menu,
+keeps “selected on this page” and Select page explicit, and exposes cancellation
+in the toolbar. Its Select page control remains Expo UI/Compose; branded menu
+items use the existing shared action primitive.
+
+Android's menu retires on a new Library admission or route/account departure.
+Busy operations disable the toolbar. Copy-removal confirmation now also retires
+on cancellation, Android dismissal, refresh, selection changes (including ABA),
+route departure/return and account replacement. A confirmed removal uses the
+captured Library token, keys and IDs once and keeps reading history. Uncertain
+failure is shown without replaying the destructive request. This changes no
+storage schema, backup content or restore behavior.
+
+Local evidence is in `../evidence/shared-selection-ix5swzj8/`: mounted native
+selection/removal tests, actual web/Android route graphs and production exports,
+TypeScript and lint. Eight actual-app browser journeys pass in each of Chromium
+and WebKit, covering compact/200%-text toolbar reachability and keyboard focus,
+scoped selection, same-title Statistics identities/deletion, bulk Want to Read,
+and real export/migration/repeat. Both enlarged-text screenshots were reviewed.
+These are local checks, not an installed Android interaction or TalkBack pass.
+The full shared Library workspace, common search, native export destinations and
+remaining device acceptance stay open.
+
+### Backup archive delivery boundary
+
+`BackupStorageHandler.finishExportZip` now consumes and returns a completed Blob
+and the existing ZIP filename independently of browser downloading. The ordinary
+browser path retains its download and URL cleanup. Detaching the writer before
+awaiting completion prevents an old download/finalization from discarding a newer
+export. Cancellation is supplied by the current replication operation, checked
+after compression and before delivery, and checked again before a queued browser
+click. A previous book context cannot supply another operation's cancellation.
+
+`replicateData` accepts an optional archive destination. A destination receives
+an archive only after successful replication; per-book errors, empty work and
+cancellation discard it instead of presenting a partial ZIP as a successful native
+backup. Destination failure is surfaced and is not replayed. Existing serializers,
+ZIP entry names, preferences and restoration behavior are unchanged. Six focused
+tests use the real ZIP codec for delivery, cancellation, writer isolation and
+partial failures; the actual-app export/restore journeys remain the wire-format
+acceptance evidence.
+
+This is the shared archive boundary for native export, not a completed Android
+Save flow. Android still needs selection admission, identity-checked DOM reads,
+a bounded cancellable transfer, a real system destination chooser, and saved-file
+verification/cleanup before exposing Export. Native paths must stay in the shell;
+ZIP bytes must not be added to ordinary runtime snapshots. The existing DOM
+storage owner and current backup format remain authoritative. Full Settings,
+background images and font caches are not implicitly included by this refactor.
+
+### Selected-book Android ZIP destination
+
+The native selection toolbar now opens an export sheet for **selected books on
+the current page**. Web and Android share `BookExportContent`: the same five
+content choices and toggling, with browser label/input leaves and native Expo UI
+checkboxes. Web retains its destination controller, stored export preferences,
+dialog focus return and existing serializers. Its content and destination grids
+now fit the available width in rem units; screenshot review found clipped labels
+at 320px/200% text despite the old panel-level overflow assertion. The browser
+test now checks each label's own overflow too.
+
+Android chooses a destination through `Directory.pickDirectoryAsync`. The DOM
+owner consumes the exact Library admission, requires its canonical content/local
+identity and builds the existing ZIP from guarded per-book snapshots. Ownership
+and identity are checked in the transaction that reads the actual data. The
+existing statistics migration gets an optional title-copy owner guard before it
+can create legacy identities. Ambiguous title-keyed audio/subtitles, unresolved
+statistics and colliding ZIP folders fail explicitly; the user can narrow the
+options or export copies separately. No partial archive is delivered on failure.
+
+Preparation owns its account/runtime subscription beyond the Start reply. One
+scoped archive can be active; status and 256 KiB chunks use bounded read receipts,
+with cancellation, ten-minute idle expiry and account/runtime disposal. The
+archive is still assembled as a Blob, and the current book/history is read in
+memory; this is bounded **transport**, not a fully streaming serializer. Existing
+legacy migration may also read same-title copies together. Paths stay in the
+native shell and archive bytes never enter runtime snapshots.
+
+The shell creates a uniquely named SAF document, writes chunks using explicit
+write-only handles, closes it, then compares all saved bytes through bounded
+read-only handles before reporting success. Installed Expo 58's `File.rename`
+uses Java file paths and cannot rename SAF content URIs, so this flow does not
+claim atomic publication: the new file may be visible while writing. Cancellation
+or failure removes only that newly created file; failed cleanup identifies the
+requested archive name. Expo File.name derives from its URI and can return an
+opaque provider ID, so completion messages do not use it and cleanup guidance
+uses the generated ZIP name submitted to the provider. Lost acknowledgments
+are not replayed. Picker cancellation before Start leaves the selection
+unconsumed. Closing the sheet, changing the
+selection, refreshing, leaving the route or replacing the account retires the
+operation and refreshes admission before another explicit attempt.
+
+This preserves the existing wire format and DB version. The UI describes the
+selection scope and excludes settings, fonts, backgrounds, snippets and
+annotations. Native ZIP restoration and whole-library/application backup remain
+open; the existing web restore is the destination for these portable archives.
+
+Local evidence lives in `../evidence/native-export-p7hp3uai/`: real IndexedDB and
+ZIP export/restore in Chromium and WebKit preserve ruby, images, position,
+completion, statistics, audio position and subtitles. Unit/mounted tests cover
+ownership, canonical identity, expiry, cancellation, chunk bounds, file
+verification/cleanup, shared options and route/account retirement. Both production
+platform exports, strict types, lint and actual-app browser backup/layout checks
+are separate from Android runtime acceptance. The new Android folder chooser,
+SAF write/read/cleanup and TalkBack export journey still need packaged-device
+qualification. The emulator harness now requires a real picker import, cancelled
+folder selection, multi-chunk export, independent nested-ZIP/HTML verification,
+native Library copy removal and unchanged archive bytes after process restart.
+This extends the gate but does not establish its result until the exact-source
+APK run passes. Spoken TalkBack and provider-error/cancellation-during-write
+coverage remain separate acceptance work.
+
+### Library field names and removal of superseded screens
+
+Native metadata, collection, series, date and search inputs now attach their
+accessible names to the actual Expo UI text field. Entering text no longer
+removes the only name when a placeholder disappears. The metadata date keeps
+its `Published` label separately from its example placeholder. Mounted Library
+and passage-search tests exercise the retained name after editing; packaged
+TalkBack acceptance remains separate.
+
+`NativeScreens.tsx` no longer exports the unused early Library and Settings
+implementations. The existing route entries already select `native-library`
+and `native-settings`; shared header/actions and the account screen remain.
+The cleanup removes the superseded screen controllers and their styles without
+changing persistence, schemas or backup/restore behavior.
+
+Run [39529342298](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39529342298)
+on `615b9a7a6b36504e0b55697035862bd9f38b9b5d` passed both web jobs. Android
+confirmed actual font picker/import/selection and production cached font loading,
+plus background-picker cancellation from its remembered subfolder. It then failed
+because the image grid's filename is part of a description containing file size
+and timestamp. The test-only document selector now accepts that exact filename
+and metadata boundary inside DocumentsUI, rejects preview/prefix labels, and
+also serves the new book-import journey. Full background and book-export runtime
+qualification is still pending. Original failure data is retained locally in
+`../evidence/android-picker-followup-jv95hkmw/`.
+
+### Real Android disconnected-state observation
+
+Expo config introspection found that the generated Android manifest did not
+request `ACCESS_NETWORK_STATE`. Chromium's WebView network-change observer
+[requires that normal permission](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/net/android/java/src/org/chromium/net/NetworkChangeNotifierAutoDetect.java).
+The app now declares it explicitly so `navigator.onLine` can supply actual
+connection changes to the existing DOM owner and shared offline notice. There
+is no new network permission prompt, connectivity store, sync claim, data schema
+or backup/restore change.
+
+The emulator runner now disables networking only after its existing fresh-AVD,
+uninstalled-profile and APK guards. It uses the Android connectivity service's
+airplane-mode command and disables Wi-Fi/mobile data explicitly. Instrumentation
+requires granted network-state observation, airplane mode, no active network and
+zero available networks before launching each app process, after the native
+journeys and after storage checks. It reads the real WebView's offline state and
+opens/dismisses the native explanation in both processes. Font/background imports,
+the text-book/verified-ZIP journey, reload and process restart therefore must all
+work while disconnected for a new run to pass. No navigator override, synthetic
+offline event or network/security bypass is used.
+
+Local harness tests exercise shell ordering with isolated fake ADB commands,
+including physical-device/existing-app refusal and a failed airplane-mode setup.
+Evidence verification rejects absent, connected or incomplete offline checkpoints
+in either process. These are harness checks, not Android runtime results. Local
+evidence in `../evidence/android-offline-mxrxhsw1/` includes generated-manifest
+introspection, 14 harness tests, lint, shell syntax and Android API compilation
+under Java 21. The new disconnected device gate still needs an exact-source run.
+No packet capture or no-DNS claim is made, and full offline EPUB/annotation and
+device accessibility coverage remains open.
+
+### Shared Library sorting controls
+
+Web and Android now render the common `LibrarySortControls` composition. Its
+inventory includes all eight existing properties and preserves direction when
+changing property (and property when changing direction). The Finished shelf
+keeps its separate finished-date ordering. Invalid, unchanged and disabled
+callbacks cannot save; damaged preferences use the existing read-only fallback.
+
+The web leaf retains the real menu radio groups, nested More Sort Options,
+keyboard navigation, dismissal, focus and collision geometry. Android uses named,
+wrapping choices with selected and disabled accessibility states, through the
+same owned `ChoiceButtons` primitive already used by Settings. The installed
+Expo UI Compose semantics modifier does not expose a selected-state property;
+these choices use the established RN/RNW primitive rather than inventing one.
+Existing platform controllers still own persistence, admission and account/route
+lifetimes. Storage schemas and backup/restore formats are unchanged.
+
+Evidence in `../evidence/shared-library-sort-k7f6hn_v/` records 49 passing focused
+composition, mounted Library and route-graph tests; affected lint, full application
+types, production web/Android exports and completed web post-build. Six retained
+actual-app checks passed in each of Chromium and WebKit, including all sorting
+and export options, Finished ordering, author search, touch menus, Settings
+keyboard/save behavior and responsive choices. Sorting and Settings screenshots
+were visually checked at desktop, phone and 320px/200% text sizes; menus and
+choices remain readable and inside the available width. These are browser and
+mounted-native results, not packaged Android or spoken TalkBack acceptance.
+
+Run [39533224369](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39533224369)
+on `a487f0343d092734448579ffdeb46bf59cdc5fd9` passed both web jobs and compiled the
+Android APK, but failed at font-picker cancellation before background/book export
+qualification. The test recorded two Back presses and then found Settings without
+the expected font dialog. The cancellation helper now requires a fresh picker/app
+window-state event before any further Back. Its deterministic regression test
+reproduced the extra-Back race before the fix and passed afterward; all 15 harness
+tests and Java 21 Android API compilation pass. This is test synchronization, with
+no app persistence or backup changes. A new packaged run must qualify the fix,
+shared sorting and the disconnected-state gate together. Failure and local check
+evidence are retained in `../evidence/shared-library-sort-k7f6hn_v/` and
+`../evidence/picker-navigation-4n7rf8uo/`.
+
+### Direct shelf sorting on web
+
+The Library shelf now exposes the current sort in one menu, with all eight
+properties and both directions visible without nested navigation. The control
+sits beside Books, below Continue when present, and above other shelves/series.
+Finished exposes only its independent newest/oldest order. Selection and search
+hide it; hydration, scanning and pending actions disable it. The original
+Library actions menu reads the same saved preference.
+
+`LibrarySortMenu.web.tsx` owns only the browser trigger and menu/focus behavior.
+`LibrarySortControls` and the canonical inventory remain shared, and the existing
+controller owns persistence. Android sources are unchanged and unqualified in
+this web-focused phase. No store, schema, migration or backup/restore format was
+added. Enlarged text wraps the trigger with a minimum 44px target; the menu
+scrolls while retaining keyboard access to every choice.
+
+Local evidence in `../evidence/web-sort-priority-klpz2vit/` records 47 passing
+CI-policy/common-sort tests, full application types, affected lint and a fresh
+production export plus its actual post-build. Eight distinct actual-app cases
+pass in each of Chromium and WebKit, assembled from the seven unaffected cases
+in each main run and the revised offline case in each focused follow-up.
+Original failed attempts are retained. Visual checks cover desktop/phone,
+light/dark and 320px with 200% text; an initial Continue-to-Books spacing defect
+was fixed without weakening the original geometry assertions.
+
+Playwright WebKit rejects service-worker navigation while its simulated-offline
+flag is set (the existing sync suite documents the same engine limitation).
+The revised test uses one sequence in both engines: change the real control
+while the browser reports offline, then stop a dedicated origin server, verify
+its TCP listener refuses connections and require the reload response to come
+from the installed service worker. The saved choice, actual book ordering and
+bookmark/statistics records must survive. This proves offline editing and
+cached reopening with the origin unavailable, not an OS-level network outage.
+
+### Shared page-turn, Drive choice and native text controls (October 28)
+
+Page-turn Settings now uses the same `SettingsPageTurnEffect` composition and
+Expo UI universal Picker on web and Android. The pure option inventory is shared
+with the native schema. Existing settings owners retain validation, persistence
+and stale-save guards; unsupported values remain visible without being replaced.
+Drive's Local copy selector also uses the shared Picker and retains duplicate
+book labels, the empty prompt and comparison ownership.
+
+The browser field adapter gives the real select an exact caption association,
+keeps descriptions current, and protects its full-width layout from enclosing
+screen label styles. This fixes a regression found by the actual Drive journeys:
+the wrapping label's option text prevented exact label lookup, and generic
+connection-screen CSS centered and shrank the field.
+
+Shared Android text fields now render Expo UI universal TextInput with native
+observable state, controlled draft reconciliation, Compose naming and keyboard
+options. The small web input adapter retains date/number constraints and native
+Enter/form/focus behavior unavailable through the installed universal input.
+No store, migration, recovery record or backup format changes are introduced.
+
+Local validation includes all 704 Expo tests, strict application types, scoped
+lint, production web export/post-build and Android export/asset qualification.
+All 70 Settings/Statistics browser cases and six composed Drive journeys pass
+against the corrected export in Chromium and WebKit, including cloud preservation. Evidence lives in
+`../evidence/shared-controls-u24kuh3h/` and
+`../evidence/shared-controls-browser-final-lngr8okt/`. The original failed browser
+run is retained separately; it is not counted as a pass.
+
+The Android packaged gate now requires actual page-turn selection, cancellation,
+route reopening, reload and process restart, plus named Statistics input edits,
+retained focus/identity and draft reset on dismissal. All 17 host harness tests
+pass, including interrupted-save cleanup and strict cross-process evidence.
+Those tests and the export do not establish Android device rendering, IME,
+TalkBack or small-screen/enlarged-text geometry; the exact-source packaged run
+remains required.

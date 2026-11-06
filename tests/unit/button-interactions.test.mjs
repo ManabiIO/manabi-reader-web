@@ -324,7 +324,8 @@ test('dismiss and compact embedded controls retain source icons, touch targets a
       const node = await render(kind, { disabled: true, 'aria-label': 'Close search' });
       assert.equal(node.getAttribute('aria-label'), 'Close search');
       assert.equal(node.disabled, true);
-      assert.equal(node.dataset.shape, 'circle');
+      assert.equal(node.dataset.shape, kind === 'LibraryClose' ? 'rounded' : 'circle');
+      assert.equal(node.dataset.variant, kind === 'LibraryClose' ? 'ghost' : 'secondary');
       assert.equal(node.hasAttribute('data-modal-dismiss'), true);
       for (const token of [
         'size-[44px]',

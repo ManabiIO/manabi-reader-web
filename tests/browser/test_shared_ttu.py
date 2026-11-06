@@ -13,6 +13,7 @@ import time
 import unittest
 import zipfile
 from playwright.sync_api import expect
+from browser_launch import launch_options
 import test_static_reader as static
 
 
@@ -22,7 +23,7 @@ class SharedTtuBrowser(static.ReaderBrowser):
         # browser profile. Each test owns and removes its own isolated directory.
         profile = tempfile.TemporaryDirectory(prefix='reader-shared-ttu-')
         self.addCleanup(profile.cleanup)
-        return self.playwright.chromium.launch_persistent_context(profile.name)
+        return self.playwright.chromium.launch_persistent_context(profile.name, **launch_options())
 
     def seed_shared_source(self):
         # Opening an absent IndexedDB database from a fixture creates a version-1

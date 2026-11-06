@@ -2,7 +2,7 @@
 
 ## Integration
 
-- Export `NativeSettingsScreen` from `native-settings/index.ts` at the Android settings route. Rendering uses React Native layout and Expo SDK 57 universal `Host`, `Button`, `Switch`, `Picker`, and `TextInput`; it does not embed a settings WebView.
+- Export `NativeSettingsScreen` from `native-settings/index.ts` at the Android settings route. Rendering uses React Native layout and Expo SDK 58 universal `Host`, `Button`, `Switch`, `Picker`, and `TextInput`; it does not embed a settings WebView.
 - Admit `settings.state` and `settings.action` in the existing bridge allowlist. In the single DOM owner, call `readNativeSettingsState(payload)` and `dispatchNativeSettingsAction(payload)` from `native-settings/service.ts`.
 - These return `NativeSettingsState` directly, not `RuntimeSnapshot`. The native screen owns this DTO and does not use the old 33-field `snapshot.settings` array.
 - Do not import `service.ts` into native code or create another reader/store/IndexedDB owner. No iOS or macOS targets are added.

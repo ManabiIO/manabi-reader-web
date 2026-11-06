@@ -65,7 +65,9 @@ export function StatisticsScreen(props: Partial<StatisticsScreenProps> & ReaderV
           showCloseButton={false}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            document.querySelector<HTMLButtonElement>('[aria-label="Statistics options"]')?.focus();
+            document
+              .querySelector<HTMLButtonElement>('[aria-label="Statistics options"]')
+              ?.focus({ preventScroll: true });
           }}
           onInteractOutside={(event) => {
             if (c.$statisticsActionInProgress$) event.preventDefault();
@@ -73,7 +75,9 @@ export function StatisticsScreen(props: Partial<StatisticsScreenProps> & ReaderV
           onEscapeKeydown={(event) => {
             if (c.$statisticsActionInProgress$) event.preventDefault();
           }}
-          className={['data-[side=right]:w-full data-[side=right]:sm:max-w-xl']
+          className={[
+            'statistics-options-sheet data-[side=right]:w-full data-[side=right]:sm:max-w-xl'
+          ]
             .filter(Boolean)
             .join(' ')}
         >

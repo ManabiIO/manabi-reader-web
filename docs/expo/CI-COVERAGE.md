@@ -5,14 +5,47 @@ outcomes and per-suite logs for the exact recorded source commit are the evidenc
 A skipped, timed-out, interrupted or never-started suite is **unqualified**. Green
 results from an older commit do not qualify this revision.
 
+## Active scope: web; Android deferred (October 22, 2026)
+
+The user paused Android implementation and device qualification. Web is the
+current delivery target. Android source and Expo UI/platform adapters remain for
+future work; native Windows remains removed. The existing Expo 58 / RN 0.88 stack
+is retained. Default application `start` opens web; Android commands stay explicit.
+
+The workflow runs its two web jobs by default. The Android job and its Java
+instrumentation harness step require the manual boolean `qualify_android: true`;
+pull requests cannot allocate an Android runner. This opt-in also retains the
+existing public-repository/branch admission guards. Shared TypeScript, route-graph
+and domain tests remain available as inexpensive architecture checks. Web runtime,
+persistence and browser UX are the active acceptance requirements; unexecuted
+Android checks remain unqualified and are not a web release blocker.
+
+Run [39537532413](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39537532413)
+on `77d0ef042106baacfdc5aa4d63882dffe8707348` passed both web jobs. Its Android job
+failed and is deferred without a rerun under the new scope.
+
+## Retired desktop experiment
+
+Windows was removed at the user's request on October 20, 2026. Its app workspace,
+CLI patch, tests, and bootstrap workflow are gone. The active Windows run was
+cancelled. Web is the active application target; Android is retained for future work.
+
+The historical branch name `codex/reader-windows-sdk56-20261020` remains excluded
+from legacy automatic workflows while this cleanup is integrated. This is a CI
+storage boundary, not a Windows build target: removing that guard would enable
+legacy artifact/cache jobs on the same branch. The original repository and branch
+admission guards are retained; Android is additionally gated by the explicit
+manual input above.
+
 ## Execution boundary
 
 - Only `ManabiIO/manabi-reader-web` and its own
   `feat/expo-android-web-migration` head are admitted. The event repository must
   explicitly identify public visibility and a boolean `private: false`.
 - The migration workflow runs for matching pull requests and manual dispatches,
-  not duplicate push events. Three stock `ubuntu-24.04` jobs run independently:
-  regression plus default web, gated web, and Android. No larger, paid or self-hosted class is selected.
+  not duplicate push events. Two stock `ubuntu-24.04` jobs run by default:
+  regression plus default web and gated web. The retained Android job runs only
+  on explicit manual opt-in. No larger, paid or self-hosted class is selected.
 - Legacy automatic workflows suppress this exact repository/head combination at
   **job admission**, including direct branch pushes, before allocating runners.
   Their existing definitions still apply to other branches and external
@@ -51,8 +84,11 @@ possible behavior or frozen mutable upstream action tags.
   strict application TypeScript
 - Every `tests/unit/*.test.mjs` and `test/expo/*.test.mjs`, including navigation,
   history, promoted-reader routing, Library readiness/catalog ownership, and CI-policy cases
-- Existing Android instrumentation-harness unit contracts, reader regressions,
-  snippets domain and mounted React integration
+- Existing reader regressions, snippets domain and mounted React integration;
+  Android instrumentation-harness contracts only when explicitly requested
+- The web job also runs historical database upgrades and external-reader recovery
+  cases against native Chromium and WebKit IndexedDB. These qualify the storage
+  foundation, not live Google consent, a production sync caller or cloud writes.
 - Existing Whispersync core coverage thresholds and React compilation, pitch
   estimator/lifetime regressions, and both Python Library-dispatcher policy and
   diagnostics suites
@@ -101,9 +137,11 @@ no longer select different runtime code:
   cases. `--list --json` exposes the identical default/gated inventory without
   starting a browser; `--validate` resolves exact cases without inherited-suite
   discovery or duplicate whole-reader runs
-- All six original Settings controls and ten Settings editor-usability cases in
+- All current Settings controls (including the six original cases) and ten Settings editor-usability cases in
   both engines, covering dimension/font behavior, specialized storage/theme
   flows, enlarged-text reachability, category navigation and reader return
+- All 31 retained appearance cases in both engines, including independent image
+  modes, corrupt images, cross-tab updates and offline reopening
 - The real reader save/cancel/Back/Forward/fragment lifetime suite in both engines
 - The two corrected offline handoffs in both engines: Library bookmark reconnect
   and owned-book offline/signout. Worker activation and controller acquisition
@@ -119,10 +157,12 @@ silently passed or deleted. On c3b0c0ba the previous flag-enabled export passed 
 and two offline-handoff cases in each browser engine. The promoted source must
 still pass both exact-head exports; older-head results do not qualify this edit.
 
-Actual emitted-worker/genuine SwiftF0/cover checks and Android qualification are
-still separate, always-selected job steps. No scope changes runner classes,
-number of exports/jobs, artifacts, caches, assertions, failure aggregation or
-existing whole-job timeouts.
+Actual emitted-worker/genuine SwiftF0/cover checks, local background raster and
+native-resource and cached-font/embedded-stylesheet decoding checks in both
+engines remain separate, always-selected web job steps. Android qualification
+requires its independent manual opt-in. Affected versus full web scope does not
+change runner classes, exports/jobs, artifacts, caches, assertions, failure
+aggregation or existing whole-job timeouts.
 
 The independent full-scope web export enables the existing video-learning flag
 because retained unified-search cases exercise video titles and transcripts.
@@ -157,25 +197,37 @@ independent groups continue after a failure and every attempted group's exit
 status appears in logs/summary. A whole-job timeout still leaves unfinished
 qualifications unqualified. No per-suite pass is implied merely by listing it.
 
-## Colocated Android qualification
+## Deferred Android qualification (manual opt-in only)
 
-The same Android job exports real DOM assets; performs Android-only prebuild;
+When explicitly requested, the retained Android job exports real DOM assets; performs Android-only prebuild;
 checks patched DOM autolinking and origin contracts; runs JVM tests; compiles the
 release and instrumentation APKs; verifies the APK's actual bytes; and executes
 its emitted pitch worker in Chromium. The latter is asset execution only.
+The job also logs resolved tracing dependencies for both release classpaths and
+inspects actual APK class definitions plus R8 mapping/usage records. These
+read-only diagnostics investigate the SDK 58 runner startup failure without
+changing production dependencies or shrinking rules; they are not runtime
+acceptance.
 
 The explicitly approved temporary-runner KVM setup uses exactly the three
 commands in [GitHub's hardware-acceleration guidance](https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/).
 It is scoped to this public-repository stock Android job, with no other permission
 changes. The SDK emulator package is installed before invoking its acceleration
 probe; KVM device permission is checked first, with no software-emulation retry. A fresh disposable API 35 emulator consumes the APKs already built on
-that runner. The unchanged `tests/android/run-qualification.sh` rejects existing
+that runner. `tests/android/run-qualification.sh` rejects existing
 apps/non-emulator devices, uses synthetic randomly named records, verifies native
 replies, force-stops between phases and requires both instrumentation evidence
-phases. No real account or real library is used.
+phases. Its single test uses platform Instrumentation with JUnit assertions;
+AndroidX Test is excluded so test helpers cannot require app-shared code removed
+by production shrinking. Local runner contracts cover false-success prevention.
+No real account or real library is used.
 
 **Runtime stays unqualified until that exact step passes.** Compilation, APK
 inspection or a Chromium worker pass cannot replace packaged-host execution.
+Both phases passed for SDK 58 source `9aeb3ad1` in
+[run 39473146431](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39473146431/job/118802173201)
+on API 35/WebView 124.0.6367.219, with distinct process IDs and verified cleanup.
+Later commits need their own completed run.
 Passing this synthetic harness still does not establish complete Android product
 parity, authentication/cloud transport, background playback or physical-device
 coverage.
@@ -225,10 +277,48 @@ required enabled MOSS bytes.
 
 ### Shared Library shelf and metadata editor
 
-Both independent exports execute the same eight retained shelf/editor cases plus
-the enlarged-list readability regression
-in Chromium and WebKit, selected by `library_shelf_acceptance_cases.py`: same-cover
-identity, enlarged grid labels, enlarged selection toolbar, real theme contrast,
-metadata identity preservation, cancel/concurrent-edit isolation, keyboard/range
-selection, and responsive covers/columns. The original full inventories remain
-required; this bounded selection does not qualify native populated-shelf UI.
+Both independent exports execute the same twelve shelf/editor cases in Chromium
+and WebKit, selected by `library_shelf_acceptance_cases.py`: the eight retained
+cases (same-cover identity, enlarged grid labels, enlarged selection toolbar,
+real theme contrast, metadata identity preservation, cancel/concurrent-edit
+isolation, keyboard/range selection and responsive covers/columns), the
+enlarged-list readability regression, and three direct-sort cases. The latter
+cover keyboard/focus, all eight properties and both directions, local saves and
+cached reopening, independent Finished order, and touch/large-text reachability.
+The original full inventories remain required; this bounded selection does not
+qualify native populated-shelf UI.
+
+October 20 SDK 58 qualification also admits an explicit `workflow_dispatch` on
+`codex/reader-windows-sdk56-20261020`. Its historical branch name remains to keep
+legacy job exclusions intact; the candidate contains only Android and web.
+Automatic pushes/PRs on that branch still do not enable the migration jobs or
+legacy cache/artifact jobs. Public visibility, exact repository, stock runners,
+and the no-cache/no-upload restrictions remain unchanged. Native Android
+acceptance, when resumed, must name the actual SDK 58 commit and completed run.
+
+### Shared font-manager gate
+
+The native font-manager smoke now requires common Stored/Add navigation,
+Android Back from Add, reopening at Stored, explicit Close, and unchanged raw
+`userfonts`, `fontFamilyGroupOne` and `fontFamilyGroupTwo` values. Both process
+phases must report `shared-font-list-add-back-and-close-without-save`; the
+verifier rejects the older read/close-only marker. Actual system font picking,
+font rendering, keyboard/IME, rotation, enlarged native text and TalkBack remain
+separate gates. No real user library or font is modified by this smoke.
+
+### Explicit native font-preference gate
+
+Both process phases must now report
+`nativeFontPreferences: explicit-font-draft-cancel-apply-and-exact-restore`.
+The harness locates the actual named, editable Expo TextInputs, uses Android
+`ACTION_SET_TEXT`, verifies typing and Cancel do not write, applies an explicit
+CSS family through the UI and observes the DOM owner's localStorage value. It
+restores through the UI, then restores the exact original raw key, including
+absence. Mounted tests separately cover dirty-draft conflicts and late replies.
+This is not evidence of physical typing, IME, TalkBack, real font picking or
+native font rendering. Failure logs contain bounded synthetic native hierarchy
+snapshots, excluding WebView contents; no artifact upload was added.
+
+Run `39501226500` on `3ac13264` passed both web jobs but failed before this new
+gate existed: the named native size slider was unreachable. The size and shared
+font-manager checks therefore remain unqualified by that run.

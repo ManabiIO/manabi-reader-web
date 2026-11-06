@@ -30,6 +30,30 @@ for (const [name, entry, platform, external] of [
     logLevel: 'silent'
   });
   const paths = Object.keys(output.metafile.inputs);
+  if (name === 'Android native UI') {
+    assert.ok(paths.some((path) => path.endsWith('/features/settings/SettingsChoices.tsx')));
+    assert.ok(paths.some((path) => path.endsWith('/features/settings/SettingsFontChoices.tsx')));
+    assert.ok(paths.some((path) => path.endsWith('/features/settings/font-choices.ts')));
+    assert.ok(paths.some((path) => path.endsWith('/features/settings/SettingsThemeChoices.tsx')));
+    assert.ok(paths.some((path) => path.endsWith('/features/settings/SettingsThemeEditor.tsx')));
+    assert.ok(
+      paths.some((path) => path.endsWith('/features/settings/SettingsDimensionEditor.tsx'))
+    );
+    assert.ok(paths.some((path) => path.endsWith('/features/settings/dimension-editor.ts')));
+    assert.ok(paths.some((path) => path.endsWith('/features/settings/theme-editor.ts')));
+    assert.ok(paths.some((path) => path.endsWith('/features/settings/SettingsFontManager.tsx')));
+    assert.ok(
+      paths.some((path) => path.endsWith('/features/settings/SettingsBackgroundImages.tsx'))
+    );
+    assert.ok(
+      paths.every(
+        (path) =>
+          !path.endsWith('/lib/appearance/backgrounds.ts') &&
+          !path.endsWith('/lib/appearance/state.ts')
+      )
+    );
+    assert.ok(paths.some((path) => path.endsWith('/shared-ui/ActionButton.tsx')));
+  }
   assert.ok(paths.some((path) => path.endsWith('native-settings/schema.ts')));
   assert.ok(
     paths.every(

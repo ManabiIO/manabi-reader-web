@@ -11,6 +11,86 @@ const success = (reply) => {
   return reply.value;
 };
 
+test('DOM export retains the original owner after Start and keeps ZIP bytes out of snapshots', async (t) => {
+  const f = await runtimeOwner(t),
+    gate = deferred();
+  let owner,
+    calls = 0,
+    admitted;
+  f.admit = (payload) => {
+    admitted = payload;
+    return [{ bookId: 1, title: 'Selected' }];
+  };
+  f.createArchive = async (_db, identities, parts, authority, progress) => {
+    calls++;
+    assert.deepEqual(identities, [{ bookId: 1, title: 'Selected' }]);
+    assert.deepEqual(parts, ['data']);
+    owner = authority;
+    progress(0);
+    return gate.promise;
+  };
+  const started = await f.start('library.export.start', {
+    token: 'library-token',
+    keys: ['book-key'],
+    parts: ['data']
+  });
+  const status = success(await f.finish(started));
+  assert.equal(status.phase, 'preparing');
+  assert.deepEqual(admitted, { token: 'library-token', keys: ['book-key'], operation: 'export' });
+  assert.equal(owner.profileId, 'alice');
+  owner.assertCurrent();
+  const retained = f.operations.find((operation) => !operation.stopped);
+  assert.ok(retained);
+  await f.settle(() =>
+    gate.resolve({ blob: new Blob(['exact archive bytes']), filename: 'ttu-reader-export-1.zip' })
+  );
+  const ready = success(await f.command('library.export.status', { token: status.token }));
+  assert.equal(ready.phase, 'ready');
+  const chunk = success(
+    await f.command('library.export.chunk', { token: status.token, offset: 0 })
+  );
+  assert.equal(Buffer.from(chunk.data, 'base64').toString(), 'exact archive bytes');
+  assert.equal(calls, 1);
+  assert.ok(f.snapshots.every((snapshot) => !JSON.stringify(snapshot).includes(chunk.data)));
+  success(await f.command('library.export.cancel', { token: status.token }));
+  assert.equal(retained.stopped, 1);
+  assert.equal(owner.signal.aborted, true);
+  assert.equal((await f.command('library.export.status', { token: status.token })).ok, false);
+});
+
+for (const departure of ['generation', 'account-aba', 'unmount'])
+  test(`pending ZIP preparation cannot outlive ${departure}`, async (t) => {
+    const f = await runtimeOwner(t),
+      gate = deferred();
+    let owner;
+    f.admit = () => [{ bookId: 1, title: 'Selected' }];
+    f.createArchive = async (_db, _ids, _parts, authority) => {
+      owner = authority;
+      return gate.promise;
+    };
+    const started = success(
+      await f.command('library.export.start', {
+        token: 'library-token',
+        keys: ['book-key'],
+        parts: ['data']
+      })
+    );
+    if (departure === 'generation') await f.refreshGeneration();
+    if (departure === 'account-aba') {
+      await f.changeAccount('bob');
+      await f.changeAccount('alice');
+    }
+    if (departure === 'unmount') await f.unmount();
+    assert.equal(owner.signal.aborted, true);
+    assert.throws(() => owner.assertCurrent());
+    await f.settle(() =>
+      gate.resolve({ blob: new Blob(['old account archive']), filename: 'ttu-reader-export-1.zip' })
+    );
+    assert.ok(f.operations.every((operation) => operation.stopped));
+    if (departure !== 'unmount')
+      assert.equal((await f.command('library.export.status', { token: started.token })).ok, false);
+  });
+
 test('the persistent DOM forwards resolved appearance and custom chrome without reopening the book', async (t) => {
   const f = await runtimeOwner(t);
   assert.equal(f.appearances.at(-1).mode, 'light');
@@ -45,6 +125,22 @@ test('the persistent DOM forwards resolved appearance and custom chrome without 
   assert.equal(session.unmounts, 0);
   await f.unmount();
   for (const store of Object.values(f.appearanceStores)) assert.equal(store.listeners.size, 0);
+});
+
+test('device connectivity reaches the native snapshot without changing account ownership', async (t) => {
+  const f = await runtimeOwner(t);
+  const before = f.snapshots.at(-1);
+  assert.equal(before.online, true);
+  await f.settle(() => f.online.next(false));
+  const offline = f.snapshots.at(-1);
+  assert.equal(offline.online, false);
+  assert.equal(offline.epoch, before.epoch);
+  assert.equal(offline.session, before.session);
+  assert.deepEqual(offline.account, before.account);
+  await f.settle(() => f.online.next(true));
+  assert.equal(f.snapshots.at(-1).online, true);
+  await f.unmount();
+  assert.equal(f.online.observed, false);
 });
 
 test('the DOM owner retains a real book authority beyond its bridge reply and retires it only on replacement or allowed close', async (t) => {
@@ -1192,4 +1288,59 @@ test('font import dispatch carries exact transferred bytes and private purpose i
   });
   assert.equal(invalid.ok, false);
   assert.match(invalid.error, /both a font and a cover/);
+});
+
+test('background invalidation reaches native separately from image bytes and retires its observers', async (t) => {
+  const f = await runtimeOwner(t);
+  const before = f.snapshots.at(-1).backgroundRevision;
+  await f.settle(() =>
+    f.backgroundState.set({ library: { light: { url: 'data:image/png;base64,AAAA' } } })
+  );
+  assert.ok(f.snapshots.at(-1).backgroundRevision > before);
+  assert.doesNotMatch(JSON.stringify(f.snapshots.at(-1)), /data:image/);
+  await f.unmount();
+  assert.equal(f.backgroundState.listeners.size, 0);
+  assert.equal(f.libraryFade.observed, false);
+  assert.equal(f.readerFade.observed, false);
+});
+
+test('native background transfer dispatches only its exact selected slot and cancellation fences the pending save', async (t) => {
+  const f = await runtimeOwner(t),
+    pending = deferred();
+  let captured;
+  f.backgroundImport = async (target, file, authority) => {
+    captured = { target, file, authority };
+    await pending.promise;
+    authority.signal.throwIfAborted();
+    authority.assertCurrent();
+    return {};
+  };
+  success(
+    await f.command('import.begin', {
+      transferId: 'background_fixture',
+      name: 'image.png',
+      size: 3,
+      background: { target: 'reader', mode: 'dark', type: 'image/png' }
+    })
+  );
+  success(
+    await f.command('import.chunk', { transferId: 'background_fixture', sequence: 0, data: 'AQID' })
+  );
+  const commit = await f.start('import.commit', { transferId: 'background_fixture' });
+  assert.deepEqual(captured.target, { target: 'reader', mode: 'dark', type: 'image/png' });
+  assert.equal(captured.file.type, 'image/png');
+  assert.equal(captured.file.size, 3);
+  success(await f.command('import.cancel', { transferId: 'background_fixture' }));
+  assert.equal(captured.authority.signal.aborted, true);
+  await f.settle(() => pending.resolve());
+  assert.equal((await f.finish(commit)).ok, false);
+  const mixed = await f.command('import.begin', {
+    transferId: 'mixed_background',
+    name: 'image.png',
+    size: 3,
+    background: { target: 'reader', mode: 'dark', type: 'image/png' },
+    font: { name: 'Other' }
+  });
+  assert.equal(mixed.ok, false);
+  assert.match(mixed.error, /one purpose/);
 });

@@ -18,6 +18,7 @@ import {
 import { createHeader, type HeaderProps } from './header-controller';
 import { openUserGuide } from '$lib/components/navigation/docs-link';
 import { ViewMode } from '$lib/data/view-mode';
+import { ConnectionStatus } from '../runtime/ConnectionStatus';
 
 export function BookReaderHeader(props: Partial<HeaderProps> & ReaderViewProps) {
   const latest = useLatest(props);
@@ -85,6 +86,7 @@ export function BookReaderHeader(props: Partial<HeaderProps> & ReaderViewProps) 
           <Button
             variant={'ghost'}
             onClick={() => c.dispatch('annotationsClick')}
+            disabled={!props.annotationsReady}
             title={'Bookmarks and Notes'}
             aria-label={'Bookmarks and Notes'}
             size={'icon'}
@@ -100,6 +102,7 @@ export function BookReaderHeader(props: Partial<HeaderProps> & ReaderViewProps) 
             </Dom>
           </Button>
         </Dom>
+        <ConnectionStatus />
         <Dom
           as="p"
           title={c.bookTitle}

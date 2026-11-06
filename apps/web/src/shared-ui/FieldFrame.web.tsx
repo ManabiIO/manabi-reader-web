@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { useLayoutEffect, useRef, type CSSProperties } from 'react';
+import { useId, useLayoutEffect, useRef, type CSSProperties } from 'react';
 import { StyleSheet } from 'react-native';
 import type { FieldFrameProps } from './FieldFrame';
 import { UiPresentation } from './Presentation';
@@ -17,6 +17,7 @@ export function FieldFrame({
   style
 }: FieldFrameProps) {
   const frame = useRef<HTMLLabelElement>(null);
+  const labelId = useId();
   // Expo's universal Picker does not expose native HTML naming/description
   // props. Apply them only to its real select, within this browser leaf. TextField
   // already owns its input's ARIA props and must not be overwritten here.
@@ -27,6 +28,10 @@ export function FieldFrame({
     if (!control) return;
     if (accessibilityLabel) control.setAttribute('aria-label', accessibilityLabel);
     else control.removeAttribute('aria-label');
+    // Name the visible caption alone. An implicit wrapping label also contains
+    // the Picker options, which can contaminate exact label lookup.
+    if (label && !accessibilityLabel) control.setAttribute('aria-labelledby', labelId);
+    else control.removeAttribute('aria-labelledby');
     if (accessibilityDescribedBy)
       control.setAttribute('aria-describedby', accessibilityDescribedBy);
     else control.removeAttribute('aria-describedby');
@@ -41,6 +46,9 @@ export function FieldFrame({
         style={{
           display: 'flex',
           flexDirection: 'column',
+          alignItems: 'stretch',
+          flexWrap: 'nowrap',
+          margin: 0,
           gap: 6,
           minWidth: 0,
           color: 'var(--foreground)',
@@ -49,6 +57,7 @@ export function FieldFrame({
       >
         {label || accessibilityLabel ? (
           <span
+            id={labelId}
             style={
               hideLabel || !label
                 ? {

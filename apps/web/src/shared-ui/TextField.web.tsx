@@ -6,6 +6,9 @@
 
 import type { TextFieldProps } from './TextField';
 import { FieldFrame } from './FieldFrame';
+// Expo UI 58's universal input cannot express HTML date/number constraints or
+// suppress its RNW blur-on-Enter behavior. Keep this bounded form-input leaf so
+// browser validation, submission and focus retention remain native to the web.
 export function TextField({
   label,
   value,

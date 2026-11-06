@@ -821,7 +821,7 @@ def main():
                         windows:[null,null,null],repairs:[null,null]}};
                 player.generationProgress(sparseJob);
             }""")
-            assert 'estimating after the first window' in page.locator('.video-viewing [role=status]').all_inner_texts()[-1]
+            assert 'estimating after the first speech window' in page.locator('.video-viewing [role=status]').all_inner_texts()[-1]
             elapsed=page.evaluate("""()=>{
                 player.generationProgress(sparseJob,'transcribing');
                 player.firstWindowStartedAt-=5000;
@@ -843,6 +843,80 @@ def main():
             assert page.get_by_role('button',name='Wait for captions',exact=True).is_visible()
             page.wait_for_function('!player.video.paused')
         case('slow sparse inference shows a measured ETA and playback bypass',sparse_buffer_controls)
+        def sparse_silence_restarts_speech_clock():
+            result=page.evaluate("""async()=>{
+                await createPlayer();
+                await player.bindIdentity(mediaKey);
+                // At 7s the first silent core's 24s safe prefix is shorter than
+                // the requested 22s lead. Keep the ETA visible after it completes.
+                player.video.currentTime=7;
+                const job={id:trackId,mediaKey,status:'running',duration:78,
+                    sparse:{policy:'overlap-sparse-v2',targetSeconds:0,
+                        windows:[null,null,null],repairs:[null,null]}};
+                player.generationProgress(job,'decoding');
+                const firstStarted=typeof player.firstWindowStartedAt==='number';
+                const preservesPreparation=()=>{
+                    const started=player.firstWindowStartedAt,clock=player.firstWindowClock;
+                    return ['checking','downloading','verifying','loading',undefined,'transcribing'].every(stage=>{
+                        player.generationProgress(job,stage);
+                        return player.firstWindowStartedAt===started&&player.firstWindowClock===clock;
+                    });
+                };
+                const preparePreserved=preservesPreparation();
+                job.sparse.windows[0]={cues:[],inferenceMs:50,digitalSilence:true};
+                player.generationProgress(job,'transcribing');
+                const reset=player.firstWindowStartedAt===undefined&&player.firstWindowClock===undefined;
+                player.generationProgress(job,'transcribing');
+                player.generationProgress(job,'loading');
+                const heldUntilDecode=player.firstWindowStartedAt===undefined;
+                player.generationProgress(job,'decoding');
+                const restarted=typeof player.firstWindowStartedAt==='number'
+                    && player.firstWindowCompleted===1;
+                const speechPreparePreserved=preservesPreparation();
+                player.firstWindowStartedAt-=3000;
+                player.updateBuffering();
+                const status=player.bufferStatus.textContent;
+                job.sparse.windows[1]={cues:[],inferenceMs:75,digitalSilence:true};
+                player.generationProgress(job,'transcribing');
+                const secondReset=player.firstWindowStartedAt===undefined&&player.firstWindowClock===undefined;
+                player.generationProgress(job,'decoding');
+                const secondRestarted=typeof player.firstWindowStartedAt==='number'
+                    && player.firstWindowCompleted===2;
+                job.sparse.windows[2]={cues:[],inferenceMs:40000};
+                player.generationProgress(job,'transcribing');
+                const measuredStopsClock=player.firstWindowStartedAt===undefined&&player.firstWindowClock===undefined
+                    &&player.sparsePlayback.inputSeconds===28;
+                return {firstStarted,preparePreserved,reset,heldUntilDecode,restarted,
+                    speechPreparePreserved,secondReset,secondRestarted,measuredStopsClock,status};
+            }""")
+            assert all(value for key,value in result.items() if key!='status'),result
+            assert 'first speech window' in result['status'] and '0:03 elapsed on this device' in result['status'],result
+        case('digital-silent coverage restarts the first-speech ETA clock',sparse_silence_restarts_speech_clock)
+        def sparse_speech_clock_retires_with_job():
+            result=page.evaluate("""async()=>{
+                await createPlayer();
+                await player.bindIdentity(mediaKey);
+                const job={id:trackId,mediaKey,status:'running',duration:52,
+                    sparse:{policy:'overlap-sparse-v2',targetSeconds:0,
+                        windows:[{cues:[],inferenceMs:50,digitalSilence:true},null],repairs:[null]}};
+                const retired=[];
+                for(const status of ['paused','failed','complete']){
+                    job.status='running';
+                    player.generationProgress(job,'decoding');
+                    const started=typeof player.firstWindowStartedAt==='number';
+                    job.status=status;
+                    player.generationProgress(job,status);
+                    retired.push(started&&player.firstWindowStartedAt===undefined&&player.firstWindowClock===undefined);
+                }
+                job.status='running';
+                player.generationProgress(job,'decoding');
+                player.generationProgress({...job,id:trackId2});
+                const switched=player.firstWindowJob===trackId2&&player.firstWindowStartedAt===undefined
+                    &&player.firstWindowClock===undefined;
+                return {retired,switched};
+            }""")
+            assert all(result['retired']) and result['switched'],result
+        case('first-speech clock retires on pause, failure, completion, and job change',sparse_speech_clock_retires_with_job)
         def native_play_at_sparse_gap():
             result=page.evaluate("""async()=>{
                 await createPlayer();

@@ -75,7 +75,10 @@ function profile() {
   };
   return {
     client,
-    scope: load('manabi/operation-scope.ts', { './client': client }),
+    scope: load('manabi/operation-scope.ts', {
+      './client': client,
+      '../state/store': load('state/store.ts')
+    }),
     change(id) {
       user = id === null ? null : { id };
       generation++;
@@ -131,6 +134,7 @@ function dav(owner, read) {
   }
   const { WebDavSource } = load('webdav/source.ts', {
     '$lib/manabi/persistence': { integrationDB: async () => ({ get: async () => configuration }) },
+    '$lib/data/database/books-db/commit-transaction.mjs': { commitTransaction },
     '$lib/manabi/operation-scope': owner.scope,
     '$lib/library/book-download': download,
     './client': {
