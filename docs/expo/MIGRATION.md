@@ -1,15 +1,24 @@
 # Expo Android + web migration (draft)
 
+**Current priority, October 22, 2026:** web delivery and web UX. Android
+implementation, device qualification and Android-only capability gaps are deferred
+at the user's request. Keep Expo UI, shared feature/domain code and bounded
+platform adapters so future Android work can reuse them; do not expand or qualify
+native flows during this phase. The Android items below are a retained backlog,
+not current web acceptance gates. Native Windows remains removed. Existing web
+functionality, local data safety, keyboard/accessibility and responsive mobile/
+desktop browser layouts remain required.
+
 This branch is one deliberately large, **unmerged draft PR**. It replaces active Svelte UI and orchestration with React and an Expo Android/web shell. It is not a claim of release readiness or established 1:1 parity.
 
 ## Platform boundary
 
-- Expo SDK **57.0.26**, the current patched stable line, React **19.2.3**, React Native **0.86.3**. SDK 58 beta is not required for this migration.
+- Expo SDK **58.0.23**, React **19.3.0**, React Native **0.88.1**, Expo UI **58.0.27** and Router **58.0.30**. Windows is deferred; its renderer no longer constrains the web/Android version choice.
 - `app.config.ts` admits **Android and web only**. Scripts generate/export Android explicitly. There are no Expo iOS, macOS, Windows, or Linux application targets. Existing native Apple applications remain separate.
 - Route entries live in `src/app` and re-export screens outside that directory. Both Statistics entries now select the same shared screen/controller. Other nonreader presentations remain temporarily duplicated and must converge; platform file selection alone is not shared UI. Executable graph tests use the installed Expo DOM transform and positively check the common Statistics composition on both platforms while excluding browser owners from the Android shell.
 - Expo Router owns the application routes on Android and web. The deployed web prefix remains `/reader-web` (or an explicit `BASE_PATH`), and the existing route/query shapes remain the compatibility contract.
 - The React DOM reading surface retains EPUB/Foliate layout, ruby, vertical text, selection/ranges, annotations, dictionary rendering, rich content and browser workers. It renders directly on web and through an Expo DOM component on Android. It does not import or mount Svelte.
-- The target is shared screen composition, interaction state and branded RN/RNW style, with SDK 57 Expo UI universal controls and bounded semantic/system adapters. Statistics is the first integrated slice. Whole separate web/native pages are temporary references, not the target architecture. See [shared UI convergence](SHARED-UI-CONVERGENCE.md) for the inventory and remaining sequence.
+- The target is shared screen composition, interaction state and branded RN/RNW style, with SDK 58 Expo UI universal controls and bounded semantic/system adapters. Statistics is the first integrated slice. Whole separate web/native pages are temporary references, not the target architecture. See [shared UI convergence](SHARED-UI-CONVERGENCE.md) for the inventory and remaining sequence.
 
 ## Durable state, lifecycle and trust
 
@@ -108,7 +117,7 @@ Status is intentionally separate from coverage. `Ported` means source implementa
 
 ## Secure Android reader host
 
-The app explicitly source-builds `expo-dom-webview`; a precompiled upstream AAR would omit this security adapter and must fail qualification. The exact `@expo/dom-webview@57.0.1` patch in [patches/reader-dom](../../patches/reader-dom/README.md) gives the persistent DOM owner a stable packaged HTTPS origin through AndroidX WebViewAssetLoader. It blocks main-frame navigation, scopes message receipt to the exact origin/main frame, disables native-module evaluation and file-origin bypasses, and fails closed on unsupported WebView features. Imported EPUB frames are scriptless on Android. User-gesture external links are revalidated before Custom Tab opening. The patch's JVM URL policy has 89 executable assertions; Kotlin compilation and patched-host JVM tests passed on `a0988605`, and complete release APK assets/source-byte qualification passed on `727b360e`. Device OPFS/Web Locks/worker persistence and actual native/DOM replies remain unqualified until actual packaged-host instrumentation passes; the first emulator did not boot, and the current workflow adds the documented temporary-runner KVM setup.
+The app explicitly source-builds `expo-dom-webview`; a precompiled upstream AAR would omit this security adapter and must fail qualification. The exact `@expo/dom-webview@58.0.2` patch in [patches/reader-dom](../../patches/reader-dom/README.md) gives the persistent DOM owner a stable packaged HTTPS origin through AndroidX WebViewAssetLoader. It blocks main-frame navigation, scopes message receipt to the exact origin/main frame, disables native-module evaluation and file-origin bypasses, and fails closed on unsupported WebView features. Imported EPUB frames are scriptless on Android. User-gesture external links are revalidated before Custom Tab opening. The patch's JVM URL policy has 89 executable assertions; Kotlin compilation and patched-host JVM tests passed on `a0988605`, and complete release APK assets/source-byte qualification passed on `727b360e`. Device OPFS/Web Locks/worker persistence and actual native/DOM replies remain unqualified until actual packaged-host instrumentation passes; the first emulator did not boot, and the current workflow adds the documented temporary-runner KVM setup.
 
 Book selection tokens are checked against content identity at the actual read/delete boundary. Reader authorization outlives the asynchronous bridge reply and is revoked on replacement, close, teardown or account generation change. This avoids treating `setBookId` as a completed authorized load.
 
@@ -118,21 +127,26 @@ The existing web app uses same-origin Django session cookies and CSRF/account-ge
 
 ## Future desktop direction
 
+**October 20 decision:** native Windows is deferred until Expo UI supports it.
+The experimental host and dependencies have been removed. After restoring the
+SDK 57 baseline, web/Android advanced to SDK 58 / RN 0.88. Do not resume native desktop implementation
+without a new product decision. Browser use remains supported.
+
 Windows/Linux are architecture considerations only, not build targets in this PR. Keep portable controllers/data contracts separate from Android-specific modules and DOM geometry. React Native Windows and community Linux renderer efforts have different module/toolchain support; they must be evaluated independently before adding a host. A web/PWA distribution remains available on those desktops. No future desktop choice changes the decision to keep iOS/macOS as separate native applications.
 
 ### Desktop compatibility checkpoints (research only, 2026-10-02)
 
 - React Native's platform catalog lists Windows as a separately maintained platform and a community Skia-based Linux renderer. The linked Linux renderer still describes itself as a proof of concept; it is not a ready Expo Linux host. This is not evidence that Expo modules, DOM components, persistent WebView storage or this patched Android host run there. [Renderer project state](https://github.com/react-native-skia/react-native-skia), [React Native platform catalog](https://reactnative.dev/docs/out-of-tree-platforms)
-- Microsoft's current support table lists RNW 0.84 as active, while this project uses RN 0.86.3. **Inference:** a future Windows experiment needs an explicit compatible React/RN/RNW dependency set and module audit, rather than adding `windows` to this Expo configuration. [RNW support policy](https://microsoft.github.io/react-native-windows/support/)
+- At this October 2 research checkpoint, Microsoft's support table listed RNW 0.84 as active and the project used RN 0.86.3; these are historical versions, not the current SDK 58 baseline above. **Inference:** a future authorized Windows experiment needs a newly verified compatible React/RN/RNW dependency set and module audit, rather than adding `windows` to this Expo configuration. [RNW support policy](https://microsoft.github.io/react-native-windows/support/)
 - Expo UI's documented universal targets are Android, iOS and web; this project admits only Android and web, while iOS/macOS remain separate native codebases. Windows/Linux native controls require a separately qualified host/presentation plan. Browser/PWA use remains the immediate desktop path. [Expo UI platform scope](https://docs.expo.dev/versions/latest/sdk/ui/universal/)
 - Preserve portable domain/controller contracts now. A future authorized desktop slice must qualify its secure local origin, reader selection/vertical layout, module workers/WASM, origin-owned storage, filesystem permissions, native navigation and packaging. It must not reuse Android-specific assumptions or introduce iOS/macOS Expo projects.
 
-## Primary implementation references (checked 2026-10-02)
+## Primary implementation references (SDK 58 links refreshed October 20)
 
 - [Expo SDK release catalog](https://expo.dev/changelog)
 - [Expo universal UI](https://docs.expo.dev/versions/latest/sdk/ui/universal/)
 - [Expo DOM components: asynchronous actions, public assets, native execution boundary](https://docs.expo.dev/guides/dom-components/)
-- [SDK 57 Metro: CSS/Sass, asset imports and alpha web-worker support](https://docs.expo.dev/versions/v57.0.0/config/metro/)
+- [SDK 58 Metro: CSS/Sass, asset imports and alpha web-worker support](https://docs.expo.dev/versions/v58.0.0/config/metro/)
 - [Expo FileSystem: bounded FileHandle reads](https://docs.expo.dev/versions/latest/sdk/filesystem/)
 
 ### Follow-up after the shared Statistics checkpoint
@@ -161,11 +175,11 @@ establish that the observed crash is resolved. No broad Intl polyfill is added.
 Current Expo UI Host documentation confirms that an RN View inside a native Host
 switches rendering back to RN; universal children need a fresh nested Host. The
 existing bounded control leaves retain this boundary. Official API reference:
-https://docs.expo.dev/versions/v57.0.0/sdk/ui/universal/host/
+https://docs.expo.dev/versions/v58.0.0/sdk/ui/universal/host/
 
 ### Retained browser-entry ownership repair
 
-The web layout uses the installed SDK 57 `Navigator`/`Navigator.Slot` API with
+The web layout uses the installed SDK 58 `Navigator`/`Navigator.Slot` API with
 an isolated `WebSlotRouter` adapter. It delegates every action to Expo's exported
 `StackRouter`, then preserves the focused component key across contiguous
 Library/Snippets visits. Browser entries keep distinct Expo-owned history IDs
@@ -175,9 +189,9 @@ Native still uses its unmodified `Stack`.
 
 This adapter is version-sensitive: Expo documents `StackRouter` as an internal
 implementation despite its public export. Upgrade qualification must retain the
-actual installed reducer and memory-history tests for PUSH, REPLACE, POP,
+actual installed reducer and browser-history tests for PUSH, REPLACE, POP,
 POP_TO_TOP, GO_BACK, forward replay, unique route keys and once-decoded params.
-See [the SDK 57 Router API](https://docs.expo.dev/versions/v57.0.0/sdk/router/).
+See [the SDK 58 Router API](https://docs.expo.dev/versions/v58.0.0/sdk/router/).
 The local reducer/mounted tests are not a substitute for exact-head browser
 history, selection, draft and stale-open acceptance.
 
@@ -186,3 +200,240 @@ history, selection, draft and stale-open acceptance.
 Android now uses the canonical Finished calendar-day groups and the same saved newest/oldest preference as web, ordered before pagination. Saved timeline/grid is independent of Library/series layouts. Contextual Finished controls omit unfinished-only filtering. Invalid restored dates are shown as undated and sorted last.
 
 Release-app QA exposed a reader Back reset of the selected Library shelf. Approved hardware and DOM toolbar exits now dismiss to the existing workspace, retaining its shelf/search/page. Close/save and account retirement guards remain authoritative. See [the navigation parity report](NAVIGATION-ANDROID-PARITY.md) for exact APK, test and emulator evidence. Continue and Finished shelf composition are implemented; series hero, native Shared/Ttu placeholders and physical-device acceptance remain open.
+
+## October 20 SDK 58 upgrade
+
+SDK 58 is stable (October 15), with RN 0.88. Package versions follow Expo's
+published bundled-module mapping; the patched DOM module remains exact-pinned.
+The RN community CLI's Metro peer is explicitly aligned at 0.88.0. Expo's online
+check accepts the installed React and React DOM types. Existing unrelated
+ESLint/TypeScript plugin peer warnings are not hidden with overrides.
+
+- Keep `web.output: 'single'` and explicitly set Router `asyncRoutes: false`.
+  SDK 58 otherwise enables async web routes by default. The existing service
+  worker must have the complete route shell after its initial install; route
+  splitting needs separate offline acceptance before enabling it.
+- Use SDK 58's action result envelope and `isActionHandled` in `WebSlotRouter`.
+  Remap the affected route key with the retained screen key. Same-screen pops
+  keep Expo's exact count without an ambiguous target key, so multiple Library
+  visits cannot intercept a pop-to-top. Tests use the installed history reducer
+  and browser adapter, including distinct entry IDs, immutable snapshots,
+  Back/Forward, stale-open retirement and a two-entry pop.
+- Await FileHandle reads for books, covers and fonts. Check the original account
+  generation after each pending read; cover/font cancellation also checks its
+  abort signal before sending bytes. Keep bounded chunks and close descriptors
+  in `finally`. No source file, database schema, storage origin, or backup format
+  changes. Existing backups remain the restore boundary for another profile.
+- RN 0.88 component refs use component instance types; FlatList callback types
+  come from its public props. Keyboard handling normalizes the native event at
+  the shared button leaf, retaining web keyboard behavior.
+- Port the secure DOM patch to `@expo/dom-webview@58.0.2`. The four native/source
+  implementation files are byte-identical to 57.0.1; upstream Gradle version
+  fields and the declaration's removed source-map comment are the only touched
+  upstream differences. Fresh hashes, reversible patch checks, JVM URL policy,
+  actual exporter topology and source-build autolinking remain required.
+- Preserve Babel, project icon/ONNX transforms, explicit public assets and Android
+  source builds. Neither the experimental Rust transformer nor a fingerprint
+  name/version match establishes that a patched Android binary was rebuilt.
+- RN 0.88 now rejects obsolete delayed viewability callbacks. The installed-source
+  regression verifies that repair and still verifies our immediate visibility
+  configuration, cover publication and real viewport retirement.
+
+Current local evidence is recorded under the SDK 58 upgrade checkpoint. Web and
+Android production exports pass, with 501 web artifacts and 500 Android inventory artifacts. Android export is an
+inventory only: existing MD5-relocated worker/chunk warnings do not qualify an
+APK. The first SDK 58 public CI run passed native compilation, patched-host JVM
+tests, release/instrumentation APK assembly, actual APK assets and emitted-worker
+execution. Its API 35 emulator booted, but AndroidJUnitRunner crashed during
+startup with missing `androidx.tracing.Trace`, before any Reader assertions.
+Offline process-restart acceptance remains unqualified. The diagnostic run
+[`39458692553`](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39458692553)
+confirmed that both classpaths resolve tracing 1.2.0; the test version is constrained
+to the app's version. Neither APK defines `androidx.tracing.Trace`, and the release
+R8 usage report lists removed Trace members. AndroidJUnitRunner is present in the
+test APK and still crashes on the missing class. Production shrinking and release
+settings remain unchanged.
+
+Primary references: [SDK 58 release](https://expo.dev/changelog/sdk-58),
+[upgrade workflow](https://docs.expo.dev/workflow/upgrading-expo-sdk-walkthrough/),
+[Expo UI universal targets](https://docs.expo.dev/versions/v58.0.0/sdk/ui/universal/).
+
+Local acceptance: all 617 Expo regressions, including the updated 40-case CI
+policy gate, pass with zero skipped. Strict application
+TypeScript, scoped ESLint, frozen installation and the five DOM/JVM patch
+contracts pass. The actual exported app passes nine offline/connection scenarios
+across Chromium/WebKit and ten history/reader-retirement journeys (five per
+engine). Screenshots were inspected at compact and sidebar sizes. This is local
+candidate evidence, not a completed remote SDK 58 Android runtime result.
+
+The first public SDK 58 run (`39454122013`, commit `d88d1484`) passed the full
+web job and the default browser acceptance in the regression job. That regression
+job also exposed pre-existing formatting drift and the shared-storage fixture's
+outdated native module resolution. Follow-up: format those files, remove the
+unused test parameter, and select actual RNW/Expo web implementations in the
+fixture, retaining its production module graph and assertions. Router's npm
+archive omits its advertised source entry, so this isolated esbuild fixture uses
+its published JS entry while Expo modules use their shipped web sources.
+The repaired fixture passes its build contract and two real Chromium storage
+ownership journeys. Its shared browser launcher now uses the required macOS
+Chrome clone workaround, including persistent contexts.
+
+### Release instrumentation runner repair
+
+The SDK 58 release APK remains ordinarily optimized and non-debuggable. The
+single packaged-host qualification now runs through Android's platform
+`Instrumentation`, using `startActivitySync` and main-thread view inspection.
+It retains all original Reader, storage, native-reply, font and origin assertions.
+JUnit is used only for its assertion methods; AndroidX Test is no longer a
+runtime dependency of the test APK. This removes the failing runner's tracing
+dependency without adding production keep rules or changing app dependencies.
+The diagnostic CI run above records the old harness's dependency and DEX evidence.
+Both its web and regression jobs pass, including full lint, strict types and all
+1,750 original unit tests. The runner repair is being qualified separately in
+[`39463339775`](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39463339775),
+source `0ba47a7a`. That APK launched through the repaired runner, mounted its
+canonical HTTPS WebView and returned the real empty-library pagination. It then
+failed a stale test expectation for the wide-sidebar "Library" heading on a
+compact screen, whose app title is "Manabi Reader". The follow-up requires that
+actual title, the empty-library explanation and the same non-fallback pagination;
+it also opens Settings through Library actions and returns with Back, matching
+the current navigation. Storage/restart acceptance is still pending.
+
+The runner reports standard instrumentation start/success/failure statuses,
+rejects another requested test class, and reports success only after test cleanup.
+The shell still independently requires both complete structured evidence phases
+and a new process ID after force-stop. Local executable Java contracts cover
+runner success, assertion failure, argument forwarding and invalid test selection;
+both Java sources also compile against the official API 35 SDK stub and JUnit
+4.13.2. These checks do not substitute for the pending packaged emulator run.
+
+The complete original unit suite passes locally at `01c6bcd6`: 1,750 tests, zero
+failures or skips. The runner update's 48 CI-policy/harness checks also pass.
+
+The `0ba47a7a` regression run exposed one CI toolchain omission: the stock
+Ubuntu image selects Java 17, so the new `javac --release 21` runner contract
+failed before execution. All other regression steps and the web job passed.
+Commit `8b9cd45a` explicitly selects Temurin 21 before the harness, as the Android
+APK job already did; an ordering/version contract protects both jobs. All eight
+harness checks pass locally under an isolated, checksum-verified Temurin 21,
+and both instrumentation sources compile with that JDK and the official API 35
+SDK stub. The combined CI-policy/harness selection passes all 49 cases.
+
+### Notes readiness follow-up
+
+Run [`39467753609`](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39467753609)
+at `71d0e5a0` passed the complete regression/default-web job. Its separate web
+job failed one WebKit imported-note journey because the annotations panel was
+absent after clicking Notes. Seventeen local repetitions passed on the prior
+app export, including eight with read-only click-state inspection; they do not
+establish why that CI interaction failed.
+
+Investigation found a concrete startup gap: Notes was enabled before the
+reader component and durable book identity were ready, while its action silently
+returned in that state. The control now stays disabled until both prerequisites
+exist. The active-reader Strict Mode test delays the real identity lookup,
+checks the disabled state, then releases it and requires the first enabled
+click to open Notes. That test fails before the repair and passes afterward.
+The repair changes no persistence, schema, backup format or note assertions.
+
+Local qualification passes all 1,750 original unit tests (including the 24
+reader/primitives/controller tests), strict application types, full lint and
+the production web export.
+The unchanged retained browser selection passes 15 Chromium and 11 WebKit
+journeys against that new export; the saved imported-note screenshot was also
+reviewed. Fresh remote acceptance remains necessary, and this bounded selection
+does not establish full product parity.
+
+### Packaged Android SDK 58 checkpoint
+
+The Android job in run
+[`39467753609`](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39467753609/job/118783498761)
+passed on `71d0e5a0`, including both instrumentation phases. The ordinary
+non-debuggable release APK ran on API 35 (`sdk_gphone64_x86_64`) with WebView
+`124.0.6367.219`. The seed and verification process IDs were 2859 and 3804.
+The canonical entry stayed unchanged, and IndexedDB, OPFS and the cached font
+survived reload and force-stop/relaunch. Native Library replies and the actual
+Settings/font-manager navigation passed in both processes. Packaged module
+worker response, SQLite WASM compilation, exclusive Web Locks, all nine blocked
+navigation targets and test-owned cleanup also passed.
+
+The release APK SHA-256 was
+`43a6d46cc6cf355cb16a21cb0401dd4a85101243bc7ba52ae2c236a4b4b5c3d9`.
+The run uploaded zero artifacts and used no remote caches. This is acceptance
+of the synthetic packaged-host harness on that exact source and emulator,
+not full product parity, physical-device coverage, authenticated synchronization,
+or a current-WebView device matrix. The later Notes readiness repair needs a
+fresh remote run; it is not included in this APK.
+
+### Latest completed SDK 58 qualification
+
+Run [`39473146431`](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39473146431)
+passed all three jobs on `9aeb3ad1`, including the Notes readiness repair:
+
+- Complete regression job: full lint, strict types, 1,750 original unit tests,
+  618 Expo tests, Java 21 harness contracts and the retained domain regressions.
+- Both default and promoted web exports: 151 selected browser test executions
+  per export, including the previously failing WebKit imported-note journey,
+  plus the configured asset/worker checks.
+- Android: release compilation, JVM origin tests, APK assets/emitted worker,
+  native Library/font-manager journey, storage reload, force-stop/new-process
+  recovery and cleanup. API 35/WebView 124.0.6367.219 used process IDs 3118 and 3638. Release APK SHA-256:
+  `08b4b9548587681d914ab47e566589f298be6c68899c0cad21e6d1f22e314164`.
+
+No artifacts were uploaded and no remote caches were used. This was explicitly
+`qualification_scope=affected`: full parity, the complete shared/local
+data-safety dispatcher, wider physical-device/current-WebView coverage and
+authenticated synchronization remain separate gates. Four annotation and three
+scrubber quality journeys also passed locally in each browser engine, covering
+200% text, keyboard focus, export/import conflict recovery, saved-passage
+preview and unchanged resume position.
+
+### Settings responsive-layout qualification
+
+Run [`39480435138`](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39480435138)
+passed all three jobs on `a2a36817c61d877c691fc46fa107ed7d8657ace7`.
+This includes the shared Settings geometry policy: available pane width and text
+scale determine sidebar versus compact navigation. The regression/default web,
+promoted web and packaged Android storage reload/process-restart jobs all passed.
+The run used the affected scope with no artifact uploads or remote caches.
+This is an exact-source checkpoint, not evidence for later switch/choice changes
+or full screen parity. See [shared UI convergence](SHARED-UI-CONVERGENCE.md) for
+the later local coverage and remaining specialized-editor/runtime gates.
+
+### Shared Settings switch qualification
+
+Run [`39484746448`](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39484746448)
+passed all three jobs on `617ebf88861d5b254681c2eb8938afa162a0468a`:
+regression/default web, promoted web and packaged Android, including reload and
+process restart. This qualifies the shared switch source under the affected CI
+scope. It does not include the later wrapping choice controls or the added native
+color-mode save check, and does not establish spoken TalkBack or full parity.
+
+### Theme editor Android checkpoint
+
+[Run 39494543115](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39494543115)
+finished on `f495b47c67a6a757a30ed7e8616f3456ef8c6cdd`. Android passed release
+compilation, origin tests, APK-worker qualification and both packaged-runtime
+phases on API 35/WebView 124.0.6367.219 (PIDs 3043 and 3792). The native theme
+editor opened and cancelled through both Back and Close without saving. Font
+cache read/close and local persistence after process restart also passed.
+The run uploaded zero artifacts.
+
+Both web jobs failed the retained Add-theme button size/radius assertion;
+`8ffd629c` repairs it and retains the original test. The run remains failed and
+is not an all-platform checkpoint. It predates the dimension slider gate and
+shared font-manager changes, which require a new exact-source qualification.
+
+### Shared font-manager checkpoint and open size gate
+
+[Run 39501226500](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39501226500)
+finished on `3ac132645047e5b5404aa6782ccbe3199ac14cde`. Both web jobs passed,
+including the retained Add-theme geometry case. Android compiled and passed its
+origin/asset checks, then failed in the first packaged-runtime phase: the named
+size slider (`Quick size for maximum page height`) was not reachable through
+accessibility. Native choices/theme cancellation passed before that failure;
+size saving, shared font-manager navigation and process restart are not qualified
+by this run. The failure is preserved and the next harness logs bounded native
+hierarchy diagnostics without weakening reachability/range/save assertions.
+The later shared font-choice/explicit native text-preference changes require a
+new exact-source run and their own native gate.

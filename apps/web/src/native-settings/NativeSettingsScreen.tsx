@@ -19,24 +19,27 @@ import {
   StyleSheet,
   Text,
   View,
-  useColorScheme,
-  useWindowDimensions
+  useColorScheme
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
-import { Host, Picker, TextInput, useNativeState } from '@expo/ui';
-import { Switch } from '../shared-ui/ExpoToggle';
+import { Host, TextInput, useNativeState } from '@expo/ui';
+import { semantics } from '@expo/ui/jetpack-compose/modifiers';
+import { SettingsFontChoices } from '../features/settings/SettingsFontChoices';
+import { SettingsThemeEditor } from '../features/settings/SettingsThemeEditor';
+import { themeCopyOptions } from '../features/settings/theme-editor';
+import { SettingsDimensionEditor } from '../features/settings/SettingsDimensionEditor';
+import { SettingsSwitch } from '../features/settings/SettingsSwitch';
+import { SettingsChoices } from '../features/settings/SettingsChoices';
+import { SettingsPageTurnEffect } from '../features/settings/SettingsPageTurnEffect';
+import { SettingsThemeChoices, AddThemeButton } from '../features/settings/SettingsThemeChoices';
 import { ExpoButton as Button } from '../shared-ui/ExpoButton';
 import { MenuAction, NativeScreenHeader } from '../screens/NativeScreens';
 import { ScreenStatusBar } from '../shared-ui/ScreenStatusBar';
+import { Dialog } from '../shared-ui/ModalSurface';
 import { useReaderRuntime } from '../platform/RuntimeProvider.native';
 import { themeForMode, type ThemeOption } from '../lib/data/theme-option';
-import {
-  dimensionExtent,
-  dimensionLabel,
-  dimensionLimits,
-  dimensionPixels
-} from '../lib/components/settings/dimension-presets';
+import { dimensionLabel } from '../lib/components/settings/dimension-presets';
 import { matchesNativeSetting, parseSettingDraft, type SettingValue } from './schema';
 import { NativeSettingsSession, type SettingsViewState } from './lifecycle';
 import type {
@@ -54,6 +57,7 @@ import { SettingsWorkspace as SharedSettingsWorkspace } from '../features/settin
 import * as workspaceLayout from '../features/settings/workspace-layout';
 import { createSettingsWorkspaceState } from '../features/settings/workspace-state';
 
+import { NativeBackgroundManager } from './NativeBackgroundManager';
 import { NativeFontManager } from './NativeFontManager';
 
 interface Colors {
@@ -126,6 +130,7 @@ function DraftInput({
       style={styles.input}
     >
       <TextInput
+        modifiers={[semantics({ contentDescription: label })]}
         value={nativeValue}
         editable={!disabled}
         placeholder={placeholder ?? label}
@@ -148,13 +153,14 @@ function Card({ colors, children }: { colors: Colors; children: ReactNode }) {
     </View>
   );
 }
-function FieldEditor({
+export function NativeSettingFieldEditor({
   field,
   data,
   act,
   busy,
   colors,
-  refresh
+  refresh,
+  themeActions
 }: {
   field: NativeSettingField;
   refresh(): void;
@@ -162,6 +168,12 @@ function FieldEditor({
   act: Act;
   busy: boolean;
   colors: Colors;
+  themeActions: {
+    disabled: boolean;
+    add(): void;
+    edit(id: string): void;
+    remove(id: string): void;
+  };
 }) {
   const [fontsOpen, setFontsOpen] = useState(false);
   const initial = field.value === null ? '' : String(field.value);
@@ -170,7 +182,6 @@ function FieldEditor({
   const [base, setBase] = useState(field.value);
   const [error, setError] = useState('');
   const editRevision = useRef(0);
-  const dimensions = useWindowDimensions();
   useEffect(() => {
     if (!dirty) {
       setDraft(initial);
@@ -212,7 +223,6 @@ function FieldEditor({
         ? data.fonts.secondary
         : undefined;
   const shownChoices = field.choices ?? [];
-  const availableChoice = shownChoices.some((choice) => choice.value === field.value);
   return (
     <SettingsFieldGroup
       layout={settingsFieldLayout}
@@ -223,46 +233,60 @@ function FieldEditor({
       colors={colors}
     >
       {field.kind === 'boolean' ? (
-        <Host
-          matchContents={{ vertical: true }}
-          style={{ width: '100%' }}
-          colorScheme={colors.mode}
-          seedColor={colors.seedColor}
-        >
-          <Switch
-            label={field.label}
-            value={field.value === true}
-            disabled={disabled}
-            onValueChange={(value) => {
-              void save(value);
-            }}
-          />
-        </Host>
+        <SettingsSwitch
+          label={field.label}
+          value={field.value === true}
+          disabled={disabled}
+          onValueChange={(value) => {
+            void save(value);
+          }}
+        />
+      ) : field.kind === 'choice' && field.key === 'pageTurnEffect' ? (
+        <SettingsPageTurnEffect
+          value={String(field.value)}
+          showLabel={false}
+          disabled={disabled}
+          onValueChange={(value) => {
+            void save(value);
+          }}
+        />
+      ) : field.kind === 'choice' && field.key !== 'theme' ? (
+        <SettingsChoices
+          label={field.label}
+          value={String(field.value)}
+          options={shownChoices}
+          disabled={disabled}
+          onValueChange={(value) => {
+            void save(value);
+          }}
+        />
       ) : field.kind === 'choice' ? (
-        <Host
-          matchContents
-          colorScheme={colors.mode}
-          seedColor={colors.seedColor}
-          accessibilityLabel={field.label}
+        <SettingsThemeChoices
+          label={field.label}
+          value={String(field.value)}
+          options={data.themes.map((theme) => {
+            const palette = themeForMode(
+              theme.id,
+              colors.mode,
+              theme.custom ? { [theme.id]: theme.colors } : {}
+            );
+            return {
+              value: theme.id,
+              label: theme.label,
+              custom: theme.custom,
+              colors: { foreground: palette.fontColor, background: palette.backgroundColor }
+            };
+          })}
+          disabled={disabled}
+          actionsDisabled={disabled || themeActions.disabled}
+          onValueChange={(value) => {
+            void save(value);
+          }}
+          onEdit={themeActions.edit}
+          onDelete={themeActions.remove}
         >
-          <Picker
-            selectedValue={typeof field.value === 'string' ? field.value : ''}
-            enabled={!disabled}
-            onValueChange={(value) => {
-              void save(String(value));
-            }}
-          >
-            {!availableChoice && (
-              <Picker.Item
-                label={`Saved value: ${String(field.value)}`}
-                value={typeof field.value === 'string' ? field.value : ''}
-              />
-            )}
-            {shownChoices.map((choice) => (
-              <Picker.Item key={choice.value} label={choice.label} value={choice.value} />
-            ))}
-          </Picker>
-        </Host>
+          <AddThemeButton disabled={disabled || themeActions.disabled} onPress={themeActions.add} />
+        </SettingsThemeChoices>
       ) : (
         <>
           {fontNames && (
@@ -270,7 +294,7 @@ function FieldEditor({
               <Action
                 label={`Manage ${field.label} files`}
                 colors={colors}
-                disabled={disabled}
+                disabled={disabled || dirty}
                 onPress={() => setFontsOpen(true)}
               />
               {fontsOpen && (
@@ -287,62 +311,49 @@ function FieldEditor({
                   ? `Effective font: ${data.fonts.effectivePrimary}`
                   : 'Choose a packaged font, or manage imported fonts'}
               </Text>
-              <Host
-                matchContents
-                colorScheme={colors.mode}
-                seedColor={colors.seedColor}
-                accessibilityLabel={`Available ${field.label}`}
-              >
-                <Picker
-                  selectedValue={String(field.value ?? '')}
-                  enabled={!disabled}
-                  onValueChange={(value) => {
-                    void save(String(value));
-                  }}
-                >
-                  {!fontNames.includes(String(field.value)) && (
-                    <Picker.Item
-                      label={`Saved preference: ${String(field.value)}`}
-                      value={String(field.value ?? '')}
-                    />
-                  )}
-                  {fontNames.map((name) => (
-                    <Picker.Item key={name} label={name} value={name} />
-                  ))}
-                </Picker>
-              </Host>
-            </>
-          )}
-          {!fontNames && (
-            <>
-              <DraftInput
-                label={field.label}
-                value={draft}
-                onChange={edit}
-                disabled={disabled}
-                number={field.kind === 'number'}
-                colors={colors}
-                placeholder={field.nullable ? 'Default' : undefined}
+              <SettingsFontChoices
+                label={`Available ${field.label}`}
+                available={fontNames}
+                value={String(field.value ?? '')}
+                effectiveValue={
+                  field.key === 'fontFamilyGroupOne' ? data.fonts.effectivePrimary : undefined
+                }
+                disabled={disabled || dirty}
+                onValueChange={(value) => {
+                  void save(value);
+                }}
               />
-              <View style={styles.row}>
-                <Action
-                  label={`Apply ${field.label}`}
-                  colors={colors}
-                  disabled={disabled || !dirty}
-                  onPress={() => {
-                    try {
-                      void save(parseSettingDraft(field, draft), base);
-                    } catch (cause) {
-                      setError(cause instanceof Error ? cause.message : 'Check this value.');
-                    }
-                  }}
-                />
-                {dirty && (
-                  <Action label="Cancel edit" colors={colors} disabled={busy} onPress={cancel} />
-                )}
-              </View>
             </>
           )}
+          <>
+            <DraftInput
+              label={field.label}
+              value={draft}
+              onChange={edit}
+              disabled={disabled}
+              number={field.kind === 'number'}
+              colors={colors}
+              placeholder={field.nullable ? 'Default' : undefined}
+            />
+            <View style={styles.row}>
+              <Action
+                label={`Apply ${field.label}`}
+                colors={colors}
+                disabled={disabled || !dirty}
+                onPress={() => {
+                  try {
+                    void save(parseSettingDraft(field, draft), base);
+                  } catch (cause) {
+                    setError(cause instanceof Error ? cause.message : 'Check this value.');
+                  }
+                }}
+              />
+              {dirty && (
+                <Action label="Cancel edit" colors={colors} disabled={busy} onPress={cancel} />
+              )}
+            </View>
+          </>
+
           {field.kind === 'number' && (
             <Text style={{ color: colors.muted }}>
               {field.min !== undefined ? `Minimum ${field.min}` : ''}
@@ -351,34 +362,15 @@ function FieldEditor({
             </Text>
           )}
           {isDimension && (
-            <View style={styles.row}>
-              {(() => {
-                const limits = dimensionLimits(firstDimension);
-                const extent = dimensionExtent(
-                  vertical,
-                  firstDimension,
-                  dimensions.width,
-                  dimensions.height
-                );
-                return Array.from(
-                  { length: (limits.max - limits.min) / limits.step + 1 },
-                  (_, index) => limits.min + index * limits.step
-                ).map((percentage) => {
-                  const pixels = dimensionPixels(percentage, extent, firstDimension);
-                  return (
-                    <Action
-                      key={percentage}
-                      label={`${percentage}% (${pixels ?? '—'} px)`}
-                      colors={colors}
-                      disabled={disabled || pixels === null || dirty}
-                      onPress={() => {
-                        if (pixels !== null) void save(pixels);
-                      }}
-                    />
-                  );
-                });
-              })()}
-            </View>
+            <SettingsDimensionEditor
+              value={Number(field.value)}
+              vertical={vertical}
+              first={firstDimension}
+              disabled={disabled || dirty}
+              onValueChange={(value) => {
+                void save(value);
+              }}
+            />
           )}
         </>
       )}
@@ -411,107 +403,6 @@ function FieldEditor({
     </SettingsFieldGroup>
   );
 }
-const colorLabels: Record<keyof ThemeOption, string> = {
-  fontColor: 'Text',
-  backgroundColor: 'Background',
-  selectionFontColor: 'Selected text',
-  selectionBackgroundColor: 'Selection background',
-  hintFuriganaShadowColor: 'Furigana hint shadow',
-  hintFuriganaFontColor: 'Furigana hint text',
-  tooltipTextFontColor: 'Tooltip text'
-};
-function ThemeEditor({
-  original,
-  seed,
-  data,
-  act,
-  busy,
-  colors,
-  close
-}: {
-  original: NativeTheme | null;
-  seed: ThemeOption;
-  data: NativeSettingsState;
-  act: Act;
-  busy: boolean;
-  colors: Colors;
-  close(): void;
-}) {
-  const [name, setName] = useState(original?.id ?? '');
-  const [palette, setPalette] = useState(seed);
-  const [copyId, setCopyId] = useState(data.themes[0]?.id ?? '');
-  return (
-    <Card colors={colors}>
-      <Text accessibilityRole="header" style={[styles.label, { color: colors.text }]}>
-        {original ? 'Edit custom theme' : 'New custom theme'}
-      </Text>
-      <Text style={{ color: colors.muted }}>
-        Theme colors accept #RRGGBB, rgb(…), or rgba(…). Nothing is saved until you choose Save
-        theme.
-      </Text>
-      <DraftInput
-        label="Theme name"
-        value={name}
-        onChange={setName}
-        disabled={busy}
-        colors={colors}
-      />
-      <Host
-        matchContents
-        colorScheme={colors.mode}
-        seedColor={colors.seedColor}
-        accessibilityLabel="Theme to copy"
-      >
-        <Picker selectedValue={copyId} enabled={!busy} onValueChange={setCopyId}>
-          {data.themes.map((theme) => (
-            <Picker.Item key={theme.id} label={theme.label} value={theme.id} />
-          ))}
-        </Picker>
-      </Host>
-      <Action
-        label="Copy selected theme colors"
-        colors={colors}
-        disabled={busy}
-        onPress={() => {
-          const theme = data.themes.find((item) => item.id === copyId);
-          if (theme) setPalette({ ...theme.colors });
-        }}
-      />
-      {(Object.keys(colorLabels) as (keyof ThemeOption)[]).map((key) => (
-        <View key={key} style={styles.gap}>
-          <Text style={{ color: colors.text }}>{colorLabels[key]}</Text>
-          <DraftInput
-            label={colorLabels[key]}
-            value={palette[key]}
-            onChange={(value) => setPalette((previous) => ({ ...previous, [key]: value }))}
-            disabled={busy}
-            colors={colors}
-          />
-        </View>
-      ))}
-      <View style={styles.row}>
-        <Action
-          label="Save theme"
-          selected
-          colors={colors}
-          disabled={busy}
-          onPress={() => {
-            void act({
-              type: 'theme.save',
-              name: name.trim(),
-              previousName: original?.id ?? null,
-              expectedColors: original?.colors ?? null,
-              colors: palette
-            }).then((saved) => {
-              if (saved) close();
-            });
-          }}
-        />
-        <Action label="Cancel theme edit" colors={colors} disabled={busy} onPress={close} />
-      </View>
-    </Card>
-  );
-}
 export function NativeSettingsScreen() {
   const { snapshot, command } = useReaderRuntime();
   const currentOwner = useRef({ session: snapshot.session, epoch: snapshot.epoch });
@@ -530,6 +421,7 @@ export function NativeSettingsScreen() {
   const [editor, setEditor] = useState<{ original: NativeTheme | null; seed: ThemeOption } | null>(
     null
   );
+  const [backgroundsOpen, setBackgroundsOpen] = useState(false);
   const [stateOwner, setStateOwner] = useState('');
   const ownerKey = `${snapshot.session}:${snapshot.epoch}`;
   const sessionRef = useRef<NativeSettingsSession | null>(null);
@@ -548,8 +440,10 @@ export function NativeSettingsScreen() {
       sessionRef.current = session;
       setView({ pending: false, error: '', reconcileRequired: false });
       setEditor(null);
+      setBackgroundsOpen(false);
       session.start();
       return () => {
+        setBackgroundsOpen(false);
         session.dispose();
         if (sessionRef.current === session) sessionRef.current = null;
       };
@@ -591,6 +485,34 @@ export function NativeSettingsScreen() {
   // Capture this render's capability so delayed alerts cannot act through a newer session.
   const activeSession = sessionRef.current;
   const act: Act = (action) => activeSession?.act(action) ?? Promise.resolve(false);
+  const themeActions = {
+    disabled: busy || !!editor,
+    add: () => setEditor({ original: null, seed: { ...resolved } }),
+    edit: (id: string) => {
+      const theme = data?.themes.find((item) => item.id === id);
+      if (theme?.custom) setEditor({ original: theme, seed: { ...theme.colors } });
+    },
+    remove: (id: string) => {
+      const theme = data?.themes.find((item) => item.id === id);
+      if (!theme?.custom) return;
+      // Capture both the existing palette and this render's admitted session
+      // before displaying the asynchronous platform confirmation.
+      Alert.alert(
+        `Delete ${theme.label}?`,
+        'This local custom theme will be removed. The existing Manabi preset will be selected.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: () => {
+              void act({ type: 'theme.delete', name: theme.id, expectedColors: theme.colors });
+            }
+          }
+        ]
+      );
+    }
+  };
   const fields =
     data?.fields.filter(
       (field) =>
@@ -666,7 +588,7 @@ export function NativeSettingsScreen() {
             )}
             {data &&
               fields.map((field) => (
-                <FieldEditor
+                <NativeSettingFieldEditor
                   key={`${ownerKey}:${field.key}`}
                   field={field}
                   refresh={() => {
@@ -676,68 +598,71 @@ export function NativeSettingsScreen() {
                   act={act}
                   busy={busy}
                   colors={colors}
+                  themeActions={themeActions}
                 />
               ))}
-            {data && (category === 'appearance' || category === 'all') && !query.trim() && (
-              <Card colors={colors}>
-                <Text style={[styles.label, { color: colors.text }]}>Custom themes</Text>
-                <View style={styles.row}>
-                  <Action
-                    label="Add custom theme"
-                    colors={colors}
-                    disabled={busy || !!editor}
-                    onPress={() => setEditor({ original: null, seed: { ...resolved } })}
-                  />
-                  {selectedTheme?.custom && (
-                    <>
-                      <Action
-                        label="Edit selected theme"
-                        colors={colors}
-                        disabled={busy || !!editor}
-                        onPress={() =>
-                          setEditor({ original: selectedTheme, seed: { ...selectedTheme.colors } })
-                        }
-                      />
-                      <Action
-                        label="Delete selected theme"
-                        colors={colors}
-                        disabled={busy || !!editor}
-                        onPress={() =>
-                          Alert.alert(
-                            `Delete ${selectedTheme.label}?`,
-                            'This local custom theme will be removed. The existing Manabi preset will be selected.',
-                            [
-                              { text: 'Cancel', style: 'cancel' },
-                              {
-                                text: 'Delete',
-                                style: 'destructive',
-                                onPress: () => {
-                                  void act({
-                                    type: 'theme.delete',
-                                    name: selectedTheme.id,
-                                    expectedColors: selectedTheme.colors
-                                  });
-                                }
-                              }
-                            ]
-                          )
-                        }
-                      />
-                    </>
-                  )}
-                </View>
-              </Card>
-            )}
             {editor && data && (
-              <ThemeEditor
-                original={editor.original}
-                seed={editor.seed}
-                data={data}
-                act={act}
-                busy={busy}
-                colors={colors}
-                close={() => setEditor(null)}
-              />
+              <Dialog
+                visible
+                title={editor.original ? 'Edit custom theme' : 'New custom theme'}
+                closeLabel="Close theme editor"
+                closeDisabled={view.pending}
+                onClose={() => setEditor(null)}
+              >
+                <SettingsThemeEditor
+                  initialPalette={editor.seed}
+                  previousName={editor.original?.id}
+                  activeTheme={String(
+                    data.fields.find((field) => field.key === 'theme')?.value ?? 'manabi-theme'
+                  )}
+                  options={themeCopyOptions(
+                    data.themes,
+                    mode,
+                    Object.fromEntries(
+                      data.themes
+                        .filter((theme) => theme.custom)
+                        .map((theme) => [theme.id, theme.colors])
+                    )
+                  )}
+                  existingNames={data.themes
+                    .filter((theme) => theme.custom)
+                    .map((theme) => theme.id)}
+                  busy={busy}
+                  error={view.error}
+                  onSave={(name, palette) =>
+                    act({
+                      type: 'theme.save',
+                      name,
+                      previousName: editor.original?.id ?? null,
+                      expectedColors: editor.original?.colors ?? null,
+                      colors: palette
+                    })
+                  }
+                  onClose={() => setEditor(null)}
+                />
+              </Dialog>
+            )}
+            {data &&
+              (category === 'appearance' || category === 'all' || !!query.trim()) &&
+              (!query.trim() || /background|image|wallpaper/i.test(query)) && (
+                <Card colors={colors}>
+                  <Text accessibilityRole="header" style={[styles.label, { color: colors.text }]}>
+                    Background images
+                  </Text>
+                  <Text style={{ color: colors.muted }}>
+                    Separate light and dark images for your Library and reader, saved on this
+                    device.
+                  </Text>
+                  <Action
+                    label="Manage background images"
+                    colors={colors}
+                    disabled={busy}
+                    onPress={() => setBackgroundsOpen(true)}
+                  />
+                </Card>
+              )}
+            {backgroundsOpen && data && (
+              <NativeBackgroundManager key={ownerKey} onClose={() => setBackgroundsOpen(false)} />
             )}
             {gates.map((gate) => (
               <Card key={gate.id} colors={colors}>

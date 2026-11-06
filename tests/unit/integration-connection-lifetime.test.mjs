@@ -30,7 +30,7 @@ test('integration database shares an in-flight and healthy open', async () => {
   const opening = h.api.integrationDB();
   assert.equal(h.api.integrationDB(), opening);
   assert.equal(h.opens.length, 1);
-  assert.equal(h.opens[0].name, 'manabi-reader-integrations');
+  assert.equal(h.opens[0].name, 'manabitan-reader-v1:manabi-reader-integrations');
   assert.equal(h.opens[0].version, 3);
   h.opens[0].resolve(h.opens[0].connection);
   await opening;

@@ -6,13 +6,14 @@ from pathlib import Path
 from playwright.sync_api import expect
 from test_books_library import LibraryBase, book, raster
 from reader_controls import reveal_reader_controls
+from reader_fixture import reader_fixture
 
 
 class GalleryUsabilityBrowser(LibraryBase):
     def open_gallery(self, mode, hidden=False):
         self.context.add_init_script(
-            'localStorage.setItem("hideSpoilerImage", "' + ('1' if hidden else '0') + '");'
-            'localStorage.setItem("appearance", "' + mode + '");')
+            reader_fixture('localStorage.setItem("hideSpoilerImage", "') + ('1' if hidden else '0') + reader_fixture('");'
+            'localStorage.setItem("appearance", "') + mode + '");')
         self.go_library()
         title = 'Illustrated gallery ' + mode
         source = book(title, body='<h1>Illustrated book</h1>'

@@ -4,8 +4,10 @@
  * All rights reserved.
  */
 
+import { readerName } from '../../runtime/edition';
+
 export function formatPageTitle(title: string) {
-  const appName = 'Manabi Reader';
+  const appName = readerName;
   if (!title) return appName;
   return `${title} | ${appName}`;
 }

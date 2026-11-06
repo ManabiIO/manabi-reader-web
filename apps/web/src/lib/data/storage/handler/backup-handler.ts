@@ -24,6 +24,13 @@ import {
   BACKUP_ARCHIVE_LIMITS
 } from '$lib/functions/file-loaders/utils/limited-archive';
 import { logger } from '$lib/data/logger';
+import { throwIfAborted } from '$lib/functions/replication/replication-error';
+
+export interface BackupArchive {
+  blob: Blob;
+  filename: string;
+}
+export type BackupDelivery = (archive: BackupArchive) => Promise<void>;
 
 export class BackupStorageHandler extends BaseStorageHandler {
   private exportZipWriter: ZipWriter<Blob> | undefined;
@@ -392,12 +399,21 @@ export class BackupStorageHandler extends BaseStorageHandler {
     }
   }
 
-  async createExportZip(document: Document, resetOnly: boolean) {
-    if (!resetOnly && this.exportZipWriter) {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(await this.exportZipWriter.close());
-      a.rel = 'noopener';
-      a.download = `ttu-reader-export-${new Date()
+  /** Consume one completed archive independently of browser/native delivery.
+   * Detach before awaiting close: an older completion must never clear a newer writer. */
+  async finishExportZip(
+    resetOnly = false,
+    signal?: AbortSignal
+  ): Promise<BackupArchive | undefined> {
+    const writer = this.exportZipWriter;
+    this.exportZipWriter = undefined;
+    if (resetOnly || !writer) return undefined;
+    throwIfAborted(signal);
+    const blob = await writer.close();
+    throwIfAborted(signal);
+    return {
+      blob,
+      filename: `ttu-reader-export-${new Date()
         .toLocaleString('en-US', {
           year: 'numeric',
           month: '2-digit',
@@ -407,18 +423,34 @@ export class BackupStorageHandler extends BaseStorageHandler {
           second: '2-digit',
           hour12: false
         })
-        .replaceAll(/[/:, ]+/g, '-')}.zip`;
+        .replaceAll(/[/:, ]+/g, '-')}.zip`
+    };
+  }
+
+  async createExportZip(
+    document: Document,
+    resetOnly: boolean,
+    deliver?: BackupDelivery,
+    signal?: AbortSignal
+  ) {
+    const archive = await this.finishExportZip(resetOnly, signal);
+    if (!archive) return;
+    throwIfAborted(signal);
+    if (deliver) {
+      await deliver(archive);
+    } else {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(archive.blob);
+      a.rel = 'noopener';
+      a.download = archive.filename;
 
       setTimeout(() => {
         URL.revokeObjectURL(a.href);
       }, 1e4);
 
       setTimeout(() => {
-        a.click();
-        this.clearData();
+        if (!signal?.aborted) a.click();
       });
-    } else if (resetOnly) {
-      this.clearData();
     }
   }
 

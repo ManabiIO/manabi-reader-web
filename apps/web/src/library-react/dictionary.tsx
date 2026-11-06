@@ -193,7 +193,7 @@ export function DictionaryView({
               <summary>{'Local dictionaries'}</summary>
               <p className={['note'].filter(Boolean).join(' ')}>
                 {
-                  ' These dictionaries stay in this browser and are separate from your extension’s dictionaries. Import your existing Yomitan ZIPs or install Jitendex. Nothing installs automatically. '
+                  ' These dictionaries stay in this browser and are separate from your extension’s dictionaries. Import a compatible dictionary ZIP or install Jitendex. Nothing installs automatically. '
                 }
               </p>
               {c.statusLoading ? (
@@ -358,7 +358,7 @@ export function DictionaryView({
                 <summary>{'Recommended dictionaries'}</summary>
                 <p className={['note'].filter(Boolean).join(' ')}>
                   {
-                    ' From Manabitan’s pinned Japanese catalog. Downloads open on their publisher’s site; Reader never downloads or installs them in the background. '
+                    ' From the selected provider’s Japanese catalog. Downloads open on their publisher’s site; Reader never downloads or installs them in the background. '
                   }
                 </p>
                 {c.recommendationsLoading ? (

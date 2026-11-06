@@ -8,6 +8,7 @@ from pathlib import Path
 import unittest
 from playwright.sync_api import expect
 from test_books_library import LibraryBase
+from reader_fixture import reader_fixture
 
 
 class ModalControlsBrowser(LibraryBase):
@@ -62,7 +63,7 @@ class ModalControlsBrowser(LibraryBase):
         self.assertEqual([], result['overlaps'], result)
         self.assertGreaterEqual(result['width'], 43.99, result)
         self.assertAlmostEqual(result['width'], result['height'], delta=0.5)
-        self.assertGreaterEqual(result['radius'], result['height'] / 2, result)
+        self.assertAlmostEqual(result['radius'], 8, delta=0.1, msg=result)
         self.assertNotEqual(result['fill'], result['tint'], result)
         self.assertGreaterEqual(result['panel']['x'], -1, result)
         self.assertGreaterEqual(result['panel']['y'], -1, result)
@@ -128,7 +129,7 @@ class ModalControlsBrowser(LibraryBase):
                     close = self.check_modal(panel)
                     done = panel.get_by_role('button', name='Done', exact=True)
                     shape = done.evaluate('e => ({height:e.getBoundingClientRect().height, radius:parseFloat(getComputedStyle(e).borderRadius)})')
-                    self.assertGreaterEqual(shape['radius'], shape['height'] / 2)
+                    self.assertAlmostEqual(shape['radius'], 8, delta=0.1)
                     for key, target in [('Tab', done), ('Tab', close), ('Tab', done),
                                         ('Shift+Tab', close), ('Shift+Tab', done), ('Shift+Tab', close)]:
                         self.page.keyboard.press(key)
@@ -214,7 +215,7 @@ class ModalControlsBrowser(LibraryBase):
 
     def test_legacy_theme_dialog_uses_same_close_control_and_cancels(self):
         self.page.set_viewport_size({'width': 320, 'height': 520})
-        self.page.goto(self.origin + '/reader-web/settings')
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings'))
         trigger = self.page.get_by_role('button', name='Add custom theme', exact=True)
         trigger.click()
         panel = self.dialog()
@@ -224,7 +225,7 @@ class ModalControlsBrowser(LibraryBase):
         close.click()
         expect(panel).to_have_count(0)
         expect(trigger).to_be_focused()
-        self.assertNotIn('Do not save this theme', self.page.evaluate('localStorage.getItem("customThemes") || ""'))
+        self.assertNotIn('Do not save this theme', self.page.evaluate(reader_fixture('localStorage.getItem("customThemes") || ""')))
 
     def test_reader_sheets_have_gutters_and_unobscured_close_controls(self):
         self.open_reader()
@@ -338,6 +339,8 @@ class ModalControlsBrowser(LibraryBase):
         for checkbox in checkboxes.all():
             label = checkbox.locator('xpath=ancestor::label')
             self.assertGreaterEqual(label.bounding_box()['height'], 43.99)
+            self.assertLessEqual(label.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+            self.assertLessEqual(label.locator('span').evaluate('e => e.scrollWidth - e.clientWidth'), 1)
             checkbox.uncheck()
         start = panel.get_by_role('button', name='Start export', exact=True)
         expect(start).to_be_disabled()

@@ -21,7 +21,9 @@ import zlib
 from xml.sax.saxutils import escape
 from layout_diagnostics import report_layout_failure
 from playwright.sync_api import sync_playwright, expect
+from browser_launch import launch_options
 from test_static_reader import StaticHandler, ThreadingHTTPServer
+from reader_fixture import reader_fixture, reader_product_name
 
 
 def raster(width=240, height=360, color=(155, 75, 45)):
@@ -120,13 +122,15 @@ class LibraryBase(unittest.TestCase):
 
     def setUp(self):
         self.profile = tempfile.TemporaryDirectory()
+        self.addCleanup(self.profile.cleanup)
         self.engine = os.environ.get('LIBRARY_BROWSER', 'chromium')
         self.context = getattr(self.playwright, self.engine).launch_persistent_context(
-            self.profile.name, viewport={'width': 1200, 'height': 900},
+            self.profile.name, **launch_options(self.engine, viewport={'width': 1200, 'height': 900},
             has_touch=getattr(self, 'touch', False),
-            executable_path=os.environ.get('LIBRARY_EXECUTABLE_PATH') or None)
+            executable_path=os.environ.get('LIBRARY_EXECUTABLE_PATH') or None))
+        self.addCleanup(self.context.close)
         self.context.add_init_script(
-            "try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}")
+            reader_fixture("try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}"))
         self.page = self.context.pages[0]
         self.page.set_default_timeout(20000)
         self.errors = []
@@ -154,7 +158,7 @@ class LibraryBase(unittest.TestCase):
         self.assertEqual([], StaticHandler.probes)
 
     def go_library(self):
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         shelf = self.page.get_by_role('region', name='Library shelves')
         expect(shelf).to_have_attribute('data-hydrated', 'true', timeout=30000)
@@ -176,12 +180,12 @@ class LibraryBase(unittest.TestCase):
         return self.page.locator('[data-slot="dialog-content"]')
 
     def stores(self, database, names):
-        return self.page.evaluate('''async ({database,names}) => {
+        return self.page.evaluate(reader_fixture('''async ({database,names}) => {
           const db=await new Promise((resolve,reject)=>{const r=indexedDB.open(database);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
           try {const tx=db.transaction(names),result={};
             await Promise.all(names.map(name=>new Promise((resolve,reject)=>{const r=tx.objectStore(name).getAll();r.onsuccess=()=>{result[name]=r.result;resolve();};r.onerror=()=>reject(r.error);})));return result;
           } finally {db.close();}
-        }''', {'database': database, 'names': names})
+        }'''), {'database': database, 'names': names})
 
     def wait_bookmark(self, data_id, predicate):
         # Playwright 1.63 wait_for_function treats a predicate Promise as truthy
@@ -340,7 +344,7 @@ class BooksLibraryBrowser(LibraryBase):
 
     def test_overwrite_exact_reimport_still_reprocesses_the_selected_file(self):
         self.page.evaluate(
-            "() => localStorage.setItem('replicationSaveBehavior', 'overwrite')")
+            reader_fixture("() => localStorage.setItem('replicationSaveBehavior', 'overwrite')"))
         self.go_library()
         payload = b'overwrite exact bytes\n'
         picker = self.page.locator('input[type=file][accept*=".epub"]').first
@@ -392,7 +396,7 @@ class BooksLibraryBrowser(LibraryBase):
             timeout=30000)
         original = self.stores('books', ['data'])['data'][0]
         duplicate_id = original['id'] + 1000000
-        self.page.evaluate('''async ({id}) => {
+        self.page.evaluate(reader_fixture('''async ({id}) => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('books');
             request.onsuccess = () => resolve(request.result);
@@ -410,7 +414,7 @@ class BooksLibraryBrowser(LibraryBase):
             tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''', {'id': original['id']})
+        }'''), {'id': original['id']})
         before = self.stores('books', ['data', 'bookmark'])
 
         picker.set_input_files({
@@ -429,7 +433,7 @@ class BooksLibraryBrowser(LibraryBase):
 
     def test_yatsu_backup_collection_is_visible_on_phone_and_desktop(self):
         fixture = Path(__file__).resolve().parents[1] / 'fixtures' / 'yatsu' / 'complete-local-backup-v11.zip'
-        self.page.goto(self.origin + '/reader-web/import-ttu?source=yatsu')
+        self.page.goto(self.origin + reader_fixture('/reader-web/import-ttu?source=yatsu'))
         picker = self.page.get_by_label('Choose Yatsu backup ZIPs', exact=True)
         picker.set_input_files(str(fixture))
         self.page.get_by_role('button', name='Import selected (1)', exact=True).click()
@@ -439,7 +443,7 @@ class BooksLibraryBrowser(LibraryBase):
             with self.subTest(width=width):
                 self.page.set_viewport_size({'width': width, 'height': 844})
                 self.go_library()
-                if width < 1024:
+                if width < 768:
                     self.page.get_by_role('button', name='Collections', exact=True).click()
                     self.page.locator('#library-collections-sheet').get_by_role(
                         'button', name=re.compile(r'^Portable Shelf\s+1$')).click()
@@ -452,7 +456,7 @@ class BooksLibraryBrowser(LibraryBase):
     def _cross_resource_return(self, viewport, writing_mode=None):
         self.page.set_viewport_size(viewport)
         if writing_mode:
-            self.page.evaluate('(mode) => localStorage.setItem("writingMode", mode)', writing_mode)
+            self.page.evaluate(reader_fixture('(mode) => localStorage.setItem("writingMode", mode)'), writing_mode)
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name': 'cross-resource-return.epub',
             'mimeType': 'application/epub+zip',
@@ -617,8 +621,8 @@ class BooksLibraryBrowser(LibraryBase):
         # store. Match LibraryBase's regular-profile storage in touch mode too.
         touch = getattr(self.playwright, self.engine).launch_persistent_context(
             profile.name,
-            viewport={'width': 390, 'height': 844}, device_scale_factor=3,
-            is_mobile=True, has_touch=True, color_scheme='dark', reduced_motion='reduce')
+            **launch_options(self.engine, viewport={'width': 390, 'height': 844}, device_scale_factor=3,
+            is_mobile=True, has_touch=True, color_scheme='dark', reduced_motion='reduce'))
         original = self.page
         self.page = touch.pages[0]
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
@@ -708,7 +712,7 @@ class BooksLibraryBrowser(LibraryBase):
                 if width <= 430:
                     self.assertEqual(2, geometry['columns'])
                 if width == 768:
-                    self.assertEqual(4, geometry['columns'])
+                    self.assertEqual(2, geometry['columns'])
                 if width == 1440:
                     self.assertEqual(6, geometry['columns'])
                 for cover in geometry['covers']:
@@ -722,7 +726,7 @@ class BooksLibraryBrowser(LibraryBase):
         self.assertGreater(measurements[1400]['columns'], measurements[1300]['columns'])
         self.assertLess(measurements[1400]['width'], measurements[1300]['width'])
         self.assertGreater(measurements[1728]['columns'], measurements[1400]['columns'])
-        # Selection adds a row to the floating header. The sidebar stays in
+        # Selection adds a row to the header. The sidebar stays in
         # its own full-height panel through both header sizes.
         self.page.set_viewport_size({'width': 1440, 'height': 700})
         header = self.page.get_by_role('banner', name='Library toolbar')
@@ -733,14 +737,14 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.wait_for_function('''() => {
             const rail = document.querySelector('.library-rail').getBoundingClientRect();
             const shell = document.querySelector('.library-nav-shell');
-            return Math.abs(rail.top - 16) < 2 && rail.bottom <= innerHeight - 14 &&
+            return Math.abs(rail.top) < 2 && Math.abs(rail.bottom - innerHeight) < 2 &&
               shell.classList.contains('scrolled') &&
-              getComputedStyle(shell, '::before').backdropFilter !== 'none';
+              parseFloat(getComputedStyle(shell, '::before').borderBottomWidth) > 0;
         }''')
         expect(rail.get_by_role('button', name=re.compile('^Books'))).to_be_in_viewport()
         header.get_by_role('button', name='Cancel selection', exact=True).click()
         self.page.wait_for_function('''() => {
-            return Math.abs(document.querySelector('.library-rail').getBoundingClientRect().top - 16) < 2;
+            return Math.abs(document.querySelector('.library-rail').getBoundingClientRect().top) < 2;
         }''')
 
     def test_library_responsive_search_geometry_and_touch_targets(self):
@@ -753,10 +757,10 @@ class BooksLibraryBrowser(LibraryBase):
                 self.page.set_viewport_size({'width': width, 'height': 844})
                 self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width + 1)
                 brand = self.page.get_by_role('banner', name='Library toolbar').get_by_role(
-                    'heading', name='Manabi Reader for Web', exact=True).bounding_box()
+                    'heading', name=reader_product_name(), exact=True).bounding_box()
                 shelf = self.page.locator('.shelf-heading:visible, .unified-search:visible').first.bounding_box()
                 self.assertAlmostEqual(brand['x'], shelf['x'], delta=1)
-                if width < 1024:
+                if width < 768:
                     trigger = self.page.get_by_role('button', name='Search library', exact=True)
                     expect(trigger).to_be_visible()
                     actions = self.page.get_by_role('button', name='Library actions', exact=True).bounding_box()
@@ -788,8 +792,14 @@ class BooksLibraryBrowser(LibraryBase):
                     expect(self.page.get_by_role('button', name='Search library', exact=True)).not_to_be_visible()
                     self.assertEqual(1, self.page.get_by_role('banner', name='Library toolbar')
                                      .get_by_role('searchbox', name='Search library').count())
-                    self.assertGreater(search.bounding_box()['x'], self.page.get_by_role(
-                        'button', name='Library actions', exact=True).bounding_box()['x'])
+                    search_row = search.locator('..').bounding_box()
+                    actions = self.page.get_by_role(
+                        'button', name='Library actions', exact=True).bounding_box()
+                    if width < 1024:
+                        self.assertGreaterEqual(search_row['y'], actions['y'] + actions['height'])
+                        self.assertAlmostEqual(search_row['x'], brand['x'], delta=1)
+                    else:
+                        self.assertGreater(search_row['x'], actions['x'] + actions['width'])
                     self.assertEqual(0, self.page.get_by_role('region', name='Library shelves')
                                      .get_by_role('searchbox').count())
                     rail_text = self.page.get_by_role('complementary', name='Collections')
@@ -833,10 +843,15 @@ class BooksLibraryBrowser(LibraryBase):
                     self.assertGreaterEqual(geometry['targetWidth'], 44)
                     self.assertGreaterEqual(geometry['targetHeight'], 44)
                 header = self.page.get_by_role('banner', name='Library toolbar')
-                icons = header.locator('button:visible svg').evaluate_all(
+                icons = header.locator('button[data-size=icon]:visible svg').evaluate_all(
                     'icons => icons.map(icon => icon.getBoundingClientRect().width)')
                 self.assertTrue(icons)
-                self.assertTrue(all(size >= 24 for size in icons), icons)
+                self.assertTrue(all(abs(size - 20) <= 0.1 for size in icons), icons)
+                # Glyph size is independent of the accessible hit target.
+                for target in header.locator('button:visible').all():
+                    box = target.bounding_box()
+                    self.assertGreaterEqual(box['width'], 44)
+                    self.assertGreaterEqual(box['height'], 44)
                 if width == 390:
                     proportion = self.page.locator('.shelf-grid').evaluate('''grid =>
                         parseFloat(getComputedStyle(grid).columnGap) /
@@ -878,7 +893,7 @@ class BooksLibraryBrowser(LibraryBase):
             ('dark', 'rgb(44, 44, 46)', 'rgb(238, 238, 238)'),
         ):
             with self.subTest(mode=mode):
-                self.page.evaluate('mode => localStorage.setItem("appearance", mode)', mode)
+                self.page.evaluate(reader_fixture('mode => localStorage.setItem("appearance", mode)'), mode)
                 self.go_library()
                 expect(self.page.locator('html')).to_have_attribute('data-appearance', mode)
                 self.menu('Neutral collection controls', 'Add to Collection…')
@@ -901,7 +916,7 @@ class BooksLibraryBrowser(LibraryBase):
                 header = self.page.get_by_role('banner', name='Library toolbar')
                 expect(header.get_by_role('button', name='Main menu', exact=True)).to_have_count(0)
                 rail = self.page.get_by_role('complementary', name='Collections', exact=True)
-                if width < 1024:
+                if width < 768:
                     expect(rail).not_to_be_visible()
                     trigger = header.get_by_role('button', name='Collections', exact=True)
                     trigger.click()
@@ -972,7 +987,7 @@ class BooksLibraryBrowser(LibraryBase):
             track_box = track.bounding_box()
             self.assertAlmostEqual(track_box['x'], shelves['x'], delta=1)
             self.assertAlmostEqual(track_box['x'] + track_box['width'], shelves['x'] + shelves['width'], delta=1)
-            if width < 1024:
+            if width < 768:
                 self.assertAlmostEqual(track_box['x'], 0, delta=1)
                 self.assertAlmostEqual(track_box['width'], width, delta=1)
                 track.evaluate('e => e.scrollTo({left: 0, behavior: "instant"})')
@@ -1130,7 +1145,7 @@ class BooksLibraryBrowser(LibraryBase):
         self.page.set_viewport_size({'width':390, 'height':844})
         header = self.page.get_by_role('banner', name='Library toolbar')
         expect(self.page).to_have_title(re.compile(r'Library'))
-        heading = header.get_by_role('heading', name='Manabi Reader for Web', exact=True)
+        heading = header.get_by_role('heading', name=reader_product_name(), exact=True)
         expect(heading).to_be_visible()
         title_width = heading.evaluate('element => [element.scrollWidth, element.clientWidth]')
         self.assertLessEqual(title_width[0], title_width[1] + 1)
@@ -1172,9 +1187,9 @@ class BooksLibraryBrowser(LibraryBase):
             return {top: box.top, bottom: box.bottom, radius: parseFloat(style.borderTopLeftRadius),
                 rightBorder: parseFloat(style.borderRightWidth)};
         }''')
-        self.assertAlmostEqual(16, panel['top'], delta=2)
-        self.assertAlmostEqual(884, panel['bottom'], delta=2)
-        self.assertGreaterEqual(panel['radius'], 20)
+        self.assertAlmostEqual(0, panel['top'], delta=2)
+        self.assertAlmostEqual(900, panel['bottom'], delta=2)
+        self.assertEqual(0, panel['radius'])
         self.assertGreater(panel['rightBorder'], 0)
         scroll_y = self.page.evaluate('''() => {
             const spacer = document.createElement('div');
@@ -1186,8 +1201,8 @@ class BooksLibraryBrowser(LibraryBase):
         }''')
         self.assertGreater(scroll_y, 0)
         scrolled = rail.bounding_box()
-        self.assertAlmostEqual(16, scrolled['y'], delta=2)
-        self.assertAlmostEqual(884, scrolled['y'] + scrolled['height'], delta=2)
+        self.assertAlmostEqual(0, scrolled['y'], delta=2)
+        self.assertAlmostEqual(900, scrolled['y'] + scrolled['height'], delta=2)
         self.page.evaluate("document.getElementById('rail-scroll-fixture').remove(); window.scrollTo(0, 0)")
         header_style = header.evaluate('''element => {
             const style = getComputedStyle(element);
@@ -1205,11 +1220,11 @@ class BooksLibraryBrowser(LibraryBase):
         expect(rail).to_be_visible()
         self.page.reload()
         expect(rail).to_be_visible()
-        self.page.set_viewport_size({'width':1023, 'height':900})
+        self.page.set_viewport_size({'width':767, 'height':900})
         expect(rail).not_to_be_visible()
         expect(header.get_by_role('button', name='Main menu', exact=True)).to_have_count(0)
         expect(header.get_by_role('button', name='Collections', exact=True)).to_be_visible()
-        self.page.set_viewport_size({'width':1024, 'height':900})
+        self.page.set_viewport_size({'width':768, 'height':900})
         expect(rail).to_be_visible()
         expect(header.get_by_role('button', name='Main menu', exact=True)).not_to_be_visible()
         expect(header.get_by_role('button', name='Collections', exact=True)).not_to_be_visible()
@@ -1312,7 +1327,7 @@ class BooksLibraryBrowser(LibraryBase):
           return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'),
             String(d.getDate()).padStart(2, '0')].join('-');
         }""")
-        self.page.evaluate('''async ({books, dateKey}) => {
+        self.page.evaluate(reader_fixture('''async ({books, dateKey}) => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('books');
             request.onsuccess = () => resolve(request.result);
@@ -1338,7 +1353,7 @@ class BooksLibraryBrowser(LibraryBase):
             tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''', {'books': [first, second], 'dateKey': date_key})
+        }'''), {'books': [first, second], 'dateKey': date_key})
 
         header = self.page.get_by_role('banner', name='Library toolbar')
         header.get_by_role('button', name='Library actions', exact=True).click()
@@ -1350,7 +1365,7 @@ class BooksLibraryBrowser(LibraryBase):
         header.get_by_role('button', name='Selected book actions', exact=True).click()
         self.page.get_by_role(
             'menuitem', name='Statistics for Selected Books', exact=True).click()
-        expect(self.page).to_have_url(re.compile(r'/reader-web/statistics(?:[/?#]|$)'), timeout=30000)
+        expect(self.page).to_have_url(re.compile(reader_fixture(r'/reader-web/statistics(?:[/?#]|$)')), timeout=30000)
         expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         toolbar = self.page.get_by_role('banner', name='Statistics toolbar')
         toolbar.get_by_role('button', name='Summary', exact=True).click()
@@ -1393,7 +1408,7 @@ class BooksLibraryBrowser(LibraryBase):
         first, second = sorted(books, key=lambda row: row['id'])
         self.assertNotEqual(first['contentHash'], second['contentHash'])
 
-        self.page.evaluate('''async books => {
+        self.page.evaluate(reader_fixture('''async books => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('books');
             request.onsuccess = () => resolve(request.result);
@@ -1419,7 +1434,7 @@ class BooksLibraryBrowser(LibraryBase):
             tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''', [first, second])
+        }'''), [first, second])
 
         header = self.page.get_by_role('banner', name='Library toolbar')
         header.get_by_role('button', name='Library actions', exact=True).click()
@@ -1453,7 +1468,7 @@ class BooksLibraryBrowser(LibraryBase):
         stored = next(row for row in self.stores('books', ['data'])['data']
                       if row['title'] == 'Statistics confirmation race')
         original_key = 'content:' + stored['contentHash'].lower()
-        self.page.evaluate('''async ({book, key}) => {
+        self.page.evaluate(reader_fixture('''async ({book, key}) => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('books');
             request.onsuccess = () => resolve(request.result);
@@ -1476,7 +1491,7 @@ class BooksLibraryBrowser(LibraryBase):
             tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''', {'book': stored, 'key': original_key})
+        }'''), {'book': stored, 'key': original_key})
 
         header = self.page.get_by_role('banner', name='Library toolbar')
         header.get_by_role('button', name='Library actions', exact=True).click()
@@ -1489,7 +1504,7 @@ class BooksLibraryBrowser(LibraryBase):
         expect(dialog.get_by_role('heading', name='Delete Data', exact=True)).to_be_visible()
 
         replacement_hash = 'f' * 64 if stored['contentHash'].lower() != 'f' * 64 else 'e' * 64
-        self.page.evaluate('''async ({id, hash}) => {
+        self.page.evaluate(reader_fixture('''async ({id, hash}) => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('books');
             request.onsuccess = () => resolve(request.result);
@@ -1504,7 +1519,7 @@ class BooksLibraryBrowser(LibraryBase):
             tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''', {'id': stored['id'], 'hash': replacement_hash})
+        }'''), {'id': stored['id'], 'hash': replacement_hash})
 
         dialog.get_by_role('button', name='Confirm', exact=True).click()
         expect(self.page.get_by_text(
@@ -1591,11 +1606,12 @@ class BooksLibraryBrowser(LibraryBase):
                 self.assertEqual([{'name':'Portable Author'}], static['creators'])
         original = self.page
         with tempfile.TemporaryDirectory() as profile:
-            destination = getattr(self.playwright, self.engine).launch_persistent_context(profile)
+            destination = getattr(self.playwright, self.engine).launch_persistent_context(
+                profile, **launch_options(self.engine))
             self.page = destination.pages[0]
             self.page.on('pageerror', lambda e: self.errors.append(str(e)))
             try:
-                self.page.goto(self.origin + '/reader-web/import-ttu')
+                self.page.goto(self.origin + reader_fixture('/reader-web/import-ttu'))
                 chooser = self.page.get_by_label('Choose Ttu export ZIPs', exact=True)
                 expect(chooser).to_be_enabled()
                 chooser.set_input_files({'name':'library-backup.zip','mimeType':'application/zip','buffer':raw})
@@ -1837,15 +1853,15 @@ class BooksLibraryFilesystem(LibraryBase):
                 expect(hero.get_by_role('button', name=re.compile('^Start Reading'))).to_be_visible()
 
     def seed_files(self, files):
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         expect(self.page.get_by_role('button', name='Refresh connections')).to_be_enabled()
-        self.source_id = self.page.evaluate('''async files => {
+        self.source_id = self.page.evaluate(reader_fixture('''async files => {
           const handle=await (await navigator.storage.getDirectory()).getDirectoryHandle('Library fixture',{create:true});
           for(const [path,data] of Object.entries(files)) {const parts=path.split('/'),name=parts.pop();let dir=handle;for(const part of parts)dir=await dir.getDirectoryHandle(part,{create:true});const file=await dir.getFileHandle(name,{create:true});const w=await file.createWritable();await w.write(Uint8Array.from(atob(data),c=>c.charCodeAt(0)));await w.close();}
           const id='local-'+crypto.randomUUID();
           await new Promise((resolve,reject)=>{const r=indexedDB.open('manabi-reader-integrations');r.onupgradeneeded=()=>{r.transaction.abort();reject(Error('Integration storage was not initialized'))};r.onsuccess=()=>{const db=r.result,tx=db.transaction('localLibraries','readwrite');tx.objectStore('localLibraries').put({id,name:'Library fixture',handle,writable:true});tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)};r.onerror=()=>reject(r.error)});
           return id;
-        }''', {path: base64.b64encode(data).decode() for path,data in files.items()})
+        }'''), {path: base64.b64encode(data).decode() for path,data in files.items()})
         self.go_library()
 
     def disk(self):
@@ -1953,14 +1969,14 @@ class BooksLibraryFilesystem(LibraryBase):
     def test_resume_durable_copied_journal_through_actual_library_button(self):
         self.seed_files({'One.epub':book('Recovery one'),'Two.epub':book('Recovery two')})
         before=self.disk()
-        self.page.evaluate('''async sourceId => {
+        self.page.evaluate(reader_fixture('''async sourceId => {
           const root=await (await navigator.storage.getDirectory()).getDirectoryHandle('Library fixture');
           const folder=await root.getDirectoryHandle('Recovered',{create:true});const id=crypto.randomUUID(),files=[];
           for(const name of ['One.epub','Two.epub']) {const original=await(await root.getFileHandle(name)).getFile();const w=await(await folder.getFileHandle(name,{create:true})).createWritable();await w.write(original);await w.close();const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await original.arrayBuffer()))).map(n=>n.toString(16).padStart(2,'0')).join('');files.push({from:name,to:'Recovered/'+name,hash});}
           for(const [name,text] of [['.manabi-reader-operation-'+id,id],['.Manabi-Reader.yaml','name: "Recovered"\\n']]) {const w=await(await folder.getFileHandle(name,{create:true})).createWritable();await w.write(text);await w.close();}
           await root.removeEntry('One.epub');
           await new Promise((resolve,reject)=>{const r=indexedDB.open('manabi-reader-integrations');r.onupgradeneeded=()=>{r.transaction.abort();reject(Error('Integration storage was not initialized'))};r.onsuccess=()=>{const db=r.result,tx=db.transaction('metadata','readwrite');tx.objectStore('metadata').put({version:1,id,sourceId,parent:'',folder:'Recovered',name:'Recovered',files,phase:'copied'},'library-file-operation:'+sourceId);tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)}});
-        }''',self.source_id)
+        }'''),self.source_id)
         self.page.reload()
         self.page.get_by_role('button',name='Resume Folder Change',exact=True).click()
         expect(self.page.get_by_role('button',name='Resume Folder Change',exact=True)).to_have_count(0,timeout=30000)

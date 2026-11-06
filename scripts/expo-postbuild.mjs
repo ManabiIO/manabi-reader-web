@@ -7,11 +7,14 @@ import { createHash } from 'node:crypto';
 import { importBootstrapDocument } from './import-bootstrap.mjs';
 import { libraryNoScriptDocument } from './library-noscript.mjs';
 import { readerContentSecurityPolicy } from '../apps/web/src/platform/content-security-policy.mjs';
+import { readerEdition } from '../config/reader-editions.mjs';
+import { externalRuntimeAssets } from '../apps/web/src/lib/service-worker/optional-static-assets.mjs';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const require = createRequire(path.join(root, 'package.json'));
 const { build } = require('esbuild');
 const dir = path.join(root, 'apps/web/build');
-const base = process.env.BASE_PATH ?? '/reader-web';
+const edition = readerEdition();
+const base = process.env.BASE_PATH ?? edition.basePath;
 const routes = [
   '',
   'manage',
@@ -56,6 +59,7 @@ async function walk(directory, prefix = '') {
   return paths;
 }
 const paths = await walk(dir);
+const externalAssets = new Set(externalRuntimeAssets(paths));
 const urls = paths.map((file) => `${base}/${file}`);
 const config = {
   build: urls.filter((file) => /\/(?:_expo|assets)\//.test(file)),
@@ -67,8 +71,11 @@ const config = {
     .update(libraryHTML)
     .digest('hex')
     .slice(0, 16),
-  userFontsCacheName: 'ttu-userfonts',
-  lazyAssets: urls.filter((file) => /voice-pitch|swift-f0|ort-wasm/.test(file))
+  userFontsCacheName: `${edition.storageNamespace}:ttu-userfonts`,
+  lazyAssets: paths
+    .filter((file) => externalAssets.has(file) || /voice-pitch|swift-f0|ort-wasm/.test(file))
+    .map((file) => `${base}/${file}`),
+  optionalRuntimeAssets: [...externalAssets].map((file) => `${base}/${file}`)
 };
 const entry = `import { registerReaderServiceWorker } from './apps/web/src/lib/service-worker/reader-service-worker.mjs'; registerReaderServiceWorker(self, ${JSON.stringify(config)});`;
 await build({

@@ -7,6 +7,7 @@ from reader_controls import reveal_reader_controls
 from offline_shell import enter_offline_shell
 from test_books_library import LibraryBase
 from test_static_reader import StaticHandler
+from reader_fixture import reader_fixture
 
 
 class OfflineAccountProfile(LibraryBase):
@@ -33,7 +34,7 @@ class OfflineAccountProfile(LibraryBase):
         self.import_book('Account-only book')
         book = self.stores('books', ['data'])['data'][0]
         book_id = book['id']
-        self.page.evaluate('''async ({bookId, contentHash}) => {
+        self.page.evaluate(reader_fixture('''async ({bookId, contentHash}) => {
           const open = name => new Promise((resolve, reject) => {
             const request = indexedDB.open(name);
             request.onsuccess = () => resolve(request.result);
@@ -56,18 +57,18 @@ class OfflineAccountProfile(LibraryBase):
           const scope = books.transaction('readerBookScope', 'readwrite');
           scope.objectStore('readerBookScope').put({bookId, accountId:'42'});
           await commit(scope); books.close();
-        }''', {'bookId': book_id, 'contentHash': book['contentHash']})
+        }'''), {'bookId': book_id, 'contentHash': book['contentHash']})
         StaticHandler.account_fixture = {
             'user': {'id': '42', 'username': 'reader-a'},
             'csrf_token': 'c' * 64, 'providers': []
         }
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         expect(self.page.get_by_text('reader-a', exact=True)).to_be_visible()
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.get_by_role('button', name='Read Account-only book', exact=True)).to_be_visible()
-        self.page.goto(self.origin + '/reader-web/b?id=' + str(book_id))
+        self.page.goto(self.origin + reader_fixture('/reader-web/b?id=') + str(book_id))
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
-        enter_offline_shell(self.page, self.origin + '/reader-web/')
+        enter_offline_shell(self.page, self.origin + reader_fixture('/reader-web/'))
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
         if self.engine != 'webkit':
             self.context.set_offline(True)
@@ -75,19 +76,19 @@ class OfflineAccountProfile(LibraryBase):
             expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
             self.context.set_offline(False)
         other = self.context.new_page()
-        other.goto(self.origin + '/reader-web/connections')
+        other.goto(self.origin + reader_fixture('/reader-web/connections'))
         StaticHandler.account_fixture['user'] = None
-        other.evaluate("localStorage.removeItem('manabi-reader-local-profile-v1')")
-        expect(self.page).to_have_url(re.compile(r'/reader-web/manage(?:[/?#]|$)'))
+        other.evaluate(reader_fixture("localStorage.removeItem('manabi-reader-local-profile-v1')"))
+        expect(self.page).to_have_url(re.compile(reader_fixture(r'/reader-web/manage(?:[/?#]|$)')))
         other.close()
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         self.page.get_by_role('button', name='Refresh connections', exact=True).click()
         expect(self.page.get_by_text('Signed in as', exact=False)).to_have_count(0)
-        assert self.page.evaluate("localStorage.getItem('manabi-reader-local-profile-v1')") is None
-        self.page.goto(self.origin + '/reader-web/manage')
+        assert self.page.evaluate(reader_fixture("localStorage.getItem('manabi-reader-local-profile-v1')")) is None
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.get_by_role('button', name='Read Account-only book', exact=True)).to_have_count(0)
-        self.page.goto(self.origin + '/reader-web/b?id=' + str(book_id))
-        expect(self.page).to_have_url(re.compile(r'/reader-web/manage(?:[/?#]|$)'))
+        self.page.goto(self.origin + reader_fixture('/reader-web/b?id=') + str(book_id))
+        expect(self.page).to_have_url(re.compile(reader_fixture(r'/reader-web/manage(?:[/?#]|$)')))
         expect(self.page.locator('.book-content')).to_have_count(0)
 
     def test_account_annotation_is_hidden_on_a_public_book_after_signout(self):
@@ -97,9 +98,9 @@ class OfflineAccountProfile(LibraryBase):
             'user': {'id': '42', 'username': 'reader-a'},
             'csrf_token': 'c' * 64, 'providers': []
         }
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         expect(self.page.get_by_text('reader-a', exact=True)).to_be_visible()
-        self.page.goto(self.origin + '/reader-web/b?id=' + str(book_id))
+        self.page.goto(self.origin + reader_fixture('/reader-web/b?id=') + str(book_id))
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
         reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()
@@ -115,9 +116,9 @@ class OfflineAccountProfile(LibraryBase):
             self.assertLess(time.monotonic(), deadline, 'Bookmark scope did not commit.')
             self.page.wait_for_timeout(25)
         StaticHandler.account_fixture['user'] = None
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         self.page.get_by_role('button', name='Refresh connections', exact=True).click()
-        self.page.goto(self.origin + '/reader-web/b?id=' + str(book_id))
+        self.page.goto(self.origin + reader_fixture('/reader-web/b?id=') + str(book_id))
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
         reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Bookmarks and Notes', exact=True).click()

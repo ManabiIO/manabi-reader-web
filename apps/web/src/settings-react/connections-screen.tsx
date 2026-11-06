@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { readerName } from '../runtime/edition';
+
 import React from 'react';
 import { RouteBack } from '../shared-ui/RouteBack.web';
 import { useReaderController } from '../reader-react/controller';
@@ -42,7 +44,11 @@ import {
 } from '$lib/manabi/books';
 import { resolvePersonalConflict } from '$lib/manabi/personal-sync';
 
-import { removeLocalLibrary, supportedBook } from '$lib/manabi/sources';
+import { CloudLibrary, removeLocalLibrary, supportedBook } from '$lib/manabi/sources';
+import { ReaderBridgePreview } from './reader-bridge-preview';
+import { ReaderBridgeRecovery } from './reader-bridge-recovery';
+import { ReaderBridgeConnections } from './reader-bridge-connections';
+import type { DriveReaderSelection } from '$lib/manabi/reader-bridge-source';
 
 import { DavConnections } from './dav-connections';
 /** Keep an unfinished numeric edit separate from the persisted reader setting.
@@ -114,6 +120,30 @@ export function ConnectionsScreen(
   } | null>(null);
   useReaderBindings(c, props);
   if (!c) return null;
+  const packageVersion = c.entries
+    .find((entry) => entry.kind === 'file' && entry.name.startsWith('bookdata_'))
+    ?.name.match(/^bookdata_1_(6|7|8|11)_/)?.[1];
+  const bridgeSelection: DriveReaderSelection | null =
+    c.source instanceof CloudLibrary &&
+    c.connections.some(
+      (connection) =>
+        connection.id === c.source?.id &&
+        connection.provider === 'google' &&
+        !connection.needs_reconnect
+    ) &&
+    c.trail.length === 2 &&
+    packageVersion
+      ? {
+          owner: c.source.owner,
+          connection: c.source.id,
+          root: c.source.root,
+          folder: c.trail[1].id,
+          profile:
+            packageVersion === '11'
+              ? 'yatsu-1-11'
+              : (`ttu-1-${packageVersion}` as DriveReaderSelection['profile'])
+        }
+      : null;
   const changingPreferences =
     preferenceChange?.owner === c && preferenceChange.user === c.$account.session?.user?.id
       ? preferenceChange
@@ -139,7 +169,7 @@ export function ConnectionsScreen(
           <AppNav></AppNav>
         </Dom>
         <Head>
-          <Dom as="title">{'Accounts and libraries · Manabi Reader'}</Dom>
+          <Dom as="title">{`Accounts and libraries · ${readerName}`}</Dom>
         </Head>
         <Dom as="main" className={['connections-page'].filter(Boolean).join(' ')}>
           <Dom as="header">
@@ -657,10 +687,19 @@ export function ConnectionsScreen(
                   ))}
                 </Dom>
                 <Dom as="p">
-                  {c.source instanceof WebDavSource
-                    ? 'Import books for offline reading. WebDAV reading-data sync is a separate opt-in action below; original book files are never changed.'
-                    : 'Verified books sync personal reading data through your Manabi account. Folder write access is not required.'}
+                  {bridgeSelection
+                    ? 'This folder contains reading data from another reader. You can preview it below.'
+                    : c.source instanceof WebDavSource
+                      ? 'Import books for offline reading. WebDAV reading-data sync is a separate opt-in action below; original book files are never changed.'
+                      : 'Verified books sync personal reading data through your Manabi account. Folder write access is not required.'}
                 </Dom>
+                {bridgeSelection ? (
+                  <ReaderBridgePreview
+                    key={JSON.stringify([bridgeSelection, accountGeneration()])}
+                    selection={bridgeSelection}
+                    disabled={c.busy}
+                  />
+                ) : null}
                 {c.source instanceof WebDavSource ? (
                   <>
                     <Dom as="label">
@@ -953,6 +992,18 @@ export function ConnectionsScreen(
               </React.Fragment>
             ))}
           </Dom>
+          {localProfileUser()?.id ? (
+            <ReaderBridgeConnections
+              key={JSON.stringify(['connections', localProfileUser()!.id, accountGeneration()])}
+              owner={localProfileUser()!.id}
+            />
+          ) : null}
+          {localProfileUser()?.id ? (
+            <ReaderBridgeRecovery
+              key={JSON.stringify(['recovery', localProfileUser()!.id, accountGeneration()])}
+              owner={localProfileUser()!.id}
+            />
+          ) : null}
         </Dom>
       </div>
     </SettingsContext.Provider>

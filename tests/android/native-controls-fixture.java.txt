@@ -1,0 +1,161 @@
+/* SPDX-License-Identifier: BSD-3-Clause */
+import java.util.*;
+
+/** Host tests of the actual instrumentation selectors. No Android rendering. */
+class NativeControlsTest {
+  final Instrumentation instrumentation = new Instrumentation();
+
+  /* ACTUAL_CONTROL_METHODS */
+
+  public static void main(String[] args) throws Exception {
+    NativeControlsTest test = new NativeControlsTest();
+    AccessibilityNodeInfo anchor = input("picker", "None", false);
+    anchor.clickable = true;
+    AccessibilityNodeInfo field = node("field", "android.view.View", "", "Page turn effect", anchor);
+    test.instrumentation.root = node("root", "Root", "", "", field,
+        node("unrelated", "android.view.View", "", "Another picker", input("other", "None", false)));
+    test.awaitPageTurnPicker("None", false);
+    test.awaitPageTurnPicker("None", true);
+    assertEquals("Only the named picker may open", 1, anchor.clicks);
+    rejects(() -> test.awaitPageTurnPicker("Slide", false), "did not expose");
+    anchor.enabled = false;
+    rejects(() -> test.awaitPageTurnPicker("None", true), "did not expose");
+    anchor.enabled = true;
+    anchor.visible = false;
+    rejects(() -> test.awaitPageTurnPicker("None", true), "did not expose");
+    anchor.visible = true;
+    field.description = "";
+    rejects(() -> test.awaitPageTurnPicker("None", true), "did not expose");
+    field.description = "Page turn effect";
+    field.children.add(input("ambiguous", "None", false));
+    rejects(() -> test.awaitPageTurnPicker("None", true), "multiple native inputs");
+    field.children.get(1).text = "Another value";
+    rejects(() -> test.awaitPageTurnPicker("None", true), "multiple native inputs");
+    field.children.remove(1);
+    field.children.clear();
+    field.add(node("web", "android.webkit.WebView", "", "", anchor));
+    rejects(() -> test.awaitPageTurnPicker("None", true), "did not expose");
+    // Native menu anchors can own their click action on the immediate parent.
+    field.children.clear();
+    AccessibilityNodeInfo owner = node("anchor-owner", "android.view.View", "", "", anchor);
+    owner.clickable = true;
+    anchor.clickable = false;
+    field.add(owner);
+    test.awaitPageTurnPicker("None", true);
+    assertEquals("Use only the immediate native click owner", 1, owner.clicks);
+
+    AccessibilityNodeInfo input = input("search", "", true);
+    input.description = "Filter book titles";
+    test.instrumentation.root = node("search-root", "Root", "", "", input);
+    AccessibilityNodeInfo original = test.focusNativeTextInput("Filter book titles");
+    input.text = "日本語 draft";
+    test.awaitFocusedNativeTextInput("Filter book titles", "日本語 draft", original);
+    input.text = "second edit";
+    test.awaitFocusedNativeTextInput("Filter book titles", "second edit", original);
+    input.focused = false;
+    rejects(() -> test.awaitFocusedNativeTextInput("Filter book titles", "second edit", original), "lost focus/value");
+    input.focused = true;
+    rejects(() -> test.awaitFocusedNativeTextInput("Filter book titles", "wrong draft", original), "lost focus/value");
+    AccessibilityNodeInfo replacement = input("replaced", "second edit", true);
+    replacement.description = input.description;
+    replacement.focused = true;
+    test.instrumentation.root = replacement;
+    rejects(() -> test.awaitFocusedNativeTextInput("Filter book titles", "second edit", original), "input identity");
+    replacement.description = "";
+    test.instrumentation.root = node("label-parent", "View", "", "Filter book titles", replacement);
+    rejects(() -> test.focusNativeTextInput("Filter book titles"), "could not be focused");
+    // A direct Compose label child is supported; arbitrary sibling inputs are not.
+    AccessibilityNodeInfo label = node("label", "Text", "", "Filter book titles");
+    replacement.add(label);
+    test.instrumentation.root = replacement;
+    assertEquals("Follow the actual direct semantic owner", replacement,
+        test.focusNativeTextInput("Filter book titles"));
+    replacement.enabled = false;
+    rejects(() -> test.focusNativeTextInput("Filter book titles"), "could not be focused");
+  }
+
+  interface Checked { void run() throws Exception; }
+  static void rejects(Checked action, String message) throws Exception {
+    try { action.run(); } catch (AssertionError error) {
+      assertTrue("Unexpected refusal: " + error, error.getMessage().contains(message));
+      return;
+    }
+    throw new AssertionError("Expected refusal: " + message);
+  }
+  static void assertTrue(String message, boolean value) {
+    if (!value) throw new AssertionError(message);
+  }
+  static void assertEquals(String message, Object expected, Object actual) {
+    if (!Objects.equals(expected, actual)) throw new AssertionError(message);
+  }
+  static AccessibilityNodeInfo node(String id, String kind, String text, String label,
+      AccessibilityNodeInfo... children) {
+    AccessibilityNodeInfo value = new AccessibilityNodeInfo(id, kind, text, label);
+    for (AccessibilityNodeInfo child : children) value.add(child);
+    return value;
+  }
+  static AccessibilityNodeInfo input(String id, String text, boolean editable) {
+    AccessibilityNodeInfo value = node(id, "android.widget.EditText", text, "");
+    value.editable = editable;
+    return value;
+  }
+  // Geometry remains the existing device helper's responsibility.
+  boolean nativeControlVisible(AccessibilityNodeInfo value) { return value.visible; }
+  boolean scrollNativeForward(AccessibilityNodeInfo root) { return false; }
+  void awaitAccessibleText(String label) {
+    assertTrue("Wait for an actual opposite picker option", label.equals("Slide") || label.equals("None"));
+  }
+  List<AccessibilityNodeInfo> findAccessibleText(AccessibilityNodeInfo node, String text) {
+    List<AccessibilityNodeInfo> values = new ArrayList<>();
+    if (text.equals(node.text) || text.equals(node.description)) values.add(node);
+    for (AccessibilityNodeInfo child : node.children) values.addAll(findAccessibleText(child, text));
+    return values;
+  }
+  static class SystemClock {
+    static long time;
+    static long uptimeMillis() { return time += 50; }
+    static void sleep(long duration) { time += duration; }
+  }
+  static class Instrumentation {
+    AccessibilityNodeInfo root;
+    Instrumentation getUiAutomation() { return this; }
+    AccessibilityNodeInfo getRootInActiveWindow() { return root; }
+  }
+  static class AccessibilityNodeInfo {
+    static final int ACTION_CLICK = 16, ACTION_FOCUS = 1;
+    final String id, kind;
+    String text, description;
+    boolean editable, clickable, focused, enabled = true, visible = true;
+    int clicks;
+    AccessibilityNodeInfo parent;
+    List<AccessibilityNodeInfo> children = new ArrayList<>();
+    AccessibilityNodeInfo(String id, String kind, String text, String description) {
+      this.id = id; this.kind = kind; this.text = text; this.description = description;
+    }
+    void add(AccessibilityNodeInfo child) { children.add(child); child.parent = this; }
+    CharSequence getText() { return text; }
+    CharSequence getContentDescription() { return description; }
+    CharSequence getClassName() { return kind; }
+    AccessibilityNodeInfo getParent() { return parent; }
+    AccessibilityNodeInfo getChild(int index) { return children.get(index); }
+    int getChildCount() { return children.size(); }
+    boolean isEnabled() { return enabled; }
+    boolean isEditable() { return editable; }
+    boolean isClickable() { return clickable; }
+    boolean isFocused() { return focused; }
+    Object getRangeInfo() { return null; }
+    boolean performAction(int action) {
+      if (action == ACTION_FOCUS) { focused = true; return true; }
+      if (action == ACTION_CLICK && clickable) { clicks++; return true; }
+      return action == AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId();
+    }
+    @Override public boolean equals(Object value) {
+      return value instanceof AccessibilityNodeInfo && id.equals(((AccessibilityNodeInfo) value).id);
+    }
+    @Override public int hashCode() { return id.hashCode(); }
+    static class AccessibilityAction {
+      static final AccessibilityAction ACTION_SHOW_ON_SCREEN = new AccessibilityAction();
+      int getId() { return 16908342; }
+    }
+  }
+}

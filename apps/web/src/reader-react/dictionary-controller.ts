@@ -4,6 +4,16 @@
  * All rights reserved.
  */
 
+import { localStorage } from '$lib/data/window/local-storage';
+import {
+  DICTIONARY_EXTENSION_MUTATION_ATTRIBUTES,
+  PREFERRED_DICTIONARY_EXTENSION_SETUP_URL,
+  normalizeDictionarySetupChoice,
+  preferredDictionaryExtensionPresent,
+  preferredDictionaryReaderBridgeReady,
+  type DictionarySetupChoice
+} from '$lib/integrations/external-dictionary-interop';
+
 import { ReaderController } from './controller';
 export interface DictionaryProps {
   contentReady?: boolean;
@@ -17,7 +27,7 @@ export function createDictionary(
 
   let contentReady = props.contentReady !== undefined ? props.contentReady : false;
   const choiceKey = 'manabi-reader-dictionary-setup-v1';
-  const setupUrl = 'https://manabitan.manabi.io/getting-started/#installation';
+  const setupUrl = PREFERRED_DICTIONARY_EXTENSION_SETUP_URL;
   let open = false;
   let mounted = false;
   let checked = false;
@@ -25,28 +35,24 @@ export function createDictionary(
   let bridgeReady = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   function show() {
-    __readerController.changed((extensionPresent = manabitanPresent()));
+    __readerController.changed((extensionPresent = extensionAvailable()));
     __readerController.changed((bridgeReady = readerBridgeReady()));
     __readerController.changed((open = true));
   }
   function savedChoice() {
     try {
-      return localStorage.getItem(choiceKey);
+      return normalizeDictionarySetupChoice(localStorage.getItem(choiceKey));
     } catch {
       return null;
     }
   }
-  function manabitanPresent() {
-    const { dataset } = document.documentElement;
-    return (
-      dataset.manabitanContentScriptLoaded === 'true' ||
-      dataset.manabitanContentScriptPrepared === 'true'
-    );
+  function extensionAvailable() {
+    return preferredDictionaryExtensionPresent(document);
   }
   function readerBridgeReady() {
-    return document.documentElement.dataset.manabitanReaderJitendexBridge === 'true';
+    return preferredDictionaryReaderBridgeReady(document);
   }
-  function choose(value: 'manabitan' | 'done' | 'other' | 'skip') {
+  function choose(value: DictionarySetupChoice) {
     try {
       localStorage.setItem(choiceKey, value);
     } catch {
@@ -61,10 +67,10 @@ export function createDictionary(
         __readerController.changed((checked = true));
         __readerController.changed(
           (timer = setTimeout(() => {
-            __readerController.changed((extensionPresent = manabitanPresent()));
+            __readerController.changed((extensionPresent = extensionAvailable()));
             __readerController.changed((bridgeReady = readerBridgeReady()));
             const choice = savedChoice();
-            if ((!choice && !extensionPresent) || (choice === 'manabitan' && bridgeReady))
+            if ((!choice && !extensionPresent) || (choice === 'preferred' && bridgeReady))
               __readerController.changed((open = true));
           }, 1200))
         );
@@ -74,18 +80,14 @@ export function createDictionary(
   __readerController.onMount(() => {
     __readerController.changed((mounted = true));
     const observer = new MutationObserver(() => {
-      __readerController.changed((extensionPresent = manabitanPresent()));
+      __readerController.changed((extensionPresent = extensionAvailable()));
       __readerController.changed((bridgeReady = readerBridgeReady()));
-      if (contentReady && savedChoice() === 'manabitan' && bridgeReady)
+      if (contentReady && savedChoice() === 'preferred' && bridgeReady)
         __readerController.changed((open = true));
     });
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: [
-        'data-manabitan-content-script-loaded',
-        'data-manabitan-content-script-prepared',
-        'data-manabitan-reader-jitendex-bridge'
-      ]
+      attributeFilter: [...DICTIONARY_EXTENSION_MUTATION_ATTRIBUTES]
     });
     return () => {
       if (timer) clearTimeout(timer);
@@ -97,7 +99,7 @@ export function createDictionary(
     controller: __readerController,
     show,
     savedChoice,
-    manabitanPresent,
+    extensionAvailable,
     readerBridgeReady,
     choose,
     get contentReady() {

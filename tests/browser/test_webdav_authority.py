@@ -6,6 +6,7 @@ import unittest
 from playwright.sync_api import expect
 
 from test_local_library_features import LocalFeatureBrowser
+from reader_fixture import reader_fixture
 
 
 class WebDavAuthorityBrowser(LocalFeatureBrowser):
@@ -14,7 +15,7 @@ class WebDavAuthorityBrowser(LocalFeatureBrowser):
         before = self.stores('books', ['bookmark', 'readerExternalSync'])
         remote = self.dav.state['files'][path]
         requests = len(self.dav.state['requests'])
-        self.page.evaluate('''() => new Promise((resolve, reject) => {
+        self.page.evaluate(reader_fixture('''() => new Promise((resolve, reject) => {
           const request = indexedDB.open('books');
           request.onerror = () => reject(request.error);
           request.onsuccess = () => {
@@ -26,7 +27,7 @@ class WebDavAuthorityBrowser(LocalFeatureBrowser):
             tx.oncomplete = () => { db.close(); resolve(); };
             tx.onabort = () => { db.close(); reject(tx.error); };
           };
-        })''')
+        })'''))
         self.page.get_by_role('button', name='Sync WebDAV offline book', exact=True).click()
         expect(self.page.get_by_text(
             'This WebDAV book is unavailable in the active account.', exact=True)).to_be_visible()
@@ -39,7 +40,7 @@ class WebDavAuthorityBrowser(LocalFeatureBrowser):
         path = self.establish_dav_state()
         before = self.stores('books', ['bookmark', 'readerExternalSync'])
         remote = self.dav.state['files'][path]
-        self.page.evaluate('''() => new Promise((resolve, reject) => {
+        self.page.evaluate(reader_fixture('''() => new Promise((resolve, reject) => {
           const request = indexedDB.open('books');
           request.onerror = () => reject(request.error);
           request.onsuccess = () => {
@@ -52,7 +53,7 @@ class WebDavAuthorityBrowser(LocalFeatureBrowser):
             tx.oncomplete = () => { db.close(); resolve(); };
             tx.onabort = () => { db.close(); reject(tx.error); };
           };
-        })''')
+        })'''))
         self.page.get_by_role('button', name='Sync WebDAV offline book', exact=True).click()
         expect(self.page.get_by_text(
             'These book copies have conflicting account ownership. WebDAV sync is paused.',
@@ -74,7 +75,7 @@ class WebDavAuthorityBrowser(LocalFeatureBrowser):
             while not started.is_set():
                 self.assertLess(time.monotonic(), deadline, 'Sync did not reach the WebDAV GET')
                 self.page.wait_for_timeout(25)
-            self.page.evaluate('''() => new Promise((resolve, reject) => {
+            self.page.evaluate(reader_fixture('''() => new Promise((resolve, reject) => {
                   const request = indexedDB.open('manabi-reader-integrations');
                   request.onerror = () => reject(request.error);
                   request.onsuccess = () => {
@@ -86,7 +87,7 @@ class WebDavAuthorityBrowser(LocalFeatureBrowser):
                     tx.oncomplete = () => { db.close(); resolve(); };
                     tx.onabort = () => { db.close(); reject(tx.error); };
                   };
-                })''')
+                })'''))
         finally:
             gate.set()
         expect(self.page.get_by_text(
@@ -100,7 +101,7 @@ class WebDavAuthorityBrowser(LocalFeatureBrowser):
     def test_legacy_book_scope_blocks_a_stale_completion_action(self):
         self.import_book('Legacy completion scope')
         before = self.stores('books', ['bookmark', 'readerStatistic'])
-        self.page.evaluate('''() => new Promise((resolve, reject) => {
+        self.page.evaluate(reader_fixture('''() => new Promise((resolve, reject) => {
           const request = indexedDB.open('books');
           request.onerror = () => reject(request.error);
           request.onsuccess = () => {
@@ -112,7 +113,7 @@ class WebDavAuthorityBrowser(LocalFeatureBrowser):
             tx.oncomplete = () => { db.close(); resolve(); };
             tx.onabort = () => { db.close(); reject(tx.error); };
           };
-        })''')
+        })'''))
         self.menu('Legacy completion scope', 'Mark as Finished')
         expect(self.page.get_by_text('This book belongs to another account.', exact=True)).to_be_visible()
         self.assertEqual(before, self.stores('books', ['bookmark', 'readerStatistic']))

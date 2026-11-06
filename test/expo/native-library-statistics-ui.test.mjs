@@ -1,8 +1,8 @@
 /** @license BSD-3-Clause */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync, renameSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';
@@ -20,16 +20,22 @@ Object.assign(globalThis, {
 });
 const { createRoot } = require('react-dom/client');
 const output = mkdtempSync(join(tmpdir(), 'library-statistics-ui-'));
-process.on('exit', () => rmSync(output, { recursive: true, force: true }));
+process.on('exit', () => {
+  const trash = join(homedir(), '.Trash');
+  mkdirSync(trash, { recursive: true });
+  renameSync(output, join(mkdtempSync(join(trash, 'library-statistics-ui-')), 'output'));
+});
 const fixture = `import React,{useRef} from 'react';
+export const semantics=value=>({type:'semantics',...value});
 import {ActionButton as NativeMenuButton} from './apps/web/src/shared-ui/ActionButton';
-export const View=({children,style,accessibilityLabel,testID,onLayout})=>{if(onLayout&&testID)globalThis.libraryStatisticsUI.layouts[testID]=onLayout;return <div data-label={accessibilityLabel} data-testid={testID} data-style={JSON.stringify(StyleSheet.flatten(style))}>{children}</div>}; export const ScrollView=View,SafeAreaView=View,Host=View;
+export const View=({children,style,accessibilityLabel,accessibilityRole,role,testID,onLayout})=>{if(onLayout&&testID)globalThis.libraryStatisticsUI.layouts[testID]=onLayout;return <div role={role??accessibilityRole} data-label={accessibilityLabel} data-testid={testID} data-style={JSON.stringify(StyleSheet.flatten(style))}>{children}</div>}; export const ScrollView=View,SafeAreaView=View,Host=View,Image=View;
 export const Text=({children,style,accessibilityRole})=><span role={accessibilityRole==='header'?'heading':undefined} data-color={StyleSheet.flatten(style).color}>{children}</span>; export const StyleSheet={create:x=>x,flatten:x=>Object.assign({},...(Array.isArray(x)?x.flat(Infinity):[x]).filter(Boolean))};
 export const Platform={OS:"android"}; export const useColorScheme=()=>"light"; export const useWindowDimensions=()=>globalThis.libraryStatisticsUI.dimensions;
-export const ActivityIndicator=()=>null; export const Modal=({visible,children})=>visible?<section>{children}</section>:null;
+export const useSafeAreaInsets=()=>({top:0,bottom:0,left:0,right:0}); export const ActivityIndicator=()=>null; export const Modal=({visible,children,onRequestClose})=>{if(visible)globalThis.libraryStatisticsUI.modalClose=onRequestClose;return visible?<section>{children}</section>:null;};
 export const Pressable=({children,onPress,disabled,accessibilityLabel,accessibilityState,role})=><button role={role} aria-label={accessibilityLabel} aria-selected={accessibilityState?.selected} disabled={disabled} onClick={onPress}>{typeof children==='function'?children({pressed:false}):children}</button>; export const UiIcon=()=>null;
 export const FlatList=({data,renderItem,numColumns,ListEmptyComponent,ListHeaderComponent,onViewableItemsChanged,accessibilityLabel,testID,onLayout,onScroll})=>{if(testID){globalThis.libraryStatisticsUI.layouts[testID]=onLayout;globalThis.libraryStatisticsUI.scrolls[testID]=onScroll;}if(onViewableItemsChanged)globalThis.libraryStatisticsUI.viewports[accessibilityLabel||'books']=onViewableItemsChanged;return <div data-label={accessibilityLabel} data-columns={numColumns}>{ListHeaderComponent}{data.length?data.map((item,index)=><div key={item.key}>{renderItem({item,index})}</div>):ListEmptyComponent}</div>};
-export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder})=><input value={value.value} onChange={event=>onChangeText?.(event.target.value)} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=({label,value,onValueChange,disabled})=><input type="checkbox" aria-label={label} checked={value} disabled={disabled} onChange={event=>onValueChange(event.target.checked)}/>;
+export const useNativeState=value=>useRef({value}).current; export const TextInput=({value,onChangeText,editable,maxLength,numberOfLines,placeholder,modifiers})=><input aria-label={modifiers?.find(item=>item.type==='semantics')?.contentDescription} value={value.value} onInput={event=>onChangeText?.(event.currentTarget.value)} onChange={()=>{}} disabled={editable===false} maxLength={maxLength} data-rows={numberOfLines} placeholder={placeholder}/>; export const Switch=({label,value,onValueChange,disabled})=><input type="checkbox" aria-label={label} checked={value} disabled={disabled} onChange={event=>onValueChange(event.target.checked)}/>;
+export const Checkbox=Switch,Picker=View;
 export const Action=({label,onPress,disabled,theme,variant})=><button data-variant={variant} data-seed={theme?.seedColor} disabled={disabled} onClick={onPress}>{label}</button>;
 export const MenuAction=({label,onPress,disabled})=><NativeMenuButton role="menuitem" variant="ghost" onPress={onPress} disabled={disabled}>{label}</NativeMenuButton>;
 export const BackHandler={addEventListener:(_name,fn)=>{globalThis.libraryStatisticsUI.back=fn;return {remove(){if(globalThis.libraryStatisticsUI.back===fn)globalThis.libraryStatisticsUI.back=undefined;}}}};
@@ -61,7 +67,7 @@ await build({
         b.onResolve(
           {
             filter:
-              /^(react-native|react-native-safe-area-context|@expo\/ui|expo-router)$|\/NativeScreens$|\/UiIcon$|\/ExpoToggle$|\/RuntimeProvider\.native$|^\.\/(cover|cover-controller|catalog|content-search)$/
+              /^(react-native|react-native-safe-area-context|@expo\/ui(?:\/jetpack-compose\/modifiers)?|expo-router)$|\/NativeScreens$|\/UiIcon$|\/ExpoToggle$|\/RuntimeProvider\.native$|^\.\/(cover|cover-controller|catalog|content-search)$/
           },
           () => ({ path: 'fixture', namespace: 'fixture' })
         );
@@ -206,6 +212,94 @@ async function click(f, label) {
 }
 const confirm = (f) =>
   f.confirmations.at(-1)[2].find((button) => button.style === 'destructive').onPress;
+
+test('selected-page export uses common content options and the captured selection exactly once', async (t) => {
+  const f = await mount(t),
+    exports = [],
+    gate = deferred();
+  globalThis.libraryStatisticsUI.runtime.exportBooks = (selection, signal, progress) => {
+    exports.push({ selection, signal });
+    progress('Checking saved ZIP…');
+    return gate.promise;
+  };
+  await click(f, 'Select');
+  await click(f, 'Select page');
+  await click(f, 'Export');
+  assert.match(f.container.textContent, /1 selected on this page/);
+  assert.match(f.container.textContent, /works offline/);
+  assert.match(f.container.textContent, /restoration is currently available on the web/);
+  const choices = [...f.container.querySelectorAll('input[type=checkbox]')];
+  assert.deepEqual(
+    choices.map((input) => input.getAttribute('aria-label')),
+    ['Book data', 'Reading position', 'Statistics', 'Audiobook', 'Subtitles']
+  );
+  await act(() => choices[3].click());
+  await click(f, 'Choose folder and save ZIP');
+  assert.equal(exports.length, 1);
+  assert.deepEqual(exports[0].selection, {
+    token: 'library-1',
+    keys: ['book-key'],
+    parts: ['data', 'bookmark', 'statistic', 'subtitle']
+  });
+  assert.ok(
+    [...f.container.querySelectorAll('input[type=checkbox]')].every((input) => input.disabled)
+  );
+  assert.match(f.container.textContent, /Checking saved ZIP/);
+  assert.ok(
+    [...f.container.querySelectorAll('button')].find((item) => item.textContent === 'Saving ZIP…')
+      .disabled
+  );
+  await act(() => gate.resolve({ filename: 'verified-export.zip' }));
+  assert.match(f.container.textContent, /Saved a verified ZIP to the chosen folder/);
+  assert.equal(f.container.querySelectorAll('input[type=checkbox]').length, 0);
+  assert.equal(f.calls.filter((call) => call.method === 'library.state').length, 2);
+});
+
+test('export cancels on modal close, route/account departure and selection ABA without showing late success', async (t) => {
+  for (const departure of ['close', 'route', 'account', 'selection']) {
+    const f = await mount(t),
+      gate = deferred();
+    let signal;
+    globalThis.libraryStatisticsUI.runtime.exportBooks = (_selection, current) => {
+      signal = current;
+      return gate.promise;
+    };
+    await click(f, 'Select');
+    await click(f, 'Select page');
+    await click(f, 'Export');
+    await click(f, 'Choose folder and save ZIP');
+    if (departure === 'close') await act(() => globalThis.libraryStatisticsUI.modalClose());
+    if (departure === 'route') {
+      await f.render('/settings');
+      await f.render('/manage');
+    }
+    if (departure === 'account') await f.render('/manage', 2);
+    if (departure === 'selection') {
+      await click(f, 'Cancel selection');
+      await click(f, 'Select');
+      await click(f, 'Select page');
+    }
+    assert.equal(signal.aborted, true, departure);
+    await act(() => gate.resolve({ filename: 'late-export.zip' }));
+    assert.doesNotMatch(f.container.textContent, /Saved a verified ZIP/);
+  }
+});
+
+test('a failed export is not replayed and refreshes its consumed admission before retry', async (t) => {
+  const f = await mount(t);
+  let calls = 0;
+  globalThis.libraryStatisticsUI.runtime.exportBooks = async () => {
+    calls++;
+    throw new Error('The saved ZIP could not be verified.');
+  };
+  await click(f, 'Select');
+  await click(f, 'Select page');
+  await click(f, 'Export');
+  await click(f, 'Choose folder and save ZIP');
+  assert.equal(calls, 1);
+  assert.match(f.container.textContent, /saved ZIP could not be verified/);
+  assert.equal(f.calls.filter((call) => call.method === 'library.state').length, 2);
+});
 
 test('Library details opens Statistics using one bounded hint admission, never a snapshot or numeric-ID route', async (t) => {
   const f = await mount(t);
@@ -410,11 +504,40 @@ test('native metadata uses the complete shared field limits and blocks editing d
   assert.equal(field('Author sort names (matching lines, optional)').maxLength, 16415);
   assert.equal(field('Tags (one per line)').maxLength, 15423);
   assert.equal(field('Description').dataset.rows, '5');
-  assert.ok(field('For example, 2024-03-01'));
+  assert.equal(field('For example, 2024-03-01').getAttribute('aria-label'), 'Published');
+  assert.equal(
+    field('Authors (one per line)').getAttribute('aria-label'),
+    'Authors (one per line)'
+  );
+  const title = f.container.querySelector('input[aria-label="Title"]');
+  assert.ok(title);
+  await act(() => {
+    title.value = 'Edited Japanese book 日本語';
+    title.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  assert.equal(title.value, 'Edited Japanese book 日本語');
+  assert.equal(title.getAttribute('aria-label'), 'Title');
+  const blur = f.container.querySelector('input[aria-label="Blur cover"]');
+  await act(() => blur.click());
+  await click(f, 'Right to left');
   await click(f, 'Save metadata');
   assert.equal(field('Title').disabled, true);
   assert.equal(field('Authors (one per line)').disabled, true);
-  assert.equal(f.calls.filter((call) => call.method === 'library.action').length, 1);
+  assert.equal(blur.disabled, true);
+  for (const label of ['Automatic', 'Left to right', 'Right to left']) {
+    const choice = [...f.container.querySelectorAll('button')].find(
+      (node) => node.textContent === label
+    );
+    assert.equal(choice.disabled, true);
+    await act(() => choice.click());
+  }
+  await act(() => blur.click());
+  assert.equal(blur.checked, true);
+  const writes = f.calls.filter((call) => call.method === 'library.action');
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].payload.change.title, 'Edited Japanese book 日本語');
+  assert.equal(writes[0].payload.change.coverBlur, true);
+  assert.equal(writes[0].payload.change.direction, 'rtl');
   await act(async () => gate.resolve({ saved: true }));
 });
 
@@ -425,8 +548,8 @@ test('Library restores saved sort controls, saves one choice and keeps filters o
     [...f.container.querySelectorAll('button')].find(
       (item) => item.textContent === label || item.getAttribute('aria-label') === label
     );
-  assert.equal(button('Author').dataset.variant, 'filled');
-  assert.equal(button('Ascending').dataset.variant, 'filled');
+  assert.equal(button('Author').getAttribute('aria-selected'), 'true');
+  assert.equal(button('Ascending').getAttribute('aria-selected'), 'true');
   await click(f, 'Title');
   const writes = f.calls.filter((call) => call.method === 'library.action');
   assert.equal(writes.length, 1);
@@ -436,13 +559,13 @@ test('Library restores saved sort controls, saves one choice and keeps filters o
     property: 'title',
     direction: 'asc'
   });
-  assert.equal(button('Title').dataset.variant, 'filled');
+  assert.equal(button('Title').getAttribute('aria-selected'), 'true');
   await click(f, 'Descending');
-  assert.equal(button('Descending').dataset.variant, 'filled');
+  assert.equal(button('Descending').getAttribute('aria-selected'), 'true');
   await f.render('/manage', 2);
   await click(f, 'Sort and filter');
-  assert.equal(button('Title').dataset.variant, 'filled');
-  assert.equal(button('Descending').dataset.variant, 'filled');
+  assert.equal(button('Title').getAttribute('aria-selected'), 'true');
+  assert.equal(button('Descending').getAttribute('aria-selected'), 'true');
 });
 test('pending sort saves reject duplicate activation and do not refresh a departed Library', async (t) => {
   const pending = deferred();
@@ -497,7 +620,11 @@ test('changing saved sorting returns to page one, reconciles errors and never re
   const author = [...f.container.querySelectorAll('button')].find(
     (item) => item.textContent === 'Author'
   );
-  assert.equal(author.dataset.variant, 'filled', 'only the owner read confirms the saved choice');
+  assert.equal(
+    author.getAttribute('aria-selected'),
+    'true',
+    'only the owner read confirms the saved choice'
+  );
 });
 
 test('account replacement permanently retires an old sort reply without refreshing the new Library', async (t) => {
@@ -525,9 +652,10 @@ test('account replacement permanently retires an old sort reply without refreshi
     'new account remains usable'
   );
   assert.equal(
-    [...f.container.querySelectorAll('button')].find((item) => item.textContent === 'Descending')
-      .dataset.variant,
-    'filled'
+    [...f.container.querySelectorAll('button')]
+      .find((item) => item.textContent === 'Descending')
+      .getAttribute('aria-selected'),
+    'true'
   );
 });
 
@@ -867,7 +995,7 @@ test('Finished timeline renders calendar-day headers, restores layout/order and 
     false
   );
   const headings = () =>
-    [...f.container.querySelectorAll('[role="heading"]')].map((h) => h.textContent);
+    [...f.container.querySelectorAll('[data-columns] [role="heading"]')].map((h) => h.textContent);
   assert.deepEqual(headings(), ['Oct 3, 2026', 'Oct 1, 2026', 'Date not set']);
   assert.equal(f.container.querySelector('[data-columns]').dataset.columns, '1');
   assert.match(f.container.textContent, /Finished · Oct 3, 2026/);
@@ -875,10 +1003,7 @@ test('Finished timeline renders calendar-day headers, restores layout/order and 
   assert.ok(![...f.container.querySelectorAll('button')].some((b) => b.textContent === 'Author'));
   assert.equal(f.container.querySelector('[aria-label="Unfinished books only"]'), null);
   await click(f, 'Oldest first');
-  assert.deepEqual(
-    headings().filter((h) => h !== 'Sort and filter'),
-    ['Oct 1, 2026', 'Oct 3, 2026', 'Date not set']
-  );
+  assert.deepEqual(headings(), ['Oct 1, 2026', 'Oct 3, 2026', 'Date not set']);
   assert.deepEqual(
     f.calls.filter((c) => c.method === 'library.action').map((c) => c.payload.type),
     ['finished.order']
@@ -886,10 +1011,7 @@ test('Finished timeline renders calendar-day headers, restores layout/order and 
   const grid = f.container.querySelector('[aria-label="Grid layout (off uses timeline)"]');
   await act(() => grid.click());
   assert.equal(f.container.querySelector('[data-columns]').dataset.columns, '2');
-  assert.deepEqual(
-    headings().filter((h) => h !== 'Sort and filter'),
-    []
-  );
+  assert.deepEqual(headings(), []);
   await f.render('/manage', 2);
   await click(f, 'Finished (3)');
   assert.equal(
@@ -1124,6 +1246,7 @@ test('retired series response clears old hero, selection and local Back without 
   await click(f, 'Open series Set, 1 books');
   await click(f, 'Select');
   await click(f, 'Select page');
+  await click(f, 'Selected book actions');
   await click(f, 'Set series');
   await click(f, 'Save series');
   assert.equal(f.container.querySelector('[data-testid="library-series-hero"]'), null);
@@ -1193,4 +1316,168 @@ test('collapsed series art follows visible rows, current admission and selection
     false,
     'cover taps open the series, never a hidden book'
   );
+});
+
+test('shared selection toolbar names the page scope and opens a dismissible action menu', async (t) => {
+  const f = await mount(t);
+  await click(f, 'Select');
+  const toolbar = () => f.container.querySelector('[role="toolbar"][data-label="Book selection"]');
+  assert.match(toolbar().textContent, /0 selected on this page/);
+  assert.equal(toolbar().querySelector('[aria-label="Selected book actions"]'), null);
+  await click(f, 'Select page');
+  assert.match(toolbar().textContent, /1 selected on this page/);
+  assert.equal(f.container.querySelector('[role="menu"]'), null);
+  await click(f, 'Selected book actions');
+  const menu = f.container.querySelector('[role="menu"]');
+  assert.equal(menu.dataset.label, 'Selected book actions');
+  assert.deepEqual(
+    [...menu.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent),
+    [
+      'Add to collection',
+      'Set series',
+      'Reading status',
+      'Want to Read',
+      'Remove from Want to Read',
+      'Blur covers',
+      'Reveal covers',
+      'Remove copies'
+    ]
+  );
+  await act(() => globalThis.libraryStatisticsUI.modalClose());
+  assert.equal(f.container.querySelector('[role="menu"]'), null);
+  assert.match(toolbar().textContent, /1 selected on this page/);
+  assert.equal(f.calls.filter((call) => call.method === 'library.action').length, 0);
+  await act(() => toolbar().querySelector('[aria-label="Cancel selection"]').click());
+  assert.equal(toolbar(), null);
+  await click(f, 'Select');
+  assert.match(toolbar().textContent, /0 selected on this page/);
+});
+
+test('selection action closes before saving, fences duplicates and keeps admitted page keys', async (t) => {
+  const pending = deferred();
+  const f = await mount(t, (method) => (method === 'library.action' ? pending.promise : undefined));
+  await click(f, 'Select');
+  await click(f, 'Select page');
+  await click(f, 'Selected book actions');
+  const blur = [...f.container.querySelectorAll('[role="menuitem"]')].find(
+    (item) => item.textContent === 'Blur covers'
+  );
+  await act(async () => {
+    blur.click();
+    blur.click();
+  });
+  assert.equal(f.container.querySelector('[role="menu"]'), null);
+  const writes = f.calls.filter((call) => call.method === 'library.action');
+  assert.equal(writes.length, 1);
+  assert.deepEqual(writes[0].payload, {
+    type: 'presentation',
+    token: 'library-1',
+    keys: ['book-key'],
+    change: { coverBlur: true }
+  });
+  const toolbar = f.container.querySelector('[role="toolbar"][data-label="Book selection"]');
+  assert.ok([...toolbar.querySelectorAll('button')].every((button) => button.disabled));
+  await act(() => pending.resolve({ changed: true }));
+  assert.equal(f.container.querySelector('[role="menu"]'), null);
+});
+
+test('selection menus retire with refreshed admissions, route departure and account replacement', async (t) => {
+  for (const retire of ['refresh', 'route', 'account']) {
+    const f = await mount(t);
+    await click(f, 'Select');
+    await click(f, 'Select page');
+    await click(f, 'Selected book actions');
+    assert.ok(f.container.querySelector('[role="menu"]'));
+    if (retire === 'refresh') await click(f, 'Refresh');
+    else await f.render(retire === 'route' ? '/settings' : '/manage', retire === 'account' ? 2 : 1);
+    assert.equal(f.container.querySelector('[role="menu"]'), null, retire);
+    assert.equal(f.calls.filter((call) => call.method === 'library.action').length, 0, retire);
+  }
+});
+
+test('Cancel and Android alert dismissal retire copy removal without mutating the selection', async (t) => {
+  for (const dismissal of ['cancel', 'dismiss']) {
+    const f = await mount(t);
+    await click(f, 'Select');
+    await click(f, 'Select page');
+    await click(f, 'Selected book actions');
+    await click(f, 'Remove copies');
+    assert.equal(f.container.querySelector('[role="menu"]'), null);
+    assert.match(f.confirmations.at(-1)[1], /cached copies.*statistics will be kept/i);
+    const stale = confirm(f);
+    await act(() =>
+      dismissal === 'cancel'
+        ? f.confirmations.at(-1)[2][0].onPress()
+        : f.confirmations.at(-1)[3].onDismiss()
+    );
+    await act(() => stale());
+    assert.equal(f.calls.filter((call) => call.method === 'delete').length, 0);
+    assert.match(f.container.textContent, /1 selected on this page/);
+  }
+});
+
+test('old copy-removal confirmations cannot cross selection ABA, refresh, route ABA or account changes', async (t) => {
+  for (const retire of ['selection', 'refresh', 'route', 'account']) {
+    const f = await mount(t);
+    await click(f, 'Select');
+    await click(f, 'Select page');
+    await click(f, 'Selected book actions');
+    await click(f, 'Remove copies');
+    const stale = confirm(f);
+    if (retire === 'selection') {
+      await click(f, 'Cancel selection');
+      await click(f, 'Select');
+      await click(f, 'Select page');
+    } else if (retire === 'refresh') await click(f, 'Refresh');
+    else if (retire === 'route') {
+      await f.render('/settings');
+      await f.render('/manage');
+    } else {
+      await f.render('/manage', 2);
+      await f.render('/manage', 1);
+    }
+    await act(() => stale());
+    assert.equal(f.calls.filter((call) => call.method === 'delete').length, 0, retire);
+  }
+});
+
+test('confirmed copy removal uses the exact admission once, keeps history and reports uncertain failure', async (t) => {
+  for (const outcome of ['success', 'error']) {
+    const pending = deferred();
+    const f = await mount(t, (method) => (method === 'delete' ? pending.promise : undefined));
+    await click(f, 'Select');
+    await click(f, 'Select page');
+    await click(f, 'Selected book actions');
+    await click(f, 'Remove copies');
+    assert.equal(f.calls.filter((call) => call.method === 'delete').length, 0);
+    const confirmed = confirm(f);
+    await act(() => {
+      confirmed();
+      confirmed();
+    });
+    assert.deepEqual(
+      f.calls.filter((call) => call.method === 'delete').map((call) => call.payload),
+      [
+        {
+          ids: [1],
+          keepStatistics: true,
+          libraryToken: 'library-1',
+          libraryKeys: ['book-key']
+        }
+      ]
+    );
+    await act(() =>
+      outcome === 'success'
+        ? pending.resolve({ deleted: true })
+        : pending.reject(new Error('Removal acknowledgment lost'))
+    );
+    await act(() => confirmed());
+    assert.equal(f.calls.filter((call) => call.method === 'delete').length, 1);
+    if (outcome === 'error') assert.match(f.container.textContent, /Removal acknowledgment lost/);
+    else
+      assert.equal(
+        f.container.querySelector('[role="toolbar"][data-label="Book selection"]'),
+        null
+      );
+  }
 });

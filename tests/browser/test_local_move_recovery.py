@@ -9,6 +9,7 @@ import unittest
 
 from playwright.sync_api import expect
 import test_books_library as library
+from reader_fixture import reader_fixture
 
 
 class LocalMoveRecoveryBrowser(library.LibraryBase):
@@ -34,7 +35,7 @@ class LocalMoveRecoveryBrowser(library.LibraryBase):
                 for name, data in [('First.epub', first), ('Second.epub', second)]
             ]
         }
-        self.page.evaluate('''async plan => {
+        self.page.evaluate(reader_fixture('''async plan => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('manabi-reader-integrations');
             request.onsuccess = () => resolve(request.result);
@@ -46,7 +47,7 @@ class LocalMoveRecoveryBrowser(library.LibraryBase):
             tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''', plan)
+        }'''), plan)
         self.go_library()
         expect(self.page.get_by_role('button', name='Resume Folder Change', exact=True)).to_be_visible()
         before = self.disk()
@@ -97,7 +98,7 @@ class LocalMoveRecoveryBrowser(library.LibraryBase):
                 lock => lock.name === 'manabi-reader:import-library-book')"""):
             self.assertLess(time.monotonic(), deadline, 'Move never requested its admission lock')
             self.page.wait_for_timeout(25)
-        self.page.evaluate('''async sourceId => {
+        self.page.evaluate(reader_fixture('''async sourceId => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('manabi-reader-integrations');
             request.onsuccess = () => resolve(request.result);
@@ -111,7 +112,7 @@ class LocalMoveRecoveryBrowser(library.LibraryBase):
           db.close();
           window.releaseMoveLock();
           await window.moveLockTask;
-        }''', self.source_id)
+        }'''), self.source_id)
         expect(self.dialog().get_by_role('alert')).to_contain_text(
             'local folder was disconnected or replaced')
         self.assertEqual(before, self.disk())

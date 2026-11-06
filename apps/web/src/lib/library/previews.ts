@@ -4,7 +4,10 @@
  * All rights reserved.
  */
 
+import { storageName } from '../../runtime/edition';
+
 import { openDB, type DBSchema } from 'idb';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { writable } from '$lib/state/store';
 import extractEpub from '$lib/functions/file-loaders/epub/extract-epub';
 import coverFilename from '$lib/functions/file-loaders/epub/get-epub-cover-image-filename';
@@ -40,7 +43,7 @@ interface SavedPreview extends Omit<Preview, 'imagePath'> {
 let database: ReturnType<typeof openDB<PreviewDB>> | undefined;
 const metadataVersion = 2;
 function previewDB() {
-  return (database ??= openDB<PreviewDB>('manabi-library-previews', 1, {
+  return (database ??= openDB<PreviewDB>(storageName('manabi-library-previews'), 1, {
     upgrade(db) {
       db.createObjectStore('previews', { keyPath: 'key' }).createIndex('scannedAt', 'scannedAt');
     }
@@ -180,15 +183,16 @@ async function readPreview(
   const db = await previewDB();
   checkAccess(source, signal);
   const tx = db.transaction('previews', 'readwrite');
-  await tx.store.put(saved);
-  let count = await tx.store.count();
-  let cursor = await tx.store.index('scannedAt').openCursor();
-  while (cursor && count > 500) {
-    await cursor.delete();
-    count--;
-    cursor = await cursor.continue();
-  }
-  await tx.done;
+  await commitTransaction(tx, async () => {
+    await tx.store.put(saved);
+    let count = await tx.store.count();
+    let cursor = await tx.store.index('scannedAt').openCursor();
+    while (cursor && count > 500) {
+      await cursor.delete();
+      count--;
+      cursor = await cursor.continue();
+    }
+  });
   checkAccess(source, signal);
   return value;
 }

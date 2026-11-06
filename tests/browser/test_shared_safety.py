@@ -20,14 +20,16 @@ from urllib.request import urlopen
 from urllib.parse import unquote, urlsplit
 
 from playwright.sync_api import sync_playwright, expect
+from browser_launch import launch_options
 from test_shared_ttu import SharedTtuBrowser
 import test_static_reader as static
+from reader_fixture import reader_fixture
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 
 
 def reading_snapshot(page):
-    return page.evaluate('''() => new Promise((resolve, reject) => {
+    return page.evaluate(reader_fixture('''() => new Promise((resolve, reject) => {
       const open = indexedDB.open('books');
       open.onerror = () => reject(open.error);
       open.onsuccess = () => {
@@ -43,7 +45,7 @@ def reading_snapshot(page):
         };
         tx.onerror = () => reject(tx.error);
       };
-    })''')
+    })'''))
 
 
 class SharedSafetyStatic(SharedTtuBrowser):
@@ -51,13 +53,13 @@ class SharedSafetyStatic(SharedTtuBrowser):
         self.open_book()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
         self.seed_shared_source()
-        self.page.goto(self.origin + '/reader-web/shared-library')
+        self.page.goto(self.origin + reader_fixture('/reader-web/shared-library'))
         self.page.get_by_label(static.TITLE, exact=True).check()
         self.page.get_by_role('button', name='Publish selected browser books').click()
         expect(self.page.get_by_role('status')).to_contain_text('published in Ttu Ebook Reader format', timeout=30000)
         # A pre-existing local book from a different library with the same title.
         # Persist fixture state at the real DB boundary, not in an in-memory mock.
-        self.page.evaluate('''() => new Promise((resolve, reject) => {
+        self.page.evaluate(reader_fixture('''() => new Promise((resolve, reject) => {
           const open = indexedDB.open('books');
           open.onerror = () => reject(open.error);
           open.onsuccess = () => {
@@ -68,7 +70,7 @@ class SharedSafetyStatic(SharedTtuBrowser):
             tx.oncomplete = () => {db.close(); resolve();};
             tx.onerror = () => reject(tx.error);
           };
-        })''')
+        })'''))
         before = reading_snapshot(self.page)
         remote_before = self.read_shared_files()
         self.page.get_by_role('button', name='Open shared library', exact=True).click()
@@ -139,9 +141,14 @@ class SharedRuntimeHandler(static.StaticHandler):
 
     def translate_path(self, value):
         pathname = unquote(urlsplit(value).path)
-        if not pathname.startswith('/reader-web/'):
+        # The production-source harness has a fixed script prefix in its
+        # generated HTML. Accept that harness prefix as well as the product's
+        # navigation prefix; the actual exported-app server has no such alias.
+        prefixes = (reader_fixture('/reader-web/'), '/reader-web/')
+        prefix = next((value for value in prefixes if pathname.startswith(value)), None)
+        if prefix is None:
             return str(self.directory_root / '__not_an_application_route__')
-        relative = pathname[len('/reader-web/'):]
+        relative = pathname[len(prefix):]
         if '..' in Path(relative).parts:
             return str(self.directory_root / '__not_an_application_route__')
         return str(self.directory_root / ('manage.html' if relative == 'manage' else relative))
@@ -169,11 +176,11 @@ class SharedStorageRuntime(static.ReaderBrowser):
         cls.playwright = None
         cls.browser = None
         try:
-            with urlopen(cls.origin + '/reader-web/manage', timeout=5) as response:
+            with urlopen(cls.origin + reader_fixture('/reader-web/manage'), timeout=5) as response:
                 if response.status != 200 or b'/reader-web/shared-runtime.js' not in response.read():
                     raise RuntimeError('Shared storage integration server returned the wrong fixture')
             cls.playwright = sync_playwright().start()
-            cls.browser = cls.playwright.chromium.launch()
+            cls.browser = cls.playwright.chromium.launch(**launch_options())
         except BaseException:
             cls.stop_server()
             raise
@@ -199,7 +206,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
         cls.stop_server()
 
     def open_runtime(self):
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         # The actual React import handlers and IndexedDB-backed shelves must
         # mount before any adapter test accesses their shared module instances.
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached(timeout=30000)
@@ -208,7 +215,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
 
     def test_shared_transfer_rejects_all_same_title_matches_before_any_write(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const {transferSharedBooks} = await import('/reader-web/src/lib/manabi/shared-library.ts');
           const root = await (await navigator.storage.getDirectory()).getDirectoryHandle('ttu-reader-data', {create:true});
@@ -232,7 +239,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
           }
           return {errors, before, after:await db.getAll('data'),
             files:await Array.fromAsync(dir.keys()), remote:await (await (await dir.getFileHandle(filename)).getFile()).text()};
-        }""")
+        }"""))
         self.assertEqual(2, len(result['errors']))
         self.assertTrue(all('multiple local copies' in error for error in result['errors']), result['errors'])
         self.assertEqual(result['before'], result['after'])
@@ -241,7 +248,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
 
     def test_shared_transfer_respects_owner_and_cancels_queued_account_changes(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const {transferSharedBooks} = await import('/reader-web/src/lib/manabi/shared-library.ts');
           const {integrationDB} = await import('/reader-web/src/lib/manabi/persistence.ts');
@@ -287,7 +294,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
           await transferSharedBooks(source, 'publish', [title]);
           return {denied, deniedFiles, deniedBooks, before, canceled, canceledFiles, canceledBooks,
             retryFiles:await Array.fromAsync(root.keys()), retryBook:await db.get('data',id)};
-        }""")
+        }"""))
         self.assertIn('unavailable for the current account', result['denied'])
         self.assertEqual([], result['deniedFiles'])
         self.assertEqual(result['before'], result['deniedBooks'])
@@ -299,7 +306,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
 
     def test_directory_selection_does_not_create_a_nested_library_in_a_book_folder(self):
         self.open_runtime()
-        result = self.page.evaluate('''async () => {
+        result = self.page.evaluate(reader_fixture('''async () => {
           const {resolveTtuRoot} = await import('/reader-web/src/lib/manabi/ttu-folder-contract.ts');
           const disk = await navigator.storage.getDirectory();
           const parent = await disk.getDirectoryHandle('library-parent', {create:true});
@@ -319,7 +326,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
           for await (const name of book.keys()) after.push(name);
           const text = await (await (await book.getFileHandle('progress_1_6_1_0.1.json')).getFile()).text();
           return {missingError, unchanged, sameRoot, sameParent, bookError, after, text};
-        }''')
+        }'''))
         self.assertIn('Select the existing', result['missingError'])
         self.assertEqual([], result['unchanged'])
         self.assertTrue(result['sameRoot'])
@@ -330,7 +337,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
 
     def test_uncached_provider_observes_replacement_and_disappearance_without_losing_local_data(self):
         self.open_runtime()
-        result = self.page.evaluate('''async () => {
+        result = self.page.evaluate(reader_fixture('''async () => {
           const {FilesystemStorageHandler} = await import('/reader-web/src/lib/data/storage/handler/filesystem-handler.ts');
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const {StorageKey} = await import('/reader-web/src/lib/data/storage/storage-types.ts');
@@ -379,7 +386,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
           const localAfter = await db.get('bookmark', localID);
           const localBook = await db.get('data', localID);
           return {first, replaced, conflict, retained, empty, missing, localBefore, localAfter, localBook};
-        }''')
+        }'''))
         self.assertEqual(10, result['first']['exploredCharCount'])
         self.assertEqual(30, result['replaced']['exploredCharCount'])
         self.assertIn('Conflicting progress_', result['conflict'])
@@ -391,7 +398,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
 
     def test_all_legacy_open_paths_reject_ambiguous_same_source_titles(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {getStorageHandler} = await import('/reader-web/src/lib/data/storage/storage-handler-factory.ts');
           const {StorageKey} = await import('/reader-web/src/lib/data/storage/storage-types.ts');
           const {database} = await import('/reader-web/src/lib/data/store.ts');
@@ -427,7 +434,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
             unique.push(await handler.prepareBookForReading());
           }
           return {outcomes, before, after, progress, afterProgress, unique, first};
-        }""")
+        }"""))
         self.assertEqual(5, len(result['outcomes']))
         self.assertTrue(all('multiple local copies' in value for value in result['outcomes']), result['outcomes'])
         self.assertEqual(result['before'], result['after'])
@@ -436,7 +443,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
 
     def test_google_and_onedrive_open_paths_reject_unrelated_local_title_before_authorization(self):
         self.open_runtime()
-        result = self.page.evaluate('''async () => {
+        result = self.page.evaluate(reader_fixture('''async () => {
           const {getStorageHandler} = await import('/reader-web/src/lib/data/storage/storage-handler-factory.ts');
           const {StorageKey} = await import('/reader-web/src/lib/data/storage/storage-types.ts');
           const {database} = await import('/reader-web/src/lib/data/store.ts');
@@ -457,7 +464,7 @@ class SharedStorageRuntime(static.ReaderBrowser):
             }
           }
           return {errors, book:await db.get('data', id)};
-        }''')
+        }'''))
         self.assertEqual(4, len(result['errors']))
         for message in result['errors']:
             self.assertIn('A different local copy already uses this title', message)

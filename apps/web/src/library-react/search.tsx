@@ -97,7 +97,7 @@ export function SearchView({
             />
           </>
         ) : null}
-        {[...c.query].length > 512 && c.filter !== 'dictionary' ? (
+        {!c.queryWithinLimit && c.filter !== 'dictionary' ? (
           <>
             <p role={'alert'}>{' Use a search of 512 characters or fewer. '}</p>
           </>
@@ -345,8 +345,7 @@ type SearchProps = Pick<
   | 'query'
   | 'searchScope'
   | 'books'
-  | 'matches'
-  | 'bookMatchText'
+  | 'bookSearchSnapshot'
   | 'returnTo'
   | 'openBook'
   | 'onquery'

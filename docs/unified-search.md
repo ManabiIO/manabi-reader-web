@@ -48,10 +48,90 @@ Dictionary-only typing does not restart either library section.
   completion through its batches; receiving its cleanup only confirms admission.
   A session retires workers returned after cancellation and suppresses results
   after an account boundary changes.
-- `search/unified-search.svelte` owns scope/filter interactions, query admission,
-  navigation, accessible rendering and focus. Dictionary, Titles and Content keep
-  their independent query lifetimes. Source workers own idempotent termination,
-  including initial receiver/postMessage failures.
+- `library-react/search-controller.ts` and `library-react/search.tsx` own the
+  active React scope/filter interactions, query admission, navigation, accessible
+  rendering and focus. `search/unified-search.svelte` retains the legacy path.
+  Dictionary, Titles and Content keep their independent query lifetimes. Source
+  workers own idempotent termination, including initial receiver/postMessage failures.
+
+## PR261 source checkpoint — October 13, 2026
+
+The inspected search head was `354a6a683f4b67843293f8d9f0aadac96f4d606b`,
+against main `a1101b66db4c194140aeb4a8d6edcdfc86b4c770`. Its metadata snapshot,
+grouped folder/series/collection contexts, folded direct fields, scalar revisions,
+and 100 ms cancellable title admission were already implemented in both paths.
+The React workspace also retained its corpus across query-only edits and kept
+the hidden shelf unfiltered outside selection mode. No replacement index or
+ranking redesign was needed. Admitted substring matching remains intentionally
+linear; matching Books retain corpus order before the existing relevance sorter.
+
+This combined draft incorporates repaired UI PR263 head
+`f75e8fa04474dff063ab6b6ffacb31cf1404ac08`, including PR262 head
+`75674fd06ca8eb9e2a80b1cae868e79bc96433aa`, as ancestors. The shared
+`library-react/workspace.tsx` merge retains the indexed search props and the UI
+changes. `screen.tsx`, Editor's Picks containment, EPUB language/direction and
+video selection repairs are preserved. The header retains synchronous selection
+exit and the committed-layout `wasSelecting`/`restoreSelectionFocus()` path.
+The UI owner confirmed these heads and no pending source edits before the search
+header follow-up. Its branches were not changed.
+
+Focused follow-up changes:
+
+- Compact search Escape checks tracked composition, React native composition,
+  and key code 229 before clearing the query. Controller and DOM journey
+  regression sources cover that boundary; these do not claim physical IME coverage.
+- The React result view uses the shared, early-exit 512-code-point admission
+  result instead of allocating a spread array for arbitrarily long input.
+- The retained hot-path regression now supplies a membership filter, so its
+  expected Snippet key read exercises the intended admission path. Its corpus-read
+  and debounce assertions remain intact.
+- Four reported formatting defects are corrected directly from the retained
+  lint diagnostics, without running a formatter or lint.
+
+Historical evidence remains open:
+
+- At `354a6a68`, the [Unified search contract run](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37541381244)
+  succeeded. That dependency-free job excludes the React controller regression.
+- The [static-build job](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37541381070/job/112535309439)
+  failed in unit tests on the React hot-path fixture (`0 !== 1`, line 441).
+  Compilation and browser acceptance in that job were skipped. The missing
+  membership filter explains that assertion by source inspection; the repaired
+  fixture has not been executed.
+- The [CI lint job](https://github.com/ManabiIO/manabi-reader-web/actions/runs/37541381279/job/112534952405)
+  failed on four formatting diagnostics in the title snapshot, scope helper and
+  title snapshot regressions. Its test build was skipped.
+- Other failed/cancelled workflows for the old head remain historical evidence.
+  UI failures and sibling repair obligations are retained in
+  [the UI composition record](web-design-2026.md). Neither old successes nor
+  source composition qualify the new combined tree.
+
+### Deferred validation packet — all UNRUN
+
+No build, test, type check, lint, benchmark, package install, browser/native run,
+asset generation or manual CI dispatch was performed for this follow-up. An
+authorized verifier must first freeze and read back the exact published PR261
+head, then qualify that tree as one unit:
+
+1. Run the retained dependency-free search suites, the repaired React controller
+   suite, and the workspace/route boundary regressions. Check same-reference
+   O(1) behavior, equivalent replacements, searchable-field invalidation, dormant
+   source families, nested/overlapping contexts and preserved Book order.
+2. Run type/lint and production compilation, retaining failures and skips. Cover
+   ordinary/default-off and video-enabled packaging according to existing workflows.
+3. Run the real unified-search journeys on the supported browser engines:
+   title/metadata ranking, scope reload/history, middle edits and IME Escape,
+   512/513 supplementary-code-point queries, Book rename and Snippet/media
+   invalidation, rapid replacement/clear/unmount, account retirement and exact
+   Book/Snippet/video locator navigation. Supplement synthetic IME events with
+   physical Japanese IME acceptance.
+4. Run the composed UI packet from `web-design-2026.md`, including enlarged
+   phone/tablet search, selection focus, Picks containment/reopen, EPUB RTL and
+   video shelf selection. Inspect retained failures; do not infer success from a
+   different sibling head.
+
+PR261 remains a draft. This source-only checkpoint does not establish runtime
+resolution of historical failures or release readiness. No target-branch merge,
+PR closure, deployment, persisted-data schema change or production mutation occurred.
 
 ## Dictionary behavior
 

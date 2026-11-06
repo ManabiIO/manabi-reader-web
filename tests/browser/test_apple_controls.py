@@ -1,4 +1,4 @@
-"""Actual-app Apple.com-inspired action hierarchy and theme-editor recovery.
+"""Actual-app browser action hierarchy and theme-editor recovery.
 
 Retains all continuation, catalog, IME, pending-write, and keyboard regressions.
 No replacement components or screenshot-only UI fixtures.
@@ -8,6 +8,7 @@ import unittest
 from playwright.sync_api import expect
 import test_resume_refinement as previous
 from test_books_library import book
+from reader_fixture import reader_fixture
 
 # Keep the existing catalog cases in this combined entry point exactly once.
 CatalogLifetimeBrowser = previous.CatalogLifetimeBrowser
@@ -26,7 +27,17 @@ class AppleControlsBrowser(previous.ResumeControlsBrowser):
             ctx.fillRect(0, 0, 1, 1);
             return Array.from(ctx.getImageData(0, 0, 1, 1).data);
           };
-          return {fill:rgba(s.backgroundColor), ink:rgba(s.color),
+          // Composite transparent controls over their actual ancestor surfaces.
+          const backgrounds = [];
+          for (let node = e; node; node = node.parentElement)
+            backgrounds.push(getComputedStyle(node).backgroundColor);
+          ctx.clearRect(0, 0, 1, 1);
+          for (const color of backgrounds.reverse()) {
+            ctx.fillStyle = color;
+            ctx.fillRect(0, 0, 1, 1);
+          }
+          const surface = Array.from(ctx.getImageData(0, 0, 1, 1).data);
+          return {surface, fill:rgba(s.backgroundColor), ink:rgba(s.color),
             border:rgba(s.borderTopColor), borderWidth:parseFloat(s.borderTopWidth),
             radius:parseFloat(s.borderTopLeftRadius), font:parseFloat(s.fontSize),
             weight:s.fontWeight, decoration:s.textDecorationLine, translate:s.translate,
@@ -50,19 +61,28 @@ class AppleControlsBrowser(previous.ResumeControlsBrowser):
 
     def test_action_emphasis_hover_and_link_navigation_in_both_modes(self):
         for mode in ('light', 'dark'):
-            self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
+            self.page.evaluate(reader_fixture('v => localStorage.setItem("appearance", v)'), mode)
             self.go_library()
             expect(self.page.locator('html')).to_have_attribute('data-appearance', mode)
             self.page.set_viewport_size({'width': 1200, 'height': 1000})
             area = self.page.locator('[data-slot="library-empty-state"]')
-            primary = area.get_by_role('button', name='Import File(s)', exact=True)
-            outline = area.get_by_role('button', name='Import Backup', exact=True)
+            primary = area.get_by_role('button', name='Import files', exact=True)
+            outline = area.get_by_role('button', name='Import folder', exact=True)
             neutral = area.get_by_role('link', name='Google Drive', exact=True)
+            disclosure = area.locator('summary').filter(has_text='Other import options')
+            disclosure.focus()
+            disclosure.press('Space')
+            backup = area.get_by_role('button', name='Import backup', exact=True)
+            expect(backup).to_be_visible()
+            with self.page.expect_file_chooser() as backup_picker:
+                backup.click()
+            self.assertFalse(backup_picker.value.is_multiple())
             text = area.get_by_role('link', name='Import from Ttu Ebook Reader', exact=True)
             self.page.mouse.move(1, 1)
             p, o, n, t = [self.style(e) for e in (primary, outline, neutral, text)]
             for style in (p, o, n):
-                self.assertGreaterEqual(style['radius'], style['box'][3] / 2)
+                self.assertAlmostEqual(style['radius'], 8, delta=0.1)
+                self.assertGreaterEqual(style['box'][3], 44)
                 self.assertEqual('none', style['translate'])
                 self.assertEqual('400', style['weight'])
             self.assertGreaterEqual(p['font'], 17)
@@ -70,10 +90,10 @@ class AppleControlsBrowser(previous.ResumeControlsBrowser):
             self.assertEqual(10, p['blockInset'])
             self.assertEqual(255, p['fill'][3])
             self.assertGreaterEqual(self.contrast(p['ink'], p['fill']), 4.5)
-            self.assertEqual(0, o['fill'][3])
+            self.assertEqual(255, o['fill'][3])
             self.assertEqual(1, o['borderWidth'])
-            self.assertEqual(p['fill'], o['border'])
-            self.assertEqual(o['ink'], o['border'])
+            self.assertNotEqual(p['fill'], o['fill'])
+            self.assertEqual(o['border'], n['border'])
             self.assertEqual(255, n['fill'][3])
             self.assertNotEqual(n['fill'], p['fill'])
             self.assertEqual(0, t['fill'][3])
@@ -83,16 +103,17 @@ class AppleControlsBrowser(previous.ResumeControlsBrowser):
             self.assertEqual('start', t['alignment'])
             self.assertEqual(p['fill'], t['ink'])
             expect(text.locator('svg')).to_have_attribute('aria-hidden', 'true')
-            canvas = self.style(area)['fill']
-            for style in (o, t):
-                self.assertGreaterEqual(self.contrast(style['ink'], canvas), 4.5)
+            for style in (o, n, t):
+                self.assertEqual(255, style['surface'][3])
+                self.assertGreaterEqual(self.contrast(style['ink'], style['surface']), 4.5)
             self.capture('apple-action-hierarchy-' + mode)
 
             outline.hover()
             self.settle(outline)
             hovered = self.style(outline)
-            self.assertEqual(p['fill'], hovered['fill'])
-            self.assertEqual(p['ink'], hovered['ink'])
+            self.assertNotEqual(o['fill'], hovered['fill'])
+            self.assertEqual(o['ink'], hovered['ink'])
+            self.assertGreaterEqual(self.contrast(hovered['ink'], hovered['surface']), 4.5)
             self.assertEqual(o['box'], hovered['box'])
             primary.hover()
             self.settle(primary)
@@ -116,7 +137,7 @@ class AppleControlsBrowser(previous.ResumeControlsBrowser):
 
     def test_custom_theme_editor_reopens_validates_and_saves_after_input_migration(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
-        self.page.goto(self.origin + '/reader-web/settings')
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings'))
         trigger = self.page.get_by_role('button', name='Add custom theme', exact=True)
         for _ in range(3):
             trigger.click()
@@ -131,14 +152,14 @@ class AppleControlsBrowser(previous.ResumeControlsBrowser):
             self.page.keyboard.press('Escape')
             expect(panel).to_have_count(0)
             expect(trigger).to_be_focused()
-            self.assertNotIn('Unsaved attempt', self.page.evaluate('localStorage.getItem("customThemes") || ""'))
+            self.assertNotIn('Unsaved attempt', self.page.evaluate(reader_fixture('localStorage.getItem("customThemes") || ""')))
         trigger.click()
         panel = self.dialog()
         panel.get_by_label('Theme name', exact=True).fill('Apple pass custom')
         self.capture('apple-theme-editor')
         panel.get_by_role('button', name='Save', exact=True).click()
         expect(panel).to_have_count(0)
-        saved = json.loads(self.page.evaluate('localStorage.getItem("customThemes")'))
+        saved = json.loads(self.page.evaluate(reader_fixture('localStorage.getItem("customThemes")')))
         self.assertIn('Apple pass custom', saved)
 
 

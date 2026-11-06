@@ -353,3 +353,96 @@ emulator fixture mutation used an expired Library token and was rejected without
 changing series membership; a refreshed admission completed the assignment.
 All original logs remain in `test-results/collapsed-series-0n1yr6u5/` alongside
 qualified results. The full Library parity suites passed 17 cases in each engine.
+
+## Shared theme chooser: retained Add-button geometry
+
+[Run 39494543115](https://github.com/ManabiIO/manabi-reader-web/actions/runs/39494543115)
+on `f495b47c67a6a757a30ed7e8616f3456ef8c6cdd` failed both web jobs on
+`RheaReader.test_dialog_traps_focus_and_escape_preserves_custom_theme`, in both
+browser engines. The shared Add button used default sizing and capsule rounding,
+while the retained product contract requires `lg` and an 8px rounded rectangle.
+The preceding focused Settings/theme selection did not include that case and
+therefore did not qualify this requirement. Completed job logs were retrieved
+directly while the independent Android job remained running.
+
+The shared Add action now retains `size="lg"`, rounded shape and the 8px radius.
+The original case and every assertion remain unchanged; it is included with the
+complete Settings selection during local qualification of this repair. An
+exact-source CI pass is still required; the failed older run is not reclassified.
+
+## Shared font manager: inner scroll-area overflow
+
+The first shared font-list screenshots exposed 12px of horizontal overflow
+inside the dialog's scroll region at 320px and 200% text. The outer-dialog
+geometry check passed, but it did not cover that inner area. The new browser
+case now checks both the outer dialog and `[data-dialog-scroll]`, retains long
+unbroken font/file names, and verifies Use/Remove reachability, HTML label
+activation and unchanged raw preferences after navigation/dismissal. The shared
+action row is constrained to its container width so its actions wrap.
+
+Initial test-harness failures are retained in local
+`settings-font-manager-ymv_u67v` evidence: the new label-activation locator was
+incorrectly scoped to the dialog twice; the native mounted fixture needed the
+shared RN primitive/router boundaries; existing controller fixtures used
+get/next-only font-family objects and now use the actual BehaviorSubject API.
+Original storage, late-result and teardown assertions remain. Added subscription
+coverage verifies current-family updates and retirement. These setup failures
+are distinct from the reproduced inner-overflow product defect.
+
+## Font choices: long names and theme-fixture settlement
+
+A long saved CSS font family occupied almost the full browser menu at 320px and
+200% text. The shared selector's browser leaf now clamps only the visual label
+to three lines, preserving the full accessible name and original editable value.
+The new light/dark desktop/phone/enlarged-text case checks inner overflow, room
+for other choices, unchanged storage on Escape, focus return and explicit
+keyboard saves for both families. All 33 selected journeys pass on the final
+export in Chromium and WebKit.
+
+The full unit run also reproduced a theme-editor fixture race: a native input
+reported enabled before React Native Web's passive effect refreshed its button
+PressResponder, so an immediate synthetic Retry click reached the stale disabled
+handler. The fixture now settles the owner's asynchronous save reply inside
+React.act before clicking again. It supplies Node MessageChannel to JSDOM and
+closes both ports at teardown. Original duplicate-save, explicit-retry and
+error assertions remain strict. All 18 Settings fixture tests and all 1,759
+unit tests pass. The intermediate missing-MessageChannel failure and an initial
+full run missing Python on PATH are retained in local evidence rather than
+classified as product regressions.
+
+Local logs and captures are under `settings-font-preferences-39r9h3gy` outside
+the checkout. Both web CI jobs at `3ac13264` also passed the preceding Add-theme
+geometry repair; that run remains failed because its independent Android slider
+gate failed.
+
+## Broader appearance qualification: cross-tab color input
+
+The full `test_appearance_refinement` collection reproduced one failure in both
+engines at `5622af9e`: `test_live_tabs_share_palette_custom_edits_and_fade_without_reloading_book`
+kept the original white font instead of the requested cream color. Its legacy
+fixture assigned the controlled HTML input's value property, then dispatched a
+synthetic change event. React's value tracker had already observed that value,
+so it did not deliver an edit to the shared theme owner. The existing new
+Settings tests use a native Playwright color-input fill and do not have this
+problem. Applying that same input action makes the retained cross-tab case pass
+against the unchanged production export in both engines. Its saved-color,
+existing-reader identity, fade and cross-tab assertions remain unchanged.
+
+The failed baseline logs, unchanged-export confirmation and subsequent guarded
+background-owner qualification live in local `appearance-native-followup-11nietjq`
+evidence. This was a fixture mismatch exposed by broadening coverage; no product
+color-change or cross-tab assertion was removed or suppressed.
+
+The guarded-owner export also exposed a WebKit teardown race in the offline
+wallpaper case: the test stopped its real origin while the previous Library
+page's optional catalog request was active, then immediately reloaded. Lifecycle
+evidence retained the resulting Playwright network pageerror, with no DOM error
+or unhandled-rejection event. The existing optional-catalog readiness helper now
+settles that current-document request before server shutdown. The subsequent
+real offline reload, unavailable-origin negative control, wallpaper persistence
+and layout assertions remain unchanged. No page-error exception was added.
+The unchanged export passes the isolated case after this readiness correction.
+
+After both fixture corrections, the fresh guarded-owner export passes all 31
+appearance cases in each engine. Baseline failures remain alongside the final
+logs; the original assertions remain active.

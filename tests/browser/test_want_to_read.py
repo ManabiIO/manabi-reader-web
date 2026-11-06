@@ -11,6 +11,8 @@ from playwright.sync_api import expect
 
 from test_books_library import LibraryBase, book
 from test_static_reader import StaticHandler
+from reader_fixture import reader_fixture
+from browser_launch import launch_options
 
 
 class WantToReadBrowser(LibraryBase):
@@ -48,7 +50,7 @@ class WantToReadBrowser(LibraryBase):
         expect(self.page.get_by_role('button', name='Read ' + title, exact=True)).to_be_visible(timeout=30000)
 
     def seed_legacy_identity(self, title, *, custom_name='Legacy shelf', presentation=True):
-        return self.page.evaluate('''async ({title, customName, presentation}) => {
+        return self.page.evaluate(reader_fixture('''async ({title, customName, presentation}) => {
           const open = (name) => new Promise((resolve, reject) => {
             const request = indexedDB.open(name);
             request.onsuccess = () => resolve(request.result);
@@ -97,7 +99,7 @@ class WantToReadBrowser(LibraryBase):
           });
           integrations.close();
           return id;
-        }''', {'title': title, 'customName': custom_name, 'presentation': presentation})
+        }'''), {'title': title, 'customName': custom_name, 'presentation': presentation})
 
     def screenshot(self, name):
         directory = os.environ.get('WANT_TO_READ_SCREENSHOT_DIR')
@@ -115,7 +117,7 @@ class WantToReadBrowser(LibraryBase):
         expect(self.page.locator('.shelf-item')).to_have_count(0)
         self.screenshot('desktop-empty')
         self.assertIn('collection=want-to-read', self.page.url)
-        await_ghost = self.page.evaluate('''async () => {
+        await_ghost = self.page.evaluate(reader_fixture('''async () => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('manabi-reader-integrations');
             request.onsuccess = () => resolve(request.result);
@@ -135,7 +137,7 @@ class WantToReadBrowser(LibraryBase):
             store.put(row, 'books-organization-v1');
             await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
           } finally { db.close(); }
-        }''')
+        }'''))
         self.assertIsNone(await_ghost)
         self.page.reload()
         rail = self.page.get_by_role('complementary', name='Collections', exact=True)
@@ -143,12 +145,12 @@ class WantToReadBrowser(LibraryBase):
 
         # The URL is a durable destination, including direct load and browser back.
         destination = self.page.url
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.get_by_text("Editor's Picks are unavailable right now.")).to_be_visible()
         self.page.goto(destination)
         expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
         self.page.go_back()
-        expect(self.page).to_have_url(self.origin + '/reader-web/manage')
+        expect(self.page).to_have_url(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.get_by_text("Editor's Picks are unavailable right now.")).to_be_visible()
         self.page.go_forward()
         expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
@@ -316,7 +318,7 @@ class WantToReadBrowser(LibraryBase):
         StaticHandler.preference_settings = {
             'library_organization': {'version': 1, 'collections': [], 'books': {}}
         }
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
         expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
         self.go_library()
@@ -336,7 +338,7 @@ class WantToReadBrowser(LibraryBase):
         self.import_bytes('Legacy backup book', contents)
         original = next(item for item in self.stores('books', ['data'])['data'] if item['title'] == 'Legacy backup book')
         expected_hash = hashlib.sha256(contents).hexdigest()
-        self.page.evaluate('''title => new Promise((resolve, reject) => {
+        self.page.evaluate(reader_fixture('''title => new Promise((resolve, reject) => {
           const open = indexedDB.open('books');
           open.onerror = () => reject(open.error);
           open.onsuccess = () => {
@@ -347,7 +349,7 @@ class WantToReadBrowser(LibraryBase):
             tx.oncomplete = () => { db.close(); resolve(); };
             tx.onerror = () => reject(tx.error);
           };
-        })''', 'Legacy backup book')
+        })'''), 'Legacy backup book')
         seeded_statistics = self.stores('books', ['statistic'])['statistic']
         self.menu('Legacy backup book', 'Mark as Finished')
         original_bookmark = self.wait_bookmark(
@@ -371,7 +373,7 @@ class WantToReadBrowser(LibraryBase):
 
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Add Books', exact=True).hover()
-        self.page.get_by_role('menuitem', name='Import Backup', exact=True).click()
+        self.page.get_by_role('menuitem', name='Import backup', exact=True).click()
         chooser = self.page.locator('input[type=file][accept=".zip,application/zip"]')
         chooser.set_input_files({'name': 'legacy-backup.zip', 'mimeType': 'application/zip', 'buffer': raw})
         deadline = time.monotonic() + 60
@@ -434,7 +436,7 @@ class WantToReadBrowser(LibraryBase):
         other = self.context.new_page()
         other.set_default_timeout(20000)
         other.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
-        other.goto(self.origin + '/reader-web/manage?collection=want-to-read')
+        other.goto(self.origin + reader_fixture('/reader-web/manage?collection=want-to-read'))
         expect(other.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false', timeout=30000)
         expect(other.get_by_role('button', name='Read Focus first', exact=True)).to_be_visible()
         expect(other.get_by_role('button', name='Read Focus last', exact=True)).to_be_visible()
@@ -553,7 +555,7 @@ class WantToReadBrowser(LibraryBase):
         # Exercise the responsive rail/sheet boundary and keyboard activation.
         for width in (390, 768, 1024, 1440):
             self.page.set_viewport_size({'width': width, 'height': 844})
-            if width < 1024:
+            if width < 768:
                 trigger = self.page.get_by_role('button', name='Collections', exact=True)
                 trigger.focus()
                 self.page.keyboard.press('Enter')
@@ -569,14 +571,12 @@ class WantToReadBrowser(LibraryBase):
             expect(want).to_be_focused()
             self.page.keyboard.press('Enter')
             expect(self.page.get_by_role('heading', name='Want to Read', exact=True)).to_be_visible()
-            if width < 1024:
+            if width < 768:
                 self.page.keyboard.press('Escape')
 
         # Touch path uses a genuine touch-enabled browser context and real menu.
         touch_profile = tempfile.TemporaryDirectory()
-        touch = getattr(self.playwright, self.engine).launch_persistent_context(
-            touch_profile.name, viewport={'width': 390, 'height': 844}, is_mobile=True,
-            has_touch=True, reduced_motion='reduce')
+        touch = getattr(self.playwright, self.engine).launch_persistent_context(touch_profile.name, **launch_options((getattr(self.playwright, self.engine)).name, viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True, reduced_motion='reduce'))
         original = self.page
         self.page = touch.pages[0]
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
@@ -600,7 +600,7 @@ class WantToReadBrowser(LibraryBase):
         StaticHandler.account_requests = []
         StaticHandler.preference_revision = 0
         StaticHandler.preference_settings = {}
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
         expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
         deadline = time.monotonic() + 15
@@ -621,8 +621,7 @@ class WantToReadBrowser(LibraryBase):
         StaticHandler.preference_settings = put['body']['settings']
         StaticHandler.preference_revision = 1
         second_profile = tempfile.TemporaryDirectory()
-        second = getattr(self.playwright, self.engine).launch_persistent_context(
-            second_profile.name, viewport={'width': 1200, 'height': 900})
+        second = getattr(self.playwright, self.engine).launch_persistent_context(second_profile.name, **launch_options((getattr(self.playwright, self.engine)).name, viewport={'width': 1200, 'height': 900}))
         previous_page = self.page
         self.page = second.pages[0]
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
@@ -632,7 +631,7 @@ class WantToReadBrowser(LibraryBase):
             self.import_bytes('Portable wishlist', portable_bytes)
             variant = book('Portable wishlist variant', body='<h1>Different internal title</h1><p>Different original bytes.</p>')
             self.import_bytes('Portable wishlist variant', variant, filename='Portable wishlist')
-            self.page.goto(self.origin + '/reader-web/connections')
+            self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
             self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
             expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
             self.go_library()

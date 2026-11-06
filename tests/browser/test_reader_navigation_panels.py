@@ -6,6 +6,7 @@ checks remain. Only the delayed-event case holds the renderer event boundary.
 from playwright.sync_api import expect
 from test_rhea_ui import chaptered_epub
 from test_static_reader import TITLE
+from reader_fixture import reader_fixture
 
 
 class ReaderNavigationPanels:
@@ -25,10 +26,10 @@ class ReaderNavigationPanels:
         }'''))
 
     def open_chaptered_reader(self):
-        self.page.evaluate('''() => {
+        self.page.evaluate(reader_fixture('''() => {
           localStorage.setItem('fontFamilyGroupOne', 'Klee One');
           localStorage.setItem('viewMode', 'paginated');
-        }''')
+        }'''))
         self.go_library()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name': 'Contents refinement.epub', 'mimeType': 'application/epub+zip',
@@ -98,7 +99,7 @@ class ReaderNavigationPanels:
     def test_reader_dialog_actions_and_errors_reflow_in_both_appearances(self):
         self.open_reader()
         for mode in ('light', 'dark'):
-            self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
+            self.page.evaluate(reader_fixture('v => localStorage.setItem("appearance", v)'), mode)
             self.page.reload()
             expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
             panel = self.open_tool('Jump to Position')
@@ -128,10 +129,10 @@ class ReaderNavigationPanels:
             expect(panel).to_have_count(0)
 
     def test_tracker_can_open_for_plain_text_without_a_chapter_catalog(self):
-        self.page.evaluate('''() => {
+        self.page.evaluate(reader_fixture('''() => {
           localStorage.setItem('statisticsEnabled', '1');
           localStorage.setItem('fontFamilyGroupOne', 'Klee One');
-        }''')
+        }'''))
         self.go_library()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name': 'Plain notes.txt', 'mimeType': 'text/plain',
@@ -153,10 +154,10 @@ class ReaderNavigationPanels:
         expect(panel).to_have_count(0)
 
     def test_dismissed_contents_cannot_close_a_reopened_panel_after_delayed_page_events(self):
-        self.page.evaluate('''() => {
+        self.page.evaluate(reader_fixture('''() => {
           localStorage.setItem('statisticsEnabled', '1');
           localStorage.setItem('trackerAutostartTime', '0');
-        }''')
+        }'''))
         self.open_chaptered_reader()
         self.page.get_by_role('button', name='Open reading tracker', exact=True).click()
         tracker = self.page.get_by_role('dialog', name='Reading tracker', exact=True)

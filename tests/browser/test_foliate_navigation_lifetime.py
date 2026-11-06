@@ -4,6 +4,7 @@ import unittest
 import zipfile
 from playwright.sync_api import expect
 from test_foliate_slide import FoliateSlide, P
+from reader_fixture import reader_fixture
 
 PROBE_BODY = (
     '<span id="navigation-boundary">AB</span>'
@@ -202,8 +203,8 @@ class FoliateNavigation(NavigationChecks, FoliateSlide):
             archive.writestr('content.opf', f'<package><metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">{title}</dc:title></metadata><manifest>{manifest}</manifest><spine>{spine}</spine></package>')
             for i in range(3):
                 archive.writestr(f'c{i}.xhtml', '<html><body>' + PROBE_BODY + '</body></html>')
-        self.context.add_init_script("localStorage.setItem('manabi-dev-foliate-epub','true');localStorage.setItem('viewMode','paginated');localStorage.setItem('writingMode','horizontal-tb')")
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.context.add_init_script(reader_fixture("localStorage.setItem('manabi-dev-foliate-epub','true');localStorage.setItem('viewMode','paginated');localStorage.setItem('writingMode','horizontal-tb')"))
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name': 'navigation.epub', 'mimeType': 'application/epub+zip', 'buffer': output.getvalue()})

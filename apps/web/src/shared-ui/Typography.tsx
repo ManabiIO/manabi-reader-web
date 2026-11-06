@@ -12,18 +12,26 @@ export function UiText({ style, ...props }: TextProps) {
   const { colors } = useUiTheme();
   const input = StyleSheet.flatten(style);
   const size = typeof input?.fontSize === 'number' ? input.fontSize : 16;
-  const resolved: TextStyle = {
+  const base: TextStyle = {
     color: colors.foreground,
     fontSize: 16,
     lineHeight: size <= 12 ? 16 : size <= 14 ? 20 : size * 1.5,
     ...input
   };
-  if (Platform.OS === 'web') {
-    resolved.fontFamily = 'var(--font-sans, system-ui)';
-    if (typeof resolved.fontSize === 'number')
-      resolved.fontSize = `${resolved.fontSize / 16}rem` as unknown as number;
-    if (typeof resolved.lineHeight === 'number')
-      resolved.lineHeight = `${resolved.lineHeight / 16}rem` as unknown as number;
-  }
+  const resolved: TextStyle =
+    Platform.OS === 'web'
+      ? {
+          ...base,
+          fontFamily: 'var(--font-sans, system-ui)',
+          fontSize:
+            typeof base.fontSize === 'number'
+              ? (`${base.fontSize / 16}rem` as unknown as number)
+              : base.fontSize,
+          lineHeight:
+            typeof base.lineHeight === 'number'
+              ? (`${base.lineHeight / 16}rem` as unknown as number)
+              : base.lineHeight
+        }
+      : base;
   return <Text {...props} style={resolved} />;
 }

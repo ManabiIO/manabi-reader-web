@@ -11,6 +11,11 @@ test('real postbuild emits the early picker only for import and versions its off
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-import-postbuild-'));
   try {
     await fs.mkdir(path.join(temp, 'scripts'), { recursive: true });
+    await fs.mkdir(path.join(temp, 'config'), { recursive: true });
+    await fs.copyFile(
+      path.join(root, 'config/reader-editions.mjs'),
+      path.join(temp, 'config/reader-editions.mjs')
+    );
     await fs.mkdir(path.join(temp, 'apps/web/build'), { recursive: true });
     await fs.mkdir(path.join(temp, 'apps/web/src/platform'), { recursive: true });
     await fs.writeFile(path.join(temp, 'package.json'), '{"type":"module"}');

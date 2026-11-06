@@ -5,9 +5,9 @@
  */
 
 import { account, currentUser } from './client';
-import { MediaStore } from '$lib/media/store';
+import { createReaderMediaStore } from '$lib/media/reader-store';
 
-const store = new MediaStore();
+const store = createReaderMediaStore();
 const profileKind = 'media-offline-profile';
 
 /** Device-local display identity only. This is never authentication authority. */

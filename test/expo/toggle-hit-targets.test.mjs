@@ -1,9 +1,9 @@
 /** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdtempSync, mkdirSync, renameSync } from 'node:fs';
+import { tmpdir, homedir } from 'node:os';
+import { join, basename } from 'node:path';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';
 
@@ -41,7 +41,7 @@ const output = mkdtempSync(join(tmpdir(), 'toggle-hit-targets-'));
 const outfile = join(output, 'controls.cjs');
 await build({
   stdin: {
-    contents: `export { CheckboxField, SwitchField } from './apps/web/src/shared-ui/Fields'; export { TitleSelectionRow } from './apps/web/src/shared-ui/TitleSelectionRow';`,
+    contents: `export { CheckboxField, SwitchField } from './apps/web/src/shared-ui/Fields'; export { SettingsSwitch } from './apps/web/src/features/settings/SettingsSwitch'; export { TitleSelectionRow } from './apps/web/src/shared-ui/TitleSelectionRow';`,
     resolveDir: process.cwd()
   },
   outfile,
@@ -69,7 +69,7 @@ await build({
     }
   ]
 });
-const { CheckboxField, SwitchField, TitleSelectionRow } = require(outfile);
+const { CheckboxField, SwitchField, SettingsSwitch, TitleSelectionRow } = require(outfile);
 const h = React.createElement;
 
 function styleRules() {
@@ -183,7 +183,117 @@ for (const { kind, Control, titleRow } of [
   });
 }
 
+test('Settings switch retains its field name, focus and disabled behavior with a concise state label', () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const changes = [];
+  const render = (props = {}) =>
+    act(() =>
+      root.render(
+        h(SettingsSwitch, {
+          label: 'Automatic bookmarks',
+          value: false,
+          onValueChange: (value) => changes.push(value),
+          ...props
+        })
+      )
+    );
+  try {
+    render();
+    const input = container.querySelector('input');
+    const label = input.labels[0];
+    assert.equal(input.getAttribute('aria-label'), 'Automatic bookmarks');
+    assert.equal(label.textContent, 'Off');
+    act(() => input.focus());
+    act(() => label.click());
+    assert.deepEqual(changes, [true]);
+    render({ label: 'Updated setting name', value: true, disabled: true });
+    assert.equal(container.querySelector('input'), input);
+    assert.equal(input.getAttribute('aria-label'), 'Updated setting name');
+    assert.equal(input.checked, true);
+    assert.equal(label.textContent, 'On');
+    act(() => label.click());
+    assert.deepEqual(changes, [true]);
+    render({ value: true });
+    act(() => input.focus());
+    render({ value: false });
+    assert.equal(document.activeElement, input);
+    assert.equal(input.getAttribute('aria-label'), 'Automatic bookmarks');
+    // Returning to the ordinary shared control removes the naming override.
+    act(() =>
+      root.render(
+        h(SwitchField, { label: 'Visible field label', value: false, onValueChange() {} })
+      )
+    );
+    assert.equal(container.querySelector('input').hasAttribute('aria-label'), false);
+    assert.equal(container.querySelector('input').labels[0].textContent, 'Visible field label');
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+  }
+});
+
+test('Expo checkbox descriptions update independently of the label and preserve the focused input', () => {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  const changes = [];
+  const render = (props = {}) =>
+    act(() =>
+      root.render(
+        h(
+          React.Fragment,
+          null,
+          h(CheckboxField, {
+            label: 'Receive safe reading changes automatically',
+            value: false,
+            onValueChange: (value) => changes.push(value),
+            ...props
+          }),
+          h('p', { id: 'receive-help' }, 'Changes are saved on this device.'),
+          h('p', { id: 'updated-help' }, 'Google Drive is never changed.')
+        )
+      )
+    );
+  try {
+    render({ accessibilityDescribedBy: 'receive-help' });
+    const input = container.querySelector('input');
+    const label = input.labels[0];
+    assert.equal(input.getAttribute('aria-describedby'), 'receive-help');
+    assert.equal(
+      document.getElementById(input.getAttribute('aria-describedby')).textContent,
+      'Changes are saved on this device.'
+    );
+    assert.equal(label.textContent, 'Receive safe reading changes automatically');
+    assert.equal(input.hasAttribute('aria-label'), false);
+    assert.equal(container.querySelector('[accessibilitydescribedby]'), null);
+    act(() => input.focus());
+    render({ accessibilityDescribedBy: 'updated-help', value: true });
+    assert.equal(container.querySelector('input'), input);
+    assert.equal(document.activeElement, input);
+    assert.equal(input.checked, true);
+    assert.equal(input.getAttribute('aria-describedby'), 'updated-help');
+    assert.equal(input.labels[0], label);
+    render();
+    assert.equal(input.hasAttribute('aria-describedby'), false);
+    assert.equal(document.activeElement, input);
+    act(() => label.click());
+    assert.deepEqual(changes, [true]);
+    render({ disabled: true, accessibilityDescribedBy: 'receive-help' });
+    assert.equal(input.disabled, true);
+    assert.equal(input.getAttribute('aria-describedby'), 'receive-help');
+    act(() => label.click());
+    assert.deepEqual(changes, [true]);
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+  }
+});
+
 test.after(() => {
-  rmSync(output, { recursive: true, force: true });
+  const trash = join(homedir(), '.Trash');
+  mkdirSync(trash, { recursive: true });
+  renameSync(output, join(trash, basename(output)));
   dom.window.close();
 });

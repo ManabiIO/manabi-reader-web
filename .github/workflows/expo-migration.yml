@@ -1,6 +1,8 @@
-name: Expo Android and web migration
+name: Expo web qualification
 # Public-repository, stock-runner qualification only. No remote artifacts or caches.
 # Pull requests already run on synchronize; do not add a duplicate push trigger.
+# The historically named SDK branch now contains only web/Android; admit it
+# for explicit SDK 58 qualification dispatches, never automatic legacy jobs.
 on:
   pull_request:
     paths:
@@ -16,6 +18,11 @@ on:
       - '.github/workflows/**'
   workflow_dispatch:
     inputs:
+      qualify_android:
+        description: Build Android and run packaged control and persistence qualification
+        required: false
+        type: boolean
+        default: false
       qualification_scope:
         description: Affected shared UI slice or the complete final web parity gate
         required: true
@@ -49,7 +56,9 @@ jobs:
         github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
         github.head_ref == 'feat/expo-android-web-migration') ||
        ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-        github.ref == 'refs/heads/feat/expo-android-web-migration'))
+        github.ref == 'refs/heads/feat/expo-android-web-migration') ||
+       (github.event_name == 'workflow_dispatch' &&
+        github.ref == 'refs/heads/codex/reader-windows-sdk56-20261020'))
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -82,7 +91,7 @@ jobs:
       - name: Install reviewed dependency graph without a remote cache
         id: dependencies
         run: pnpm install --frozen-lockfile
-      - run: node scripts/prepare-expo.mjs
+      - run: pnpm prepare:dictionary && node scripts/prepare-expo.mjs
       - name: Lint committed application and component boundaries
         run: |
           pnpm eslint .
@@ -101,8 +110,14 @@ jobs:
       - name: Migration contract tests including CI policy
         if: success() || failure()
         run: pnpm test:expo
+      - name: Select the Android harness Java toolchain
+        if: ${{ inputs.qualify_android == true && (success() || failure()) }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: Android instrumentation harness contracts
-        if: success() || failure()
+        if: ${{ inputs.qualify_android == true && (success() || failure()) }}
         run: node --test tests/android/harness.test.mjs
       - name: Existing reader regressions
         if: success() || failure()
@@ -183,6 +198,7 @@ jobs:
             run_suite "default-shared-statistics-$engine" python tests/browser/statistics_acceptance_cases.py --export-mode default
             run_suite "default-settings-controls-$engine" python tests/browser/test_settings_controls.py
             run_suite "default-settings-editor-$engine" python tests/browser/test_settings_editor_usability.py
+            run_suite "default-appearance-$engine" python -m unittest -v test_appearance_refinement
             run_suite "default-shared-library-shelf-$engine" python tests/browser/library_shelf_acceptance_cases.py
             if [ "$QUALIFICATION_SCOPE" = affected ]; then
               run_suite "default-retained-failure-regressions-$engine" python tests/browser/retained_failure_acceptance_cases.py
@@ -221,7 +237,9 @@ jobs:
         github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
         github.head_ref == 'feat/expo-android-web-migration') ||
        ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-        github.ref == 'refs/heads/feat/expo-android-web-migration'))
+        github.ref == 'refs/heads/feat/expo-android-web-migration') ||
+       (github.event_name == 'workflow_dispatch' &&
+        github.ref == 'refs/heads/codex/reader-windows-sdk56-20261020'))
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     steps:
@@ -299,6 +317,43 @@ jobs:
       - name: Real browser cover decoding and canvas
         if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
         run: node test/expo/native-library-cover-browser.mjs
+      - name: Real local background decoding and native resource projection
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
+        run: |
+          status=0
+          for engine in chromium webkit; do
+            BACKGROUND_BROWSER="$engine" node test/expo/native-background-browser.mjs || status=1
+          done
+          exit "$status"
+      - name: Real cached font decoding and embedded stylesheet
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
+        run: |
+          status=0
+          for engine in chromium webkit; do
+            FONT_BROWSER="$engine" node test/expo/native-font-browser.mjs || status=1
+          done
+          exit "$status"
+      - name: Real native book ZIP export and restore codec
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
+        run: |
+          status=0
+          for engine in chromium webkit; do
+            EXPORT_BROWSER="$engine" node test/expo/native-book-export-browser.mjs || status=1
+          done
+          exit "$status"
+      - name: Native IndexedDB sync recovery and schema upgrades
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
+        run: |
+          status=0
+          for engine in chromium webkit; do
+            JOURNAL_BROWSER="$engine" node test/reader/reader-bridge-journal-browser.mjs || status=1
+          done
+          exit "$status"
+      - name: Automatic Drive lifecycle and cross-tab ownership
+        if: ${{ !cancelled() && steps.browsers.outcome == 'success' }}
+        env:
+          READER_BRIDGE_NATIVE_LOCKS: '1'
+        run: node --test tests/unit/reader-bridge-runtime.test.mjs tests/unit/reader-bridge-scheduler.test.mjs
       - name: Retained actual-app assertions on the same export
         if: ${{ !cancelled() && steps.export.outcome == 'success' && steps.browsers.outcome == 'success' }}
         run: |
@@ -325,6 +380,7 @@ jobs:
             run_suite "gated-shared-statistics-$engine" python tests/browser/statistics_acceptance_cases.py --export-mode gated
             run_suite "gated-settings-controls-$engine" python tests/browser/test_settings_controls.py
             run_suite "gated-settings-editor-$engine" python tests/browser/test_settings_editor_usability.py
+            run_suite "gated-appearance-$engine" python -m unittest -v test_appearance_refinement
             run_suite "gated-shared-library-shelf-$engine" python tests/browser/library_shelf_acceptance_cases.py
             if [ "$QUALIFICATION_SCOPE" = affected ]; then
               run_suite "gated-retained-failure-regressions-$engine" python tests/browser/retained_failure_acceptance_cases.py
@@ -417,7 +473,9 @@ jobs:
   android:
     name: Android export, APK assets and synthetic packaged-host runtime
     # Missing/private visibility fails closed; no runner is allocated.
+    # Android runtime qualification uses an explicit dispatch on a disposable stock runner.
     if: >-
+      github.event_name == 'workflow_dispatch' && inputs.qualify_android == true &&
       github.event.repository.visibility == 'public' &&
       toJSON(github.event.repository.private) == 'false' &&
       github.repository == 'ManabiIO/manabi-reader-web' &&
@@ -425,7 +483,9 @@ jobs:
         github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
         github.head_ref == 'feat/expo-android-web-migration') ||
        ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-        github.ref == 'refs/heads/feat/expo-android-web-migration'))
+        github.ref == 'refs/heads/feat/expo-android-web-migration') ||
+       (github.event_name == 'workflow_dispatch' &&
+        github.ref == 'refs/heads/codex/reader-windows-sdk56-20261020'))
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -489,10 +549,33 @@ jobs:
           node scripts/prepare-android-qualification.mjs
           node --test patches/reader-dom/contract.test.mjs
           cd apps/web/android
+          for configuration in releaseRuntimeClasspath releaseAndroidTestRuntimeClasspath; do
+            ./gradlew :app:dependencyInsight --configuration "$configuration" --dependency androidx.tracing --no-daemon --max-workers=2
+          done
           ./gradlew :expo-dom-webview:testDebugUnitTest :app:assembleRelease :app:assembleReleaseAndroidTest --no-daemon --max-workers=2
           cd ../../..
           node scripts/verify-expo-export.mjs --platform apk --output apps/web/android/app/build/outputs/apk/release/app-release.apk --report apps/web/dist-android/apk-qualification.json
           cat apps/web/dist-android/apk-qualification.json
+      - name: Inspect release instrumentation class packaging
+        if: ${{ !cancelled() && steps.apk.outcome == 'success' }}
+        # Diagnostics only: do not add production keep rules or change shrinking.
+        # DEX definitions distinguish packaged classes from unresolved references.
+        run: |
+          analyzer="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          for variant in release androidTest/release; do
+            for apk in apps/web/android/app/build/outputs/apk/"$variant"/*.apk; do
+              echo "::group::DEX definitions: $apk"
+              "$analyzer" dex packages --defined-only "$apk" | awk '$NF ~ /^(androidx.tracing|androidx.test.runner.AndroidJUnitRunner)/'
+              echo '::endgroup::'
+            done
+          done
+          for report in apps/web/android/app/build/outputs/mapping/*/{mapping,usage}.txt; do
+            if [ -f "$report" ]; then
+              echo "::group::Tracing shrink report: $report"
+              awk '/^[^ #]/ { selected = ($0 ~ /^androidx\.tracing\./) } selected' "$report"
+              echo '::endgroup::'
+            fi
+          done
       - name: Execute the actual APK-emitted pitch worker in Chromium without Expo globals
         run: |
           pnpm exec playwright install --with-deps chromium

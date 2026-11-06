@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { localStorage } from '$lib/data/window/local-storage';
+
 import {
   snapshotBookAccessIdentity,
   type BookAccessAuthority,

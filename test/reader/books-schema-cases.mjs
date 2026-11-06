@@ -1,5 +1,11 @@
 /** Native IndexedDB fixture. Used unchanged by fake-indexeddb and browser qualification. */
 import { createBooksDb } from '../../apps/web/src/lib/data/database/books-db/factory.ts';
+import { wrap } from 'idb';
+import { connectionDigest } from '../../apps/web/src/lib/manabi/reader-bridge-connection-model.ts';
+import {
+  exportReaderBridgeRecovery,
+  restoreReaderBridgeRecovery
+} from '../../apps/web/src/lib/manabi/reader-bridge-journal.ts';
 
 // Independent contract, deliberately not imported from the production installer.
 const legacy = {
@@ -43,9 +49,26 @@ const localFeatures = {
   readerImportRecord: ['id', false, { bookKey: 'bookKey' }]
 };
 const preV13 = { ...legacy, ...annotations, ...personal, ...statistics, ...localFeatures };
-const expected = {
+const preV14 = {
   ...preV13,
   data: ['id', true, { title: 'title', contentHash: 'contentHash', libraryOwner: 'libraryOwner' }]
+};
+const preV15 = {
+  ...preV14,
+  readerBridgeJournal: ['id', false, { accountId: 'accountId', binding: 'binding' }]
+};
+const preV16 = {
+  ...preV15,
+  readerBridgeConnection: [
+    'id',
+    false,
+    { accountId: 'accountId', binding: 'binding', bookId: 'bookId' }
+  ]
+};
+const expected = {
+  ...preV16,
+  data: ['id', true, { ...preV14.data[2], idLibraryOwner: ['id', 'libraryOwner'] }],
+  readerLocalIdentity: ['bookId', false, { uuid: 'uuid' }]
 };
 const prefix = (count) => Object.fromEntries(Object.entries(legacy).slice(0, count));
 const histories = {
@@ -62,6 +85,9 @@ const histories = {
   'v10-local-features': [10, preV13],
   'v11-complete': [11, preV13],
   'v12-complete': [12, preV13],
+  'v13-complete': [13, preV14],
+  'v14-complete': [14, preV15],
+  'v15-complete': [15, preV16],
   // Shape produced by the old <7 guard after upgrading byte-only version 7.
   'v11-already-missing-reader-stores': [
     11,
@@ -127,6 +153,7 @@ async function seedRows(db, version) {
     const value = {
       id: name === 'data' ? 42 : `sentinel:${name}`,
       bookId: 42,
+      uuid: '00000000-0000-4000-8000-000000000042',
       dataId: 42,
       annotationId: 'note:1',
       bookKey: 'content:retained',
@@ -186,7 +213,7 @@ async function snapshot(db, names = Array.from(db.objectStoreNames)) {
   return serializable(Object.fromEntries(rows));
 }
 function verifySchema(db) {
-  assert(db.version === 13, `Expected indexed version 13, got ${db.version}`);
+  assert(db.version === 16, `Expected indexed observation version 16, got ${db.version}`);
   const tx = db.transaction(Array.from(db.objectStoreNames));
   for (const [name, [path, increment = false, indexes = {}]] of Object.entries(expected)) {
     assert(db.objectStoreNames.contains(name), `Missing required store ${name}`);
@@ -231,6 +258,24 @@ async function upgradeHistory(name, [version, definitions], omitIndexes = false)
             .getAllKeys('account:retained')
         );
         same(owned, [42], 'Upgrade did not index retained library ownership');
+        const targetedOwner = await request(
+          db
+            .transaction('data')
+            .objectStore('data')
+            .index('idLibraryOwner')
+            .getAllKeys([42, 'account:retained'])
+        );
+        same(targetedOwner, [42], 'Upgrade did not index per-book ownership');
+      }
+      if (names.includes('readerLocalIdentity')) {
+        const identityIds = await request(
+          db
+            .transaction('readerLocalIdentity')
+            .objectStore('readerLocalIdentity')
+            .index('uuid')
+            .getAllKeys('00000000-0000-4000-8000-000000000042')
+        );
+        same(identityIds, [42], 'Upgrade did not index retained local identity');
       }
       assert(
         db
@@ -321,7 +366,11 @@ async function legacyV2(name, invalid) {
   }
 }
 async function incompatible(name, kind) {
-  const version = kind === 'content-index' ? 12 : 11;
+  const version = ['id-owner-index', 'uuid-index'].includes(kind)
+    ? 15
+    : kind === 'content-index'
+      ? 12
+      : 11;
   const old = await open(name, version, (db) => {
     if (kind === 'store') db.createObjectStore('data', { keyPath: 'wrong' });
     else {
@@ -329,6 +378,11 @@ async function incompatible(name, kind) {
       store.createIndex('title', 'title', { unique: kind === 'index' });
       if (kind === 'content-index')
         store.createIndex('contentHash', 'wrongContentHash', { unique: true });
+      if (kind === 'id-owner-index') store.createIndex('idLibraryOwner', ['id', 'wrongOwner']);
+      if (kind === 'uuid-index') {
+        const identity = db.createObjectStore('readerLocalIdentity', { keyPath: 'bookId' });
+        identity.createIndex('uuid', 'uuid', { unique: true });
+      }
     }
   });
   const tx = old.transaction('data', 'readwrite');
@@ -351,10 +405,135 @@ async function incompatible(name, kind) {
   const restored = await open(name);
   try {
     assert(restored.version === version, 'Schema rejection advanced the version');
-    same(Array.from(restored.objectStoreNames), ['data'], 'Schema rejection committed new stores');
+    same(
+      Array.from(restored.objectStoreNames),
+      Object.keys(before),
+      'Schema rejection committed new stores'
+    );
     same(await snapshot(restored), before, 'Schema rejection changed existing records');
   } finally {
     restored.close();
+  }
+}
+
+async function indexedRecoveryUpgrade(name) {
+  const identity = '00000000-0000-4000-8000-000000000042';
+  const descriptor = {
+    accountId: 'alice',
+    title: 'Retained',
+    fingerprint: 'a'.repeat(64),
+    characters: 72,
+    local: { bookId: 42, identity },
+    source: {
+      provider: 'google',
+      connection: identity,
+      generation: identity,
+      root: 'root',
+      folder: 'folder',
+      packageId: 'package',
+      profile: 'ttu-1-8',
+      observedRevision: 'b'.repeat(64),
+      files: [{ role: 'book', id: 'package', version: '1', md5: 'c'.repeat(32) }]
+    }
+  };
+  descriptor.binding = await connectionDigest([
+    'google',
+    'alice',
+    identity,
+    'root',
+    'folder',
+    'package'
+  ]);
+  const record = {
+    id: identity,
+    version: 2,
+    revision: identity,
+    state: 'linked',
+    accountId: 'alice',
+    binding: descriptor.binding,
+    bookId: 42,
+    descriptor,
+    automaticChecks: true
+  };
+  const scope = { accountId: 'alice', assertCurrent() {} };
+  const readingNames = ['data', 'bookmark', 'readerLocalIdentity', 'readerBookScope'];
+  const old = wrap(await open(name, 15, (db) => installFixture(db, preV16)));
+  let before, backup;
+  try {
+    await old.put('data', {
+      id: 42,
+      title: 'Retained',
+      elementHtml: '<p>本</p>',
+      blobs: {},
+      libraryOwner: 'alice'
+    });
+    await old.put('bookmark', {
+      dataId: 42,
+      progress: 0.5,
+      exploredCharCount: 36,
+      lastBookmarkModified: 7
+    });
+    await old.put('readerBookScope', { bookId: 42, accountId: 'alice' });
+    await old.put('readerLocalIdentity', { bookId: 42, uuid: identity });
+    // Historical duplicate evidence must survive; a unique UUID index would
+    // make upgrading this valid-to-open database fail or lose a record.
+    await old.put('readerLocalIdentity', { bookId: 43, uuid: identity });
+    await old.put('readerBridgeConnection', record);
+    before = await snapshot(old, readingNames);
+    backup = await exportReaderBridgeRecovery(old, scope);
+  } finally {
+    old.close();
+  }
+  const db = await createBooksDb(name);
+  try {
+    verifySchema(db);
+    same(
+      await snapshot(db, readingNames),
+      before,
+      'Index upgrade changed reading or identity records'
+    );
+    same(
+      await db.getAllKeysFromIndex('readerLocalIdentity', 'uuid', identity),
+      [42, 43],
+      'Nonunique UUID index lost duplicate evidence'
+    );
+    same(
+      await db.getAllKeysFromIndex('data', 'idLibraryOwner', [42, 'alice']),
+      [42],
+      'Owner index lost existing book'
+    );
+    same(
+      await db.get('readerBridgeConnection', record.id),
+      record,
+      'Index upgrade changed saved source or consent'
+    );
+    assert(
+      (await exportReaderBridgeRecovery(db, scope)) === backup,
+      'Index upgrade changed portable backup'
+    );
+    assert(
+      (await restoreReaderBridgeRecovery(db, scope, backup)) === 1,
+      'Pre-upgrade backup did not restore'
+    );
+    const rows = await db.getAll('readerBridgeConnection');
+    const recovered = rows.find((row) => row.state === 'restored');
+    assert(
+      rows.length === 2 && recovered && recovered.automaticChecks !== true,
+      'Restore activated saved evidence'
+    );
+    same(recovered.descriptor, descriptor, 'Restore changed source identity evidence');
+    same(
+      await db.get('readerBridgeConnection', record.id),
+      record,
+      'Restore changed live source or automatic-check consent'
+    );
+    same(
+      await snapshot(db, readingNames),
+      before,
+      'Restore changed reading data or identity evidence'
+    );
+  } finally {
+    db.close();
   }
 }
 
@@ -365,7 +544,10 @@ export const caseNames = [
   'v2-invalid-record-rollback-retry',
   'incompatible-store-rollback',
   'incompatible-index-rollback',
-  'incompatible-content-index-rollback'
+  'incompatible-content-index-rollback',
+  'incompatible-id-owner-index-rollback',
+  'incompatible-uuid-index-rollback',
+  'v15-indexed-recovery-preserved'
 ];
 export async function runCase(caseName) {
   assert(caseNames.includes(caseName), 'Unknown schema test');
@@ -383,16 +565,21 @@ export async function runCase(caseName) {
             ? 'record'
             : undefined
       );
+    else if (caseName === 'v15-indexed-recovery-preserved') await indexedRecoveryUpgrade(name);
     else
       await incompatible(
         name,
-        caseName.includes('content-index')
-          ? 'content-index'
-          : caseName.includes('-store-')
-            ? 'store'
-            : 'index'
+        caseName.includes('id-owner-index')
+          ? 'id-owner-index'
+          : caseName.includes('uuid-index')
+            ? 'uuid-index'
+            : caseName.includes('content-index')
+              ? 'content-index'
+              : caseName.includes('-store-')
+                ? 'store'
+                : 'index'
       );
-    return { name: caseName, version: 13, state: 'passed', stores: Object.keys(expected).length };
+    return { name: caseName, version: 16, state: 'passed', stores: Object.keys(expected).length };
   } finally {
     await remove(name);
   }

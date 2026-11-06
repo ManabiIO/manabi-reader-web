@@ -235,26 +235,6 @@ export function Input({ className = '', ...props }: Props) {
     />
   );
 }
-export function Switch({
-  checked,
-  onCheckedChange,
-  className = '',
-  ...props
-}: Props & { checked?: boolean; onCheckedChange?: (checked: boolean) => void }) {
-  return (
-    <button
-      {...props}
-      type="button"
-      role="switch"
-      aria-checked={!!checked}
-      data-state={checked ? 'checked' : 'unchecked'}
-      className={`settings-switch ${className}`}
-      onClick={() => onCheckedChange?.(!checked)}
-    >
-      <span />
-    </button>
-  );
-}
 export const Field = {
   Field: ({ children, ...props }: Props) => (
     <div

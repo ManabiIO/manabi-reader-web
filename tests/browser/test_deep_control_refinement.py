@@ -3,6 +3,7 @@ from reader_controls import reveal_reader_controls
 import unittest
 from playwright.sync_api import expect
 import test_control_refinement as control_refinement
+from reader_fixture import reader_fixture
 
 
 class DeepControlRefinementBrowser(control_refinement.ControlRefinementBrowser):
@@ -35,7 +36,7 @@ class DeepControlRefinementBrowser(control_refinement.ControlRefinementBrowser):
         expect(passages).to_have_count(1)
         expect(panel).to_have_attribute('aria-busy', 'false')
         # Queue a real IndexedDB write, rather than replacing annotation logic.
-        self.page.evaluate('''async () => {
+        self.page.evaluate(reader_fixture('''async () => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('books');
             request.onsuccess = () => resolve(request.result);
@@ -49,7 +50,7 @@ class DeepControlRefinementBrowser(control_refinement.ControlRefinementBrowser):
             if (hold) tx.objectStore('readerAnnotation').get('__hold__').onsuccess = pump;
           };
           pump();
-        }''')
+        }'''))
         try:
             panel.get_by_role('button', name='Add Bookmark', exact=True).click()
             expect(panel).to_have_attribute('aria-busy', 'true')

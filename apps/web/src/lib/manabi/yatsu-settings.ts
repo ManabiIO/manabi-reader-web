@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { localStorage } from '$lib/data/window/local-storage';
+
 import * as reader from '$lib/data/store';
 import { parseYatsuSettings } from './yatsu-settings-format';
 import { canonical, MigrationConflict } from './ttu-migration-format';

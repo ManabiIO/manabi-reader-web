@@ -9,6 +9,10 @@ export interface ChapterStage {
 export class ChapterOpeningController {
   constructor(options: {
     session: BookPreprocessingSession;
+    interaction?: (
+      root: HTMLElement,
+      context: { result: PreparedChapter; index: number; revision: number; signal: AbortSignal }
+    ) => (() => void) | Promise<() => void>;
     stage: (
       result: PreparedChapter,
       context: { index: number; revision: number; signal: AbortSignal }

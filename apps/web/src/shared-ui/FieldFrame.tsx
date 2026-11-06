@@ -12,6 +12,8 @@ export interface FieldFrameProps {
   accessibilityLabel?: string;
   /** Browser element IDs describing the field. Native descriptions need their own contract. */
   accessibilityDescribedBy?: string;
+  /** Label an Expo universal input whose browser adapter has no ARIA props. */
+  universalInput?: boolean;
   hideLabel?: boolean;
   children: ReactNode;
   style?: StyleProp<ViewStyle>;

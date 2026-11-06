@@ -8,6 +8,7 @@ export interface PitchState {
   enabled: boolean;
   status: 'off' | 'loading' | 'ready' | 'error';
   activity: 'idle' | 'playing' | 'paused' | 'buffering' | 'ended';
+  speechActive: boolean;
   message: string;
   points: readonly PitchPoint[];
   time: number;
@@ -16,6 +17,7 @@ export const initialPitchState = (): PitchState => ({
   enabled: false,
   status: 'off',
   activity: 'idle',
+  speechActive: false,
   message: '',
   points: [],
   time: 0

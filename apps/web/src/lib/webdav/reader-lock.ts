@@ -4,10 +4,12 @@
  * All rights reserved.
  */
 
+import { storageName } from '../../runtime/edition';
+
 /** Readers hold shared ownership while mounted. A receive/apply must not run
  * behind another tab's live autosave state. Locks are origin-local, not a
  * replacement for server ETags between different devices. */
-const name = 'manabi-webdav-reader-lifetime-v1';
+const name = storageName('manabi-webdav-reader-lifetime-v1');
 export function acquireReaderLease(signal: AbortSignal): Promise<void> {
   if (!navigator.locks) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
@@ -23,10 +25,10 @@ export function acquireReaderLease(signal: AbortSignal): Promise<void> {
       .catch(reject);
   });
 }
-export async function withWebDavApplyLease<T>(work: () => Promise<T>): Promise<T> {
+export async function withReaderDataApplyLease<T>(work: () => Promise<T>): Promise<T> {
   if (!navigator.locks)
     throw new Error(
-      'Safe WebDAV reading-data sync requires Web Locks in this browser. Book import and local reading still work.'
+      'Safe reading-data sync requires Web Locks in this browser. Book import and local reading still work.'
     );
   return navigator.locks.request(name, { mode: 'exclusive', ifAvailable: true }, (lock) => {
     if (!lock)
@@ -36,3 +38,5 @@ export async function withWebDavApplyLease<T>(work: () => Promise<T>): Promise<T
     return work();
   });
 }
+
+export const withWebDavApplyLease = withReaderDataApplyLease;

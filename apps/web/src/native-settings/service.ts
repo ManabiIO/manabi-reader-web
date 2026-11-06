@@ -82,7 +82,7 @@ import {
 } from '$lib/appearance/state';
 import { pageTurnEffect$ } from '$lib/data/page-turn-preferences';
 import { effectivePrimaryReaderFont } from '$lib/data/reader-typography';
-import { LocalFont } from '$lib/data/fonts';
+import { availablePrimaryFonts, secondaryPackagedFonts } from '$lib/data/fonts';
 import { trackerIdleSecondsFromMinutes } from '$lib/components/settings/settings-number-policy';
 import { captureLibraryOperation } from '$lib/manabi/operation-scope';
 import { createNativeSettingsService, type SettingBinding } from './service-core';
@@ -202,31 +202,14 @@ const service = createNativeSettingsService({
     read: () => customThemes$.getValue(),
     write: (value) => customThemes$.next(value)
   },
-  fonts: () => {
-    const primary = [
-      LocalFont.KLEEONE,
-      LocalFont.KLEEONESEMIBOLD,
-      LocalFont.NOTOSERIFJP,
-      LocalFont.KZUDMINCHO,
-      LocalFont.GENEI,
-      LocalFont.SHIPPORIMINCHO,
-      LocalFont.SERIF
-    ];
-    if (yuKyokashoAvailable$.getValue() === true) primary.unshift(LocalFont.YUKYOKASHO);
-    return {
-      primary,
-      secondary: [
-        LocalFont.SYSTEMSANS,
-        LocalFont.NOTOSANSJP,
-        LocalFont.KZUDGOTHIC,
-        LocalFont.SANSSERIF
-      ],
-      effectivePrimary: effectivePrimaryReaderFont(
-        fontFamilyGroupOne$.getValue(),
-        yuKyokashoAvailable$.getValue()
-      )
-    };
-  },
+  fonts: () => ({
+    primary: availablePrimaryFonts(yuKyokashoAvailable$.getValue()),
+    secondary: [...secondaryPackagedFonts],
+    effectivePrimary: effectivePrimaryReaderFont(
+      fontFamilyGroupOne$.getValue(),
+      yuKyokashoAvailable$.getValue()
+    )
+  }),
   resetReadingPoints: (assertCurrent) => {
     assertCurrent();
     verticalCustomReadingPosition$.next(100);

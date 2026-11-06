@@ -651,7 +651,7 @@ export class NativeLibraryService {
       Object.keys(payload).some((key) => !['token', 'keys', 'operation'].includes(key)) ||
       typeof payload.token !== 'string' ||
       payload.token.length > 128 ||
-      !['open', 'delete'].includes(payload.operation as string) ||
+      !['open', 'delete', 'export'].includes(payload.operation as string) ||
       !Array.isArray(payload.keys) ||
       !payload.keys.length ||
       payload.keys.length > LIBRARY_ACTION_LIMIT ||
@@ -674,10 +674,12 @@ export class NativeLibraryService {
     if (this.busy) throw new Error('Another Library change is in progress.');
     const targets = keys.map((key) => {
       const book = admitted.targets.get(key);
-      if (!book || !book.bookId || (operation === 'open' && book.isPlaceholder))
+      if (!book || !book.bookId || (operation !== 'delete' && book.isPlaceholder))
         throw new Error('Only an available imported copy can perform this action.');
       return book;
     });
+    if (operation === 'export' && keys.some((key) => !admitted.identities.has(key)))
+      throw new Error('Refresh the Library before exporting these books.');
     this.admissions.delete(token);
     this.busy = true;
     try {

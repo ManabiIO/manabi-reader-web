@@ -14,6 +14,7 @@ import unittest
 import zipfile
 from playwright.sync_api import expect
 from test_local_library import LocalLibraryBrowser, CONTENT
+from reader_fixture import reader_fixture
 
 
 class CompletedReadingBrowser(LocalLibraryBrowser):
@@ -28,12 +29,12 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         }'''))
 
     def statistics(self, page):
-        return page.evaluate('''() => new Promise((resolve,reject) => {
+        return page.evaluate(reader_fixture('''() => new Promise((resolve,reject) => {
           const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
           open.onsuccess=()=>{const db=open.result,tx=db.transaction('readerStatistic');
             const rows=tx.objectStore('readerStatistic').getAll();
             tx.oncomplete=()=>{resolve(rows.result);db.close();};tx.onerror=()=>reject(tx.error);};
-        })''')
+        })'''))
 
     def test_completion_dialog_reflows_and_reduced_motion_skips_confetti(self):
         self.seed(True)
@@ -139,13 +140,13 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         self.assertEqual(8,completion['dbVersion'])
         self.assertIn('averageWeightedRedingTime',completion)
         self.assertIn('averageWeightedCharatersRead',completion)
-        self.page.goto(self.origin+'/reader-web/connections')
+        self.page.goto(self.origin+reader_fixture('/reader-web/connections'))
         expect(self.page.get_by_role('button', name='Refresh connections')).to_be_enabled()
         self.assertEqual([], self.documents())
         self.assertEqual(CONTENT,self.original())
         self.assertEqual(before,self.statistics(self.page))
 
-        self.page.goto(self.origin+'/reader-web/manage')
+        self.page.goto(self.origin+reader_fixture('/reader-web/manage'))
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Select Books', exact=True).click()
         self.page.get_by_role('button', name='Select All Visible', exact=True).click()
@@ -166,7 +167,7 @@ class CompletedReadingBrowser(LocalLibraryBrowser):
         try:
             page=destination.new_page()
             page.on('pageerror',lambda error:self.errors.append(str(error)))
-            page.goto(self.origin+'/reader-web/import-ttu')
+            page.goto(self.origin+reader_fixture('/reader-web/import-ttu'))
             chooser=page.get_by_label('Choose Ttu export ZIPs',exact=True)
             expect(chooser).to_be_enabled()
             chooser.set_input_files({'name':'completed-books.zip','mimeType':'application/zip','buffer':raw})

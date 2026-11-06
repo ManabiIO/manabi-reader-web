@@ -122,18 +122,27 @@ export interface ToggleFieldProps {
   testID?: string;
   style?: StyleProp<ViewStyle>;
 }
-export function CheckboxField({ style, ...props }: ToggleFieldProps) {
+export function CheckboxField({
+  style,
+  ...props
+}: ToggleFieldProps & {
+  /** Browser element IDs describing the checkbox. */
+  accessibilityDescribedBy?: string;
+}) {
   return (
-    <View style={style}>
+    <View style={[{ minWidth: 0, maxWidth: '100%', flexShrink: 1 }, style]}>
       <ControlHost kind="checkbox">
         <Checkbox {...props} />
       </ControlHost>
     </View>
   );
 }
-export function SwitchField({ style, ...props }: ToggleFieldProps) {
+export function SwitchField({
+  style,
+  ...props
+}: ToggleFieldProps & { accessibilityLabel?: string }) {
   return (
-    <View style={style}>
+    <View style={[{ minWidth: 0, maxWidth: '100%', flexShrink: 1 }, style]}>
       <ControlHost kind="switch">
         <Switch {...props} />
       </ControlHost>

@@ -2,6 +2,19 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setImmediate } from 'node:timers';
 import { settingsScript } from './fixtures/settings-script.mjs';
+import { build } from 'esbuild';
+import { Buffer } from 'node:buffer';
+import { BehaviorSubject } from 'rxjs';
+const { outputFiles } = await build({
+  entryPoints: ['apps/web/src/features/settings/dimension-editor.ts'],
+  bundle: true,
+  write: false,
+  format: 'esm',
+  platform: 'node'
+});
+const { createDimensionEditor } = await import(
+  'data:text/javascript;base64,' + Buffer.from(outputFiles[0].text).toString('base64')
+);
 
 const turn = () => new Promise((resolve) => setImmediate(resolve));
 const selected = { name: 'Custom', fileName: 'custom.ttf', path: '/userfonts/custom.ttf' };
@@ -14,25 +27,49 @@ function deferred() {
   return { promise, resolve };
 }
 
+// Exercise the production shared size model after moving it out of the browser
+// controller. The test owner accepts explicit choices; opening/resize never save.
 function size(initial = {}) {
   const viewport = { innerWidth: 1200, innerHeight: 900 };
-  const h = settingsScript(
-    'settings-dimension-content.svelte',
-    {
-      dimensionValue: 137,
-      isVertical: false,
-      isFirstDimension: true,
-      width: 1200,
-      height: 900,
-      ...initial
+  const values = {
+    dimensionValue: 137,
+    isVertical: false,
+    isFirstDimension: true,
+    width: 1200,
+    height: 900,
+    ...initial
+  };
+  const options = () => ({
+    value: values.dimensionValue,
+    vertical: values.isVertical,
+    first: values.isFirstDimension,
+    width: values.width,
+    height: values.height,
+    disabled: false
+  });
+  const model = createDimensionEditor(options());
+  return {
+    viewport,
+    mount: async () => {},
+    reactive: () => model.configure(options()),
+    dimensionValue: () => model.getSnapshot().value,
+    setToValue: () => (percentage) => {
+      const next = model.choose(percentage);
+      if (next !== null) {
+        values.dimensionValue = next;
+        model.configure(options());
+      }
     },
-    {
-      window: viewport
-    },
-    ['dimensionValue', 'setToValue'],
-    ['isVertical', 'isFirstDimension', 'width', 'height', 'dimensionValue']
-  );
-  return { ...h, viewport };
+    set: Object.fromEntries(
+      Object.keys(values).map((key) => [
+        key,
+        (value) => {
+          values[key] = value;
+          model.configure(options());
+        }
+      ])
+    )
+  };
 }
 
 test('opening size presets does not round and save an exact margin', async () => {
@@ -170,13 +207,7 @@ test('explicit Save can finish after dismissal without dispatching into another 
 });
 
 function manager(cache, currentFamily = 'YuKyokasho', entries = [selected], bindings = {}) {
-  let current = currentFamily;
-  const family = {
-    getValue: () => current,
-    next: (value) => {
-      current = value;
-    }
-  };
+  const family = new BehaviorSubject(currentFamily);
   const h = settingsScript(
     'settings-user-font-dialog.svelte',
     { fontFamily: family },
@@ -188,7 +219,7 @@ function manager(cache, currentFamily = 'YuKyokasho', entries = [selected], bind
     ['removeFont', '$userFonts$', 'cacheLoaded'],
     []
   );
-  return { ...h, family: () => current };
+  return { ...h, family: () => family.getValue(), familyStore: family };
 }
 
 test('opening font manager never prunes missing metadata or unknown cached files', async () => {
@@ -259,12 +290,19 @@ test('a dismissed form merges into the live font store, not its retired subscrip
 });
 
 test('settings scenarios execute the active React controllers and stop revision delivery on teardown', async () => {
-  const h = size();
+  const h = settingsScript(
+    'settings-dimension-content.svelte',
+    { dimensionValue: 137, isVertical: false, isFirstDimension: true },
+    {},
+    ['dimensionValue'],
+    ['dimensionValue']
+  );
   assert.match(h.sourcePath, /settings-react\/settings-dimension-content-controller\.ts$/);
   assert.equal(h.controller.constructor.name, 'ReaderController');
   let revisions = 0;
   h.controller.subscribe(() => revisions++);
   await h.mount();
+  h.set.dimensionValue(138);
   await turn();
   assert.ok(revisions > 0);
   const before = revisions;
@@ -366,7 +404,9 @@ for (const interruption of ['dismissal', 'family change']) {
     if (interruption === 'dismissal') h.dispose();
     else
       h.instance.updateProps({
-        fontFamily: { next: () => assert.fail('Retargeted font selection') }
+        fontFamily: Object.assign(new BehaviorSubject('Other'), {
+          next: () => assert.fail('Retargeted font selection')
+        })
       });
     gate.resolve(new Response('font bytes'));
     await selecting;
@@ -423,7 +463,9 @@ test('an explicit pending font removal owns the original family and live catalog
   const removing = h.removeFont()(selected.path);
   await turn();
   h.instance.updateProps({
-    fontFamily: { next: () => assert.fail('Removal reset a different style') }
+    fontFamily: Object.assign(new BehaviorSubject('Other'), {
+      next: () => assert.fail('Removal reset a different style')
+    })
   });
   h.dispose();
   const other = { name: 'Other', fileName: 'other.ttf', path: '/userfonts/other.ttf' };
@@ -434,4 +476,25 @@ test('an explicit pending font removal owns the original family and live catalog
   assert.equal(h.family(), '');
   assert.equal(h.fonts.observers.length, 0);
   assert.deepEqual(h.events, []);
+});
+
+test('font selection display observes the current family and releases replaced subscriptions', async () => {
+  const h = manager({ keys: async () => [] });
+  await h.mount();
+  assert.equal(h.instance.selectedFont, 'YuKyokasho');
+  assert.equal(h.familyStore.observers.length, 1);
+  h.familyStore.next('Custom');
+  assert.equal(h.instance.selectedFont, 'Custom');
+  const replacement = new BehaviorSubject('Other');
+  h.instance.updateProps({ fontFamily: replacement });
+  h.reactive();
+  assert.equal(h.instance.selectedFont, 'Other');
+  assert.equal(h.familyStore.observers.length, 0);
+  assert.equal(replacement.observers.length, 1);
+  h.familyStore.next('Retired');
+  assert.equal(h.instance.selectedFont, 'Other');
+  h.dispose();
+  assert.equal(replacement.observers.length, 0);
+  replacement.next('After dismissal');
+  assert.equal(h.instance.selectedFont, 'Other');
 });

@@ -82,7 +82,11 @@ export class DictionaryController extends ObservableController {
       this.runtime = opened;
       const value = await opened.client.search(needle, detailed, { signal });
       signal.throwIfAborted();
-      if (value.version !== 1 || value.query !== needle.trim() || typeof value.prefix !== 'boolean')
+      if (
+        value.contractVersion !== 1 ||
+        value.query !== needle.trim() ||
+        typeof value.prefix !== 'boolean'
+      )
         throw new Error('The dictionary returned a mismatched search response.');
       publish({ state: 'ready', value });
     });
@@ -172,7 +176,7 @@ export class DictionaryController extends ObservableController {
   definitions(node: HTMLElement, value: DictionaryResult) {
     const dispose =
       this.runtime && value.lookup
-        ? this.runtime.render(node, value.lookup, this.runtime.client, this.onquery)
+        ? this.runtime.render(node, value.lookup, this.onquery)
         : undefined;
     return {
       destroy() {
@@ -206,7 +210,7 @@ export class DictionaryController extends ObservableController {
         onProgress: () => {}
       });
       imported = true;
-      if (!file) await opened.client.setDefault('installed', result.summary.title);
+      if (!file) await opened.client.recordDefaultInstall(result.summary.title);
       if (this.mounted) this.setupOpen = false;
       if (this.mounted)
         this.message = result.cancelledAfterCommit

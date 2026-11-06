@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { readerName } from '../runtime/edition';
+
 import { Fragment, type ReactNode } from 'react';
 /**
  * React/controller port of lib/library/collections-sheet.svelte; transactions retain their original guards.
@@ -161,9 +163,7 @@ export function CollectionsView({
                     .filter(Boolean)
                     .join(' ')}
                 >
-                  {
-                    ' Collections and book overrides sync with your Manabi Reader settings when account sync is on. Unavailable books stay in their collections and reappear when their library is connected. '
-                  }
+                  {` Collections and book overrides sync with your ${readerName} settings when account sync is on. Unavailable books stay in their collections and reappear when their library is connected. `}
                 </p>
                 <div
                   className={[

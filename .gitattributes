@@ -1,0 +1,3 @@
+# pnpm parses patch headers and hashes patch bytes on every build OS.
+# Windows autocrlf must not insert carriage returns into those headers.
+*.patch text eol=lf

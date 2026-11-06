@@ -26,9 +26,12 @@ module.exports = (async () => {
         'apps/web/dist/**',
         'apps/web/dist-android/**',
         'apps/web/public/**',
+        'apps/web/.reader-public-*/**',
         'apps/web/src/runtime/font-assets.ts',
         'apps/web/static/manabitan/**',
         'apps/web/static/dictionary-archives/**',
+        // Obsolete generated path from boundary-development builds.
+        'apps/web/static/dictionary-runtime/**',
         'apps/web/static/moss/**',
         '**/build/*',
         '**/test-results/**',
@@ -177,7 +180,11 @@ module.exports = (async () => {
     },
     {
       // This standalone expression is evaluated by the test APK in its actual WebView.
-      files: ['tests/android/probe.js'],
+      files: [
+        'tests/android/probe.js',
+        'tests/android/font-probe.js',
+        'tests/android/book-export-probe.js'
+      ],
       languageOptions: {
         globals: {
           location: 'readonly',
@@ -185,6 +192,7 @@ module.exports = (async () => {
           navigator: 'readonly',
           window: 'readonly',
           isSecureContext: 'readonly',
+          TextEncoder: 'readonly',
           URL: 'readonly',
           Worker: 'readonly',
           WebAssembly: 'readonly',

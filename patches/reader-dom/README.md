@@ -1,24 +1,24 @@
 # Android reader DOM secure-origin adapter
 
-Status: **patched Android Kotlin/Java debug and release builds plus JVM tests pass on `a0988605`; complete APK asset and device/runtime qualification still required**. This adapter is not an Android acceptance result.
+Status: **SDK 58 source/JVM/export/autolinking checks pass; native compilation and packaged runtime qualification remain required**. The earlier SDK 57 Kotlin/Java result on `a0988605` does not qualify this SDK 58 adapter.
 
 ## Why an exact dependency patch
 
-The installed `expo@57.0.26` Android DOM entry is `file:///android_asset/www.bundle/<32-character hash>.html`. In `@expo/dom-webview@57.0.1`, `originWhitelist` is an unsupported prop, file access is enabled implicitly, and the DOM protocol uses an all-frame `addJavascriptInterface`. Merely adding a whitelist or disabling the nominal JS file-access props does not fix that implementation.
+The installed `expo@58.0.16` Android DOM entry is `file:///android_asset/www.bundle/<32-character hash>.html`. In `@expo/dom-webview@58.0.2`, `originWhitelist` is an unsupported prop, file access is enabled implicitly, and the DOM protocol uses an all-frame `addJavascriptInterface`. Merely adding a whitelist or disabling the nominal JS file-access props does not fix that implementation.
 
-`expo-dom-webview-57.0.1.patch` adds an Android-only, opt-in adapter to that exact package. Unmodified native platforms are outside this migration. The patch leaves Expo's DOM imperative commands and the application's `execute`/`onReply` protocol intact. It does not add a general filesystem, native evaluation, credential, or network API.
+`expo-dom-webview-58.0.2.patch` adds an Android-only, opt-in adapter to that exact package. Unmodified native platforms are outside this migration. The patch leaves Expo's DOM imperative commands and the application's `execute`/`onReply` protocol intact. It does not add a general filesystem, native evaluation, credential, or network API.
 
 The touched upstream files and SHA-256 digests are recorded in `upstream.json`. A package upgrade requires re-review and regeneration of the patch; never silently apply it to another version. `contract.test.mjs` accepts either a pristine or already-patched installation and verifies the original sources before testing the patched result in a temporary directory.
 
 ## Integration contract
 
-Pin `@expo/dom-webview` to `57.0.1` and declare this patch in the workspace's pnpm `patchedDependencies` mapping:
+Pin `@expo/dom-webview` to `58.0.2` and declare this patch in the workspace's pnpm `patchedDependencies` mapping:
 
 ```
-'@expo/dom-webview@57.0.1': patches/reader-dom/expo-dom-webview-57.0.1.patch
+'@expo/dom-webview@58.0.2': patches/reader-dom/expo-dom-webview-58.0.2.patch
 ```
 
-SDK 57 enables precompiled Android AARs by default. A source patch alone does **not** change that binary. The app's `package.json` sets `expo.autolinking.android.buildFromSource: ["expo-dom-webview"]`. In the installed SDK, `SettingsManager.configurePublication` matches Gradle project names, so the npm-scoped name `@expo/dom-webview` is insufficient. The guard runs the installed autolinker, checks the exact module version and project, checks the pattern using the native full-match semantics, and requires the patched source files before Gradle compilation. CI then requires `:expo-dom-webview:testDebugUnitTest` and release APK assembly; omitting the source module fails the build. See [Expo's precompiled module guidance](https://docs.expo.dev/guides/prebuilt-expo-modules/) and [autolinking configuration](https://docs.expo.dev/modules/autolinking/#buildfromsource).
+SDK 58 enables precompiled Android AARs by default. A source patch alone does **not** change that binary. The app's `package.json` sets `expo.autolinking.android.buildFromSource: ["expo-dom-webview"]`. In the installed SDK, `SettingsManager.configurePublication` matches Gradle project names, so the npm-scoped name `@expo/dom-webview` is insufficient. The guard runs the installed autolinker, checks the exact module version and project, checks the pattern using the native full-match semantics, and requires the patched source files before Gradle compilation. CI then requires `:expo-dom-webview:testDebugUnitTest` and release APK assembly; omitting the source module fails the build. See [Expo's precompiled module guidance](https://docs.expo.dev/guides/prebuilt-expo-modules/) and [autolinking configuration](https://docs.expo.dev/modules/autolinking/#buildfromsource).
 
 The parent application must pass these Android DOM properties to its **single persistent** trusted reader owner:
 
@@ -59,7 +59,7 @@ Only the source passed by the native application can establish the root, and the
 
 The loader maps `/www.bundle/` only to APK `assets/www.bundle/`. It exposes no other APK assets, internal storage, `content://`, resources, or arbitrary filesystem path. Traversal, encoded traversal/separators/NUL, double-encoded escapes, empty and ambiguous paths are rejected. Missing paths under the asset origin produce a local 404, never a network fallback. `mjs`/`js` have JavaScript MIME types and `wasm` has `application/wasm` for module workers and streaming compilation.
 
-Verified against the installed Expo 57 exporter source:
+Verified against the installed Expo 58 exporter source:
 
 - `exportDomComponents.js` writes the hashed HTML and its Metro JS/assets beneath `www.bundle/`, with `baseUrl: './'` for emitted HTML/resources
 - `exportEmbedAsync.js` chooses the Android JS bundle's asset directory, persists DOM files there, and copies the app's **public directory into `www.bundle/`**
@@ -88,7 +88,7 @@ From the repository root, with Node 24 and Java 21 available:
 node --test patches/reader-dom/contract.test.mjs
 ```
 
-The test verifies clean patch application; compiles and executes the **actual patched Java URL policy** using the JDK compiler module; tests hostile source/navigation/origin/path cases, asset topology and persistent canonical origin; executes the actual injected bootstrap in JS; and checks security hooks and SDK 57 exporter layout. These are source/JVM/JavaScript checks, not a WebView simulation. The patch also includes JUnit `ReaderDomPolicyTest` for the native module's `testDebugUnitTest` task.
+The test verifies clean patch application; compiles and executes the **actual patched Java URL policy** using the JDK compiler module; tests hostile source/navigation/origin/path cases, asset topology and persistent canonical origin; executes the actual injected bootstrap in JS; and checks security hooks and SDK 58 exporter layout. These are source/JVM/JavaScript checks, not a WebView simulation. The patch also includes JUnit `ReaderDomPolicyTest` for the native module's `testDebugUnitTest` task.
 
 ### Remaining Android acceptance gates
 
@@ -110,4 +110,4 @@ Until these are recorded, keep Android runtime readiness and OPFS/Web Locks pers
 - Origin-scoped messaging / document-start script contract: https://developer.android.com/reference/androidx/webkit/WebViewCompat
 - AndroidX WebKit dependency/releases: https://developer.android.com/jetpack/androidx/releases/webkit
 - Expo DOM component limitations and APIs: https://docs.expo.dev/guides/dom-components/
-- Exact reviewed upstream package source: https://github.com/expo/expo/tree/b9503d06b8e130abfca1bc16f671dbefb41ad709/packages/%40expo/dom-webview
+- Exact reviewed upstream package: [npm 58.0.2 tarball](https://registry.npmjs.org/@expo/dom-webview/-/dom-webview-58.0.2.tgz), SHA-256 `b06b7a5c235ecdac361cd8da35dc0f570be32900013b44fab243f3434d7b09f4`; touched file hashes are in `upstream.json`.

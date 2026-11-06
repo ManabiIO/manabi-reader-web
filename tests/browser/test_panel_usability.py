@@ -4,6 +4,7 @@ from pathlib import Path
 from playwright.sync_api import expect
 from reader_controls import reveal_reader_controls
 from test_books_library import LibraryBase
+from reader_fixture import reader_fixture
 
 
 class PanelUsabilityBrowser(LibraryBase):
@@ -12,7 +13,7 @@ class PanelUsabilityBrowser(LibraryBase):
           requestAnimationFrame(() => requestAnimationFrame(resolve)))''')
 
     def seed_statistics(self):
-        self.page.evaluate('''async () => {
+        self.page.evaluate(reader_fixture('''async () => {
           const db = await new Promise((resolve, reject) => {
             const r = indexedDB.open('books');
             r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
@@ -29,10 +30,10 @@ class PanelUsabilityBrowser(LibraryBase):
               tx.oncomplete = resolve; tx.onabort = tx.onerror = () => reject(tx.error);
             });
           } finally { db.close(); }
-        }''')
+        }'''))
 
     def statistics(self):
-        self.page.goto(self.origin + '/reader-web/statistics')
+        self.page.goto(self.origin + reader_fixture('/reader-web/statistics'))
         expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         expect(self.page.get_by_role('button', name='Filter books', exact=True)).to_be_enabled()
         self.frames()
@@ -76,10 +77,10 @@ class PanelUsabilityBrowser(LibraryBase):
         }''', arg=control.element_handle())
 
     def test_tracker_reflows_and_privacy_toggle_is_accessible_at_200_percent_text(self):
-        self.page.goto(self.origin + '/reader-web/settings#tracking')
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings#tracking'))
         self.page.get_by_role('switch', name='Enable Statistics', exact=True).check()
         title = 'Tracker panel large text'
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('input[type=file][accept*=".epub"]').first).to_be_attached()
         self.import_book(title)
         self.page.get_by_role('button', name='Read ' + title, exact=True).click()
@@ -122,10 +123,10 @@ class PanelUsabilityBrowser(LibraryBase):
         self.page.evaluate('document.documentElement.style.fontSize = ""')
 
     def test_tracker_history_paginates_without_stranding_keyboard_focus(self):
-        self.page.goto(self.origin + '/reader-web/settings#tracking')
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings#tracking'))
         self.page.get_by_role('switch', name='Enable Statistics', exact=True).check()
         title = 'Tracker history pagination'
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         self.import_book(title)
         self.page.get_by_role('button', name='Read ' + title, exact=True).click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
@@ -207,7 +208,7 @@ class PanelUsabilityBrowser(LibraryBase):
     def test_heatmap_popup_close_has_its_own_space_and_restores_day_focus(self):
         self.seed_statistics()
         for mode in ('light', 'dark'):
-            self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
+            self.page.evaluate(reader_fixture('v => localStorage.setItem("appearance", v)'), mode)
             grid = self.heatmap()
             self.page.set_viewport_size({'width': 320, 'height': 568})
             self.page.evaluate('document.documentElement.style.fontSize = "200%"')
@@ -224,7 +225,12 @@ class PanelUsabilityBrowser(LibraryBase):
             h, c = heading.bounding_box(), close.bounding_box()
             self.assertGreaterEqual(c['width'], 43.99)
             self.assertGreaterEqual(c['height'], 43.99)
-            self.assertLessEqual(h['x'] + h['width'], c['x'] + 1)
+            # Enlarged headings move below the close action so whole words fit.
+            # Either layout must reserve separate space, never overlap targets.
+            self.assertTrue(
+                h['x'] + h['width'] <= c['x'] + 1 or
+                h['y'] >= c['y'] + c['height'] + 7,
+                {'heading': h, 'close': c})
             self.assertLessEqual(panel.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
             self.assert_unoccluded(close)
             self.capture(f'heatmap-details-{mode}-200')

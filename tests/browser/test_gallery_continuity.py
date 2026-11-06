@@ -6,6 +6,7 @@ import zipfile
 
 from playwright.sync_api import expect
 from test_gallery_reveal_lifetime import GalleryRevealBase, illustrated_book
+from reader_fixture import reader_fixture
 
 
 class GalleryContinuity(GalleryRevealBase):
@@ -37,7 +38,7 @@ class GalleryContinuity(GalleryRevealBase):
                 button = appearance.get_by_role('button', name=layout, exact=True)
                 button.click()
                 expect(button).to_have_attribute('aria-pressed', 'true')
-                self.page.wait_for_function('(v) => localStorage.getItem("viewMode") === v', arg=saved)
+                self.page.wait_for_function(reader_fixture('(v) => localStorage.getItem("viewMode") === v'), arg=saved)
                 appearance.get_by_role('button', name='Close reading appearance', exact=True).click()
                 expect(appearance).to_have_count(0)
                 expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
@@ -53,7 +54,7 @@ class GalleryContinuity(GalleryRevealBase):
     def test_gallery_round_trip_restores_nonzero_continuous_scroll(self):
         # This journey measures vertical document scrolling. Configure horizontal
         # reading explicitly instead of inheriting the default vertical-rl mode.
-        self.context.add_init_script("localStorage.setItem('writingMode', 'horizontal-tb')")
+        self.context.add_init_script(reader_fixture("localStorage.setItem('writingMode', 'horizontal-tb')"))
         self.go_library()
         title = 'Continuous reading continuity'
         source = illustrated_book(title)

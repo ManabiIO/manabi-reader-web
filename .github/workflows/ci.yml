@@ -4,14 +4,18 @@ permissions:
   contents: read
 jobs:
   test:
-    # This exact migration is qualified once in expo-migration.yml.
+    # Dedicated edition/Expo qualification branches skip legacy cache/upload jobs.
     if: >-
       !(github.repository == 'ManabiIO/manabi-reader-web' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
-        github.head_ref == 'feat/expo-android-web-migration') ||
+        (github.head_ref == 'feat/manabitan-reader-editions' ||
+         github.head_ref == 'feat/expo-android-web-migration' ||
+         github.head_ref == 'codex/reader-windows-sdk56-20261020')) ||
        (github.event_name == 'push' &&
-        github.ref == 'refs/heads/feat/expo-android-web-migration')))
+        (github.ref == 'refs/heads/feat/manabitan-reader-editions' ||
+         github.ref == 'refs/heads/feat/expo-android-web-migration' ||
+         github.ref == 'refs/heads/codex/reader-windows-sdk56-20261020'))))
     name: Test
     runs-on: ubuntu-latest
     steps:
@@ -36,8 +40,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Postinstall steps
-        run: node ../../scripts/prepare-expo.mjs
-        working-directory: apps/web
+        run: pnpm prepare:dictionary && node scripts/prepare-expo.mjs
+
+      - name: Dictionary license boundary
+        run: pnpm test:dictionary-boundary
 
       - name: Lint
         run: pnpm eslint .

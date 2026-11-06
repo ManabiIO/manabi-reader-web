@@ -2,9 +2,17 @@
 // Wiring-policy tests. Original application suites/assertions remain unchanged.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  writeFileSync
+} from 'node:fs';
 import { createRequire } from 'node:module';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { compileFunction } from 'node:vm';
@@ -31,8 +39,6 @@ const migration = workflows['expo-migration.yml'];
 const branch = 'feat/expo-android-web-migration';
 const repository = 'ManabiIO/manabi-reader-web';
 const untouched = {
-  'notify-production-publication.yml':
-    '7c62879329be43e490b36b44544d347efc9ffe724eae2477dc4dbc3339cb3ab0',
   'moss-shared-custody.yml': 'ed8aaa78a65877003b0de9edd3740bffd32465828eddc8bb789d10701980c17c'
 };
 
@@ -56,17 +62,78 @@ function context({
   };
 }
 
-function admits(expression, github) {
+function admits(expression, github, inputs = {}) {
   // The checked-in job guards intentionally use only boolean operators, exact
   // string equality and toJSON. Execute that expression, not a duplicated rule.
   assert.equal(typeof expression, 'string');
   assert.doesNotMatch(expression, /\$\{\{|\b(?:success|failure|always|cancelled)\(/);
-  return compileFunction(`return Boolean(${expression});`, ['github', 'toJSON'])(github, (value) =>
-    JSON.stringify(value ?? null)
+  return compileFunction(`return Boolean(${expression});`, ['github', 'toJSON', 'inputs'])(
+    github,
+    (value) => JSON.stringify(value ?? null),
+    inputs
   );
 }
 
+function trashTemporary(directory) {
+  const trash = path.join(homedir(), '.Trash');
+  mkdirSync(trash, { recursive: true });
+  renameSync(directory, path.join(realpathSync(trash), path.basename(directory)));
+}
+
 const cases = [
+  [
+    'edition branch push uses its dedicated manual qualification',
+    { event: 'push', head: 'feat/manabitan-reader-editions' },
+    false,
+    false
+  ],
+  [
+    'edition branch PR skips legacy qualification',
+    { head: 'feat/manabitan-reader-editions' },
+    false,
+    false
+  ],
+  [
+    'Retired experiment branch push',
+    { event: 'push', head: 'codex/reader-windows-sdk56-20261020' },
+    false,
+    false
+  ],
+  ['Retired experiment branch PR', { head: 'codex/reader-windows-sdk56-20261020' }, false, false],
+  [
+    'Web/Android upgrade dispatch is admitted without changing legacy manual behavior',
+    { event: 'workflow_dispatch', head: 'codex/reader-windows-sdk56-20261020' },
+    true,
+    true
+  ],
+  [
+    'Retired experiment branch fork PR',
+    { headRepo: 'contributor/reader', head: 'codex/reader-windows-sdk56-20261020' },
+    false,
+    true
+  ],
+  [
+    'Private retired experiment branch push',
+    {
+      event: 'push',
+      head: 'codex/reader-windows-sdk56-20261020',
+      visibility: 'private',
+      privateValue: true
+    },
+    false,
+    false
+  ],
+  [
+    'Private web/Android upgrade dispatch fails closed',
+    {
+      event: 'workflow_dispatch',
+      head: 'codex/reader-windows-sdk56-20261020',
+      visibility: 'private',
+      privateValue: true
+    },
+    false,
+    true
+  ],
   ['same-repo migration PR', {}, true, false],
   ['same-repo migration push (legacy suppression)', { event: 'push' }, true, false],
   [
@@ -117,16 +184,58 @@ for (const [name, fixture, migrationExpected, legacyExpected] of cases) {
     if (Object.hasOwn(fixture, 'privateValue') && fixture.privateValue === undefined)
       delete github.event.repository.private;
     for (const [job, definition] of Object.entries(migration.jobs)) {
-      assert.equal(admits(definition.if, github), migrationExpected, `migration/${job}`);
+      assert.equal(
+        admits(definition.if, github),
+        job === 'android' ? false : migrationExpected,
+        `migration/${job}`
+      );
+      assert.equal(
+        admits(definition.if, github, { qualify_android: true }),
+        job === 'android'
+          ? migrationExpected && github.event_name === 'workflow_dispatch'
+          : migrationExpected,
+        `migration/${job} with explicit Android request`
+      );
     }
     for (const [file, workflow] of Object.entries(workflows)) {
-      if (file === 'expo-migration.yml' || Object.hasOwn(untouched, file)) continue;
+      if (
+        file === 'expo-migration.yml' ||
+        file === 'contribution-license.yml' ||
+        file === 'reader-editions.yml' ||
+        Object.hasOwn(untouched, file)
+      )
+        continue;
       for (const [job, definition] of Object.entries(workflow.jobs)) {
         assert.equal(admits(definition.if, github), legacyExpected, `${file}/${job}`);
       }
     }
   });
 }
+
+test('edition qualification is manual, public and default-branch only', () => {
+  const workflow = workflows['reader-editions.yml'];
+  assert.equal(workflow.jobs.web.name, 'Reader edition qualification');
+  assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch']);
+  const guard = workflow.jobs.web.if;
+  assert.equal(admits(guard, context({ event: 'workflow_dispatch', head: 'main' })), true);
+  for (const fixture of [
+    { event: 'push', head: 'main' },
+    { event: 'pull_request', head: 'main' },
+    { event: 'workflow_dispatch' },
+    { event: 'workflow_dispatch', head: 'main', visibility: 'private', privateValue: true },
+    { event: 'workflow_dispatch', head: 'main', visibility: null, privateValue: null }
+  ])
+    assert.equal(admits(guard, context(fixture)), false);
+  assert.equal(workflow.jobs.web['runs-on'], 'ubuntu-24.04');
+  assert.deepEqual(workflow.permissions, { contents: 'read' });
+});
+
+test('contribution acknowledgement never checks out or runs contributor source', () => {
+  const workflow = workflows['contribution-license.yml'];
+  assert.deepEqual(Object.keys(workflow.on), ['pull_request_target']);
+  assert.deepEqual(workflow.permissions, { contents: 'read' });
+  assert(!workflow.jobs.acknowledgement.steps.some((step) => step.uses));
+});
 
 test('only three stock, read-only jobs; no duplicate push or matrix allocation', () => {
   assert.deepEqual(Object.keys(migration.jobs), ['regression', 'web', 'android']);
@@ -140,6 +249,28 @@ test('only three stock, read-only jobs; no duplicate push or matrix allocation',
     assert.equal(job['continue-on-error'], undefined);
     for (const step of job.steps) assert.equal(step['continue-on-error'], undefined);
   }
+});
+
+test('Android is deferred by default, and opt-in cannot bypass repository admission', () => {
+  const input = migration.on.workflow_dispatch.inputs.qualify_android;
+  assert.equal(input.type, 'boolean');
+  assert.equal(input.default, false);
+  assert.equal(input.required, false);
+  for (const value of [undefined, false, 'false', 'true'])
+    assert.equal(
+      admits(migration.jobs.android.if, context({ event: 'workflow_dispatch' }), {
+        qualify_android: value
+      }),
+      false
+    );
+  for (const name of [
+    'Select the Android harness Java toolchain',
+    'Android instrumentation harness contracts'
+  ])
+    assert.equal(
+      migration.jobs.regression.steps.find((step) => step.name === name).if,
+      '${{ inputs.qualify_android == true && (success() || failure()) }}'
+    );
 });
 
 test('affected qualification is explicit and the complete final gate remains selectable', () => {
@@ -174,6 +305,20 @@ test('full web inventories enable video search while automatic affected exports 
     /if \[ "\$EXPO_PUBLIC_ENABLE_VIDEO_LEARNING" != 'true' \]; then\s+test ! -e apps\/web\/build\/moss/
   );
   assert.match(exportStep.run, /verify-expo-export\.mjs --platform web/);
+});
+
+test('Android compilation and executable harness contracts select Java 21 before running', () => {
+  for (const [job, consumer] of [
+    [migration.jobs.regression, 'Android instrumentation harness contracts'],
+    [migration.jobs.android, 'Compile Android host and run origin policy tests']
+  ]) {
+    const setup = job.steps.findIndex((step) => step.uses === 'actions/setup-java@v4');
+    const run = job.steps.findIndex((step) => step.name === consumer);
+    assert.ok(setup >= 0 && setup < run, `${consumer} must not inherit the runner's Java 17`);
+    assert.equal(job.steps[setup].with['java-version'], '21');
+    assert.equal(job.steps[setup].with.distribution, 'temurin');
+    assert.equal(job.steps[setup].with.cache, undefined);
+  }
 });
 
 test('executing jobs cannot upload artifacts, save remote caches or hide composite actions', () => {
@@ -216,20 +361,48 @@ test('the redundant lifetime workflow is removed while its assertions remain col
   ])
     assert.ok(commands.includes(suite), suite);
   for (const [name, workflow] of Object.entries(workflows)) {
-    if (name === 'expo-migration.yml' || Object.hasOwn(untouched, name)) continue;
+    if (
+      name === 'expo-migration.yml' ||
+      name === 'reader-editions.yml' ||
+      Object.hasOwn(untouched, name)
+    )
+      continue;
     for (const job of Object.values(workflow.jobs))
       assert.doesNotMatch(job.if, /workflow_dispatch/);
   }
 });
 
-test('publication and manual MOSS workflows stay byte-for-byte unchanged', () => {
+test('the manual MOSS experiment stays byte-for-byte unchanged', () => {
   for (const [name, expected] of Object.entries(untouched)) {
     assert.equal(createHash('sha256').update(sources[name]).digest('hex'), expected, name);
   }
   assert.deepEqual(Object.keys(workflows['moss-shared-custody.yml'].on), ['workflow_dispatch']);
-  assert.deepEqual(workflows['notify-production-publication.yml'].on.workflow_run.branches, [
-    'main'
-  ]);
+});
+
+test('every Expo preparation admits its provider before staging a fresh checkout', () => {
+  for (const [name, workflow] of Object.entries(workflows)) {
+    for (const [jobName, job] of Object.entries(workflow.jobs)) {
+      let providerPrepared = false;
+      for (const step of job.steps ?? []) {
+        const commands = step.run ?? '';
+        const provider = commands.indexOf('pnpm prepare:dictionary');
+        const expo = commands.indexOf('node scripts/prepare-expo.mjs');
+        if (expo >= 0) {
+          assert.ok(
+            providerPrepared || (provider >= 0 && provider < expo),
+            `${name}/${jobName}: provider preparation must precede Expo asset staging`
+          );
+          assert.equal(
+            step['working-directory'],
+            undefined,
+            'Preparation runs from the repository root'
+          );
+        }
+        assert.doesNotMatch(commands, /node \.\.\/\.\.\/scripts\/prepare-expo\.mjs/);
+        if (provider >= 0) providerPrepared = true;
+      }
+    }
+  }
 });
 
 const webSteps = migration.jobs.web.steps;
@@ -389,6 +562,10 @@ for (const [label, mode] of [
               result.stdout.includes(`SELECTED|${engine}|tests/browser/${settingsSuite}.py`)
             );
           assert.ok(
+            result.stdout.includes(`SELECTED|${engine}|-m unittest -v test_appearance_refinement`),
+            'Real local-image persistence and preview cases must run in both engines and scopes'
+          );
+          assert.ok(
             result.stdout.includes(
               `SELECTED|${engine}|-m unittest test_library_sync.LibraryOrganizationSync.test_offline_bookmark_survives_reload_and_syncs_on_reconnect test_offline_account_profile.OfflineAccountProfile.test_owned_book_opens_offline_and_disappears_after_confirmed_signout -v`
             )
@@ -425,7 +602,7 @@ for (const [label, mode] of [
           /FAIL \(exit 7\): .*shared-statistics-chromium[\s\S]*PASS: .*offline-handoff-webkit/
         );
       } finally {
-        rmSync(temporary, { recursive: true, force: true });
+        trashTemporary(temporary);
       }
     }
   });
@@ -461,7 +638,7 @@ for (const label of ['Core default-route acceptance', 'Retained actual-app asser
         assert.match(text, failed ? /FAIL \(exit 7\): first/ : /PASS: first/);
         assert.match(text, /PASS: later/);
       } finally {
-        rmSync(temporary, { recursive: true, force: true });
+        trashTemporary(temporary);
       }
     }
   });
@@ -521,7 +698,7 @@ test('both production exports retain the same exact shared Library shelf/editor 
   );
   assert.equal(result.status, 0, result.stderr);
   const cases = JSON.parse(result.stdout);
-  assert.equal(cases.length, 9);
+  assert.equal(cases.length, 13);
   assert.ok(
     cases.some((value) =>
       value.endsWith('test_enlarged_list_keeps_titles_readable_and_actions_separate')
@@ -538,3 +715,36 @@ test('both production exports retain the same exact shared Library shelf/editor 
     )
   );
 });
+
+for (const [kind, name, variable, script] of [
+  [
+    'background',
+    'Real local background decoding',
+    'BACKGROUND_BROWSER',
+    'native-background-browser.mjs'
+  ],
+  ['font', 'Real cached font decoding', 'FONT_BROWSER', 'native-font-browser.mjs']
+])
+  test(`${kind} raster qualification executes both engines and retains the first failure`, () => {
+    const step = stepNamed(name);
+    assert.match(step.if, /steps\.browsers\.outcome == 'success'/);
+    const temporary = mkdtempSync(path.join(tmpdir(), 'expo-background-ci-'));
+    try {
+      writeFileSync(
+        path.join(temporary, 'node'),
+        '#!/usr/bin/env bash\n' +
+          `printf "SELECTED|%s|%s\\n" "$${variable}" "$*"\n` +
+          `[ "$${variable}" != chromium ]\n`,
+        { mode: 0o755 }
+      );
+      const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${temporary}${path.delimiter}${process.env.PATH}` }
+      });
+      assert.equal(result.status, 1);
+      for (const engine of ['chromium', 'webkit'])
+        assert.ok(result.stdout.includes(`SELECTED|${engine}|test/expo/${script}`));
+    } finally {
+      trashTemporary(temporary);
+    }
+  });

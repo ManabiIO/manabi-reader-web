@@ -11,12 +11,13 @@ import unittest
 from playwright.sync_api import expect
 from reader_controls import reveal_reader_controls
 from test_books_library import LibraryBase
+from reader_fixture import reader_fixture
 
 
 class WebReaderLifetime(LibraryBase):
     def setUp(self):
         super().setUp()
-        self.context.add_init_script('''
+        self.context.add_init_script(reader_fixture('''
           localStorage.setItem('viewMode', 'continuous');
           localStorage.setItem('writingMode', 'horizontal-tb');
           localStorage.setItem('confirmClose', localStorage.getItem('confirmClose') ?? '0');
@@ -41,7 +42,7 @@ class WebReaderLifetime(LibraryBase):
               throw new DOMException('Qualification bookmark write failed', 'QuotaExceededError');
             return Reflect.apply(original, this, args);
           };
-        ''')
+        '''))
         self.page.reload()
         self.body = ''.join(f'<p>READING_POINT_{index:03d} 日本語の本文を読みます。</p>' for index in range(140))
 
@@ -49,14 +50,14 @@ class WebReaderLifetime(LibraryBase):
         output = Path('test-results')
         output.mkdir(exist_ok=True)
         try:
-            state = self.page.evaluate('''() => ({url: location.href,
+            state = self.page.evaluate(reader_fixture('''() => ({url: location.href,
               historyLength: history.length, state: history.state,
               events: window.readerHistoryEvidence,
               preferences: Object.fromEntries(['confirmClose','manualBookmark','autoBookmark'].map(key => [key, localStorage.getItem(key)])),
               contents: [...document.querySelectorAll('.book-content')].map(node => ({
                 connected: node.isConnected, busy: node.getAttribute('aria-busy'),
                 text: node.textContent.slice(0, 160)
-              }))})''')
+              }))})'''))
             (output / f'{self.engine}-{self._testMethodName}-history.json').write_text(json.dumps(state))
         finally:
             super().tearDown()
@@ -85,7 +86,7 @@ class WebReaderLifetime(LibraryBase):
     def close_to_library(self):
         reveal_reader_controls(self.page)
         self.page.locator('header[aria-label="Reader toolbar"]').get_by_role('button', name='Library', exact=True).click()
-        expect(self.page).to_have_url(self.origin + '/reader-web/manage')
+        expect(self.page).to_have_url(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('.book-content')).to_have_count(0)
 
     def test_close_library_same_then_different_book_has_one_current_container(self):
@@ -105,7 +106,7 @@ class WebReaderLifetime(LibraryBase):
         reader_url = self.read_book('Settings lifetime')
         self.tool('Settings')
         expect(self.page.get_by_role('heading', name='Settings', exact=True)).to_be_visible()
-        expect(self.page).to_have_url(self.origin + '/reader-web/settings')
+        expect(self.page).to_have_url(self.origin + reader_fixture('/reader-web/settings'))
         expect(self.page.locator('.book-content')).to_have_count(0)
         settings_url = self.page.url
         settings_id = self.page.evaluate('history.state.id')
@@ -149,7 +150,7 @@ class WebReaderLifetime(LibraryBase):
         self.page.evaluate('window.failReaderBookmarkWrite = false')
         error.get_by_role('button', name='Close', exact=True).click()
         self.page.go_back()
-        expect(self.page).to_have_url(self.origin + '/reader-web/manage')
+        expect(self.page).to_have_url(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('.book-content')).to_have_count(0)
         # Retirement removes the Reader before the guarded native Back replay
         # settles. Its provisional URL is not a committed Library arrival;
@@ -160,7 +161,7 @@ class WebReaderLifetime(LibraryBase):
         self.assert_reader()
 
     def test_canceled_browser_departure_keeps_original_reader_and_resume_target(self):
-        self.page.evaluate("localStorage.setItem('confirmClose','1'); localStorage.setItem('manualBookmark','1'); localStorage.setItem('autoBookmark','0');")
+        self.page.evaluate(reader_fixture("localStorage.setItem('confirmClose','1'); localStorage.setItem('manualBookmark','1'); localStorage.setItem('autoBookmark','0');"))
         self.page.reload()
         self.import_book('Confirmation lifetime', body=self.body)
         reader_url = self.read_book('Confirmation lifetime')
@@ -186,7 +187,7 @@ class WebReaderLifetime(LibraryBase):
         self.page.go_back()
         expect(dialog).to_be_visible()
         dialog.get_by_role('button', name='Confirm', exact=True).click()
-        expect(self.page).to_have_url(self.origin + '/reader-web/manage')
+        expect(self.page).to_have_url(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('.book-content')).to_have_count(0)
         self.assertEqual(resume, self.stores('books', ['lastItem'])['lastItem'])
 

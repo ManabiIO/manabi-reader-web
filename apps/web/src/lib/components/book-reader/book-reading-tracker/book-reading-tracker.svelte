@@ -16,6 +16,7 @@
     BooksDbStatistic
   } from '$lib/data/database/books-db/versions/books-db';
   import { PAGE_CHANGE } from '$lib/data/events';
+  import { EXTERNAL_DICTIONARY_POPUP_SELECTOR } from '$lib/integrations/external-dictionary-interop';
   import { logger } from '$lib/data/logger';
   import { MergeMode } from '$lib/data/merge-mode';
   import { getReadingGoalWindow, type ReadingGoal } from '$lib/data/reading-goal';
@@ -362,7 +363,7 @@
 
   $: if ($trackerAutoPause$ !== TrackerAutoPause.OFF && !yomiPopover) {
     yomiPopover = document.querySelector(
-      '.yomichan-popup,.yomichan-float,.yomitan-popup,.yomitan-float'
+      EXTERNAL_DICTIONARY_POPUP_SELECTOR
     );
 
     if (!yomiPopover) {
@@ -393,7 +394,7 @@
 
   function handleYomiMutation() {
     yomiPopover = document.querySelector(
-      '.yomichan-popup,.yomichan-float,.yomitan-popup,.yomitan-float'
+      EXTERNAL_DICTIONARY_POPUP_SELECTOR
     );
 
     if (yomiPopover) {

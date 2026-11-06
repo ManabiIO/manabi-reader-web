@@ -6,6 +6,7 @@ import unittest
 from playwright.sync_api import expect
 from reader_controls import reveal_reader_controls
 from test_local_library_features import LocalFeatureBrowser
+from reader_fixture import reader_fixture
 
 
 class LocalLibraryLifecycle(LocalFeatureBrowser):
@@ -58,7 +59,7 @@ class LocalLibraryLifecycle(LocalFeatureBrowser):
         form = self.edit_connection()
         form.get_by_label('Name', exact=True).fill('Canceled inside transaction')
         form.get_by_label('Remember password on this device', exact=True).uncheck()
-        self.page.evaluate("""() => {
+        self.page.evaluate(reader_fixture("""() => {
             window.originalDavPut = IDBObjectStore.prototype.put;
             window.canceledDavWrite = false;
             IDBObjectStore.prototype.put = function(...args) {
@@ -70,7 +71,7 @@ class LocalLibraryLifecycle(LocalFeatureBrowser):
                 }
                 return request;
             };
-        }""")
+        }"""))
         try:
             form.get_by_role('button', name='Test and save WebDAV', exact=True).click()
             expect(self.page.get_by_role('button', name='Add WebDAV folder', exact=True)).to_be_enabled()
@@ -103,8 +104,8 @@ class LocalLibraryLifecycle(LocalFeatureBrowser):
     def test_disconnect_transaction_failure_preserves_connection_and_can_retry(self):
         self.connect_dav(writable=True)
         before = self.stores('manabi-reader-integrations', ['metadata', 'books'])
-        self.page.goto(self.origin + '/reader-web/connections')
-        self.page.evaluate("""() => {
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
+        self.page.evaluate(reader_fixture("""() => {
             window.originalDavDelete = IDBObjectStore.prototype.delete;
             IDBObjectStore.prototype.delete = function(...args) {
                 const request = window.originalDavDelete.apply(this, args);
@@ -112,7 +113,7 @@ class LocalLibraryLifecycle(LocalFeatureBrowser):
                     this.transaction.abort();
                 return request;
             };
-        }""")
+        }"""))
         try:
             self.page.get_by_role('button', name='Disconnect Test DAV', exact=True).click()
             expect(self.page.get_by_role('button', name='Add WebDAV folder', exact=True)).to_be_enabled()
@@ -147,7 +148,7 @@ class LocalLibraryLifecycle(LocalFeatureBrowser):
         self.connect_dav(writable=True)
         self.seed_resume()
         self.page.get_by_label('Sync this book’s reading data with WebDAV', exact=True).check()
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         form = self.edit_connection()
         other = self.context.new_page()
         try:

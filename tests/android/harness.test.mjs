@@ -6,16 +6,22 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { webcrypto, createHash } from 'node:crypto';
 import { IDBFactory } from 'fake-indexeddb';
 import { prepareAndroidQualification } from '../../scripts/prepare-android-qualification.mjs';
-import { readEvidence, verifyEvidence } from './verify-evidence.mjs';
+import { readEvidence, verifyEvidence, verifyEvidencePair } from './verify-evidence.mjs';
 
 const revision = '4db879b7b5bcb749f90042a313669526ef2f57f4';
 const id = 'abcdef0123456789abcdef0123456789';
 const name = `manabi-android-qualification-${id}`;
 const source = await fs.readFile(new URL('probe.js', import.meta.url), 'utf8');
+
+async function trashTemporary(directory) {
+  await fs.mkdir(path.join(os.homedir(), '.Trash'), { recursive: true });
+  const trash = await fs.realpath(path.join(os.homedir(), '.Trash'));
+  await fs.rename(directory, path.join(trash, path.basename(directory)));
+}
 
 function harness({ workerReply = 'not_open', secure = true } = {}) {
   const directories = new Map([['unrelated-user-data', new Map([['keep', 'untouched']])]]);
@@ -202,7 +208,12 @@ test('prepare is idempotent and confines additions to the generated test project
     assert.equal(await fs.readFile(path.join(android, 'app/build.gradle'), 'utf8'), first);
     const gradle = await fs.readFile(path.join(android, 'app/reader-qualification.gradle'), 'utf8');
     assert.match(gradle, /testBuildType "release"/);
-    assert.match(gradle, /androidTestImplementation "androidx.test:runner:1.7.0"/);
+    assert.match(gradle, /androidTestImplementation "junit:junit:4.13.2"/);
+    assert.match(
+      gradle,
+      /testInstrumentationRunner "io.manabi.reader.qualification.PackagedReaderInstrumentation"/
+    );
+    assert.doesNotMatch(gradle, /androidx\.test:|proguard|keepRules/);
     assert.doesNotMatch(gradle, /^\s*(?:debuggable|signingConfig|buildTypes|implementation\()/m);
     assert.deepEqual(await fs.readdir(path.join(android, 'app/src')), ['androidTest']);
     await fs.writeFile(
@@ -222,7 +233,110 @@ test('prepare is idempotent and confines additions to the generated test project
       /different instrumentation build type/
     );
   } finally {
-    await fs.rm(android, { recursive: true, force: true });
+    await trashTemporary(android);
+  }
+});
+
+test('offline runner refuses existing profiles and disconnects only the checked disposable emulator before launch', async () => {
+  for (const scenario of ['physical', 'not-emulator', 'existing-app', 'airplane-failed', 'fresh']) {
+    const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-offline-runner-'));
+    try {
+      const bin = path.join(temp, 'bin');
+      await fs.mkdir(bin);
+      await fs.mkdir(path.join(temp, 'tests/android'), { recursive: true });
+      await fs.copyFile(
+        new URL('run-qualification.sh', import.meta.url),
+        path.join(temp, 'tests/android/run-qualification.sh')
+      );
+      for (const file of [
+        'release/app-release.apk',
+        'androidTest/release/app-release-androidTest.apk'
+      ]) {
+        const target = path.join(temp, 'apps/web/android/app/build/outputs/apk', file);
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.writeFile(target, 'isolated shell sequencing fixture');
+      }
+      const trace = path.join(temp, 'adb-calls.jsonl');
+      await fs.writeFile(
+        path.join(bin, 'adb'),
+        `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2), key = args.join(' '), scenario = process.env.MANABI_SCENARIO;
+fs.appendFileSync(process.env.MANABI_ADB_TRACE, JSON.stringify(args) + '\\n');
+if (key === 'shell getprop ro.kernel.qemu') console.log(scenario === 'not-emulator' ? '0' : '1');
+else if (key === 'shell getprop sys.boot_completed') console.log('1');
+else if (key.startsWith('shell pm path ')) {
+  if (scenario === 'existing-app') console.log('package:/fixture/existing.apk');
+}
+else if (key === 'shell cmd connectivity airplane-mode') console.log(scenario === 'airplane-failed' ? 'disabled' : 'enabled');
+else if (key.startsWith('shell am instrument ')) process.exitCode = 97;
+else if (!(key.startsWith('install ') || key.startsWith('shell dumpsys ') || key.startsWith('logcat ')
+  || key === 'shell getprop ro.build.fingerprint' || key === 'shell cmd connectivity airplane-mode enable'
+  || key === 'shell svc wifi disable' || key === 'shell svc data disable')) throw new Error(key);
+`,
+        { mode: 0o755 }
+      );
+      await fs.writeFile(
+        path.join(bin, 'sha256sum'),
+        `#!/usr/bin/env node
+const fs = require('node:fs'), crypto = require('node:crypto');
+for (const file of process.argv.slice(2)) console.log(crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex') + '  ' + file);
+`,
+        { mode: 0o755 }
+      );
+      const result = spawnSync('bash', ['tests/android/run-qualification.sh'], {
+        cwd: temp,
+        env: {
+          ...process.env,
+          PATH: bin + path.delimiter + process.env.PATH,
+          ANDROID_SERIAL: scenario === 'physical' ? 'physical-fixture' : 'emulator-5554',
+          MANABI_SCENARIO: scenario,
+          MANABI_ADB_TRACE: trace
+        },
+        encoding: 'utf8',
+        timeout: 15000
+      });
+      assert.ifError(result.error);
+      const calls = (await fs.readFile(trace, 'utf8').catch(() => ''))
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((row) => JSON.parse(row).join(' '));
+      if (['physical', 'not-emulator', 'existing-app'].includes(scenario)) {
+        assert.equal(result.status, 1, result.stderr);
+        assert.equal(
+          calls.some(
+            (call) =>
+              call.includes('airplane-mode') || call.includes('svc ') || call.startsWith('install ')
+          ),
+          false
+        );
+      } else if (scenario === 'airplane-failed') {
+        assert.equal(result.status, 1, result.stderr);
+        assert.match(result.stderr, /did not enter airplane mode/);
+        assert.equal(
+          calls.some((call) => call.startsWith('shell am instrument ')),
+          false
+        );
+      } else {
+        assert.equal(result.status, 97, result.stderr);
+        const launch = calls.findIndex((call) => call.startsWith('shell am instrument '));
+        assert.ok(launch > 0);
+        for (const command of [
+          'shell cmd connectivity airplane-mode enable',
+          'shell svc wifi disable',
+          'shell svc data disable'
+        ]) {
+          const position = calls.indexOf(command);
+          assert.ok(
+            position > calls.indexOf('shell pm path io.manabi.reader.test') && position < launch,
+            command
+          );
+        }
+      }
+    } finally {
+      await trashTemporary(temp);
+    }
   }
 });
 
@@ -273,20 +387,98 @@ test('instrumentation evidence parser rejects absent, duplicated, failed or inco
 });
 
 test('runtime evidence requires an actual native roundtrip in both process phases', () => {
+  const font = {
+    name: `Qualification font ${id}`,
+    fileName: `manabi-font-${id}.woff2`,
+    path: `/userfonts/manabi-font-${id}.woff2`,
+    bytes: 900,
+    sha256: 'a'.repeat(64),
+    selected: true,
+    productionCss: 'cached-blob-face-loaded'
+  };
   const base = {
     schema: 1,
     passed: true,
     id,
     target: 'io.manabi.reader',
     targetDebuggable: false,
+    nativeOffline: {
+      notice: 'native-details-open-and-dismissed',
+      webViewOnline: false,
+      ...Object.fromEntries(
+        ['beforeLaunch', 'afterJourneys', 'afterStorageChecks'].map((point) => [
+          point,
+          { airplaneMode: true, activeNetwork: false, networkCount: 0 }
+        ])
+      )
+    },
     nativeRoundTrip: 'snapshot-route-and-library-state-reply',
-    nativeFontManager: 'settings-typography-font-cache-read-and-close',
+    nativeFontManager: 'shared-font-list-add-back-and-close-without-save',
+    nativeBookExport: {
+      filename: 'ttu-reader-export-10-20-2026-12-34-56-archive_token.zip',
+      bytes: 530000,
+      sha256: 'a'.repeat(64),
+      contentHash: 'b'.repeat(64),
+      htmlBytes: 860000,
+      htmlSha256: 'c'.repeat(64),
+      title: `manabi-export-${id}`,
+      zip: 'independent-nested-zip-and-stored-html-verification',
+      libraryCopyRemoved: true
+    },
+    nativeChoices: 'color-mode-selection-local-save-and-restore',
+    nativePageTurn: {
+      initial: 'slide',
+      selected: 'none',
+      namedField: 'Page turn effect',
+      routeReopen: true
+    },
+    nativeStatisticsTextField: {
+      journey: 'native-named-edit-focus-cancel-and-close-reset',
+      label: 'Filter book titles',
+      edits: 2,
+      focusRetained: true,
+      cancelReset: true,
+      closeReset: true
+    },
+    nativeFontPreferences: 'explicit-font-draft-cancel-apply-and-exact-restore',
+    nativeThemeChooser: 'add-dialog-back-and-close-without-save',
+    nativeDimensions: 'slider-completion-and-automatic-local-save-with-exact-restore',
+    nativeBackgrounds: {
+      rendered: 'native-light-and-dark-decoded-pixels',
+      records: Object.fromEntries(
+        ['library-light', 'library-dark', 'reader-light'].map((slot) => [
+          slot,
+          { name: `manabi-background-${id}-${slot}.png`, bytes: 120, sha256: 'a'.repeat(64) }
+        ])
+      )
+    },
     entry: 'https://appassets.androidplatform.net/www.bundle/' + 'a'.repeat(32) + '.html',
     nativeSettings: { webViewVersion: 'fixture-version', fileOriginBypass: false }
   };
   const seed = {
     ...base,
     phase: 'seed',
+    processId: 200,
+    nativePageTurn: {
+      ...base.nativePageTurn,
+      journey: 'native-picker-dismiss-select-and-reopen',
+      selections: ['none', 'slide', 'none'],
+      exactRawPreferenceRestored: false
+    },
+    nativePageTurnAfterReload: 'none',
+    nativeBookExport: {
+      ...base.nativeBookExport,
+      journey: 'system-picker-cancel-import-export-and-remove',
+      removed: false
+    },
+    nativeFontPicker: { font, picker: 'system-picker-cancel-import-and-select', removed: false },
+    nativeFontImported: { ...font, selected: false },
+    nativeFontAfterReload: { ...font },
+    nativeBackgrounds: {
+      ...base.nativeBackgrounds,
+      removed: false,
+      picker: 'system-picker-cancel-and-three-imports'
+    },
     initial: {
       secureContext: true,
       cachedFont: 'cached-packaged-face-loaded-via-blob',
@@ -304,6 +496,29 @@ test('runtime evidence requires an actual native roundtrip in both process phase
   const verify = {
     ...base,
     phase: 'verify',
+    processId: 300,
+    nativePageTurn: {
+      ...base.nativePageTurn,
+      journey: 'retained-after-process-restart-and-native-restore',
+      selections: ['slide', 'none', 'slide'],
+      exactRawPreferenceRestored: true
+    },
+    nativeBookExport: {
+      ...base.nativeBookExport,
+      journey: 'retained-after-process-restart',
+      removed: true
+    },
+    nativeFontPicker: {
+      font: { ...font },
+      picker: 'retained-from-previous-process',
+      removed: true
+    },
+    nativeFontCleanup: { removed: true, restored: true },
+    nativeBackgrounds: {
+      ...base.nativeBackgrounds,
+      removed: true,
+      picker: 'retained-from-previous-process'
+    },
     afterProcessRestart: {
       indexedDB: 'read-committed-sentinel',
       opfs: 'read-committed-sentinel',
@@ -311,16 +526,129 @@ test('runtime evidence requires an actual native roundtrip in both process phase
     },
     cleanup: { cleaned: name }
   };
+  verifyEvidencePair(seed, verify);
+  for (const mutate of [
+    (value) => (value.processId = seed.processId),
+    (value) => (value.nativePageTurn.selected = 'slide'),
+    (value) => {
+      value.nativePageTurn.initial = 'none';
+      value.nativePageTurn.selected = 'slide';
+      value.nativePageTurn.selections = ['none', 'slide', 'none'];
+      // Each phase is internally valid, but it is a different saved selection.
+      verifyEvidence(value, 'verify', id);
+    },
+    (value) => (value.nativeFontPicker.font.sha256 = 'b'.repeat(64)),
+    (value) => (value.nativeBackgrounds.records['library-light'].sha256 = 'b'.repeat(64)),
+    (value) => (value.nativeBookExport.sha256 = 'd'.repeat(64)),
+    (value) => (value.nativeBookExport.htmlSha256 = 'e'.repeat(64)),
+    (value) => delete value.nativeFontCleanup
+  ]) {
+    const changed = structuredClone(verify);
+    mutate(changed);
+    assert.throws(() => verifyEvidencePair(seed, changed));
+  }
   for (const evidence of [seed, verify]) {
     assert.equal(verifyEvidence(evidence, evidence.phase, id), evidence);
+    for (const nativeFontPicker of [
+      undefined,
+      {},
+      { ...evidence.nativeFontPicker, picker: 'mock' },
+      { ...evidence.nativeFontPicker, font: { ...font, selected: false } },
+      { ...evidence.nativeFontPicker, font: { ...font, productionCss: 'test-face' } }
+    ])
+      assert.throws(() => verifyEvidence({ ...evidence, nativeFontPicker }, evidence.phase, id));
+    for (const nativeBackgrounds of [
+      undefined,
+      {},
+      { ...evidence.nativeBackgrounds, rendered: 'component-mounted' },
+      { ...evidence.nativeBackgrounds, removed: !evidence.nativeBackgrounds.removed },
+      { ...evidence.nativeBackgrounds, records: {} },
+      { ...evidence.nativeBackgrounds, picker: 'mock-picker' }
+    ])
+      assert.throws(() => verifyEvidence({ ...evidence, nativeBackgrounds }, evidence.phase, id));
+    for (const nativeBookExport of [
+      undefined,
+      {},
+      { ...evidence.nativeBookExport, journey: 'mock-picker' },
+      { ...evidence.nativeBookExport, bytes: 1024 },
+      { ...evidence.nativeBookExport, htmlSha256: 'missing' },
+      { ...evidence.nativeBookExport, libraryCopyRemoved: false },
+      { ...evidence.nativeBookExport, removed: !evidence.nativeBookExport.removed },
+      { ...evidence.nativeBookExport, zip: 'success-message-only' }
+    ])
+      assert.throws(() => verifyEvidence({ ...evidence, nativeBookExport }, evidence.phase, id));
     for (const nativeRoundTrip of [undefined, 'shim-exists', false]) {
       assert.throws(() => verifyEvidence({ ...evidence, nativeRoundTrip }, evidence.phase, id));
     }
     assert.throws(() =>
       verifyEvidence({ ...evidence, targetDebuggable: true }, evidence.phase, id)
     );
+    for (const nativeOffline of [undefined, {}, { ...evidence.nativeOffline, webViewOnline: true }])
+      assert.throws(() => verifyEvidence({ ...evidence, nativeOffline }, evidence.phase, id));
+    for (const point of ['beforeLaunch', 'afterJourneys', 'afterStorageChecks']) {
+      for (const state of [
+        undefined,
+        { airplaneMode: true, activeNetwork: false, networkCount: 1 },
+        { airplaneMode: false, activeNetwork: false, networkCount: 0 },
+        { airplaneMode: true, activeNetwork: true, networkCount: 0 }
+      ]) {
+        assert.throws(() =>
+          verifyEvidence(
+            { ...evidence, nativeOffline: { ...evidence.nativeOffline, [point]: state } },
+            evidence.phase,
+            id
+          )
+        );
+      }
+    }
     for (const nativeFontManager of [undefined, 'component-imported', false])
       assert.throws(() => verifyEvidence({ ...evidence, nativeFontManager }, evidence.phase, id));
+    for (const nativeFontPreferences of [undefined, 'component-mounted', false])
+      assert.throws(() =>
+        verifyEvidence({ ...evidence, nativeFontPreferences }, evidence.phase, id)
+      );
+    for (const nativeChoices of [undefined, 'component-mounted', false])
+      assert.throws(() => verifyEvidence({ ...evidence, nativeChoices }, evidence.phase, id));
+    for (const nativePageTurn of [
+      undefined,
+      {},
+      { ...evidence.nativePageTurn, journey: 'component-mounted' },
+      { ...evidence.nativePageTurn, selected: 'unknown' },
+      { ...evidence.nativePageTurn, namedField: 'Another control' },
+      { ...evidence.nativePageTurn, routeReopen: false },
+      { ...evidence.nativePageTurn, initial: evidence.nativePageTurn.selected },
+      { ...evidence.nativePageTurn, selections: ['none'] },
+      { ...evidence.nativePageTurn, selections: ['none', 'none', 'none'] },
+      {
+        ...evidence.nativePageTurn,
+        exactRawPreferenceRestored: !evidence.nativePageTurn.exactRawPreferenceRestored
+      }
+    ])
+      assert.throws(() => verifyEvidence({ ...evidence, nativePageTurn }, evidence.phase, id));
+    if (evidence.phase === 'seed')
+      for (const nativePageTurnAfterReload of [undefined, 'slide'])
+        assert.throws(() =>
+          verifyEvidence({ ...evidence, nativePageTurnAfterReload }, evidence.phase, id)
+        );
+    for (const nativeStatisticsTextField of [
+      undefined,
+      {},
+      ...Object.entries({
+        journey: 'component-mounted',
+        label: 'An arbitrary input',
+        edits: 1,
+        focusRetained: false,
+        cancelReset: false,
+        closeReset: false
+      }).map(([key, value]) => ({ ...evidence.nativeStatisticsTextField, [key]: value }))
+    ])
+      assert.throws(() =>
+        verifyEvidence({ ...evidence, nativeStatisticsTextField }, evidence.phase, id)
+      );
+    for (const nativeThemeChooser of [undefined, 'component-mounted', false])
+      assert.throws(() => verifyEvidence({ ...evidence, nativeThemeChooser }, evidence.phase, id));
+    for (const nativeDimensions of [undefined, 'component-mounted', false])
+      assert.throws(() => verifyEvidence({ ...evidence, nativeDimensions }, evidence.phase, id));
     for (const key of evidence.phase === 'seed'
       ? ['initial', 'afterReload']
       : ['afterProcessRestart'])
@@ -338,6 +666,232 @@ test('the expression injected by Java accepts the formatted probe asset', () => 
   const expression = source.trim().replace(/;$/, '');
   const invoke = vm.runInNewContext(`(${expression})`);
   assert.equal(typeof invoke, 'function');
+});
+
+test('platform runner reports success only after the requested qualification completes', async () => {
+  // Compile the actual runner against small platform doubles. This checks its
+  // failure/argument/result boundary, not Android startup or Reader acceptance.
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-runner-contract-'));
+  try {
+    const sources = {
+      'android/app/Activity.java': `package android.app;
+public class Activity { public static final int RESULT_OK = -1, RESULT_CANCELED = 0; }`,
+      'android/os/Bundle.java': `package android.os;
+public class Bundle extends java.util.HashMap<String, String> {
+  public Bundle() {}
+  public Bundle(Bundle other) { super(other); }
+  public void putString(String key, String value) { put(key, value); }
+  public void putInt(String key, int value) { put(key, Integer.toString(value)); }
+  public String getString(String key, String fallback) { return getOrDefault(key, fallback); }
+}`,
+      'android/app/Instrumentation.java': `package android.app;
+import android.os.Bundle;
+public class Instrumentation {
+  public static final String REPORT_KEY_STREAMRESULT = "stream";
+  public int code, finishes; public Bundle result;
+  public String statuses = "";
+  public void onCreate(Bundle args) {}
+  public void onStart() {}
+  public void start() { onStart(); }
+  public void waitForIdleSync() {}
+  public void sendStatus(int code, Bundle status) {
+    if (!"1".equals(status.getString("numtests", "")) ||
+        !"1".equals(status.getString("current", "")) ||
+        !"packagedReaderRuntime".equals(status.getString("test", "")))
+      throw new AssertionError("Incomplete test status");
+    statuses += code + ",";
+  }
+  public void finish(int code, Bundle result) {
+    this.code = code; this.result = result; finishes++;
+  }
+}`,
+      'android/util/Log.java': `package android.util;
+public class Log {
+  public static String getStackTraceString(Throwable error) { return error.toString(); }
+}`,
+      'io/manabi/reader/qualification/PackagedReaderTest.java': `package io.manabi.reader.qualification;
+import android.app.Instrumentation;
+import android.os.Bundle;
+public class PackagedReaderTest {
+  public static int calls; public static boolean fail;
+  public PackagedReaderTest(Instrumentation runner, Bundle args) {
+    if (!"seed".equals(args.getString("qualificationPhase", "")) ||
+        !"sentinel-id".equals(args.getString("qualificationId", "")))
+      throw new AssertionError("Arguments were not forwarded");
+  }
+  public void packagedReaderRuntime() {
+    calls++;
+    if (fail) throw new AssertionError("sentinel failure");
+  }
+}`,
+      'RunnerContract.java': `import android.os.Bundle;
+import io.manabi.reader.qualification.*;
+public class RunnerContract {
+  public static void main(String[] args) {
+    check(null, false, true, 1);
+    check(PackagedReaderTest.class.getName(), false, true, 1);
+    check(PackagedReaderTest.class.getName(), true, false, 1);
+    check("unrelated.Test", false, false, 0);
+  }
+  static void check(String requested, boolean fail, boolean success, int calls) {
+    Bundle args = new Bundle();
+    args.putString("qualificationPhase", "seed");
+    args.putString("qualificationId", "sentinel-id");
+    if (requested != null) args.putString("class", requested);
+    PackagedReaderTest.calls = 0; PackagedReaderTest.fail = fail;
+    PackagedReaderInstrumentation runner = new PackagedReaderInstrumentation();
+    runner.onCreate(args);
+    String output = runner.result.getString("stream", "");
+    String statuses = calls == 0 ? "" : success ? "1,0," : "1,-2,";
+    if (runner.finishes != 1 || runner.code != (success ? -1 : 0) ||
+        !statuses.equals(runner.statuses) ||
+        PackagedReaderTest.calls != calls ||
+        output.contains("OK (1 test)") != success ||
+        output.contains("FAILURES!!!") == success ||
+        (fail && !output.contains("sentinel failure")))
+      throw new AssertionError("Invalid instrumentation outcome: " + output);
+  }
+}`
+    };
+    const files = [];
+    for (const [name, content] of Object.entries(sources)) {
+      const file = path.join(temp, name);
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      await fs.writeFile(file, content);
+      files.push(file);
+    }
+    files.push(new URL('PackagedReaderInstrumentation.java', import.meta.url).pathname);
+    execFileSync('javac', ['--release', '21', '-d', temp, ...files], { encoding: 'utf8' });
+    execFileSync('java', ['-cp', temp, 'RunnerContract'], { encoding: 'utf8' });
+  } finally {
+    await trashTemporary(temp);
+  }
+});
+
+test('actual Java document selector distinguishes grid metadata from previews and filename prefixes', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-document-labels-'));
+  try {
+    const runner = path.join(temp, 'DocumentPickerLabelsTest.java');
+    await fs.writeFile(
+      runner,
+      `package io.manabi.reader.qualification;
+class DocumentPickerLabelsTest {
+  public static void main(String[] args) {
+    String name = "manabi-background-b42ccff5c82f23ebd097c3d3d26861e2-library-light.png";
+    check(true, name, name, null);
+    check(true, name, null, name);
+    check(true, name, "", name + ", 347 B, 2:22\u202fAM");
+    check(true, name, null, name + ", 347 B, Oct 21");
+    check(false, name, null, "Preview the file " + name);
+    check(false, name, null, name + ".backup, 347 B, 2:22\u202fAM");
+    check(false, name, name + ".backup", null);
+    check(false, name, null, "copy-" + name + ", 347 B");
+    check(false, name, name + ", 347 B", null);
+    check(false, name, null, null);
+    check(false, "", "", "");
+    check(false, null, name, name);
+  }
+  private static void check(boolean expected, String filename, String text, String description) {
+    if (DocumentPickerLabels.matches(filename, text, description) != expected)
+      throw new AssertionError("Unexpected match: " + text + " / " + description);
+  }
+}`
+    );
+    execFileSync(
+      'javac',
+      [
+        '--release',
+        '21',
+        '-d',
+        temp,
+        new URL('DocumentPickerLabels.java', import.meta.url).pathname,
+        runner
+      ],
+      { encoding: 'utf8' }
+    );
+    execFileSync('java', ['-cp', temp, 'io.manabi.reader.qualification.DocumentPickerLabelsTest'], {
+      encoding: 'utf8'
+    });
+  } finally {
+    await trashTemporary(temp);
+  }
+});
+
+test('picker cancellation waits for new navigation before another Back, preserving the returned app', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-picker-cancellation-'));
+  try {
+    const source = await fs.readFile(new URL('PackagedReaderTest.java', import.meta.url), 'utf8');
+    const start = source.indexOf('  private void cancelDocumentPicker(');
+    const end = source.indexOf('  /** Recent is a cached/aggregated view', start);
+    assert.ok(start > 0 && end > start);
+    const fixture = await fs.readFile(
+      new URL('picker-cancellation-fixture.java.txt', import.meta.url),
+      'utf8'
+    );
+    const runner = path.join(temp, 'PickerCancellationTest.java');
+    await fs.writeFile(
+      runner,
+      fixture.replace('/* ACTUAL_CANCELLATION_METHOD */', source.slice(start, end))
+    );
+    execFileSync('javac', ['--release', '21', '-d', temp, runner], { encoding: 'utf8' });
+    execFileSync('java', ['-cp', temp, 'PickerCancellationTest'], { encoding: 'utf8' });
+  } finally {
+    await trashTemporary(temp);
+  }
+});
+
+test('actual native-control selectors refuse unrelated, hidden, disabled or replaced controls', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-native-controls-'));
+  try {
+    const source = await fs.readFile(new URL('PackagedReaderTest.java', import.meta.url), 'utf8');
+    const methods = [
+      'awaitPageTurnPicker',
+      'collectPickerAnchors',
+      'focusNativeTextInput',
+      'awaitFocusedNativeTextInput',
+      'nativeSemanticControl'
+    ].map((name) => {
+      const start = source.search(
+        new RegExp(`  private (?:void|AccessibilityNodeInfo) ${name}\\(`)
+      );
+      const end = source.indexOf('\n  }', start);
+      assert.ok(start > 0 && end > start, name);
+      return source.slice(start, end + 4);
+    });
+    const fixture = await fs.readFile(
+      new URL('native-controls-fixture.java.txt', import.meta.url),
+      'utf8'
+    );
+    const runner = path.join(temp, 'NativeControlsTest.java');
+    await fs.writeFile(runner, fixture.replace('/* ACTUAL_CONTROL_METHODS */', methods.join('\n')));
+    execFileSync('javac', ['--release', '21', '-d', temp, runner], { encoding: 'utf8' });
+    execFileSync('java', ['-cp', temp, 'NativeControlsTest'], { encoding: 'utf8' });
+  } finally {
+    await trashTemporary(temp);
+  }
+});
+
+test('actual native page-turn journey restores exact preferences on success and interrupted saves', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'manabi-page-turn-picker-'));
+  try {
+    const source = await fs.readFile(new URL('PackagedReaderTest.java', import.meta.url), 'utf8');
+    const start = source.indexOf('  private void qualifyNativePageTurn(');
+    const end = source.indexOf('  private void openNativePageLayout(', start);
+    assert.ok(start > 0 && end > start);
+    const fixture = await fs.readFile(
+      new URL('page-turn-picker-fixture.java.txt', import.meta.url),
+      'utf8'
+    );
+    const runner = path.join(temp, 'PageTurnPickerTest.java');
+    await fs.writeFile(
+      runner,
+      fixture.replace('/* ACTUAL_PAGE_TURN_METHOD */', source.slice(start, end))
+    );
+    execFileSync('javac', ['--release', '21', '-d', temp, runner], { encoding: 'utf8' });
+    execFileSync('java', ['-cp', temp, 'PageTurnPickerTest'], { encoding: 'utf8' });
+  } finally {
+    await trashTemporary(temp);
+  }
 });
 
 test('instrumentation Java parses with JDK 21 (syntax only, not Android compilation)', async () => {
@@ -366,11 +920,256 @@ class ParseJava { public static void main(String[] args) throws Exception {
       [
         '--add-modules=jdk.compiler',
         parser,
-        new URL('PackagedReaderTest.java', import.meta.url).pathname
+        new URL('PackagedReaderTest.java', import.meta.url).pathname,
+        new URL('PackagedReaderInstrumentation.java', import.meta.url).pathname,
+        new URL('PackagedBookExport.java', import.meta.url).pathname,
+        new URL('DocumentPickerLabels.java', import.meta.url).pathname
       ],
       { encoding: 'utf8' }
     );
   } finally {
-    await fs.rm(temp, { recursive: true, force: true });
+    await trashTemporary(temp);
+  }
+});
+
+test('actual Java-injected image inspection reads real slot bytes without changing the store', async () => {
+  const java = await fs.readFile(new URL('PackagedReaderTest.java', import.meta.url), 'utf8');
+  const method = java.slice(java.indexOf('private JSONObject backgroundRecords()'));
+  const expression = method.match(/evaluate\(([\s\S]*?)\);\n {4}long deadline/)[1];
+  const script = [...expression.matchAll(/"(?:[^"\\]|\\.)*"/g)]
+    .map((m) => JSON.parse(m[0]))
+    .join('');
+  const indexedDB = new IDBFactory();
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open('manabi-reader-appearance', 1);
+    request.onupgradeneeded = () => request.result.createObjectStore('backgrounds');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const bytes = new Uint8Array([1, 2, 3, 4]);
+  const original = {
+    light: { name: 'light.png', blob: new Blob([bytes]) },
+    dark: { name: 'dark.png', dataUrl: 'data:image/png;base64,AQIDBA==' }
+  };
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction('backgrounds', 'readwrite');
+    tx.objectStore('backgrounds').put(original, 'library');
+    tx.oncomplete = resolve;
+    tx.onabort = () => reject(tx.error);
+  });
+  const window = {};
+  vm.runInNewContext(script, {
+    window,
+    indexedDB,
+    crypto: webcrypto,
+    Uint8Array,
+    atob: globalThis.atob
+  });
+  for (let i = 0; i < 200 && !window.__manabiBackgroundQualification; i++)
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  const result = window.__manabiBackgroundQualification;
+  assert.ok(result);
+  assert.equal(result.error, undefined);
+  assert.deepEqual(Object.keys(result.value), ['library-light', 'library-dark']);
+  for (const image of Object.values(result.value)) {
+    assert.equal(image.bytes, 4);
+    assert.equal(image.sha256, createHash('sha256').update(bytes).digest('hex'));
+  }
+  const retained = await new Promise((resolve) => {
+    const request = db.transaction('backgrounds').objectStore('backgrounds').get('library');
+    request.onsuccess = () => resolve(request.result);
+  });
+  assert.deepEqual(retained, original);
+  db.close();
+});
+
+const fontSource = (await fs.readFile(new URL('font-probe.js', import.meta.url), 'utf8'))
+  .trim()
+  .replace(/;$/, '');
+function fontHarness() {
+  const stored = new Map([
+    ['unrelated-preference', 'keep'],
+    ['fontFamilyGroupTwo', 'Other family']
+  ]);
+  const files = new Map();
+  const bytes = new Uint8Array([119, 79, 70, 50, 1, 2, 3]);
+  const styles = new Map([
+    ['manabi-packaged-fonts', '@font-face{src:url("./assets/fixture.woff2")}']
+  ]);
+  const loaded = [];
+  const context = vm.createContext({
+    localStorage: {
+      getItem: (key) => stored.get(key) ?? null,
+      setItem: (key, value) => stored.set(key, String(value)),
+      removeItem: (key) => stored.delete(key)
+    },
+    caches: {
+      open: async (key) => {
+        assert.equal(key, 'ttu-userfonts');
+        return {
+          keys: async () => [...files.keys()].map((url) => ({ url })),
+          match: async (path) => files.get(path)?.clone()
+        };
+      }
+    },
+    document: {
+      getElementById: (id) => (styles.has(id) ? { textContent: styles.get(id) } : null),
+      fonts: {
+        load: async (query) => {
+          loaded.push(query);
+          return [{ family: `Qualification font ${id}`, status: 'loaded' }];
+        }
+      }
+    },
+    fetch: async (url) => {
+      assert.equal(
+        String(url),
+        'https://appassets.androidplatform.net/www.bundle/assets/fixture.woff2'
+      );
+      return new Response(bytes);
+    },
+    location: {
+      origin: 'https://appassets.androidplatform.net',
+      href: 'https://appassets.androidplatform.net/www.bundle/index.html'
+    },
+    crypto: webcrypto,
+    URL,
+    Uint8Array,
+    setTimeout,
+    Date
+  });
+  const invoke = (operation) =>
+    vm.runInContext(`(${fontSource})(${JSON.stringify({ id, operation })})`, context);
+  const importFixture = () => {
+    stored.set(
+      'userfonts',
+      JSON.stringify([
+        {
+          name: `Qualification font ${id}`,
+          fileName: `manabi-font-${id}.woff2`,
+          path: `/userfonts/manabi-font-${id}.woff2`
+        }
+      ])
+    );
+    files.set(
+      `/userfonts/manabi-font-${id}.woff2`,
+      new Response(bytes, { headers: { 'content-type': 'font/woff2' } })
+    );
+    styles.set(
+      'ttu-userfonts',
+      `@font-face{font-family:"Qualification font ${id}";src:url("blob:fixture")}`
+    );
+  };
+  return { invoke, stored, files, styles, loaded, importFixture, bytes };
+}
+test('font probe inspects actual catalog/cache bytes and production CSS without installing a test face', async () => {
+  const f = fontHarness();
+  const original = new Map(f.stored);
+  const prepared = await f.invoke('prepare');
+  assert.equal(prepared.sha256, createHash('sha256').update(f.bytes).digest('hex'));
+  assert.equal((await f.invoke('cancelled')).cancelled, true);
+  f.importFixture();
+  assert.equal((await f.invoke('imported')).selected, false);
+  f.stored.set('fontFamilyGroupOne', `Qualification font ${id}`);
+  const selected = await f.invoke('selected');
+  assert.equal(selected.selected, true);
+  assert.equal(f.loaded.length, 2);
+  assert.equal(selected.productionCss, 'cached-blob-face-loaded');
+  f.stored.set('userfonts', '[]');
+  f.stored.set('fontFamilyGroupOne', '');
+  f.files.clear();
+  f.styles.delete('ttu-userfonts');
+  assert.deepEqual(JSON.parse(JSON.stringify(await f.invoke('cleanup'))), {
+    removed: true,
+    restored: true
+  });
+  assert.deepEqual(f.stored, original);
+});
+test('font probe rejects picker mutation, changed bytes, implicit selection and incomplete removal', async () => {
+  const f = fontHarness();
+  await f.invoke('prepare');
+  f.importFixture();
+  await assert.rejects(f.invoke('cancelled'), /Cancelling the picker changed/);
+  await assert.rejects(f.invoke('selected'), /Import must not select/);
+  f.stored.set('fontFamilyGroupOne', `Qualification font ${id}`);
+  await assert.rejects(f.invoke('imported'), /Import must not select/);
+  f.files.set(
+    `/userfonts/manabi-font-${id}.woff2`,
+    new Response('different', { headers: { 'content-type': 'font/woff2' } })
+  );
+  await assert.rejects(f.invoke('selected'), /bytes differ/);
+  await assert.rejects(f.invoke('cleanup'), /catalog entry/);
+  f.stored.set('userfonts', '[]');
+  await assert.rejects(f.invoke('cleanup'), /cached bytes/);
+  f.files.clear();
+  await assert.rejects(f.invoke('cleanup'), /reset that family/);
+  f.stored.set('fontFamilyGroupOne', '');
+  f.stored.set('fontFamilyGroupTwo', 'changed');
+  await assert.rejects(f.invoke('cleanup'), /other family/);
+});
+
+test('book export probe reads the actual imported record and refuses ambiguous or invalid fixtures', async () => {
+  const indexedDB = new IDBFactory();
+  const open = indexedDB.open('books', 1);
+  open.onupgradeneeded = () => {
+    open.result.createObjectStore('data', { keyPath: 'id' });
+    open.result.createObjectStore('bookmark', { keyPath: 'dataId' });
+  };
+  const db = await new Promise((resolve, reject) => {
+    open.onsuccess = () => resolve(open.result);
+    open.onerror = () => reject(open.error);
+  });
+  const source = await fs.readFile(new URL('book-export-probe.js', import.meta.url), 'utf8');
+  const invoke = vm.runInNewContext(source, { indexedDB, TextEncoder, crypto: webcrypto });
+  const write = async (store, record) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).put(record);
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onabort = () => reject(tx.error);
+    });
+  };
+  const book = {
+    id: 1,
+    title: `manabi-export-${id}`,
+    sourceFormat: 'txt',
+    contentHash: 'a'.repeat(64),
+    elementHtml: `<p>日本語の読書 ${id}</p>`
+  };
+  try {
+    assert.equal((await invoke({ id, operation: 'empty' })).empty, true);
+    await write('data', book);
+    const result = await invoke({ id, operation: 'imported' });
+    assert.equal(result.title, book.title);
+    assert.equal(result.contentHash, book.contentHash);
+    assert.equal(result.htmlBytes, Buffer.byteLength(book.elementHtml));
+    assert.equal(result.htmlSha256, createHash('sha256').update(book.elementHtml).digest('hex'));
+    assert.equal(result.progress, null);
+    await assert.rejects(invoke({ id, operation: 'empty' }), /empty disposable Library/);
+    await assert.rejects(invoke({ id: 'wrong', operation: 'imported' }), /Invalid book export/);
+    await assert.rejects(invoke({ id, operation: 'write' }), /Unknown book export/);
+    const bookmark = { dataId: 1, progress: 0.25, lastBookmarkModified: 123 };
+    await write('bookmark', bookmark);
+    assert.equal(
+      JSON.stringify((await invoke({ id, operation: 'imported' })).progress),
+      JSON.stringify(bookmark)
+    );
+    await write('data', { ...book, contentHash: 'invalid' });
+    await assert.rejects(invoke({ id, operation: 'imported' }), /canonical content hash/);
+    await write('data', book);
+    await write('bookmark', { ...bookmark, dataId: 2 });
+    await assert.rejects(invoke({ id, operation: 'imported' }), /unrelated bookmark/);
+    await write('data', { ...book, id: 2, title: 'Unrelated book' });
+    await assert.rejects(invoke({ id, operation: 'imported' }), /exact book/);
+    const read = db.transaction(['data', 'bookmark']);
+    const books = read.objectStore('data').getAll();
+    const bookmarks = read.objectStore('bookmark').getAll();
+    await new Promise((resolve) => {
+      read.oncomplete = resolve;
+    });
+    assert.deepEqual(books.result, [book, { ...book, id: 2, title: 'Unrelated book' }]);
+    assert.deepEqual(bookmarks.result, [bookmark, { ...bookmark, dataId: 2 }]);
+  } finally {
+    db.close();
   }
 });

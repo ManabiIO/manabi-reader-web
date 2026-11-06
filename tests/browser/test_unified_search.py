@@ -10,6 +10,7 @@ import unittest
 import zipfile
 from playwright.sync_api import expect
 from test_product_journeys import ProductJourneyBase
+from reader_fixture import reader_fixture
 
 
 def dictionary_archive():
@@ -31,7 +32,7 @@ class UnifiedSearch(ProductJourneyBase):
             {'id': 'cue-one', 'start': 12, 'end': 14, 'text': '字幕検索 first result'},
             {'id': 'cue-two', 'start': 30, 'end': 32, 'text': '別の字幕 second result'}
         ]
-        return self.page.evaluate("""async ({title,cues,delay}) => {
+        return self.page.evaluate(reader_fixture("""async ({title,cues,delay}) => {
           const mediaKey='content:'+'a'.repeat(64);
           const trackId='00000000-0000-4000-8000-000000000123';
           const canonical=value=>{
@@ -77,10 +78,10 @@ class UnifiedSearch(ProductJourneyBase):
           });
           db.close();
           return {mediaKey,trackId};
-        }""", {'title': title, 'cues': cues, 'delay': delay})
+        }"""), {'title': title, 'cues': cues, 'delay': delay})
 
     def replace_video_cues(self, identity, cues):
-        self.page.evaluate("""async ({identity,cues}) => {
+        self.page.evaluate(reader_fixture("""async ({identity,cues}) => {
           const canonical=value=>{
             if(value===null||typeof value!=='object')return JSON.stringify(value);
             if(Array.isArray(value))return '['+value.map(canonical).join(',')+']';
@@ -114,7 +115,7 @@ class UnifiedSearch(ProductJourneyBase):
           db.close();
           const channel=new BroadcastChannel('manabi-media-v1');
           channel.postMessage({type:'media-change',captions:true});channel.close();
-        }""", {'identity': identity, 'cues': cues})
+        }"""), {'identity': identity, 'cues': cues})
 
     def assert_no_document_horizontal_overflow(self):
         diagnostic = self.page.evaluate(r"""() => {
@@ -207,10 +208,10 @@ class UnifiedSearch(ProductJourneyBase):
                     self.page.keyboard.press('Enter')
                 else:
                     videos.click()
-                expect(self.page).to_have_url(re.compile(r'/reader-web/videos$'))
+                expect(self.page).to_have_url(re.compile(reader_fixture(r'/reader-web/videos$')))
                 self.page.get_by_role('navigation', name='Library sections', exact=True).get_by_role(
                     'link', name='Books', exact=True).click()
-                expect(self.page).to_have_url(re.compile(r'/reader-web/manage$'))
+                expect(self.page).to_have_url(re.compile(reader_fixture(r'/reader-web/manage$')))
                 expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
                     'data-hydrated', 'true')
 
@@ -235,6 +236,21 @@ class UnifiedSearch(ProductJourneyBase):
         }""")
         expect(field).to_have_value('猫')
         # Intermediate IME text stays local and must not rewrite navigation state.
+        expect(self.page).to_have_url(re.compile(r'[?&]q=cat(?:&|$)'))
+
+        # UNRUN PR261 follow-up: React exposes composition on nativeEvent.
+        # Escape belongs to the candidate list even when keyCode is ordinary 27.
+        prevented = field.evaluate("""element => {
+          const event = new KeyboardEvent('keydown', {
+            bubbles: true, cancelable: true, key: 'Escape', code: 'Escape',
+            keyCode: 27, isComposing: true
+          });
+          element.dispatchEvent(event);
+          return event.defaultPrevented;
+        }""")
+        self.assertFalse(prevented)
+        expect(field).to_have_value('猫')
+        expect(field).to_be_focused()
         expect(self.page).to_have_url(re.compile(r'[?&]q=cat(?:&|$)'))
 
         # Crossing only the compact-menu breakpoint rerenders the same header/search
@@ -500,7 +516,7 @@ class UnifiedSearch(ProductJourneyBase):
 
     def test_library_scope_switches_real_books_and_snippets_without_losing_query(self):
         self.import_book('Scope book', body='<p>SCOPE_TOKEN book body</p>')
-        self.page.goto(self.origin + '/reader-web/snippets')
+        self.page.goto(self.origin + reader_fixture('/reader-web/snippets'))
         create = self.page.get_by_role('button', name='New snippet', exact=True)
         expect(create).to_be_enabled()
         create.click()
@@ -589,7 +605,7 @@ class UnifiedSearch(ProductJourneyBase):
         editor = self.context.new_page()
         editor.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
         try:
-            editor.goto(self.origin + '/reader-web/manage')
+            editor.goto(self.origin + reader_fixture('/reader-web/manage'))
             expect(editor.get_by_role('region', name='Library shelves')).to_have_attribute(
                 'data-hydrated', 'true')
             editor.get_by_role('button', name='Actions for Original book name', exact=True).click()
@@ -645,13 +661,13 @@ class UnifiedSearch(ProductJourneyBase):
 
         # Search operates only on published local records. It neither resolves a
         # File/cloud alias nor creates source state merely because a hit exists.
-        local_count = self.page.evaluate("""async () => {
+        local_count = self.page.evaluate(reader_fixture("""async () => {
           const db=await new Promise((yes,no)=>{const r=indexedDB.open('manabi-media-v1');
             r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error)});
           const count=await new Promise((yes,no)=>{const tx=db.transaction('local','readonly');
             const q=tx.objectStore('local').count();q.onsuccess=()=>yes(q.result);q.onerror=()=>no(q.error)});
           db.close();return count;
-        }""")
+        }"""))
         self.assertEqual(0, local_count)
 
         transcript.click()
@@ -672,13 +688,13 @@ class UnifiedSearch(ProductJourneyBase):
         )
         expect(self.page.get_by_role('button', name='Searchable video', exact=True)).to_be_visible()
         expect(self.page.locator('.manabi-video-player')).to_have_count(0)
-        local_count_after = self.page.evaluate("""async () => {
+        local_count_after = self.page.evaluate(reader_fixture("""async () => {
           const db=await new Promise((yes,no)=>{const r=indexedDB.open('manabi-media-v1');
             r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error)});
           const count=await new Promise((yes,no)=>{const tx=db.transaction('local','readonly');
             const q=tx.objectStore('local').count();q.onsuccess=()=>yes(q.result);q.onerror=()=>no(q.error)});
           db.close();return count;
-        }""")
+        }"""))
         self.assertEqual(0, local_count_after)
         self.checkpoint('unified-video-transcript-deep-link')
 

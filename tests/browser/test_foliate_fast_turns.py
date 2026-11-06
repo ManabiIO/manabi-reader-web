@@ -3,6 +3,7 @@ import unittest
 from playwright.sync_api import expect
 from reader_controls import reveal_reader_controls
 from test_foliate_slide import FoliateSlide, P
+from reader_fixture import reader_fixture
 
 
 class FoliateFastTurns(FoliateSlide):
@@ -86,7 +87,7 @@ class FoliateFastTurns(FoliateSlide):
         reveal_reader_controls(self.page)
         self.page.get_by_role('button', name='Themes & Settings', exact=True).click()
         self.page.get_by_role('combobox', name='Page turn effect', exact=True).select_option(value)
-        self.assertEqual(self.page.evaluate("localStorage.getItem('pageTurnEffect')"), value)
+        self.assertEqual(self.page.evaluate(reader_fixture("localStorage.getItem('pageTurnEffect')")), value)
         self.page.get_by_role('button', name='Close reading appearance', exact=True).click()
         self.page.locator('[data-slot="sheet-content"]:not([data-closed])').wait_for(state='detached')
         self.page.wait_for_function(f"() => {P}.getAttribute('page-turn-effect') === '{value}'")
@@ -109,18 +110,18 @@ class FoliateFastTurns(FoliateSlide):
         self.page.reload()
         self.page.wait_for_function(f"() => {P}?.page >= 1")
         self.assertEqual(self.page.evaluate(f"{P}.getAttribute('page-turn-effect')"),'none')
-        self.page.goto(self.origin + '/reader-web/settings#layout')
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings#layout'))
         setting=self.page.get_by_role('combobox', name='Page turn effect', exact=True)
         self.assertEqual(setting.input_value(),'none')
         setting.select_option('slide')
-        self.assertEqual(self.page.evaluate("localStorage.getItem('pageTurnEffect')"),'slide')
+        self.assertEqual(self.page.evaluate(reader_fixture("localStorage.getItem('pageTurnEffect')")),'slide')
         self.page.reload()
         self.assertEqual(self.page.get_by_role('combobox', name='Page turn effect', exact=True).input_value(),'slide')
 
     def test_running_title_stays_put_and_dark_mode_uses_white_overlay(self):
         self.open_slide(False)
         self.page.evaluate(f'{P}.goTo({{index:0,anchor:.2}})')
-        self.page.evaluate("localStorage.setItem('appearance','dark')")
+        self.page.evaluate(reader_fixture("localStorage.setItem('appearance','dark')"))
         self.page.reload()
         self.page.wait_for_function(f"() => {P}?.page >= 1 && {P}.pageCounts.every(Number.isFinite)")
         self.page.evaluate(f'{P}.goTo({{index:0,anchor:.2}})')

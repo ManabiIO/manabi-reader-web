@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { readerName } from '../runtime/edition';
+
 import React from 'react';
 import { RouteBack } from '../shared-ui/RouteBack.web';
 import { useReaderController } from '../reader-react/controller';
@@ -65,7 +67,7 @@ export function ImportTtuScreen(
           <Dom as="title">
             {'Import from '}
             {c.yatsu ? 'Yatsu Reader' : 'Ttu Ebook Reader'}
-            {' · Manabi Reader'}
+            {` · ${readerName}`}
           </Dom>
         </Head>
         <Dom as="main" className={['migration-page'].filter(Boolean).join(' ')}>

@@ -5,6 +5,7 @@ import { setImmediate } from 'node:timers';
 import { compileFunction } from 'node:vm';
 import ts from 'typescript';
 import * as transactions from '../../apps/web/src/lib/data/database/books-db/commit-transaction.mjs';
+import { storageName } from '../../apps/web/src/runtime/edition.ts';
 
 const clone = (value) => globalThis.structuredClone(value);
 const range = { bound: (lower, upper) => ({ lower, upper }) };
@@ -29,6 +30,7 @@ function load(file, imports = {}) {
   return module.exports;
 }
 const persistence = load('manabi/persistence.ts', {
+  '../../runtime/edition': { storageName },
   idb: {},
   '$lib/data/database/books-db/commit-transaction.mjs': transactions,
   '../snippets/summary': {
@@ -77,7 +79,10 @@ function profile(initial = 'alice', authenticated = initial) {
   };
   return {
     client,
-    operation: load('manabi/operation-scope.ts', { './client': client }),
+    operation: load('manabi/operation-scope.ts', {
+      './client': client,
+      '../state/store': load('state/store.ts')
+    }),
     change(id) {
       auth = id;
       generation++;

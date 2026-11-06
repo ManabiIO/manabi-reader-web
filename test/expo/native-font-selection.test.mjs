@@ -30,6 +30,7 @@ const deferred = () => {
 function fixture({
   bytes = new Uint8Array(IMPORT_CHUNK_BYTES + 7).fill(42),
   pick,
+  read,
   command,
   size = bytes.length
 } = {}) {
@@ -48,7 +49,8 @@ function fixture({
     file: () => ({
       size,
       open: () => ({
-        readBytes: (n) => {
+        readBytes: async (n) => {
+          await read?.();
           const value = bytes.slice(offset, offset + n);
           offset += value.length;
           return value;
@@ -165,3 +167,32 @@ test('font transfer inherits exact sequence, scope and one-shot identity admissi
     /WOFF/
   );
 });
+
+for (const reason of ['abort', 'account']) {
+  test(`pending async font read retires on ${reason} before sending any bytes`, async () => {
+    const started = deferred(),
+      pending = deferred(),
+      abort = new AbortController();
+    const f = fixture({
+      read: () => {
+        started.resolve();
+        return pending.promise;
+      }
+    });
+    const saving = selectNativeUserFont(f.deps, { name: 'Custom' }, abort.signal);
+    await started.promise;
+    if (reason === 'abort') abort.abort();
+    else f.change();
+    pending.resolve();
+    await assert.rejects(saving);
+    assert.equal(
+      f.calls.filter((call) => ['import.chunk', 'import.commit'].includes(call.method)).length,
+      0
+    );
+    assert.equal(f.closed, 1);
+    assert.equal(
+      f.calls.filter((call) => call.method === 'import.cancel').length,
+      reason === 'abort' ? 1 : 0
+    );
+  });
+}

@@ -157,7 +157,7 @@ test('account revocation fences old responses and queued force', async () => {
   const old = h.api.refreshAccount(true);
   const oldQueued = h.api.refreshAccount(true);
   // Exercise the real cross-tab revocation boundary, not a direct store change.
-  h.listeners.get('storage')({ key: 'manabi-reader-local-profile-v1' });
+  h.listeners.get('storage')({ key: 'manabitan-reader-v1:manabi-reader-local-profile-v1' });
   assert.equal(h.api.currentUser(), null);
   assert.equal(h.calls.length, 3, 'revocation starts a fresh authority probe');
   const current = h.api.refreshAccount();
@@ -213,4 +213,62 @@ test('overtaking successors preserve newer queue ownership', async () => {
   h.reply(3);
   await thirdQueued;
   assert.equal(h.timers.size, 0);
+});
+
+test('request cancellation is wired to transport and prevents a cancelled request from publishing', async () => {
+  const h = harness();
+  h.api.account.set({
+    status: 'available',
+    session: {
+      user: { id: '42', username: 'reader' },
+      csrf_token: 'c'.repeat(64),
+      providers: ['google']
+    }
+  });
+  const cancelled = new AbortController();
+  cancelled.abort();
+  await assert.rejects(h.api.request('connections/', { signal: cancelled.signal }), {
+    name: 'AbortError'
+  });
+  assert.equal(h.calls.length, 0);
+  const active = new AbortController();
+  const flight = h.api.request('connections/', { signal: active.signal });
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.calls[0].options.signal.aborted, false);
+  active.abort();
+  assert.equal(h.calls[0].options.signal.aborted, true);
+  h.calls[0].resolve(
+    new Response('{}', { headers: { 'Content-Type': 'application/json', 'X-Manabi-User': '42' } })
+  );
+  await assert.rejects(flight, { name: 'AbortError' });
+});
+
+test('cancellation while an error body is delayed cannot invalidate the active account', async () => {
+  const h = harness();
+  h.api.account.set({
+    status: 'available',
+    session: {
+      user: { id: '42', username: 'reader' },
+      csrf_token: 'c'.repeat(64),
+      providers: ['google']
+    }
+  });
+  let stream;
+  const body = new ReadableStream({
+    start(controller) {
+      stream = controller;
+    }
+  });
+  const active = new AbortController();
+  const flight = h.api.request('connections/', { signal: active.signal });
+  h.calls[0].resolve(
+    new Response(body, { status: 401, headers: { 'Content-Type': 'application/json' } })
+  );
+  await drain();
+  active.abort();
+  stream.enqueue(new TextEncoder().encode('{"error":"account_changed"}'));
+  stream.close();
+  await assert.rejects(flight, { name: 'AbortError' });
+  assert.equal(h.api.currentUser().id, '42');
+  assert.equal(h.calls.length, 1, 'Cancelled request must not trigger an account refresh');
 });

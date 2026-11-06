@@ -155,9 +155,15 @@ export class AudiobookSessionStore {
   private readonly factory?: IDBFactory;
   private readonly useDefaultFactory: boolean;
 
-  constructor(factory?: IDBFactory) {
+  constructor(
+    factory?: IDBFactory,
+    private readonly databaseName = 'manabi-whispersync-v1'
+  ) {
     this.factory = factory;
-    this.useDefaultFactory = arguments.length === 0;
+    // An explicit unavailable factory keeps its existing meaning; a named app
+    // database may still use the deferred browser factory.
+    this.useDefaultFactory =
+      arguments.length === 0 || (arguments.length > 1 && factory === undefined);
   }
 
   private open(): Promise<IDBDatabase> {
@@ -171,7 +177,7 @@ export class AudiobookSessionStore {
     }
     if (!factory) return Promise.reject(new Error('Browser storage is unavailable'));
     const opening = new Promise<IDBDatabase>((resolve, reject) => {
-      const request = factory.open('manabi-whispersync-v1', 1);
+      const request = factory.open(this.databaseName, 1);
       let failed = false;
       request.onupgradeneeded = () => {
         if (!request.result.objectStoreNames.contains('sessions'))

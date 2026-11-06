@@ -4,7 +4,9 @@
  * All rights reserved.
  */
 
-import { Fragment, type ReactNode } from 'react';
+import { readerName } from '../runtime/edition';
+
+import { Fragment, useLayoutEffect, useRef, type ReactNode } from 'react';
 /**
  * React/controller port of lib/components/book-card/book-manager-header.svelte; transactions retain their original guards.
  */
@@ -27,7 +29,6 @@ import { readStore } from './observable-controller';
 import { Action, Button, Menu } from './primitives';
 import {
   ArrowLeft,
-  BookmarkSimple,
   BookOpen,
   Books,
   Bug,
@@ -44,10 +45,15 @@ import {
   TextAlignLeft as CollectionsList,
   SelectionAll,
   SquaresFour,
-  UserCircle,
-  X
+  UserCircle
 } from '@phosphor-icons/react';
 import { AppNav, ActionMenu } from './navigation';
+import { ConnectionStatus } from '../runtime/ConnectionStatus';
+import { ReaderProductActions } from '../product/ReaderExtensions';
+import { LibrarySelectionToolbar } from '../features/library/LibrarySelectionToolbar';
+import { selectionLayout } from '../features/library/selection-layout.web';
+import { LibrarySortControls } from '../features/library/LibrarySortControls';
+import { sortLayout } from '../features/library/sort-layout.web';
 export function HeaderView({
   c,
   children: _children
@@ -55,6 +61,13 @@ export function HeaderView({
   c: HeaderController;
   children?: ReactNode;
 }) {
+  const selectMode = c.selectMode;
+  const wasSelecting = useRef(selectMode);
+  useLayoutEffect(() => {
+    // The normal toolbar must be committed and visible before it can take focus.
+    if (wasSelecting.current && !selectMode) c.restoreSelectionFocus();
+    wasSelecting.current = selectMode;
+  }, [c, selectMode]);
   return (
     <>
       <Action
@@ -110,10 +123,17 @@ export function HeaderView({
         <>
           <header
             aria-label={'Library toolbar'}
-            className={['floating-library-header text-foreground lg:ml-[16rem]']
+            className={['floating-library-header text-foreground md:ml-[16rem]']
               .filter(Boolean)
               .join(' ')}
           >
+            {c.compactLibrary &&
+              (c.selectMode || c.searchExpanded || !!c.libraryMenu?.search.query) && (
+                <div className="library-header-inner">
+                  <ConnectionStatus />
+                  <ReaderProductActions />
+                </div>
+              )}
             <div
               className={[
                 c.selectMode && c.compactLibrary ? 'hidden' : '',
@@ -131,7 +151,7 @@ export function HeaderView({
                   >
                     <label
                       className={[
-                        'flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded-full bg-muted px-2 focus-within:ring-2 focus-within:ring-ring min-[390px]:gap-2 min-[390px]:px-3'
+                        'flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded-lg bg-muted px-2 focus-within:ring-2 focus-within:ring-ring min-[390px]:gap-2 min-[390px]:px-3'
                       ]
                         .filter(Boolean)
                         .join(' ')}
@@ -154,13 +174,7 @@ export function HeaderView({
                         onCompositionStart={c.searchCompositionStarted}
                         onCompositionEnd={c.searchCompositionEnded}
                         onBlur={c.searchInputBlurred}
-                        onKeyDown={(event: any) => {
-                          if (event.isComposing || event.keyCode === 229) return;
-                          if (event.key === 'Escape') {
-                            event.preventDefault();
-                            void c.closeSearch();
-                          }
-                        }}
+                        onKeyDown={c.searchKeydown}
                         ref={(element: any) => {
                           c.searchInput = element;
                         }}
@@ -186,7 +200,7 @@ export function HeaderView({
                 </>
               ) : (
                 <>
-                  <div className={['flex min-w-0 items-center gap-2'].filter(Boolean).join(' ')}>
+                  <div className="library-title-status">
                     {c.libraryMenu?.canGoBack ? (
                       <>
                         <Button
@@ -195,7 +209,7 @@ export function HeaderView({
                           aria-label={'Back'}
                           title={'Back'}
                           onClick={() => c.libraryMenu?.back()}
-                          className={['size-11 shrink-0 rounded-full'].filter(Boolean).join(' ')}
+                          className={['size-11 shrink-0 rounded-lg'].filter(Boolean).join(' ')}
                         >
                           <ArrowLeft
                             weight={'bold'}
@@ -221,20 +235,19 @@ export function HeaderView({
                             .join(' ')}
                         >
                           <span className={['whitespace-nowrap'].filter(Boolean).join(' ')}>
-                            {'Manabi Reader'}
-                          </span>
-                          <span
-                            className={['font-normal whitespace-nowrap text-muted-foreground']
-                              .filter(Boolean)
-                              .join(' ')}
-                          >
-                            {'for Web'}
+                            {readerName}
                           </span>
                         </h1>
                       </>
                     )}
+                    <ConnectionStatus />
+                    <ReaderProductActions />
                   </div>
-                  <div className={['flex shrink-0 items-center gap-1.5'].filter(Boolean).join(' ')}>
+                  <div
+                    className={['library-toolbar-actions flex shrink-0 items-center gap-1.5']
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
                     {c.compactLibrary ? (
                       <>
                         <Button
@@ -247,7 +260,7 @@ export function HeaderView({
                           ref={(element: any) => {
                             c.searchButton = element;
                           }}
-                          className={['size-11 rounded-full lg:hidden'].filter(Boolean).join(' ')}
+                          className={['size-11 rounded-lg md:hidden'].filter(Boolean).join(' ')}
                         >
                           <Search
                             weight={'bold'}
@@ -267,7 +280,7 @@ export function HeaderView({
                       aria-controls={'library-collections-sheet'}
                       onClick={() => c.dispatch('collectionsClick')}
                       disabled={!!c.replicationToProgress}
-                      className={['size-11 rounded-full lg:hidden'].filter(Boolean).join(' ')}
+                      className={['size-11 rounded-lg md:hidden'].filter(Boolean).join(' ')}
                     >
                       <CollectionsList
                         weight={'bold'}
@@ -275,6 +288,17 @@ export function HeaderView({
                         className={['size-6'].filter(Boolean).join(' ')}
                       />
                     </Button>
+                    {!c.compactLibrary && (
+                      <Button
+                        onClick={c.openFilePicker}
+                        variant={c.hasBooks ? 'default' : 'ghost'}
+                        className="min-h-11"
+                        disabled={!!c.replicationToProgress}
+                      >
+                        <FileArrowUp size={18} aria-hidden="true" />
+                        Import
+                      </Button>
+                    )}
                     <Menu.Root>
                       <Menu.Trigger
                         child={({ props }: { props: Record<string, any> }) => (
@@ -290,7 +314,7 @@ export function HeaderView({
                                 props.ref(element);
                                 c.libraryActionsButton = element;
                               }}
-                              className={['size-11 rounded-full'].filter(Boolean).join(' ')}
+                              className={['size-11 rounded-lg'].filter(Boolean).join(' ')}
                             >
                               <MoreHorizontal
                                 weight={'bold'}
@@ -335,18 +359,18 @@ export function HeaderView({
                           >
                             <Menu.Item onSelect={() => c.fileImportElm?.click()}>
                               <FileArrowUp aria-hidden={'true'} />
-                              {'Import File(s)'}
+                              {'Import files'}
                             </Menu.Item>
                             {!readStore(isMobile$) ? (
                               <>
                                 <Menu.Item onSelect={() => c.folderImportElm?.click()}>
                                   <FolderPlus aria-hidden={'true'} />
-                                  {'Import Folder(s)'}
+                                  {'Import folder'}
                                 </Menu.Item>
                               </>
                             ) : null}
                             <Menu.Item onSelect={() => c.backupImportElm?.click()}>
-                              {'Import Backup'}
+                              {'Import backup'}
                             </Menu.Item>
                             <Menu.Separator />
                             <Menu.Item onSelect={() => goto(resolve('/import-ttu'))}>
@@ -430,84 +454,19 @@ export function HeaderView({
                                     collisionPadding={8}
                                     className={['library-menu w-56'].filter(Boolean).join(' ')}
                                   >
-                                    {c.libraryMenu.finishedOrder ? (
-                                      <>
-                                        <Menu.Label>{'Finished date'}</Menu.Label>
-                                        <Menu.RadioGroup
-                                          value={c.libraryMenu.finishedOrder}
-                                          onValueChange={c.libraryMenu.setFinishedOrder}
-                                        >
-                                          <Menu.RadioItem value={'desc'}>
-                                            {'Newest first'}
-                                          </Menu.RadioItem>
-                                          <Menu.RadioItem value={'asc'}>
-                                            {'Oldest first'}
-                                          </Menu.RadioItem>
-                                        </Menu.RadioGroup>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Menu.RadioGroup
-                                          value={c.libraryMenu.sortProperty}
-                                          onValueChange={(value: any) =>
-                                            c.libraryMenu?.setSort(value)
-                                          }
-                                        >
-                                          {c.libraryMenu.sortChoices.map((choice, __index) => (
-                                            <Fragment key={choice.property}>
-                                              <Menu.RadioItem value={choice.property}>
-                                                {choice.label}
-                                              </Menu.RadioItem>
-                                            </Fragment>
-                                          ))}
-                                        </Menu.RadioGroup>
-                                        <Menu.Sub>
-                                          <Menu.SubTrigger>{'More Sort Options'}</Menu.SubTrigger>
-                                          <Menu.SubContent
-                                            side={c.compactMenus.current ? 'bottom' : 'right'}
-                                            align={'end'}
-                                            collisionPadding={8}
-                                            className={['library-menu w-52']
-                                              .filter(Boolean)
-                                              .join(' ')}
-                                          >
-                                            <Menu.RadioGroup
-                                              value={c.libraryMenu.sortProperty}
-                                              onValueChange={(value: any) =>
-                                                c.libraryMenu?.setSort(value)
-                                              }
-                                            >
-                                              {c.libraryMenu.moreSortChoices.map(
-                                                (choice, __index) => (
-                                                  <Fragment key={choice.property}>
-                                                    <Menu.RadioItem value={choice.property}>
-                                                      {choice.label}
-                                                    </Menu.RadioItem>
-                                                  </Fragment>
-                                                )
-                                              )}
-                                            </Menu.RadioGroup>
-                                          </Menu.SubContent>
-                                        </Menu.Sub>
-                                        <Menu.Separator />
-                                        <Menu.RadioGroup
-                                          value={c.libraryMenu.sortDirection}
-                                          onValueChange={(value: any) =>
-                                            c.libraryMenu?.setSort(
-                                              c.libraryMenu.sortProperty,
-                                              value === 'asc' ? 'asc' : 'desc'
-                                            )
-                                          }
-                                        >
-                                          <Menu.RadioItem value={'asc'}>
-                                            {'Ascending'}
-                                          </Menu.RadioItem>
-                                          <Menu.RadioItem value={'desc'}>
-                                            {'Descending'}
-                                          </Menu.RadioItem>
-                                        </Menu.RadioGroup>
-                                      </>
-                                    )}
+                                    <LibrarySortControls
+                                      layout={sortLayout}
+                                      compact={c.compactMenus.current}
+                                      property={c.libraryMenu.sortProperty}
+                                      direction={c.libraryMenu.sortDirection}
+                                      finishedOrder={c.libraryMenu.finishedOrder}
+                                      onSort={(property, direction) =>
+                                        c.libraryMenu?.setSort(property, direction)
+                                      }
+                                      onFinishedOrder={(value) =>
+                                        c.libraryMenu?.setFinishedOrder(value)
+                                      }
+                                    />
                                   </Menu.SubContent>
                                 </Menu.Sub>
                               </Menu.SubContent>
@@ -536,7 +495,7 @@ export function HeaderView({
                           </>
                         ) : null}
                         <Menu.Separator />
-                        <Menu.Label>{'Manabi Reader'}</Menu.Label>
+                        <Menu.Label>{readerName}</Menu.Label>
                         <Menu.Item onSelect={openUserGuide}>{'User guide'}</Menu.Item>
                         <Menu.Item onSelect={() => goto(resolve('/connections'))}>
                           <UserCircle aria-hidden={'true'} />
@@ -612,7 +571,7 @@ export function HeaderView({
                       <>
                         <label
                           className={[
-                            'hidden min-h-11 w-[clamp(12rem,20vw,18rem)] min-w-0 items-center gap-2 rounded-full bg-muted px-3 text-sm focus-within:ring-2 focus-within:ring-ring lg:flex'
+                            'hidden min-h-11 w-[clamp(12rem,20vw,18rem)] min-w-0 items-center gap-2 rounded-lg bg-muted px-3 text-sm focus-within:ring-2 focus-within:ring-ring md:flex'
                           ]
                             .filter(Boolean)
                             .join(' ')}
@@ -685,198 +644,98 @@ export function HeaderView({
               <>
                 {c.selectMode ? (
                   <>
-                    <div
-                      role={'toolbar'}
-                      aria-label={'Book selection'}
+                    <LibrarySelectionToolbar
+                      layout={selectionLayout}
+                      count={c.selectedCount}
+                      compact={c.compactLibrary}
+                      busy={c.libraryMenu?.selectedActions?.busy}
+                      selectLabel={c.modernLibrary ? 'Select All Visible' : 'Select all'}
                       onKeyDown={c.selectionKeydown}
-                      className={[
-                        c.compactLibrary ? 'compact-selection' : '',
-                        'library-selection-toolbar mx-auto flex min-h-14 max-w-6xl flex-wrap items-center gap-2 border-t border-border/60 px-[16px] py-[8px] sm:px-[24px]'
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                    >
-                      <Button
-                        variant={'ghost'}
-                        aria-label={'Cancel selection'}
-                        disabled={c.libraryMenu?.selectedActions?.busy}
-                        onClick={() => void c.exitSelectionMode()}
-                        className={['selection-action'].filter(Boolean).join(' ')}
-                      >
-                        {c.compactLibrary ? (
-                          <>
-                            <X
-                              aria-hidden={'true'}
-                              className={['size-[24px]'].filter(Boolean).join(' ')}
-                            />
-                          </>
-                        ) : (
-                          <>{'Cancel selection'}</>
-                        )}
-                      </Button>
-                      <span
-                        role={'status'}
-                        aria-live={'polite'}
-                        aria-atomic={'true'}
-                        className={['text-sm whitespace-nowrap'].filter(Boolean).join(' ')}
-                      >
-                        {c.selectedCount}
-                        {' selected'}
-                      </span>
-                      <Button
-                        variant={'outline'}
-                        aria-label={c.modernLibrary ? 'Select All Visible' : 'Select all'}
-                        disabled={c.libraryMenu?.selectedActions?.busy}
-                        onClick={() => c.dispatch('selectAllClick')}
-                        className={['selection-action'].filter(Boolean).join(' ')}
-                      >
-                        {c.compactLibrary ? (
-                          <>
-                            <SelectionAll
-                              aria-hidden={'true'}
-                              className={['size-[24px]'].filter(Boolean).join(' ')}
-                            />
-                          </>
-                        ) : (
-                          <>{c.modernLibrary ? 'Select All Visible' : 'Select all'}</>
-                        )}
-                      </Button>
-                      {c.selectedCount > 0 ? (
-                        <>
-                          <Button
-                            variant={'secondary'}
-                            disabled={
-                              c.libraryMenu?.selectedActions?.busy ||
-                              c.libraryMenu?.selectedActions?.savedCount === 0
-                            }
-                            aria-label={'Export'}
-                            onClick={() => c.dispatch('replicateData')}
-                            className={['selection-action'].filter(Boolean).join(' ')}
-                          >
-                            {c.compactLibrary ? (
-                              <>
-                                <FileArrowUp
-                                  aria-hidden={'true'}
-                                  className={['size-[24px]'].filter(Boolean).join(' ')}
-                                />
-                              </>
-                            ) : (
-                              <>{'Export'}</>
-                            )}
-                          </Button>
-                          <ActionMenu
-                            label={'Actions'}
-                            title={'Selected book actions'}
-                            iconOnly={c.compactLibrary}
-                          >
-                            {c.libraryMenu?.selectedActions ? (
-                              <>
-                                <Menu.Item
-                                  disabled={c.libraryMenu.selectedActions.busy}
-                                  onSelect={c.libraryMenu.selectedActions.collections}
-                                >
-                                  {'Add to Collection…'}
-                                </Menu.Item>
-                                <Menu.Item
-                                  disabled={c.libraryMenu.selectedActions.busy}
-                                  onSelect={c.libraryMenu.selectedActions.series}
-                                >
-                                  {'Add to Series…'}
-                                </Menu.Item>
-                                {c.libraryMenu.selectedActions.canBlur ? (
-                                  <>
-                                    <Menu.Item
-                                      disabled={c.libraryMenu.selectedActions.busy}
-                                      onSelect={c.libraryMenu.selectedActions.blur}
-                                    >
-                                      {'Blur Covers'}
-                                    </Menu.Item>
-                                  </>
-                                ) : null}
-                                {c.libraryMenu.selectedActions.canUnblur ? (
-                                  <>
-                                    <Menu.Item
-                                      disabled={c.libraryMenu.selectedActions.busy}
-                                      onSelect={c.libraryMenu.selectedActions.unblur}
-                                    >
-                                      {'Unblur Covers'}
-                                    </Menu.Item>
-                                  </>
-                                ) : null}
-                                <Menu.Separator />
-                              </>
-                            ) : null}
-                            {c.libraryMenu?.selectedWantToRead.canAdd ? (
-                              <>
-                                <Menu.Item
-                                  disabled={c.libraryMenu?.selectedActions?.busy}
-                                  onSelect={() => c.libraryMenu?.selectedWantToRead.set(true)}
-                                >
-                                  <BookmarkSimple aria-hidden={'true'} />
-                                  {'Add to Want to Read'}
-                                </Menu.Item>
-                              </>
-                            ) : null}
-                            {c.libraryMenu?.selectedWantToRead.canRemove ? (
-                              <>
-                                <Menu.Item
-                                  disabled={c.libraryMenu?.selectedActions?.busy}
-                                  onSelect={() => c.libraryMenu?.selectedWantToRead.set(false)}
-                                >
-                                  <BookmarkSimple weight={'fill'} aria-hidden={'true'} />
-                                  {'Remove from Want to Read'}
-                                </Menu.Item>
-                              </>
-                            ) : null}
-                            <Menu.Separator />
-                            <Menu.Item
-                              disabled={
-                                c.libraryMenu?.selectedActions?.busy ||
-                                c.libraryMenu?.selectedActions?.savedCount === 0
-                              }
-                              onSelect={() => c.dispatch('selectionToStatistics')}
-                            >
-                              {'Statistics for Selected Books'}
-                            </Menu.Item>
-                            <Menu.Item
-                              variant={'destructive'}
-                              disabled={
-                                c.libraryMenu?.selectedActions?.busy ||
-                                c.libraryMenu?.selectedActions?.savedCount === 0
-                              }
-                              onSelect={() => c.dispatch('deleteStatistics')}
-                            >
-                              {'Delete Selected Statistics'}
-                            </Menu.Item>
-                            <Menu.Separator />
-                            <Menu.Item
-                              variant={'destructive'}
-                              disabled={
-                                c.libraryMenu?.selectedActions?.busy ||
-                                c.libraryMenu?.selectedActions?.savedCount === 0
-                              }
-                              onSelect={() => c.dispatch('removeClick')}
-                            >
-                              {'Delete Selected Books'}
-                            </Menu.Item>
-                          </ActionMenu>
-                        </>
-                      ) : null}
-                      {c.selectedCount >
-                      (c.libraryMenu?.selectedActions?.savedCount ?? c.selectedCount) ? (
-                        <>
-                          <p
-                            className={['basis-full text-sm text-muted-foreground']
-                              .filter(Boolean)
-                              .join(' ')}
-                          >
-                            {
-                              ' Unopened previews can be organized without importing. Export, statistics and deletion apply only to saved browser copies. '
-                            }
-                          </p>
-                        </>
-                      ) : null}
-                    </div>
+                      onCancel={() => void c.exitSelectionMode()}
+                      onSelect={() => c.dispatch('selectAllClick')}
+                      exportAction={{
+                        label: 'Export',
+                        disabled: c.libraryMenu?.selectedActions?.savedCount === 0,
+                        onActivate: () => c.dispatch('replicateData')
+                      }}
+                      groups={[
+                        c.libraryMenu?.selectedActions
+                          ? [
+                              {
+                                label: 'Add to Collection…',
+                                onActivate: c.libraryMenu.selectedActions.collections
+                              },
+                              {
+                                label: 'Add to Series…',
+                                onActivate: c.libraryMenu.selectedActions.series
+                              },
+                              ...(c.libraryMenu.selectedActions.canBlur
+                                ? [
+                                    {
+                                      label: 'Blur Covers',
+                                      onActivate: c.libraryMenu.selectedActions.blur
+                                    }
+                                  ]
+                                : []),
+                              ...(c.libraryMenu.selectedActions.canUnblur
+                                ? [
+                                    {
+                                      label: 'Unblur Covers',
+                                      onActivate: c.libraryMenu.selectedActions.unblur
+                                    }
+                                  ]
+                                : [])
+                            ]
+                          : [],
+                        [
+                          ...(c.libraryMenu?.selectedWantToRead.canAdd
+                            ? [
+                                {
+                                  label: 'Add to Want to Read',
+                                  bookmark: 'outline' as const,
+                                  onActivate: () => c.libraryMenu?.selectedWantToRead.set(true)
+                                }
+                              ]
+                            : []),
+                          ...(c.libraryMenu?.selectedWantToRead.canRemove
+                            ? [
+                                {
+                                  label: 'Remove from Want to Read',
+                                  bookmark: 'filled' as const,
+                                  onActivate: () => c.libraryMenu?.selectedWantToRead.set(false)
+                                }
+                              ]
+                            : [])
+                        ],
+                        [
+                          {
+                            label: 'Statistics for Selected Books',
+                            disabled: c.libraryMenu?.selectedActions?.savedCount === 0,
+                            onActivate: () => c.dispatch('selectionToStatistics')
+                          },
+                          {
+                            label: 'Delete Selected Statistics',
+                            destructive: true,
+                            disabled: c.libraryMenu?.selectedActions?.savedCount === 0,
+                            onActivate: () => c.dispatch('deleteStatistics')
+                          }
+                        ],
+                        [
+                          {
+                            label: 'Delete Selected Books',
+                            destructive: true,
+                            disabled: c.libraryMenu?.selectedActions?.savedCount === 0,
+                            onActivate: () => c.dispatch('removeClick')
+                          }
+                        ]
+                      ]}
+                      notice={
+                        c.selectedCount >
+                        (c.libraryMenu?.selectedActions?.savedCount ?? c.selectedCount)
+                          ? 'Unopened previews can be organized without importing. Export, statistics and deletion apply only to saved browser copies.'
+                          : undefined
+                      }
+                    />
                   </>
                 ) : null}
               </>
@@ -911,7 +770,7 @@ export function HeaderView({
                     .filter(Boolean)
                     .join(' ')}
                 >
-                  {'Manabi Reader'}
+                  {readerName}
                 </span>
               </div>
               <div className={['flex items-center gap-1'].filter(Boolean).join(' ')}>
@@ -1042,17 +901,17 @@ export function HeaderView({
                     <>
                       <ActionMenu label={'Add books'}>
                         <Menu.Item onSelect={() => c.fileImportElm?.click()}>
-                          {'Import File(s)'}
+                          {'Import files'}
                         </Menu.Item>
                         {!readStore(isMobile$) ? (
                           <>
                             <Menu.Item onSelect={() => c.folderImportElm?.click()}>
-                              {'Import Folder(s)'}
+                              {'Import folder'}
                             </Menu.Item>
                           </>
                         ) : null}
                         <Menu.Item onSelect={() => c.backupImportElm?.click()}>
-                          {'Import Backup'}
+                          {'Import backup'}
                         </Menu.Item>
                         <Menu.Separator />
                         <Menu.Item onSelect={() => goto(resolve('/import-ttu'))}>

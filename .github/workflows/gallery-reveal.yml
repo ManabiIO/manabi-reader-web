@@ -22,14 +22,18 @@ concurrency:
   cancel-in-progress: true
 jobs:
   gallery:
-    # This exact migration is qualified once in expo-migration.yml.
+    # Dedicated edition/Expo qualification branches skip legacy cache/upload jobs.
     if: >-
       !(github.repository == 'ManabiIO/manabi-reader-web' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == 'ManabiIO/manabi-reader-web' &&
-        github.head_ref == 'feat/expo-android-web-migration') ||
+        (github.head_ref == 'feat/manabitan-reader-editions' ||
+         github.head_ref == 'feat/expo-android-web-migration' ||
+         github.head_ref == 'codex/reader-windows-sdk56-20261020')) ||
        (github.event_name == 'push' &&
-        github.ref == 'refs/heads/feat/expo-android-web-migration')))
+        (github.ref == 'refs/heads/feat/manabitan-reader-editions' ||
+         github.ref == 'refs/heads/feat/expo-android-web-migration' ||
+         github.ref == 'refs/heads/codex/reader-windows-sdk56-20261020'))))
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -47,7 +51,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
-      - run: node scripts/prepare-expo.mjs
+      - run: pnpm prepare:dictionary && node scripts/prepare-expo.mjs
       - run: pnpm --dir apps/web check
       - run: node --experimental-strip-types --test tests/unit/gallery-reveal*.test.mjs tests/unit/html-renderer-readiness.test.mjs tests/unit/reader-font-layout-late-error.test.mjs
       - name: Build the real subpath application

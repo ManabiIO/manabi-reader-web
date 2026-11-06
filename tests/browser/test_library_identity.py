@@ -9,6 +9,7 @@ from playwright.sync_api import expect, sync_playwright
 from test_books_library import LibraryBase, raster
 from test_library_cloud_relocation import CloudRelocationHandler, GOOGLE, DROPBOX, BYTES
 from test_static_reader import StaticHandler, ThreadingHTTPServer
+from reader_fixture import reader_fixture
 
 
 class LibraryIdentityBrowser(LibraryBase):
@@ -61,7 +62,7 @@ class LibraryIdentityBrowser(LibraryBase):
         # This is the persisted state emitted by local-series.relink: its row ID
         # remains unchanged while fileId moves. Only the storage fixture is seeded;
         # discovery, opening, hash verification and subsequent link writes are real.
-        self.page.evaluate('''async link => {
+        self.page.evaluate(reader_fixture('''async link => {
           const db = await new Promise((resolve, reject) => {
             const r = indexedDB.open('manabi-reader-integrations');
             r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
@@ -72,7 +73,7 @@ class LibraryIdentityBrowser(LibraryBase):
             tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''', original)
+        }'''), original)
         CloudRelocationHandler.nodes[GOOGLE]['g-moved'] = {
             'name': 'Moved.epub', 'kind': 'file', 'parent': 'google-root'
         }
@@ -96,7 +97,7 @@ class LibraryIdentityBrowser(LibraryBase):
     def test_stale_remove_action_cannot_delete_a_newly_foreign_owned_book(self):
         original = self.import_finished()
         book_id = original['bookId']
-        self.page.evaluate('''async id => {
+        self.page.evaluate(reader_fixture('''async id => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('books');
             request.onsuccess = () => resolve(request.result);
@@ -116,7 +117,7 @@ class LibraryIdentityBrowser(LibraryBase):
             tx.onerror = () => reject(tx.error);
           });
           db.close();
-        }''', book_id)
+        }'''), book_id)
 
         self.menu('Traveling volume', 'Remove from this browser…')
         expect(self.page.get_by_text(re.compile('belongs to another account'))).to_be_visible()
@@ -126,7 +127,7 @@ class LibraryIdentityBrowser(LibraryBase):
 
     def test_removed_browser_records_do_not_leave_a_permanent_import_conflict(self):
         original = self.import_finished()
-        self.page.evaluate('''async id => {
+        self.page.evaluate(reader_fixture('''async id => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('books');
             request.onsuccess = () => resolve(request.result);
@@ -140,13 +141,13 @@ class LibraryIdentityBrowser(LibraryBase):
             tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''', original['bookId'])
+        }'''), original['bookId'])
         self.menu('Traveling volume', 'Remove from this browser…')
         expect(self.page.locator('[data-book-key="book:%s"]' % original['bookId'])).to_have_count(0)
         stores = self.stores('books', ['data', 'readerBookScope'])
         self.assertEqual([], stores['data'])
         self.assertEqual([], stores['readerBookScope'])
-        self.page.evaluate('''async link => {
+        self.page.evaluate(reader_fixture('''async link => {
           const db = await new Promise((resolve, reject) => {
             const r = indexedDB.open('manabi-reader-integrations');
             r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
@@ -159,7 +160,7 @@ class LibraryIdentityBrowser(LibraryBase):
             tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''', original)
+        }'''), original)
         self.go_library()
         button = self.page.get_by_role('button', name='Read Traveling volume', exact=True)
         expect(button).to_be_visible(timeout=30000)
@@ -175,7 +176,7 @@ class LibraryIdentityBrowser(LibraryBase):
         original = self.import_finished()
         saved = self.stores('books', ['data'])['data'][0]
         self.assertEqual('42', saved['libraryOwner'])
-        self.page.evaluate('''async linkId => {
+        self.page.evaluate(reader_fixture('''async linkId => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('manabi-reader-integrations');
             request.onsuccess = () => resolve(request.result);
@@ -187,7 +188,7 @@ class LibraryIdentityBrowser(LibraryBase):
             tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''', original['id'])
+        }'''), original['id'])
         CloudRelocationHandler.nodes[GOOGLE] = {}
         StaticHandler.account_fixture = {
             'user': {'id': 'other', 'username': 'other'},
@@ -196,8 +197,8 @@ class LibraryIdentityBrowser(LibraryBase):
         self.go_library()
         saved_tile = self.page.locator('[data-book-key="book:%s"]' % original['bookId'])
         expect(saved_tile).to_have_count(0)
-        self.page.goto(self.origin + '/reader-web/b?id=' + str(original['bookId']))
-        expect(self.page).to_have_url(re.compile(r'/reader-web/manage(?:[/?#]|$)'))
+        self.page.goto(self.origin + reader_fixture('/reader-web/b?id=') + str(original['bookId']))
+        expect(self.page).to_have_url(re.compile(reader_fixture(r'/reader-web/manage(?:[/?#]|$)')))
         expect(self.page.locator('.book-content')).to_have_count(0)
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
             {'name': 'Traveling volume.epub', 'mimeType': 'application/epub+zip', 'buffer': BYTES})
@@ -224,7 +225,7 @@ class LibraryIdentityBrowser(LibraryBase):
             timeout=30000)
         original = next(row for row in self.stores('books', ['data'])['data']
                         if row['title'] == 'Scoped')
-        self.page.evaluate('''async id => {
+        self.page.evaluate(reader_fixture('''async id => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('books');
             request.onsuccess = () => resolve(request.result);
@@ -238,7 +239,7 @@ class LibraryIdentityBrowser(LibraryBase):
             tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''', original['id'])
+        }'''), original['id'])
         self.menu('Scoped', 'Mark as Finished')
         before = self.wait_bookmark(
             original['id'], lambda row: row.get('completion', {}).get('state') == 'finished')
@@ -289,7 +290,7 @@ class LibraryIdentityBrowser(LibraryBase):
             timeout=30000)
         saved = next(row for row in self.stores('books', ['data'])['data']
                      if row['title'] == 'Private-scope')
-        self.page.evaluate('''async id => {
+        self.page.evaluate(reader_fixture('''async id => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('books');
             request.onsuccess = () => resolve(request.result);
@@ -310,7 +311,7 @@ class LibraryIdentityBrowser(LibraryBase):
             tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''', saved['id'])
+        }'''), saved['id'])
 
         StaticHandler.account_fixture = {
             'user': {'id': 'other', 'username': 'other'},
@@ -320,8 +321,8 @@ class LibraryIdentityBrowser(LibraryBase):
         expect(self.page.get_by_role(
             'button', name='Read Private-scope', exact=True)).to_have_count(0)
         self.page.wait_for_load_state('networkidle')
-        self.page.goto(self.origin + '/reader-web/b?id=' + str(saved['id']))
-        expect(self.page).to_have_url(re.compile(r'/reader-web/manage(?:[/?#]|$)'))
+        self.page.goto(self.origin + reader_fixture('/reader-web/b?id=') + str(saved['id']))
+        expect(self.page).to_have_url(re.compile(reader_fixture(r'/reader-web/manage(?:[/?#]|$)')))
         expect(self.page.locator('.book-content')).to_have_count(0)
         self.page.wait_for_load_state('networkidle')
 
@@ -336,7 +337,7 @@ class LibraryIdentityBrowser(LibraryBase):
 
     def test_root_resume_skips_foreign_book_without_erasing_its_pointer(self):
         original = self.import_finished()
-        self.page.evaluate('''async ({bookId}) => {
+        self.page.evaluate(reader_fixture('''async ({bookId}) => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('books');
             request.onsuccess = () => resolve(request.result);
@@ -353,10 +354,10 @@ class LibraryIdentityBrowser(LibraryBase):
             tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''', {'bookId': original['bookId']})
+        }'''), {'bookId': original['bookId']})
 
-        self.page.goto(self.origin + '/reader-web/')
-        expect(self.page).to_have_url(re.compile(r'/reader-web/manage(?:[/?#]|$)'), timeout=30000)
+        self.page.goto(self.origin + reader_fixture('/reader-web/'))
+        expect(self.page).to_have_url(re.compile(reader_fixture(r'/reader-web/manage(?:[/?#]|$)')), timeout=30000)
         expect(self.page.locator('.book-content')).to_have_count(0)
         self.assertEqual(
             [{'dataId': original['bookId']}],
@@ -365,7 +366,7 @@ class LibraryIdentityBrowser(LibraryBase):
 
     def test_two_live_histories_at_one_locator_are_not_chosen_by_link_order(self):
         original = self.import_finished()
-        duplicate_id = self.page.evaluate('''async link => {
+        duplicate_id = self.page.evaluate(reader_fixture('''async link => {
           const open = name => new Promise((resolve, reject) => {
             const r = indexedDB.open(name);
             r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
@@ -387,7 +388,7 @@ class LibraryIdentityBrowser(LibraryBase):
           });
           integration.close();
           return id;
-        }''', original)
+        }'''), original)
         self.go_library()
         key = 'source:' + json.dumps(['42', GOOGLE, 'google-root', 'g-old'], separators=(',', ':'))
         tile = self.page.locator('[data-book-key=' + json.dumps(key) + ']')
@@ -457,7 +458,7 @@ class LibraryIdentityBrowser(LibraryBase):
     def test_cover_uses_live_content_instead_of_the_first_stale_link(self):
         original = self.import_finished()
         stale_hash = ('1' if original['contentHash'].startswith('0') else '0') + original['contentHash'][1:]
-        self.page.evaluate('''async ({link, hash}) => {
+        self.page.evaluate(reader_fixture('''async ({link, hash}) => {
           const db = await new Promise((resolve, reject) => {
             const r = indexedDB.open('manabi-reader-integrations');
             r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
@@ -469,7 +470,7 @@ class LibraryIdentityBrowser(LibraryBase):
             tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''', {'link': original, 'hash': stale_hash})
+        }'''), {'link': original, 'hash': stale_hash})
         self.go_library()
         with self.page.expect_file_chooser() as chooser:
             self.menu('Traveling volume', 'Change Cover…')
@@ -489,7 +490,7 @@ class LibraryIdentityBrowser(LibraryBase):
         before = self.stores('books', ['bookmark'])['bookmark']
         # Retain the already-rendered shelf while a competing writer changes the
         # durable ownership. The command must check the row, not trust that UI.
-        self.page.evaluate('''async id => {
+        self.page.evaluate(reader_fixture('''async id => {
           const db = await new Promise((resolve, reject) => {
             const r = indexedDB.open('books');
             r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
@@ -501,7 +502,7 @@ class LibraryIdentityBrowser(LibraryBase):
             tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''', original['bookId'])
+        }'''), original['bookId'])
         self.menu('Traveling volume', 'Mark as Still Reading')
         expect(self.page.get_by_text('This book belongs to another account.', exact=True)).to_be_visible()
         self.assertEqual(before, self.stores('books', ['bookmark'])['bookmark'])

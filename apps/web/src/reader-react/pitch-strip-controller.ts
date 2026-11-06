@@ -47,7 +47,9 @@ export function createPitchStrip(
             : state.status === 'error'
               ? 'Visualization unavailable'
               : state.activity === 'playing'
-                ? 'Live · last 8 seconds'
+                ? state.speechActive
+                  ? 'Live · last 8 seconds'
+                  : 'Waiting for dialogue'
                 : state.activity === 'buffering'
                   ? 'Waiting for audio'
                   : state.activity === 'ended'

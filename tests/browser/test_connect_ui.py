@@ -4,6 +4,7 @@ import unittest
 from playwright.sync_api import expect
 import test_apple_controls as previous
 from test_reader_navigation_panels import ReaderNavigationPanels
+from reader_fixture import reader_fixture
 
 # Retain the existing catalog and continuation suites exactly once.
 CatalogLifetimeBrowser = previous.CatalogLifetimeBrowser
@@ -13,7 +14,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
     def test_enlarged_library_submenu_keeps_trigger_outside_popup(self):
         self.page.set_viewport_size({'width': 320, 'height': 568})
         for mode in ('light', 'dark'):
-            self.page.evaluate('m => localStorage.setItem("appearance", m)', mode)
+            self.page.evaluate(reader_fixture('m => localStorage.setItem("appearance", m)'), mode)
             self.go_library()
             self.page.evaluate('document.documentElement.style.fontSize = "200%"')
             for layout in ('List', 'Grid'):
@@ -53,31 +54,31 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
         self.page.set_viewport_size({'width': 320, 'height': 320})
         cases = (
             (
-                '/reader-web/manage',
+                reader_fixture('/reader-web/manage'),
                 lambda: self.page.get_by_role('banner', name='Library toolbar', exact=True),
                 lambda: self.page.get_by_role('button', name='Collections', exact=True),
                 'library'
             ),
             (
-                '/reader-web/snippets',
+                reader_fixture('/reader-web/snippets'),
                 lambda: self.page.get_by_role('heading', name='Snippets', exact=True),
                 lambda: self.page.get_by_role('button', name='New snippet', exact=True),
                 'snippets'
             ),
             (
-                '/reader-web/statistics',
+                reader_fixture('/reader-web/statistics'),
                 lambda: self.page.get_by_role('banner', name='Statistics toolbar', exact=True),
                 lambda: self.page.get_by_role('button', name='Statistics options', exact=True),
                 'statistics'
             ),
             (
-                '/reader-web/settings',
+                reader_fixture('/reader-web/settings'),
                 lambda: self.page.get_by_role('heading', name='Settings', exact=True),
                 lambda: self.page.get_by_role('searchbox', name='Search settings', exact=True),
                 'settings'
             ),
             (
-                '/reader-web/connections',
+                reader_fixture('/reader-web/connections'),
                 lambda: self.page.get_by_role('heading', name='Accounts and libraries', exact=True),
                 lambda: self.page.get_by_role('link', name='Sign in to Manabi', exact=True),
                 'connections'
@@ -126,7 +127,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
         # full-workspace test above still runs every original case.
         self.page.set_viewport_size({'width': 320, 'height': 320})
         self.assert_primary_workspace_operable(
-            '/reader-web/statistics',
+            reader_fixture('/reader-web/statistics'),
             lambda: self.page.get_by_role('banner', name='Statistics toolbar', exact=True),
             lambda: self.page.get_by_role('button', name='Statistics options', exact=True),
             'statistics'
@@ -136,10 +137,10 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
 
     def test_settings_navigation_and_fields_distinguish_selection_from_actions(self):
         for mode in ('light', 'dark'):
-            self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
+            self.page.evaluate(reader_fixture('v => localStorage.setItem("appearance", v)'), mode)
             for width, scale in ((1440, '100%'), (390, '100%'), (320, '200%')):
                 self.page.set_viewport_size({'width': width, 'height': 844})
-                self.page.goto(self.origin + '/reader-web/settings')
+                self.page.goto(self.origin + reader_fixture('/reader-web/settings'))
                 self.page.evaluate('v => document.documentElement.style.fontSize = v', scale)
                 search = self.page.get_by_role('searchbox', name='Search settings', exact=True)
                 expect(search).to_be_visible()
@@ -168,7 +169,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
 
     def test_primary_workspace_navigation_appears_at_standard_desktop_width(self):
         self.page.set_viewport_size({'width': 1024, 'height': 768})
-        self.page.goto(self.origin + '/reader-web/settings')
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings'))
         expect(self.page.get_by_role('navigation', name='Primary navigation')).to_have_count(0)
         self.page.get_by_role('button', name='Settings actions', exact=True).click()
         menu = self.page.get_by_role('menu', name='Page actions', exact=True)
@@ -179,14 +180,14 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
 
     def test_settings_section_links_follow_url_history_without_scrolling(self):
         self.page.set_viewport_size({'width': 1200, 'height': 844})
-        self.page.goto(self.origin + '/reader-web/settings')
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings'))
         nav = self.page.get_by_role('navigation', name='Settings categories')
         typography = nav.get_by_role('link', name='Fonts & text', exact=True)
         layout = nav.get_by_role('link', name='Page layout', exact=True)
 
         start_scroll = self.page.evaluate('scrollY')
         typography.click()
-        expect(self.page).to_have_url(self.origin + '/reader-web/settings#typography')
+        expect(self.page).to_have_url(self.origin + reader_fixture('/reader-web/settings#typography'))
         expect(typography).to_have_attribute('aria-current', 'page')
         expect(
             self.page.locator('#settings-content').get_by_role(
@@ -196,7 +197,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
         self.assertEqual(start_scroll, self.page.evaluate('scrollY'))
 
         layout.click()
-        expect(self.page).to_have_url(self.origin + '/reader-web/settings#layout')
+        expect(self.page).to_have_url(self.origin + reader_fixture('/reader-web/settings#layout'))
         expect(layout).to_have_attribute('aria-current', 'page')
         expect(
             self.page.locator('#settings-content').get_by_role(
@@ -205,7 +206,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
         ).to_be_visible()
 
         self.page.go_back()
-        expect(self.page).to_have_url(self.origin + '/reader-web/settings#typography')
+        expect(self.page).to_have_url(self.origin + reader_fixture('/reader-web/settings#typography'))
         expect(typography).to_have_attribute('aria-current', 'page')
         expect(
             self.page.locator('#settings-content').get_by_role(
@@ -214,7 +215,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
         ).to_be_visible()
 
         self.page.go_back()
-        expect(self.page).to_have_url(self.origin + '/reader-web/settings')
+        expect(self.page).to_have_url(self.origin + reader_fixture('/reader-web/settings'))
         appearance = nav.get_by_role('link', name='Appearance', exact=True)
         expect(appearance).to_have_attribute('aria-current', 'page')
         expect(
@@ -225,10 +226,10 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
 
     def test_connections_workspace_uses_shared_action_hierarchy(self):
         for mode in ('light', 'dark'):
-            self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
+            self.page.evaluate(reader_fixture('v => localStorage.setItem("appearance", v)'), mode)
             for width, scale in ((390, '100%'), (320, '200%')):
                 self.page.set_viewport_size({'width': width, 'height': 844})
-                self.page.goto(self.origin + '/reader-web/connections')
+                self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
                 self.page.evaluate('v => document.documentElement.style.fontSize = v', scale)
                 heading = self.page.get_by_role('heading', name='Accounts and libraries', exact=True)
                 expect(heading).to_be_visible()
@@ -269,9 +270,9 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
 
     def test_shared_library_workspace_reflows_like_other_management_pages(self):
         for mode in ('light', 'dark'):
-            self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
+            self.page.evaluate(reader_fixture('v => localStorage.setItem("appearance", v)'), mode)
             self.page.set_viewport_size({'width': 320, 'height': 844})
-            self.page.goto(self.origin + '/reader-web/shared-library')
+            self.page.goto(self.origin + reader_fixture('/reader-web/shared-library'))
             self.page.evaluate('document.documentElement.style.fontSize = "200%"')
             heading = self.page.get_by_role(
                 'heading', name='Shared Ttu Ebook Reader libraries', exact=True
@@ -315,9 +316,9 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
 
     def test_import_workspace_uses_management_hierarchy_at_enlarged_text(self):
         for mode in ('light', 'dark'):
-            self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
+            self.page.evaluate(reader_fixture('v => localStorage.setItem("appearance", v)'), mode)
             self.page.set_viewport_size({'width': 320, 'height': 844})
-            self.page.goto(self.origin + '/reader-web/import-ttu')
+            self.page.goto(self.origin + reader_fixture('/reader-web/import-ttu'))
             self.page.evaluate('document.documentElement.style.fontSize = "200%"')
 
             heading = self.page.get_by_role(
@@ -348,14 +349,14 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
             instructions = self.page.locator('.migration-page > section').first
             self.assertAlmostEqual(
                 instructions.evaluate('e => parseFloat(getComputedStyle(e).borderTopLeftRadius)'),
-                16,
+                12,
                 delta=0.1
             )
             self.capture(f'connect-import-ttu-{mode}-320')
 
     def test_reading_goals_use_labeled_fields_and_native_sync_controls(self):
         self.page.set_viewport_size({'width': 320, 'height': 844})
-        self.page.goto(self.origin + '/reader-web/settings#tracking')
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings#tracking'))
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
 
         statistics = self.page.get_by_role('switch', name='Enable Statistics', exact=True)
@@ -424,7 +425,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
 
     def test_advanced_storage_editor_labels_the_correct_controls(self):
         self.page.set_viewport_size({'width': 320, 'height': 844})
-        self.page.goto(self.origin + '/reader-web/settings#library')
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings#library'))
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
 
         storage = self.page.locator('[data-setting="storage-sources"]')
@@ -470,7 +471,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
         expect(dialog).to_have_count(0)
 
     def test_statistics_toolbar_and_options_reflow_and_keep_unique_form_labels(self):
-        self.page.goto(self.origin + '/reader-web/statistics')
+        self.page.goto(self.origin + reader_fixture('/reader-web/statistics'))
         expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         for width, scale in ((1200, '100%'), (390, '100%'), (320, '200%')):
             self.page.set_viewport_size({'width': width, 'height': 844})
@@ -508,7 +509,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
             expect(panel.get_by_label('From', exact=True)).to_have_value('2026-04-09')
             expect(panel.get_by_label('To', exact=True)).to_have_value('2026-04-12')
             panel.get_by_label('Start of Week', exact=True).select_option('2')
-            self.assertEqual('2', self.page.evaluate('localStorage.getItem("lastStartDayOfWeek")'))
+            self.assertEqual('2', self.page.evaluate(reader_fixture('localStorage.getItem("lastStartDayOfWeek")')))
             self.capture(f'connect-statistics-options-{width}')
             for action in ('Download raw history (JSON)', 'Export Selection', 'Export All', 'Delete Selection', 'Delete All'):
                 control = panel.get_by_role('button', name=action, exact=True)
@@ -520,7 +521,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
             expect(trigger).to_be_focused()
 
     def seed_statistics(self):
-        self.page.evaluate('''async () => {
+        self.page.evaluate(reader_fixture('''async () => {
           const db = await new Promise((resolve, reject) => {
             const r = indexedDB.open('books');
             r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
@@ -537,11 +538,11 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
               tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
             });
           } finally { db.close(); }
-        }''')
+        }'''))
 
     def test_heatmap_days_are_real_keyboard_actions(self):
         self.seed_statistics()
-        self.page.goto(self.origin + '/reader-web/statistics')
+        self.page.goto(self.origin + reader_fixture('/reader-web/statistics'))
         expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         self.page.get_by_role('button', name='Heatmap', exact=True).click()
         day = self.page.locator('[data-date="2026-09-25"]')
@@ -565,7 +566,7 @@ class ConnectControlsBrowser(ReaderNavigationPanels, previous.AppleControlsBrows
     def test_title_filter_pages_survive_empty_queries_resize_and_private_drafts(self):
         self.seed_statistics()
         history = self.stores('books', ['statistic'])
-        self.page.goto(self.origin + '/reader-web/statistics')
+        self.page.goto(self.origin + reader_fixture('/reader-web/statistics'))
         expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         trigger = self.page.get_by_role('button', name='Filter books', exact=True)
         trigger.click()

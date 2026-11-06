@@ -1,4 +1,4 @@
-# Manabi Reader for Web versus Manabi Reader for iOS and macOS
+# Manabitan Reader versus Manabi Reader for iOS and macOS
 
 The web reader is an independent open-source project, not a port of the native Manabi Reader apps. It builds on an existing web reader and is developing its own library and reading experience. The native apps currently offer much more for Japanese study.
 

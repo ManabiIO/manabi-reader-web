@@ -5,6 +5,7 @@ import unittest
 from playwright.sync_api import expect
 import test_deep_control_refinement as deep
 import test_editors_picks as picks
+from reader_fixture import reader_fixture
 
 
 class ResumeControlsBrowser(deep.DeepControlRefinementBrowser):
@@ -66,7 +67,7 @@ class ResumeControlsBrowser(deep.DeepControlRefinementBrowser):
             self.assertGreaterEqual(box['x'], 0)
             self.assertLessEqual(box['x'] + box['width'], 320)
         empty = self.page.locator('[data-slot="library-empty-state"]')
-        primary = empty.get_by_role('button', name='Import File(s)', exact=True)
+        primary = empty.get_by_role('button', name='Import files', exact=True)
         self.assertGreaterEqual(primary.evaluate('e => parseFloat(getComputedStyle(e).fontSize)'), 28)
         self.assertGreaterEqual(primary.bounding_box()['width'], 225)
         self.assertLessEqual(primary.bounding_box()['height'], 2 * primary.evaluate('e => parseFloat(getComputedStyle(e).lineHeight)') + 36)
@@ -102,7 +103,7 @@ class CatalogLifetimeBrowser(picks.EditorsPicksBrowser):
         Path('test-results').mkdir(exist_ok=True)
         self.page.screenshot(path='test-results/' + self.engine + '-catalog-double-text.png')
         open_book.click()
-        expect(self.page).to_have_url(re.compile('/reader-web/b\\?id='))
+        expect(self.page).to_have_url(re.compile(reader_fixture('/reader-web/b\\?id=')))
 
     def test_cancel_operation_also_cancels_the_catalog_open_and_allows_retry(self):
         self.library()
@@ -127,17 +128,17 @@ class CatalogLifetimeBrowser(picks.EditorsPicksBrowser):
         self.page.evaluate('window.__releaseImportDigest()')
         expect(region.get_by_role('button', name='Open').first).to_be_enabled()
         expect(self.page.get_by_role('dialog')).to_have_count(0)
-        expect(self.page).to_have_url(re.compile('/reader-web/manage'))
+        expect(self.page).to_have_url(re.compile(reader_fixture('/reader-web/manage')))
         expect(self.page.get_by_role('button', name='Read A Pick from Manabi')).to_have_count(0)
         region.get_by_role('button', name='Open').first.click()
-        expect(self.page).to_have_url(re.compile('/reader-web/b\\?id='))
+        expect(self.page).to_have_url(re.compile(reader_fixture('/reader-web/b\\?id=')))
 
     def test_hard_navigation_during_catalog_load_has_no_page_error_and_can_retry(self):
         picks.PicksHandler.index_started = threading.Event()
         picks.PicksHandler.index_gate = threading.Event()
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         self.assertTrue(picks.PicksHandler.index_started.wait(timeout=5))
-        self.page.goto(self.origin + '/reader-web/settings')
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings'))
         expect(self.page.get_by_role('heading', name='Appearance', exact=True)).to_be_visible()
         picks.PicksHandler.index_gate.set()
         self.library()
@@ -162,16 +163,16 @@ class CatalogLifetimeBrowser(picks.EditorsPicksBrowser):
         # production digest can complete after its Library component is gone.
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='Settings', exact=True).click()
-        expect(self.page).to_have_url(re.compile('/reader-web/settings'))
+        expect(self.page).to_have_url(re.compile(reader_fixture('/reader-web/settings')))
         self.page.evaluate('window.__releaseCatalogDigest()')
         self.page.evaluate('() => new Promise(r => setTimeout(r, 200))')
-        expect(self.page).to_have_url(re.compile('/reader-web/settings'))
+        expect(self.page).to_have_url(re.compile(reader_fixture('/reader-web/settings')))
         expect(self.page.get_by_role('dialog')).to_have_count(0)
         self.library()
         expect(self.page.get_by_role('button', name='Read A Pick from Manabi')).to_have_count(0)
         # Genuinely new work after the canceled attempt still imports normally.
         self.page.get_by_role('region', name="Editor's Picks books").get_by_role('button', name='Open').first.click()
-        expect(self.page).to_have_url(re.compile('/reader-web/b\\?id='))
+        expect(self.page).to_have_url(re.compile(reader_fixture('/reader-web/b\\?id=')))
 
 
 if __name__ == '__main__':

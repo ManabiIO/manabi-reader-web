@@ -30,6 +30,7 @@
   import { FuriganaStyle } from '$lib/data/furigana-style';
   import { ImportHTMLFixMode } from '$lib/data/import-html-fix-mode';
   import { logger } from '$lib/data/logger';
+  import { EXTERNAL_DICTIONARY_POPUP_DETECTION_TOOLTIP } from '$lib/integrations/external-dictionary-interop';
   import { MergeMode } from '$lib/data/merge-mode';
   import { isAppDefault } from '$lib/data/storage/storage-source-manager';
   import { defaultStorageSources } from '$lib/data/storage/storage-types';
@@ -1583,7 +1584,7 @@
           category="tracking"
           keywords="trackerPopupDetection"
           title="Dictionary Detection"
-          tooltip={`If enabled auto pause is skipped if open yomitan/jpdb-browser-reader was detected - yomitan requires disabled 'Secure Container' settings`}
+          tooltip={EXTERNAL_DICTIONARY_POPUP_DETECTION_TOOLTIP}
         >
           <ButtonToggleGroup
             options={optionsForToggle}

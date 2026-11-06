@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { readerName } from '../runtime/edition';
+
 import React, { useEffect, useRef, useState } from 'react';
 import { Head } from '../reader-react/dom';
 import { videoLearningEnabled } from '$lib/media/feature';
@@ -65,9 +67,10 @@ export function VideosScreen() {
       import('$lib/media/workspace'),
       import('$lib/media/cloud-browser'),
       import('$lib/media/profile-lifetime'),
-      import('$lib/manabi/media-profile')
+      import('$lib/manabi/media-profile'),
+      import('$lib/media/reader-store')
     ])
-      .then(([workspaceModule, cloudModule, lifetimeModule, profileModule]) => {
+      .then(([workspaceModule, cloudModule, lifetimeModule, profileModule, storeModule]) => {
         if (disposed) return;
         const typography = combineLatest([
           fontFamilyGroupOne$,
@@ -112,6 +115,7 @@ export function VideosScreen() {
             setLifetimeError('');
             const target = new workspaceModule.VideoWorkspace(host, {
               scope,
+              store: storeModule.createReaderMediaStore(),
               booksURL: `${base}/manage`,
               runtimeBase: `${assets}/moss`,
               onAppearance: (trigger) => {
@@ -184,7 +188,9 @@ export function VideosScreen() {
   return (
     <>
       <Head>
-        <title>{videoLearningEnabled ? 'Videos' : 'Page not found'} — Manabi Reader</title>
+        <title>
+          {videoLearningEnabled ? 'Videos' : 'Page not found'} — {readerName}
+        </title>
       </Head>
       {videoLearningEnabled ? (
         <>

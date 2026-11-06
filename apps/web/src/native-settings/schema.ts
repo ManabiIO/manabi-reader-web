@@ -6,6 +6,7 @@
 
 import { MAX_TRACKER_IDLE_MINUTES } from '../lib/components/settings/settings-number-policy';
 import { matchesSetting } from '../lib/components/settings/settings-context';
+import { pageTurnEffectOptions } from '../lib/foliate-epub/page-turn-effect';
 
 export type SettingValue = string | number | boolean | null;
 export type CategoryId =
@@ -72,8 +73,7 @@ export const nativeSettingDefinitions: readonly SettingDefinition[] = [
     category: 'appearance',
     label: 'Fade reader background image',
     kind: 'boolean',
-    description:
-      'Applies to an existing image in the embedded reader. Native image selection is not connected yet.'
+    description: 'Light images fade toward white; dark images fade toward black.'
   },
   {
     key: 'readerBackgroundAmount',
@@ -90,16 +90,15 @@ export const nativeSettingDefinitions: readonly SettingDefinition[] = [
     key: 'libraryBackgroundFade',
     sourceId: 'library-background-fade',
     category: 'appearance',
-    label: 'Fade web library background image',
+    label: 'Fade library background image',
     kind: 'boolean',
-    description:
-      'Saves the existing web-library preference. Background images are not rendered in the native library yet.'
+    description: 'Light images fade toward white; dark images fade toward black.'
   },
   {
     key: 'libraryBackgroundAmount',
     sourceId: 'library-background-amount',
     category: 'appearance',
-    label: 'Web library background fade amount (%)',
+    label: 'Library background fade amount (%)',
     kind: 'number',
     min: 0,
     max: 100,
@@ -241,7 +240,7 @@ export const nativeSettingDefinitions: readonly SettingDefinition[] = [
     category: 'layout',
     label: 'Page turn effect',
     kind: 'choice',
-    choices: choices(['slide', 'Slide'], ['none', 'None']),
+    choices: pageTurnEffectOptions,
     description: 'Paginated EPUBs only. Continuous scrolling is unchanged.',
     when: paginated
   },

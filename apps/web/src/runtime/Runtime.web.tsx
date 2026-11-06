@@ -13,5 +13,5 @@ export { BrowserRuntime } from './BrowserRuntime';
 export default function Runtime() {
   const pathname = usePathname();
   useEffect(refreshLocation, [pathname]);
-  return <BrowserRuntime />;
+  return <BrowserRuntime routePath={pathname} />;
 }

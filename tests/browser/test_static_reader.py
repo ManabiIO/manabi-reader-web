@@ -14,6 +14,8 @@ import zlib
 from layout_diagnostics import report_layout_failure
 from lifecycle_evidence import close_context_with_evidence
 from playwright.sync_api import sync_playwright, expect
+from browser_launch import launch_options
+from reader_fixture import reader_fixture, reader_output_directory
 
 class ThreadingHTTPServer(BaseThreadingHTTPServer):
     # Browser pages request many hashed modules concurrently. The default
@@ -22,7 +24,7 @@ class ThreadingHTTPServer(BaseThreadingHTTPServer):
     request_queue_size = 128
 
 
-ROOT = Path(__file__).resolve().parents[2] / 'apps/web/build'
+ROOT = reader_output_directory()
 TITLE = 'Reader browser acceptance'
 
 
@@ -249,9 +251,9 @@ class StaticHandler(SimpleHTTPRequestHandler):
         path = unquote(urlsplit(path).path)
         if 'attack-probe' in path:
             self.probes.append(path)
-        if not path.startswith('/reader-web/'):
+        if not path.startswith(reader_fixture('/reader-web/')):
             return str(ROOT / '__not_an_application_route__')
-        relative = path[len('/reader-web/'):]
+        relative = path[len(reader_fixture('/reader-web/')):]
         if '..' in Path(relative).parts:
             return str(ROOT / '__not_an_application_route__')
         target = ROOT / relative
@@ -278,7 +280,7 @@ class ReaderBrowser(unittest.TestCase):
         cls.thread.start()
         cls.origin = 'http://127.0.0.1:' + str(cls.server.server_port)
         cls.playwright = sync_playwright().start()
-        cls.browser = cls.playwright.chromium.launch()
+        cls.browser = cls.playwright.chromium.launch(**launch_options())
 
     @classmethod
     def tearDownClass(cls):
@@ -293,8 +295,9 @@ class ReaderBrowser(unittest.TestCase):
 
     def setUp(self):
         self.context = self.new_context()
+        self.addCleanup(self.context.close)
         self.context.add_init_script(
-            "try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}")
+            reader_fixture("try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}"))
         self.page = self.context.new_page()
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
@@ -344,19 +347,19 @@ class ReaderBrowser(unittest.TestCase):
 
     def open_book(self, view='paginated', writing='vertical-rl', font=None, foliate=False, include_images=True):
         settings = {'viewMode': view, 'writingMode': writing, 'hideFurigana': 'false', 'hideSpoilerImage': 'false'}
-        self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') { for (const [key,value] of Object.entries(' + json.dumps(settings) + ')) localStorage.setItem(key,value); }')
+        self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') { for (const [key,value] of Object.entries(' + json.dumps(settings) + reader_fixture(')) localStorage.setItem(key,value); }'))
         if foliate:
             self.context.add_init_script(
-                "try { localStorage.setItem('manabi-dev-foliate-epub', 'true') } catch {}")
+                reader_fixture("try { localStorage.setItem('manabi-dev-foliate-epub', 'true') } catch {}"))
         if font:
             # Seed the fixture font on the import page only. Reapplying it on every
             # document would overwrite a later explicit user choice during reload.
             self.context.add_init_script(
                 'if (location.origin === ' + json.dumps(self.origin) +
-                ' && location.pathname.endsWith("/manage")) localStorage.setItem("fontFamilyGroupOne", ' +
+                reader_fixture(' && location.pathname.endsWith("/manage")) localStorage.setItem("fontFamilyGroupOne", ') +
                 json.dumps(font) + ');'
             )
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         # This attribute is installed by a Svelte action, not prerendered HTML.
         # Wait for real input handlers before assigning files to hidden SSR inputs.
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
@@ -386,7 +389,7 @@ class ReaderBrowser(unittest.TestCase):
         return self.page.locator('.book-content').evaluate('e => getComputedStyle(e).fontFamily.split(",")[0].trim().replace(/^"|"$/g, "")')
 
     def test_anonymous_navigation_without_backend(self):
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         # Like open_book(), wait for the real Svelte action before interacting
         # with prerendered controls. A visible SSR button may not have listeners.
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
@@ -399,14 +402,14 @@ class ReaderBrowser(unittest.TestCase):
         self.assertTrue(self.page.get_by_role('link', name='Sign in to Manabi').get_attribute('href').startswith('/accounts/login/'))
 
     def test_video_release_gate_keeps_default_build_dormant(self):
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         # Qualify the real offline worker before replacing this document.
         # WebKit otherwise reports cancellation of its pending registration as
         # an engine page error, even when register() handles the rejection.
-        self.page.wait_for_function('''async () => Boolean(
+        self.page.wait_for_function(reader_fixture('''async () => Boolean(
           (await navigator.serviceWorker.getRegistration('/reader-web/'))?.active
-        )''', timeout=15000)
+        )'''), timeout=15000)
         # The empty Library also starts its optional catalog independently.
         # Fence that real request before this video-gate document replacement.
         expect(self.page.get_by_role('heading', name="Editor's Picks", exact=True)).to_be_visible()
@@ -415,20 +418,20 @@ class ReaderBrowser(unittest.TestCase):
         # regression export; the full web inventory explicitly enables video.
         if os.environ.get('EXPO_PUBLIC_ENABLE_VIDEO_LEARNING') == 'true':
             expect(self.page.get_by_role('link', name='Videos', exact=True)).to_be_visible()
-            self.page.goto(self.origin + '/reader-web/videos')
+            self.page.goto(self.origin + reader_fixture('/reader-web/videos'))
             expect(self.page.get_by_role('heading', name='Videos', exact=True)).to_be_visible()
             expect(self.page.locator('.manabi-media')).to_be_visible()
             expect(self.page.get_by_role('heading', name='Page not found', exact=True)).to_have_count(0)
             return
         expect(self.page.get_by_role('link', name='Videos', exact=True)).to_have_count(0)
 
-        self.page.goto(self.origin + '/reader-web/videos')
+        self.page.goto(self.origin + reader_fixture('/reader-web/videos'))
         expect(self.page.get_by_role('heading', name='Page not found', exact=True)).to_be_visible()
         expect(self.page.get_by_role('link', name='Back to library', exact=True)).to_be_visible()
         expect(self.page.locator('.video-workspace')).to_have_count(0)
 
     def test_yukyokasho_default_is_device_local_and_requires_both_faces(self):
-        self.page.goto(self.origin + '/reader-web/settings#typography')
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings#typography'))
         primary = self.page.get_by_role('textbox', name='Primary / Serif font', exact=True)
         expect(primary).to_be_visible()
         available = self.page.evaluate('''async () => {
@@ -447,7 +450,7 @@ class ReaderBrowser(unittest.TestCase):
         }''')
         expect(primary).to_have_value('YuKyokasho' if available else 'Klee One', timeout=3000)
         # A device fallback must not replace the portable/account preference.
-        self.assertIsNone(self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'))
+        self.assertIsNone(self.page.evaluate(reader_fixture('localStorage.getItem("fontFamilyGroupOne")')))
         self.page.get_by_role('button', name='Show available primary / serif fonts', exact=True).click()
         expect(self.page.get_by_role('menuitemradio', name='YuKyokasho', exact=True)).to_have_count(1 if available else 0)
 
@@ -507,8 +510,8 @@ class ReaderBrowser(unittest.TestCase):
     def test_foliate_cross_resource_links_keep_duplicate_fragment_identity(self):
         title, data = linked_epub()
         self.context.add_init_script(
-            "try { localStorage.setItem('manabi-dev-foliate-epub', 'true') } catch {}")
-        self.page.goto(self.origin + '/reader-web/manage')
+            reader_fixture("try { localStorage.setItem('manabi-dev-foliate-epub', 'true') } catch {}"))
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
             {'name': 'linked.epub', 'mimeType': 'application/epub+zip', 'buffer': data})
@@ -557,7 +560,7 @@ class ReaderBrowser(unittest.TestCase):
         # even though the new face subsequently loads. This test checks saved font
         # preference/decoding, not cancellation during an unfinished font download.
         self.wait_for_fonts()
-        self.page.evaluate('localStorage.setItem("fontFamilyGroupOne", "Noto Serif JP")')
+        self.page.evaluate(reader_fixture('localStorage.setItem("fontFamilyGroupOne", "Noto Serif JP")'))
         self.page.reload()
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
         self.assertEqual('Noto Serif JP', self.first_font())
@@ -581,9 +584,9 @@ class ReaderBrowser(unittest.TestCase):
         expect(self.page.locator('.book-content')).to_contain_text('日本語')
 
     def test_offline_reload_preserves_book_and_never_caches_account_requests(self):
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         scope = self.page.evaluate('navigator.serviceWorker.ready.then(registration => registration.scope)')
-        self.assertEqual(self.origin + '/reader-web/', scope)
+        self.assertEqual(self.origin + reader_fixture('/reader-web/'), scope)
         # The worker intentionally does not claim a tab that loaded under the
         # previous shell. A normal online navigation hands the next document to
         # the activated worker without mixing application generations.

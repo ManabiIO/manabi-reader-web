@@ -15,6 +15,7 @@ import {
   ROUTES
 } from '../../scripts/verify-expo-export.mjs';
 import { readerContentSecurityPolicy } from '../../apps/web/src/platform/content-security-policy.mjs';
+import { externalRuntimeAssets } from '../../apps/web/src/lib/service-worker/optional-static-assets.mjs';
 import {
   registerReaderServiceWorker,
   isShellAsset,
@@ -191,7 +192,7 @@ async function fixture(t, platform = 'web', media = false) {
   await put(app, 'package.json', '{"type":"module"}');
   await put(
     app,
-    'src/lib/search/manabitan-version.json',
+    'src/lib/search/dictionary-providers/manabitan/version.json',
     JSON.stringify({ repository: 'ManabiIO/manabitan', revision })
   );
   await put(
@@ -245,6 +246,11 @@ async function fixture(t, platform = 'web', media = false) {
     path.join(publicDir, dict, 'corresponding-source.tgz')
   );
   const archive = 'dictionary bytes';
+  await put(
+    publicDir,
+    dict + 'reader-runtime.json',
+    JSON.stringify({ schema: 1, provider: 'manabitan', revision })
+  );
   await put(publicDir, 'dictionary-archives/default.zip', archive);
   await put(
     publicDir,
@@ -429,7 +435,11 @@ async function fixture(t, platform = 'web', media = false) {
       build: urls.filter((url) => /\/(?:_expo|assets)\//.test(url)),
       files: urls.filter((url) => !/\/(?:_expo|assets)\//.test(url)),
       prerendered: ROUTES.map((route) => `/reader-web/${route}`),
-      lazyAssets: urls.filter((url) => /voice-pitch|swift-f0|ort-wasm/.test(url)),
+      lazyAssets: urls.filter(
+        (url) =>
+          /voice-pitch|swift-f0|ort-wasm/.test(url) ||
+          externalRuntimeAssets(paths).includes(url.slice('/reader-web/'.length))
+      ),
       version: 'fixture',
       userFontsCacheName: 'ttu-userfonts'
     };
@@ -447,13 +457,13 @@ async function fixture(t, platform = 'web', media = false) {
   return { directory, app, output, platform, media };
 }
 
-test('uses installed SDK 57 chunk naming, including its second extension removal', () => {
+test('uses installed SDK 58 chunk naming, including its second extension removal', () => {
   assert.match(
     workerChunk('voice-pitch.worker'),
     /^_expo\/static\/js\/web\/voice-pitch-[a-f0-9]+\.js$/
   );
 });
-test('reads JSON-quoted SDK 57 dependency-map keys', () => {
+test('reads JSON-quoted SDK 58 dependency-map keys', () => {
   const found = inspectJavaScript(workerCall('reader-search-worker', 0, './'));
   assert.deepEqual(found.workers, [
     {
@@ -524,6 +534,40 @@ test('rejects stale exported font bytes', async (t) => {
     )
   );
 });
+
+test('edition export checks the exact branded manifest and namespaced bootstrap from source', async (t) => {
+  const options = await fixture(t);
+  await put(path.join(options.app, 'static'), 'appearance-init.js', 'localStorage.getItem(key)');
+  await put(options.output, 'reader-product.json', JSON.stringify({ edition: 'manabitan' }));
+  await put(
+    options.output,
+    'appearance-init.js',
+    'localStorage.getItem("manabitan-reader-v1:" + key)'
+  );
+  await put(
+    options.output,
+    'manifest.webmanifest',
+    JSON.stringify(
+      {
+        start_url: './',
+        name: 'Manabitan Reader',
+        short_name: 'Manabitan Reader'
+      },
+      null,
+      2
+    ) + '\n'
+  );
+  assert.deepEqual((await verifyExport(options)).errors, []);
+  await put(
+    options.output,
+    'appearance-init.js',
+    'localStorage.getItem("manabi-reader-v1:" + key)'
+  );
+  await put(options.output, 'manifest.webmanifest', '{"name":"Manabi Reader for Web"}');
+  const errors = (await verifyExport(options)).errors;
+  assert.ok(errors.includes('Public file bytes differ: appearance-init.js'));
+  assert.ok(errors.includes('Public file bytes differ: manifest.webmanifest'));
+});
 test('APK requires public files inside assets/www.bundle, not at archive root', async (t) => {
   const options = await fixture(t, 'apk');
   await fs.rename(
@@ -582,7 +626,7 @@ test('Android update metadata cannot substitute for an APK', async (t) => {
   assert.ok(result.errors.some((error) => /assets\/index.android.bundle/.test(error)));
 });
 test('actual installed exporter retains the expected update versus embedded topology', async () => {
-  assert.equal(JSON.parse(await fs.readFile(expoPackage)).version, '57.0.26');
+  assert.equal(JSON.parse(await fs.readFile(expoPackage)).version, '58.0.23');
   const embed = await fs.readFile(
     path.join(cli, 'build/src/export/embed/exportEmbedAsync.js'),
     'utf8'
@@ -699,7 +743,10 @@ test('web still requires its Library content-search worker', async (t) => {
 test('APK source alias must retain the exact gzip archive and the copied web template is not a DOM entry', async (t) => {
   const options = await fixture(t, 'apk');
   const version = JSON.parse(
-    await fs.readFile(path.join(options.app, 'src/lib/search/manabitan-version.json'), 'utf8')
+    await fs.readFile(
+      path.join(options.app, 'src/lib/search/dictionary-providers/manabitan/version.json'),
+      'utf8'
+    )
   );
   const prefix = `assets/www.bundle/manabitan/${version.revision}/`;
   await fs.unlink(path.join(options.output, prefix, 'corresponding-source.tar.gz'));

@@ -1,9 +1,11 @@
 {
   "name": "Manabi Reader",
   "short_name": "Manabi Reader",
-  "theme_color": "#37474f",
-  "background_color": "#f5f5f6",
-  "display": "fullscreen",
+  "description": "Your Japanese reading library, available offline on this device.",
+  "id": "./",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "display": "standalone",
   "scope": "./",
   "start_url": "./",
   "icons": [

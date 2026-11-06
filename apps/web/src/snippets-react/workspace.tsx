@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { readerName } from '../runtime/edition';
+
 import React from 'react';
 import { CaretLeft } from '@phosphor-icons/react';
 import { handleRouteBack } from '../shared-ui/route-back-click.web';
@@ -68,7 +70,7 @@ export function Workspace(props: WorkspaceProps & ReaderViewProps) {
       <Head>
         <Dom scopeClass="snippet-scope-workspace" as="title">
           {c.current ? displayTitle(c.current.document) + ' — ' : ''}
-          {'Snippets · Manabi Reader'}
+          {`Snippets · ${readerName}`}
         </Dom>
       </Head>
       <Dom

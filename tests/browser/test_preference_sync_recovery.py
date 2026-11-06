@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect
 from test_books_library import LibraryBase
 from test_static_reader import StaticHandler
+from reader_fixture import reader_fixture
 
 
 class PreferenceSyncRecovery(LibraryBase):
@@ -42,7 +43,7 @@ class PreferenceSyncRecovery(LibraryBase):
             StaticHandler.account_requests = self.previous_requests
 
     def snapshot(self, key='preferences/42'):
-        return self.page.evaluate('''async key => {
+        return self.page.evaluate(reader_fixture('''async key => {
           const open = indexedDB.open('manabi-reader-integrations');
           const db = await new Promise((resolve, reject) => {
             open.onsuccess = () => resolve(open.result);
@@ -55,10 +56,10 @@ class PreferenceSyncRecovery(LibraryBase):
               request.onerror = () => reject(request.error);
             });
           } finally { db.close(); }
-        }''', key)
+        }'''), key)
 
     def test_pending_preference_read_survives_document_navigation(self):
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         self.page.get_by_label('When first enabling sync').select_option('local')
         self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
         expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
@@ -93,7 +94,7 @@ class PreferenceSyncRecovery(LibraryBase):
                 self.assertTrue(started.wait(timeout=5), 'Preference GET did not reach the server')
                 self.assertEqual([{'method': 'GET', 'keepalive': True}],
                                  self.page.evaluate('window.__preferenceNavigationReads'))
-                self.page.goto(self.origin + '/reader-web/settings')
+                self.page.goto(self.origin + reader_fixture('/reader-web/settings'))
             finally:
                 release.set()
         expect(self.page.get_by_role('heading', name='Settings', exact=True)).to_be_visible()
@@ -101,13 +102,18 @@ class PreferenceSyncRecovery(LibraryBase):
         self.assertEqual([], self.errors)
 
     def exercise(self, method, *, reload=False):
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         expect(self.page.get_by_text('preference-recovery', exact=True)).to_be_visible()
-        # The selector is bound by the actual page. Selection and blur exercise
-        # normal Svelte input handling before the user's consent is submitted.
+        # Establish a durable local choice through the real numeric editor
+        # before injecting a server failure. Account admission is asynchronous.
+        expect(self.page.get_by_label(
+            'Sync reader settings with this Manabi account', exact=True)).to_be_enabled()
         font = self.page.get_by_label('Font size', exact=True)
-        font.fill('31')
+        font.fill('')
+        font.press_sequentially('31')
+        expect(font).to_have_value('31')
         font.press('Tab')
+        self.page.wait_for_function(reader_fixture("localStorage.getItem('fontSize') === '31'"))
         expect(font).to_have_value('31')
         self.page.get_by_label('When first enabling sync').select_option('local')
         original = getattr(StaticHandler, 'do_' + method)
@@ -165,16 +171,16 @@ class PreferenceSyncRecovery(LibraryBase):
 
 
     def test_font_size_draft_survives_account_refresh_and_rejects_invalid_sizes(self):
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         expect(self.page.get_by_text('preference-recovery', exact=True)).to_be_visible()
         font = self.page.get_by_label('Font size', exact=True)
         font.fill('30')
         font.press('Tab')
         expect(font).to_have_value('30')
-        self.page.wait_for_function("localStorage.getItem('fontSize') === '30'")
+        self.page.wait_for_function(reader_fixture("localStorage.getItem('fontSize') === '30'"))
         font.fill('')
         expect(font).to_have_value('')
-        self.assertEqual('30', self.page.evaluate("localStorage.getItem('fontSize')"))
+        self.assertEqual('30', self.page.evaluate(reader_fixture("localStorage.getItem('fontSize')")))
         # A genuine account refresh rerenders this screen while the edit is empty.
         # Keep focus in the numeric field: moving away intentionally cancels it.
         def session_requests():
@@ -194,11 +200,11 @@ class PreferenceSyncRecovery(LibraryBase):
         font.press_sequentially('31')
         font.press('Tab')
         expect(font).to_have_value('31')
-        self.page.wait_for_function("localStorage.getItem('fontSize') === '31'")
+        self.page.wait_for_function(reader_fixture("localStorage.getItem('fontSize') === '31'"))
         for invalid in ['7', '97', '31.5', '']:
             font.fill(invalid)
             expect(font).to_have_value(invalid)
-            self.assertEqual('31', self.page.evaluate("localStorage.getItem('fontSize')"))
+            self.assertEqual('31', self.page.evaluate(reader_fixture("localStorage.getItem('fontSize')")))
             font.press('Tab')
             expect(font).to_have_value('31')
         self.page.reload()
@@ -207,18 +213,21 @@ class PreferenceSyncRecovery(LibraryBase):
         font.fill('')
         toggle = self.page.get_by_label(
             'Sync reader settings with this Manabi account', exact=True)
+        # Programmatic activation preserves the unfinished input's focus, but
+        # a disabled checkbox silently ignores click(). Wait for account admission.
+        expect(toggle).to_be_enabled()
         toggle.evaluate('(toggle) => toggle.click()')
         expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text(
             'synced', timeout=15000)
         expect(font).to_have_value('12')
-        self.page.wait_for_function("localStorage.getItem('fontSize') === '12'")
+        self.page.wait_for_function(reader_fixture("localStorage.getItem('fontSize') === '12'"))
 
     def preference_request_count(self):
         return sum(1 for request in StaticHandler.account_requests
                    if request['path'].endswith('/preferences/'))
 
     def test_lost_put_reply_then_same_setting_edit_converges_without_false_conflict(self):
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         expect(self.page.get_by_text('preference-recovery', exact=True)).to_be_visible()
         font = self.page.get_by_label('Font size', exact=True)
         font.fill('30')
@@ -226,7 +235,7 @@ class PreferenceSyncRecovery(LibraryBase):
         expect(font).to_have_value('30')
         # Observe the real setting write before admitting the first-sync intent.
         # No repeated edit or timer sleep: a lost input still fails this assertion.
-        self.page.wait_for_function("localStorage.getItem('fontSize') === '30'")
+        self.page.wait_for_function(reader_fixture("localStorage.getItem('fontSize') === '30'"))
         self.page.get_by_label('When first enabling sync').select_option('local')
         toggle = self.page.get_by_label(
             'Sync reader settings with this Manabi account', exact=True)
@@ -291,7 +300,7 @@ class PreferenceSyncRecovery(LibraryBase):
         self.assertEqual([], self.errors)
 
     def test_successful_manual_recovery_clears_previous_retry_after(self):
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         expect(self.page.get_by_text('preference-recovery', exact=True)).to_be_visible()
         font = self.page.get_by_label('Font size', exact=True)
         font.fill('31')
@@ -352,7 +361,7 @@ class PreferenceSyncRecovery(LibraryBase):
         self.assertEqual([], self.errors)
 
     def exercise_accepted_application_recovery(self, *, edit=False):
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         expect(self.page.get_by_text('preference-recovery', exact=True)).to_be_visible()
         self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
         status = self.page.get_by_role('status', name='Settings sync status')
@@ -360,7 +369,7 @@ class PreferenceSyncRecovery(LibraryBase):
 
         # Fail the local application of a later successful HTTP reply. Native
         # IndexedDB still executes; only this named organization write aborts.
-        self.page.evaluate('''() => {
+        self.page.evaluate(reader_fixture('''() => {
           window.__rejectAcceptedOrganization = true;
           window.__acceptedOrganizationAborts = 0;
           const put = IDBObjectStore.prototype.put;
@@ -375,7 +384,7 @@ class PreferenceSyncRecovery(LibraryBase):
             }
             return request;
           };
-        }''')
+        }'''))
         StaticHandler.preference_revision += 1
         StaticHandler.preference_settings = {
             **copy.deepcopy(StaticHandler.preference_settings),

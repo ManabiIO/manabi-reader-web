@@ -19,7 +19,7 @@ import {
  *
  * @param {ServiceWorkerGlobalScope} worker
  * @param {{build: string[], files: string[], prerendered: string[], version: string,
- * userFontsCacheName: string, lazyAssets?: string[]}} config
+ * userFontsCacheName: string, lazyAssets?: string[], optionalRuntimeAssets?: string[]}} config
  */
 export function registerReaderServiceWorker(worker, config) {
   const scope = new URL(worker.registration.scope);
@@ -30,27 +30,38 @@ export function registerReaderServiceWorker(worker, config) {
   const shellName = `${shellPrefix}${config.version}`;
   const fontsName = `${fontsPrefix}${config.version}`;
   const staticFontsName = `${staticFontsPrefix}${config.version}`;
+  const runtimePrefix = `${prefix}optional-runtime:`;
+  const runtimeName = `${runtimePrefix}${config.version}`;
   // Content-hashed packaged fonts keep working offline across shell upgrades.
   // This is separate from imported user-font and dictionary storage.
   const packagedFontsName = `${prefix}packaged-fonts:v1`;
   const storage = worker.caches;
-  const lazyAssets = new Set((config.lazyAssets ?? []).map((path) => new URL(path, scope).href));
-
   /** @param {URL} url */
   const inScope = (url) => url.origin === scope.origin && url.pathname.startsWith(scope.pathname);
+  const optionalRuntimeAssets = new Set(
+    (config.optionalRuntimeAssets ?? [])
+      .map((path) => new URL(path, scope))
+      .filter((url) => inScope(url) && isCacheableRuntimeURL(url))
+      .map((url) => url.href)
+  );
+  const lazyAssets = new Set(
+    [...(config.lazyAssets ?? []), ...(config.optionalRuntimeAssets ?? [])].map(
+      (path) => new URL(path, scope).href
+    )
+  );
 
   // SvelteKit's build list is content-hashed; public/static files are not.
   // Only immutable built URLs may survive upgrades in the stable cache.
   const immutableFontAssets = new Set(
     config.build
       .map((path) => new URL(path, scope))
-      .filter((url) => inScope(url) && isPackagedFont(url))
+      .filter((url) => inScope(url) && isPackagedFont(url) && !lazyAssets.has(url.href))
       .map((url) => url.href)
   );
   const fontAssets = new Set(
     [...config.build, ...config.files]
       .map((path) => new URL(path, scope))
-      .filter((url) => inScope(url) && isPackagedFont(url))
+      .filter((url) => inScope(url) && isPackagedFont(url) && !lazyAssets.has(url.href))
       .map((url) => url.href)
   );
   const shellAssets = new Set(
@@ -156,6 +167,7 @@ export function registerReaderServiceWorker(worker, config) {
                 (key) =>
                   (key.startsWith(shellPrefix) && key !== shellName) ||
                   (key.startsWith(fontsPrefix) && key !== fontsName) ||
+                  (key.startsWith(runtimePrefix) && key !== runtimeName) ||
                   (key.startsWith(staticFontsPrefix) && key !== staticFontsName)
               )
               .map((key) => storage.delete(key))
@@ -204,6 +216,12 @@ export function registerReaderServiceWorker(worker, config) {
         event.respondWith(readShell(request, key.href));
         return;
       }
+      // Optional engines are cached only when requested by a user workflow.
+      // They never delay shell installation or install dictionary contents.
+      if (optionalRuntimeAssets.has(key.href)) {
+        event.respondWith(readOptionalRuntime(request, key.href));
+        return;
+      }
 
       // Only exact URLs present in this build's asset manifest are cacheable.
       // Do not cache arbitrary font-shaped URLs, query variants or remote fonts.
@@ -234,6 +252,26 @@ export function registerReaderServiceWorker(worker, config) {
       event.respondWith(readRemoteFont(request));
     }
   });
+
+  async function readOptionalRuntime(request, key) {
+    let cache;
+    try {
+      cache = await storage.open(runtimeName);
+      const saved = await cache.match(key);
+      if (isUsableRuntimeResponse(saved, key)) return saved;
+    } catch {
+      /* Online use can continue when optional storage is unavailable. */
+    }
+    const response = await worker.fetch(request);
+    if (cache && isUsableRuntimeResponse(response, key)) {
+      try {
+        await cache.put(key, response.clone());
+      } catch {
+        /* Quota failure does not discard a usable network response. */
+      }
+    }
+    return response;
+  }
 
   /** @param {Request} request @param {string} key */
   async function readShell(request, key) {
@@ -334,6 +372,32 @@ export function registerReaderServiceWorker(worker, config) {
   }
 }
 
+/** Only declared executable/support files, never user archives or dictionaries. */
+function isCacheableRuntimeURL(url) {
+  if (url.search || url.hash) return false;
+  let path;
+  try {
+    path = decodeURIComponent(url.pathname).toLowerCase();
+  } catch {
+    return false;
+  }
+  return (
+    !/(?:^|\/)(?:dictionaries|dictionary-archives)(?:\/|$)/.test(path) &&
+    !/\.(?:zip|epub|htmlz|sqlite3?|db)$/.test(path)
+  );
+}
+
+/** Error-page fallbacks must not become a persistent engine response. */
+function isUsableRuntimeResponse(response, key) {
+  if (!isUsableShellResponse(response, key) || response.type === 'opaque') return false;
+  const mime = response.headers.get('Content-Type')?.split(';', 1)[0].trim().toLowerCase();
+  if (!mime || mime === 'text/html' || mime === 'application/xhtml+xml') return false;
+  const path = new URL(key).pathname.toLowerCase();
+  if (path.endsWith('.wasm')) return mime === 'application/wasm';
+  if (path.endsWith('.json')) return mime === 'application/json';
+  return true;
+}
+
 /** @param {URL} url */
 export function isShellAsset(url) {
   let path;
@@ -343,7 +407,7 @@ export function isShellAsset(url) {
     return false;
   }
   return (
-    !/(?:^|\/)(?:dictionaries|dictionary-archives|manabitan|moss)(?:\/|$)/.test(path) &&
+    !/(?:^|\/)(?:dictionaries|dictionary-archives|moss)(?:\/|$)/.test(path) &&
     !/\.(?:zip|epub|htmlz|sqlite3?|db|wasm|woff2?|ttf|otf)$/.test(path)
   );
 }
@@ -382,6 +446,6 @@ export function isPackagedFont(url) {
   }
   return (
     /\.(?:woff2?|ttf|otf)$/.test(path) &&
-    !/(?:^|\/)(?:userfonts|dictionaries|dictionary-archives|manabitan)(?:\/|$)/.test(path)
+    !/(?:^|\/)(?:userfonts|dictionaries|dictionary-archives)(?:\/|$)/.test(path)
   );
 }

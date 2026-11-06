@@ -26,6 +26,10 @@ export function loadOfflineModule(entry, { modules = {}, globals = {} } = {}) {
     crypto: globalThis.crypto,
     ...globals
   });
+  // Browser globals refer to the same storage object. Keep partial window
+  // fixtures faithful when production imports the owned preference adapter.
+  if (context.window && globals.localStorage && !context.window.localStorage)
+    context.window.localStorage = globals.localStorage;
   const cache = new Map();
   function load(filename) {
     let target = filename;

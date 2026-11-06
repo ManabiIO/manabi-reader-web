@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { storageName } from '../../runtime/edition';
+
 import { get, writable, type Readable } from '$lib/state/store';
 import { account, currentUser, localUser } from '../manabi/client';
 import { integrationDB, exclusive, setMetadata } from '../manabi/persistence';
@@ -602,7 +604,7 @@ export function startSnippets(discovery: Readable<boolean>) {
     window.addEventListener('focus', onFocus);
     let channel: BroadcastChannel | undefined;
     try {
-      channel = new BroadcastChannel('manabi-snippets');
+      channel = new BroadcastChannel(storageName('manabi-snippets'));
       channel.onmessage = onChange;
     } catch {
       /* Retain local state; the next explicit refresh can retry. */

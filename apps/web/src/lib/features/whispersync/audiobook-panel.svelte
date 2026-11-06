@@ -12,6 +12,7 @@
     type Cue
   } from './subtitles';
   import { LocalAudioPlayer, audioIdentity, type PlaybackState } from './player';
+  import { storageName } from '../../../runtime/edition';
   import { AudiobookSessionStore, sessionKey, type AudiobookSession } from './persistence';
   import { AudiobookSessionCoordinator } from './session';
   import { BookSource, ReaderNavigator } from './reader-source';
@@ -106,7 +107,10 @@
     });
     highlight = new ReaderHighlight(window);
     highlightSupported = highlight.supported;
-    session = new AudiobookSessionCoordinator(new AudiobookSessionStore(), key);
+    session = new AudiobookSessionCoordinator(
+      new AudiobookSessionStore(undefined, storageName('manabi-whispersync-v1')),
+      key
+    );
     navigator = new ReaderNavigator({
       document,
       root: () => document.querySelector<HTMLElement>('.book-content') ?? undefined,

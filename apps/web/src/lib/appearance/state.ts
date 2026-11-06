@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { localStorage } from '$lib/data/window/local-storage';
+import { logicalStorageKey } from '../../runtime/edition';
 import { combineLatest, distinctUntilChanged, map, Observable, shareReplay, skip } from 'rxjs';
 import { writableSubject } from '$lib/functions/svelte/store';
 import { initialAppearance, parseCustomThemes, type ColorMode } from '$lib/data/theme-option';
@@ -13,14 +15,14 @@ import { initialAppearance, parseCustomThemes, type ColorMode } from '$lib/data/
 // newer edit in another tab. Storage events are notifications, not snapshots.
 function read(key: string): string | null | undefined {
   try {
-    return typeof window === 'undefined' ? undefined : window.localStorage.getItem(key);
+    return typeof window === 'undefined' ? undefined : localStorage.getItem(key);
   } catch {
     return undefined;
   }
 }
 function write(key: string, value: string): boolean {
   try {
-    if (window.localStorage.getItem(key) !== value) window.localStorage.setItem(key, value);
+    if (localStorage.getItem(key) !== value) localStorage.setItem(key, value);
     return true;
   } catch {
     /* Session-only when storage is unavailable. */
@@ -120,7 +122,13 @@ export function startAppearanceSync(): () => void {
   if (read('theme') === 'system-theme') write('theme', theme$.getValue());
   const changed = (event: StorageEvent) => {
     try {
-      if (event.storageArea === window.localStorage) reload(event.key);
+      if (event.storageArea === window.localStorage) {
+        if (event.key === null) reload();
+        else {
+          const key = logicalStorageKey(event.key);
+          if (key !== null) reload(key);
+        }
+      }
     } catch {
       /* Browser preferences remain usable in this tab. */
     }

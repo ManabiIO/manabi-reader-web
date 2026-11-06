@@ -11,6 +11,8 @@ import unittest
 from test_shared_safety import SharedStorageRuntime
 from test_books_library import LibraryBase
 from playwright.sync_api import expect
+from reader_fixture import reader_fixture
+from browser_launch import launch_options
 
 
 class LibraryDeletionRuntime(SharedStorageRuntime):
@@ -21,7 +23,7 @@ class LibraryDeletionRuntime(SharedStorageRuntime):
         self.engine = os.environ.get('LIBRARY_BROWSER', 'chromium')
         profile = tempfile.TemporaryDirectory(prefix='reader-delete-' + self.engine + '-')
         self.addCleanup(profile.cleanup)
-        context = getattr(self.playwright, self.engine).launch_persistent_context(profile.name)
+        context = getattr(self.playwright, self.engine).launch_persistent_context(profile.name, **launch_options((getattr(self.playwright, self.engine)).name))
         self.assertEqual(self.engine, context.browser.browser_type.name)
         return context
 
@@ -37,7 +39,7 @@ class LibraryDeletionRuntime(SharedStorageRuntime):
 
     def test_batch_deletion_rechecks_resume_and_removes_late_bookmarks(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const {replicationProgress$} = await import('/reader-web/src/lib/functions/replication/replication-progress.ts');
           const db = await database.db;
@@ -62,7 +64,7 @@ class LibraryDeletionRuntime(SharedStorageRuntime):
           } finally { subscription.unsubscribe(); }
           return {outcome, changed, last:await db.get('lastItem',0) ?? null,
             bookmark:await db.get('bookmark',ids[2]) ?? null, remaining:await db.getAllKeys('data'), ids};
-        }""")
+        }"""))
         self.assertTrue(result['changed'])
         self.assertEqual('', result['outcome']['error'])
         self.assertEqual([result['ids'][0], result['ids'][2]], result['outcome']['deleted'])
@@ -72,7 +74,7 @@ class LibraryDeletionRuntime(SharedStorageRuntime):
 
     def test_native_delete_abort_is_visible_atomic_and_retryable(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const db = await database.db;
           const title = 'Retry deletion', bookKey = 'content:'+'c'.repeat(64);
@@ -103,7 +105,7 @@ class LibraryDeletionRuntime(SharedStorageRuntime):
           const after = await snapshot();
           const retry = await database.deleteData([id], new Map([[id,title]]), new AbortController().signal, false);
           return {id, aborted, outcome, before, after, retry, final:await snapshot(), keys:await db.getAllKeys('data')};
-        }""")
+        }"""))
         self.assertTrue(result['aborted'])
         self.assertEqual(result['before'], result['after'])
         self.assertEqual([], result['outcome']['deleted'])
@@ -114,7 +116,7 @@ class LibraryDeletionRuntime(SharedStorageRuntime):
 
     def test_deletion_uses_current_book_title_not_the_selected_label(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const db = await database.db;
           const id = await db.add('data', {title:'Renamed since selection', elementHtml:'<p>Read.</p>', styleSheet:'', blobs:{}, sections:[]});
@@ -123,13 +125,13 @@ class LibraryDeletionRuntime(SharedStorageRuntime):
           await db.put('audioBook', {title:'Renamed since selection',lastAudioBookModified:2,currentTime:8});
           const outcome = await database.deleteData([id], new Map([[id,'Previous label']]), new AbortController().signal, true);
           return {outcome, oldAudio, audio:await db.getAll('audioBook')};
-        }""")
+        }"""))
         self.assertEqual('', result['outcome']['error'])
         self.assertEqual([result['oldAudio']], result['audio'])
 
     def test_explicit_history_deletion_uses_identity_and_preserves_other_copies(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const db = await database.db;
           const create = (title, hash) => db.add('data', {title, contentHash:hash,
@@ -155,7 +157,7 @@ class LibraryDeletionRuntime(SharedStorageRuntime):
           outcomes.push(await remove(local));
           return {outcomes, keyA, keyB, keyL, afterFirst, afterAlias, afterKeep,
             final:await db.getAll('readerStatistic'), timestamps:await db.getAll('lastModified')};
-        }""")
+        }"""))
         self.assertTrue(all(outcome['error'] == '' for outcome in result['outcomes']))
         self.assertEqual({result['keyA'], result['keyB'], result['keyL']}, {row['bookKey'] for row in result['afterFirst']})
         self.assertEqual({result['keyB'], result['keyL']}, {row['bookKey'] for row in result['afterAlias']})
@@ -165,7 +167,7 @@ class LibraryDeletionRuntime(SharedStorageRuntime):
 
     def test_deliberate_batch_cancel_keeps_committed_deletion_and_stops_remaining_books(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const {replicationProgress$} = await import('/reader-web/src/lib/functions/replication/replication-progress.ts');
           const db = await database.db, ids = [];
@@ -181,7 +183,7 @@ class LibraryDeletionRuntime(SharedStorageRuntime):
           const remaining = await db.getAllKeys('data');
           const retry = await database.deleteData(remaining,new Map(),new AbortController().signal,true);
           return {ids,outcome,remaining,retry,final:await db.getAllKeys('data')};
-        }""")
+        }"""))
         self.assertEqual({'error':'', 'deleted':[result['ids'][0]]}, result['outcome'])
         self.assertEqual(result['ids'][1:], result['remaining'])
         self.assertEqual({'error':'', 'deleted':result['remaining']}, result['retry'])
@@ -189,7 +191,7 @@ class LibraryDeletionRuntime(SharedStorageRuntime):
 
     def test_same_title_copy_keeps_legacy_auxiliary_data_until_last_copy_is_deleted(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const db = await database.db, title = 'Shared legacy title';
           const create = hash => db.add('data', {title,contentHash:hash,
@@ -202,7 +204,7 @@ class LibraryDeletionRuntime(SharedStorageRuntime):
           const middle = {audio:await db.get('audioBook',title),day:await db.getAll('statistic')};
           const last = await database.deleteData([second],new Map(),new AbortController().signal,false);
           return {outcome,last,audio,day,middle,final:{audio:await db.getAll('audioBook'),days:await db.getAll('statistic')}};
-        }""")
+        }"""))
         self.assertEqual('',result['outcome']['error'])
         self.assertEqual('',result['last']['error'])
         self.assertEqual({'audio':result['audio'],'day':[result['day']]},result['middle'])
@@ -211,7 +213,7 @@ class LibraryDeletionRuntime(SharedStorageRuntime):
 
 class LibraryDeletionStatic(LibraryBase):
     def seed_history(self, title):
-        return self.page.evaluate("""async title => {
+        return self.page.evaluate(reader_fixture("""async title => {
           const db = await new Promise((resolve,reject) => {
             const request = indexedDB.open('books');
             request.onsuccess = () => resolve(request.result);
@@ -231,7 +233,7 @@ class LibraryDeletionStatic(LibraryBase):
               tx.onabort = () => reject(tx.error || new Error('History fixture aborted'));
             });
           } finally {db.close();}
-        }""", title)
+        }"""), title)
 
     def test_built_library_honors_the_explicit_keep_history_setting(self):
         self.import_book('Kept history')
@@ -242,7 +244,7 @@ class LibraryDeletionStatic(LibraryBase):
         self.assertEqual([kept_key], [row['bookKey'] for row in before])
         # A direct page load can display the SSR Appearance pane before Svelte
         # hydrates. The hash-selected Library pane proves search handlers are live.
-        self.page.goto(self.origin + '/reader-web/settings#library')
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings#library'))
         expect(self.page.get_by_role('heading', name='Library & sync', exact=True)).to_be_visible()
         search = self.page.get_by_role('searchbox',name='Search settings',exact=True)
         search.fill('Keep Local Data on Deletion')
@@ -260,7 +262,7 @@ class LibraryDeletionStatic(LibraryBase):
     def test_built_library_reports_native_delete_failure_and_allows_retry(self):
         self.import_book('Retained after failed removal')
         before = self.stores('books',['data','bookmark'])
-        self.page.evaluate("""() => {
+        self.page.evaluate(reader_fixture("""() => {
           window.originalBookDelete = IDBObjectStore.prototype.delete;
           IDBObjectStore.prototype.delete = function(...args) {
             const request = window.originalBookDelete.apply(this,args);
@@ -268,7 +270,7 @@ class LibraryDeletionStatic(LibraryBase):
               this.transaction.abort();
             return request;
           };
-        }""")
+        }"""))
         try:
             self.menu('Retained after failed removal','Remove from this browser…')
             expect(self.page.get_by_role('heading',name='Deletion failed',exact=True)).to_be_visible()

@@ -3,8 +3,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { readerEdition } from '../config/reader-editions.mjs';
+import { selectedDictionaryProvider } from './dictionary-provider-selection.mjs';
+import { stageReaderAssets } from './stage-reader-assets.mjs';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const app = path.join(root, 'apps/web');
+const edition = readerEdition();
 const require = createRequire(path.join(app, 'package.json'));
 const sass = require('sass');
 // Sass imports are compiled explicitly; Metro's Sass support does not follow @use.
@@ -42,13 +46,13 @@ await fs.writeFile(
 
 // Expo embeds public assets into the Android binary for DOM components.
 // EAS Update is disabled: asset updates require a new reviewed binary.
-await fs.rm(path.join(app, 'public'), { recursive: true, force: true });
-await fs.mkdir(path.join(app, 'public'), { recursive: true });
-await fs.cp(path.join(app, 'static'), path.join(app, 'public'), {
-  recursive: true,
-  filter: (source) =>
+await stageReaderAssets({
+  root,
+  edition,
+  provider: await selectedDictionaryProvider(root),
+  video:
     (process.env.EXPO_PUBLIC_ENABLE_VIDEO_LEARNING ?? process.env.VITE_ENABLE_VIDEO_LEARNING) ===
-      'true' || !source.startsWith(path.join(app, 'static/moss'))
+    'true'
 });
 
 // Keep the checked-in reader CSS synchronized with the retained scoped Sass source.
@@ -59,12 +63,14 @@ await fs.writeFile(
 
 // Preserve the released web document metadata and pre-paint appearance bootstrap.
 // Expo replaces its own title/language placeholders; only our validated deployment prefix is expanded here.
-const basePath = process.env.BASE_PATH ?? '/reader-web';
+const basePath = process.env.BASE_PATH ?? edition.basePath;
 if (basePath !== '' && !/^\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(basePath)) {
   throw new Error('BASE_PATH must be root-relative without a trailing slash.');
 }
 const documentTemplate = await fs.readFile(path.join(app, 'expo-index.html'), 'utf8');
 await fs.writeFile(
   path.join(app, 'public/index.html'),
-  documentTemplate.replaceAll('{{BASE_PATH}}', basePath)
+  documentTemplate
+    .replaceAll('{{BASE_PATH}}', basePath)
+    .replaceAll('Manabi Reader requires', `${edition.name} requires`)
 );

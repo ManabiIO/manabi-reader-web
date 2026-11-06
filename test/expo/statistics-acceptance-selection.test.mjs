@@ -19,8 +19,8 @@ test('affected Statistics selection preserves identical canonical coverage in bo
   assert.deepEqual(manifest.browsers, ['chromium', 'webkit']);
   assert.deepEqual(manifest.exports.default, manifest.exports.gated);
   const cases = manifest.exports.default;
-  assert.equal(cases.length, 20);
-  assert.equal(new Set(cases).size, 20);
+  assert.equal(cases.length, 21);
+  assert.equal(new Set(cases).size, 21);
   const counts = {};
   for (const entry of cases) {
     const module = entry.split('.')[0];
@@ -33,7 +33,7 @@ test('affected Statistics selection preserves identical canonical coverage in bo
     test_rhea_ui: 4,
     test_product_journeys: 1,
     test_books_library: 1,
-    test_statistics_shared_route: 2
+    test_statistics_shared_route: 3
   });
   assert.ok(manifest.separate_legacy_reader_cases.length > 0);
   assert.match(manifest.full_parity_gate.join(' '), /complete retained.*final source/);

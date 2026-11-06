@@ -14,9 +14,10 @@ from test_book_save_cancellation import BookSaveCancellation
 from test_books_library import LibraryBase, cross_resource_book
 from test_editors_picks import EditorsPicksBrowser
 from test_local_library_features import LocalFeatureBrowser
+from reader_fixture import reader_fixture
 
 
-ABORT_LAST_ITEM = """() => {
+ABORT_LAST_ITEM = reader_fixture("""() => {
   const original = IDBObjectStore.prototype.put;
   window.lastOpenWriteAborted = false;
   window.restoreLastOpenWrite = () => { IDBObjectStore.prototype.put = original; };
@@ -28,13 +29,13 @@ ABORT_LAST_ITEM = """() => {
     }
     return request;
   };
-}"""
+}""")
 
 
 class LibraryOpenCommitRuntime(BookSaveCancellation):
     def test_missing_or_concurrently_deleted_book_cannot_become_last_opened(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const db = await database.db;
           const retained = await db.add('data', {title:'Retained',elementHtml:'<p>Keep</p>',blobs:{}});
@@ -49,7 +50,7 @@ class LibraryOpenCommitRuntime(BookSaveCancellation):
           subscription.unsubscribe();
           return {outcome, notifications, retained, last:await db.get('lastItem',0),
                   exists:await db.getKey('data',removed)};
-        }""")
+        }"""))
         self.assertNotEqual('saved', result['outcome'])
         self.assertIn('removed', result['outcome'].lower())
         self.assertEqual({'dataId':result['retained']}, result['last'])
@@ -58,7 +59,7 @@ class LibraryOpenCommitRuntime(BookSaveCancellation):
 
     def test_canceled_resume_target_never_commits_or_notifies_and_can_retry(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const db = await database.db;
           const before = await db.add('data',{title:'Before',elementHtml:'<p>Before</p>',blobs:{}});
@@ -87,7 +88,7 @@ class LibraryOpenCommitRuntime(BookSaveCancellation):
           subscription.unsubscribe();
           return {before,after,enqueued,earlyOutcome,earlyLast,lateOutcome,lateLast,
                   canceledNotifications,notifications,last:await db.get('lastItem',0)};
-        }""")
+        }"""))
         self.assertEqual('AbortError', result['earlyOutcome'])
         self.assertEqual('AbortError', result['lateOutcome'])
         self.assertTrue(result['enqueued'])
@@ -99,7 +100,7 @@ class LibraryOpenCommitRuntime(BookSaveCancellation):
 
     def test_local_preparation_detaches_only_the_exact_selected_id_without_reading_images(self):
         self.open_runtime()
-        result=self.page.evaluate("""async()=>{
+        result=self.page.evaluate(reader_fixture("""async()=>{
           const {database}=await import('/reader-web/src/lib/data/store.ts');
           const {BrowserStorageHandler}=await import('/reader-web/src/lib/data/storage/handler/browser-handler.ts');
           const {StorageKey}=await import('/reader-web/src/lib/data/storage/storage-types.ts');
@@ -120,7 +121,7 @@ class LibraryOpenCommitRuntime(BookSaveCancellation):
           return {opened,first,second,imageReads,rows:await db.count('data'),
             a:{source:a.storageSource,open:a.lastBookOpen,creators:a.creators,blob:a.blobs.image instanceof Blob},
             b:{source:b.storageSource??null,open:b.lastBookOpen,creators:b.creators,blob:b.blobs.image instanceof Blob}};
-        }""")
+        }"""))
         self.assertEqual(result['second'],result['opened'])
         self.assertEqual({'source':'source-a','open':10,'creators':['First'],'blob':True},result['a'])
         self.assertEqual({'source':None,'open':20,'creators':['Selected'],'blob':True},result['b'])
@@ -129,7 +130,7 @@ class LibraryOpenCommitRuntime(BookSaveCancellation):
 
     def test_title_only_local_open_rejects_ambiguity_but_exact_ids_and_unique_titles_work(self):
         self.open_runtime()
-        result=self.page.evaluate("""async()=>{
+        result=self.page.evaluate(reader_fixture("""async()=>{
           const {database}=await import('/reader-web/src/lib/data/store.ts');
           const {BrowserStorageHandler}=await import('/reader-web/src/lib/data/storage/handler/browser-handler.ts');
           const {StorageKey}=await import('/reader-web/src/lib/data/storage/storage-types.ts');
@@ -148,7 +149,7 @@ class LibraryOpenCommitRuntime(BookSaveCancellation):
           handler.startContext({id:placeholder,title:'Placeholder'});
           const empty=await handler.prepareBookForReading().then(id=>({id}),error=>({error:error.message}));
           return {ambiguous,exact,unique,missing,empty,two,rows:await db.count('data')};
-        }""")
+        }"""))
         self.assertIn('multiple',result['ambiguous'].get('error','').lower())
         self.assertEqual(result['two'],result['exact'])
         self.assertEqual(result['two'],result['unique'])
@@ -158,7 +159,7 @@ class LibraryOpenCommitRuntime(BookSaveCancellation):
 
     def test_canceled_local_preparation_preserves_source_and_retries_without_reencoding(self):
         self.open_runtime()
-        result=self.page.evaluate("""async()=>{
+        result=self.page.evaluate(reader_fixture("""async()=>{
           const {database}=await import('/reader-web/src/lib/data/store.ts');
           const {BrowserStorageHandler}=await import('/reader-web/src/lib/data/storage/handler/browser-handler.ts');
           const {StorageKey}=await import('/reader-web/src/lib/data/storage/storage-types.ts');
@@ -184,7 +185,7 @@ class LibraryOpenCommitRuntime(BookSaveCancellation):
           return {id,first,firstSource,second,enqueued,retry,afterSource:after.storageSource,
             finalSource:current.storageSource??null,open:current.lastBookOpen,modified:current.lastBookModified,
             bytes:Array.from(new Uint8Array(current.blobs.image.bytes)),rows:await db.count('data')};
-        }""")
+        }"""))
         self.assertEqual('AbortError',result['first'])
         self.assertEqual('original-source',result['firstSource'])
         self.assertEqual('AbortError',result['second'])
@@ -226,12 +227,12 @@ class LibraryOpenCommitStatic(LibraryBase):
         self.import_book('Retained resume')
         self.import_book('Selected book')
         ids = {row['title']:row['id'] for row in self.stores('books',['data'])['data']}
-        self.page.evaluate("""id => new Promise((resolve,reject) => {
+        self.page.evaluate(reader_fixture("""id => new Promise((resolve,reject) => {
           const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
           open.onsuccess=()=>{const db=open.result,tx=db.transaction('lastItem','readwrite');
             tx.objectStore('lastItem').put({dataId:id},0);
             tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>{db.close();reject(tx.error);};};
-        })""", ids['Retained resume'])
+        })"""), ids['Retained resume'])
         self.page.evaluate(ABORT_LAST_ITEM)
         self.page.get_by_role('button',name='Read Selected book',exact=True).click()
         expect(self.page.get_by_text('Error opening book:',exact=False)).to_be_visible(timeout=5000)
@@ -241,7 +242,7 @@ class LibraryOpenCommitStatic(LibraryBase):
         self.page.evaluate('window.restoreLastOpenWrite()')
         self.page.get_by_role('button',name='Close',exact=True).filter(has_text='Close').click()
         self.page.get_by_role('button',name='Read Selected book',exact=True).click()
-        expect(self.page).to_have_url(re.compile(r'/reader-web/b\?id=' + str(ids['Selected book']) + r'$'))
+        expect(self.page).to_have_url(re.compile(reader_fixture(r'/reader-web/b\?id=') + str(ids['Selected book']) + r'$'))
         expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy','false')
         self.assertEqual([{'dataId':ids['Selected book']}],self.stores('books',['lastItem'])['lastItem'])
         self.assertEqual(2,len(self.stores('books',['data'])['data']))
@@ -262,14 +263,14 @@ class LibraryOpenCommitStatic(LibraryBase):
         try:
             # A same-origin image document has IndexedDB but no application
             # module graph to interrupt when this storage-only actor closes.
-            holder.goto(self.origin+'/reader-web/favicon.png')
-            holder.evaluate("""id=>new Promise((resolve,reject)=>{
+            holder.goto(self.origin+reader_fixture('/reader-web/favicon.png'))
+            holder.evaluate(reader_fixture("""id=>new Promise((resolve,reject)=>{
               const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
               open.onsuccess=()=>{const db=open.result,tx=db.transaction('lastItem','readwrite');
                 tx.objectStore('lastItem').put({dataId:id},0);
                 tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>{db.close();reject(tx.error);};};
-            })""",ids['Retained book'])
-            holder.evaluate("""()=>new Promise((resolve,reject)=>{
+            })"""),ids['Retained book'])
+            holder.evaluate(reader_fixture("""()=>new Promise((resolve,reject)=>{
               const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
               open.onsuccess=()=>{const db=open.result,tx=db.transaction('lastItem','readwrite');
                 let held=true;window.releaseResumeBlocker=()=>{held=false;};
@@ -277,17 +278,18 @@ class LibraryOpenCommitStatic(LibraryBase):
                   tx.oncomplete=()=>{db.close();done();};tx.onabort=()=>{db.close();fail(tx.error);};});
                 const keep=()=>{if(!held)return;const read=tx.objectStore('lastItem').get(0);
                   read.onsuccess=keep;};keep();resolve();};
-            })""")
-            self.page.evaluate("""()=>{
+            })"""))
+            self.page.evaluate(reader_fixture("""()=>{
               const original=IDBDatabase.prototype.transaction;
               delete document.documentElement.dataset.bookOpenTransactionStarted;
               IDBDatabase.prototype.transaction=function(names,mode,...args){
+                const database = this;
                 const tx=original.call(this,names,mode,...args);
-                if(this.name==='books'&&mode==='readwrite'&&Array.from(tx.objectStoreNames).includes('data'))
+                if(database.name==='books'&&mode==='readwrite'&&Array.from(tx.objectStoreNames).includes('data'))
                   document.documentElement.dataset.bookOpenTransactionStarted='true';
                 return tx;
               };
-            }""")
+            }"""))
             self.page.get_by_role('button',name='Read Queued book',exact=True).click()
             # The native peer can block preparation before the later resume
             # transaction exists. Observe entry into storage, not an assumed
@@ -296,7 +298,7 @@ class LibraryOpenCommitStatic(LibraryBase):
             expect(self.page.locator('html')).to_have_attribute('data-book-open-transaction-started','true')
             self.phase = 'cancel queued resume via Back'
             self.page.go_back()
-            expect(self.page).to_have_url(re.compile('/reader-web/settings$'))
+            expect(self.page).to_have_url(re.compile(reader_fixture('/reader-web/settings$')))
             # A history URL alone does not certify that the Expo route is
             # interactive. Exercise its real mounted navigation menu before
             # releasing the storage blocker and checking the canceled open.
@@ -311,7 +313,7 @@ class LibraryOpenCommitStatic(LibraryBase):
             self.phase = 'fresh explicit retry'
             self.go_library()
             self.page.get_by_role('button',name='Read Queued book',exact=True).click()
-            expect(self.page).to_have_url(re.compile(r'/reader-web/b\?id='+str(ids['Queued book'])+r'$'))
+            expect(self.page).to_have_url(re.compile(reader_fixture(r'/reader-web/b\?id=')+str(ids['Queued book'])+r'$'))
             self.assertEqual([{'dataId':ids['Queued book']}],self.stores('books',['lastItem'])['lastItem'])
             # Navigation commits the URL before the Reader's lazy modules and
             # publication finish loading. A successful retry must render the
@@ -328,12 +330,12 @@ class LibraryOpenCommitStatic(LibraryBase):
         self.import_book('Phase queued book')
         self.import_book('Phase retained book')
         ids = {row['title']:row['id'] for row in self.stores('books',['data'])['data']}
-        self.page.evaluate("""id=>new Promise((resolve,reject)=>{
+        self.page.evaluate(reader_fixture("""id=>new Promise((resolve,reject)=>{
           const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
           open.onsuccess=()=>{const db=open.result,tx=db.transaction('lastItem','readwrite');
             tx.objectStore('lastItem').put({dataId:id},0);
             tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>{db.close();reject(tx.error);};};
-        })""", ids['Phase retained book'])
+        })"""), ids['Phase retained book'])
         self.page.evaluate('window.sameOpenDocument = true')
         self.page.get_by_role('button',name='Library actions',exact=True).click()
         self.page.get_by_role('menuitem',name='Settings',exact=True).click()
@@ -372,7 +374,7 @@ class LibraryOpenCommitStatic(LibraryBase):
             # forward in this same document; its native traversal must still
             # abort the queued resume. The preceding case retains native Back.
             self.page.go_forward()
-            expect(self.page).to_have_url(re.compile('/reader-web/settings$'))
+            expect(self.page).to_have_url(re.compile(reader_fixture('/reader-web/settings$')))
             self.assertTrue(self.page.evaluate('window.sameOpenDocument === true'))
             self.page.evaluate('async()=>{window.releaseResumeBlocker();await window.resumeBlockerDone;}')
             expect(self.page.locator('html')).to_have_attribute('data-resume-target-outcome','aborted')
@@ -390,7 +392,7 @@ class CatalogOpenCommitStatic(EditorsPicksBrowser):
         with patch.dict(os.environ, {'PICKS_BROWSER':os.environ.get('LIBRARY_BROWSER','chromium')}):
             super().setUp()
         self.assertEqual(self.engine,self.context.browser.browser_type.name)
-        self.context.add_init_script("localStorage.setItem('manabi-reader-dictionary-setup-v1','skip')")
+        self.context.add_init_script(reader_fixture("localStorage.setItem('manabi-reader-dictionary-setup-v1','skip')"))
 
     def test_failed_catalog_resume_commit_keeps_import_and_allows_explicit_retry(self):
         self.library()
@@ -406,7 +408,7 @@ class CatalogOpenCommitStatic(EditorsPicksBrowser):
         self.page.evaluate('window.restoreLastOpenWrite()')
         self.page.get_by_role('button',name='Close',exact=True).filter(has_text='Close').click()
         self.page.get_by_role('button',name='Read A Pick from Manabi',exact=True).click()
-        expect(self.page).to_have_url(re.compile(r'/reader-web/b\?id='))
+        expect(self.page).to_have_url(re.compile(reader_fixture(r'/reader-web/b\?id=')))
         expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy','false')
         self.assertEqual(saved['books'],self.book_rows()['books'])
         self.assertEqual([{'dataId':saved['books'][0]['id']}],self.book_rows()['last'])

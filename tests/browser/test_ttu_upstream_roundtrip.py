@@ -14,6 +14,7 @@ import zipfile
 from playwright.sync_api import expect
 
 from test_ttu_migration import MigrationBrowser, OTHER, TITLE, entries
+from reader_fixture import reader_fixture_path
 
 
 class UpstreamTtuRoundTrip(MigrationBrowser):
@@ -101,7 +102,7 @@ class UpstreamTtuRoundTrip(MigrationBrowser):
 
             # Feed the bytes exported by actual upstream TTU into Manabi's actual
             # migration form, then verify records and rendered book content.
-            self.page.goto(self.origin + '/reader-web/import-ttu')
+            self.page.goto(self.origin + reader_fixture_path('/reader-web/import-ttu'))
             expect(
                 self.page.get_by_role('heading', name='Import from Ttu Ebook Reader', exact=True)
             ).to_be_visible(timeout=30000)

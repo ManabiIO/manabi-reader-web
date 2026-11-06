@@ -5,6 +5,7 @@
  */
 
 import { integrationDB, exclusive, equal, type BookLink } from '$lib/manabi/persistence';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import type { LibrarySource, LibraryEntry, StateCopy } from '$lib/manabi/sources';
 import { withLibraryOperation } from '$lib/manabi/operation-scope';
 import { verifySelectedBook } from '$lib/library/book-download';
@@ -70,37 +71,30 @@ export async function configureDav(
       };
       signal?.addEventListener('abort', cancel, { once: true });
       try {
-        const previous = (await tx.objectStore('metadata').get(prefix + config.id)) as
-          | DavConfiguration
-          | undefined;
-        // Compare the editor's original snapshot, not a fresh read taken after its
-        // network test. A stale editor must not recreate or reauthorize a source.
-        if (!equal(previous ?? null, expected))
-          throw new DavError(
-            'conflict',
-            'This WebDAV connection changed or was disconnected. Reload WebDAV connections before saving again.'
-          );
-        if (previous && (previous.url !== value.url || previous.username !== value.username))
-          throw new DavError(
-            'reconnect',
-            'Add a new WebDAV connection to change the folder or username. Existing books and sync settings were kept.'
-          );
-        await tx.objectStore('metadata').put(value, prefix + config.id);
-        if (!value.writable) {
-          for (const link of await tx.objectStore('books').getAll())
-            if (link.sourceId === config.id && link.syncEnabled)
-              await tx.objectStore('books').put({ ...link, syncEnabled: false });
-        }
-        signal?.throwIfAborted();
-        await tx.done;
-      } catch (error) {
-        try {
-          tx.abort();
-        } catch {
-          /* Already settled. */
-        }
-        await tx.done.catch(() => undefined);
-        throw error;
+        await commitTransaction(tx, async () => {
+          const previous = (await tx.objectStore('metadata').get(prefix + config.id)) as
+            | DavConfiguration
+            | undefined;
+          // Compare the editor's original snapshot, not a fresh read taken after its
+          // network test. A stale editor must not recreate or reauthorize a source.
+          if (!equal(previous ?? null, expected))
+            throw new DavError(
+              'conflict',
+              'This WebDAV connection changed or was disconnected. Reload WebDAV connections before saving again.'
+            );
+          if (previous && (previous.url !== value.url || previous.username !== value.username))
+            throw new DavError(
+              'reconnect',
+              'Add a new WebDAV connection to change the folder or username. Existing books and sync settings were kept.'
+            );
+          await tx.objectStore('metadata').put(value, prefix + config.id);
+          if (!value.writable) {
+            for (const link of await tx.objectStore('books').getAll())
+              if (link.sourceId === config.id && link.syncEnabled)
+                await tx.objectStore('books').put({ ...link, syncEnabled: false });
+          }
+          signal?.throwIfAborted();
+        });
       } finally {
         signal?.removeEventListener('abort', cancel);
       }
@@ -119,21 +113,12 @@ export async function disconnectDav(id: string) {
   await withDavSourceLock(id, async () => {
     const db = await integrationDB();
     const tx = db.transaction(['metadata', 'books'], 'readwrite');
-    try {
+    await commitTransaction(tx, async () => {
       await tx.objectStore('metadata').delete(prefix + id);
       // Other metadata and imported books are not erased by disconnecting a source.
       for (const link of await tx.objectStore('books').getAll())
         if (link.sourceId === id) await tx.objectStore('books').delete(link.id);
-      await tx.done;
-    } catch (error) {
-      try {
-        tx.abort();
-      } catch {
-        /* Already settled. */
-      }
-      await tx.done.catch(() => undefined);
-      throw error;
-    }
+    });
     // A preceding queued configuration may have installed new session state
     // while this disconnect waited. Clear it under the same source lock too.
     lifetimes.get(id)?.abort();
@@ -258,7 +243,7 @@ export class WebDavSource implements LibrarySource {
       throw new DavError('reconnect', 'This book belongs to a different WebDAV connection.');
     const db = await integrationDB();
     const tx = db.transaction(['metadata', 'books'], 'readwrite');
-    try {
+    return commitTransaction(tx, async () => {
       const latest = await tx.objectStore('metadata').get(prefix + this.id);
       if (!equal(latest, this.configuration))
         throw new DavError(
@@ -276,17 +261,8 @@ export class WebDavSource implements LibrarySource {
           'The WebDAV book link changed during import. Refresh before retrying.'
         );
       if (!existing) await tx.objectStore('books').put(link);
-      await tx.done;
       return existing ?? link;
-    } catch (error) {
-      try {
-        tx.abort();
-      } catch {
-        /* Already committed or aborted. */
-      }
-      await tx.done.catch(() => undefined);
-      throw error;
-    }
+    });
   }
   private statePath(key: string) {
     if (!/^book_[a-f0-9]{64}$/.test(key)) throw new Error('Invalid WebDAV reading-data identity.');

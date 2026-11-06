@@ -2,11 +2,21 @@
   import { onMount } from 'svelte';
   import { Button } from '$lib/components/ui/button';
   import * as Dialog from '$lib/components/ui/dialog';
+  import {
+    DICTIONARY_EXTENSION_MUTATION_ATTRIBUTES,
+    PREFERRED_DEFAULT_INSTALL_BUTTON_ATTRIBUTES,
+    normalizeDictionarySetupChoice,
+    PREFERRED_DICTIONARY_EXTENSION_DESCRIPTION,
+    PREFERRED_DICTIONARY_EXTENSION_NAME,
+    PREFERRED_DICTIONARY_EXTENSION_SETUP_URL,
+    preferredDictionaryExtensionPresent,
+    preferredDictionaryReaderBridgeReady,
+    type DictionarySetupChoice
+  } from '$lib/integrations/external-dictionary-interop';
 
   export let contentReady = false;
 
   const choiceKey = 'manabi-reader-dictionary-setup-v1';
-  const setupUrl = 'https://manabitan.manabi.io/getting-started/#installation';
   let open = false;
   let mounted = false;
   let checked = false;
@@ -15,32 +25,20 @@
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   export function show() {
-    extensionPresent = manabitanPresent();
-    bridgeReady = readerBridgeReady();
+    extensionPresent = preferredDictionaryExtensionPresent(document);
+    bridgeReady = preferredDictionaryReaderBridgeReady(document);
     open = true;
   }
 
   function savedChoice() {
     try {
-      return localStorage.getItem(choiceKey);
+      return normalizeDictionarySetupChoice(localStorage.getItem(choiceKey));
     } catch {
       return null;
     }
   }
 
-  function manabitanPresent() {
-    const { dataset } = document.documentElement;
-    return (
-      dataset.manabitanContentScriptLoaded === 'true' ||
-      dataset.manabitanContentScriptPrepared === 'true'
-    );
-  }
-
-  function readerBridgeReady() {
-    return document.documentElement.dataset.manabitanReaderJitendexBridge === 'true';
-  }
-
-  function choose(value: 'manabitan' | 'done' | 'other' | 'skip') {
+  function choose(value: DictionarySetupChoice) {
     try {
       localStorage.setItem(choiceKey, value);
     } catch {
@@ -52,27 +50,23 @@
   $: if (mounted && contentReady && !checked) {
     checked = true;
     timer = setTimeout(() => {
-      extensionPresent = manabitanPresent();
-      bridgeReady = readerBridgeReady();
+      extensionPresent = preferredDictionaryExtensionPresent(document);
+      bridgeReady = preferredDictionaryReaderBridgeReady(document);
       const choice = savedChoice();
-      if ((!choice && !extensionPresent) || (choice === 'manabitan' && bridgeReady)) open = true;
+      if ((!choice && !extensionPresent) || (choice === 'preferred' && bridgeReady)) open = true;
     }, 1200);
   }
 
   onMount(() => {
     mounted = true;
     const observer = new MutationObserver(() => {
-      extensionPresent = manabitanPresent();
-      bridgeReady = readerBridgeReady();
-      if (contentReady && savedChoice() === 'manabitan' && bridgeReady) open = true;
+      extensionPresent = preferredDictionaryExtensionPresent(document);
+      bridgeReady = preferredDictionaryReaderBridgeReady(document);
+      if (contentReady && savedChoice() === 'preferred' && bridgeReady) open = true;
     });
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: [
-        'data-manabitan-content-script-loaded',
-        'data-manabitan-content-script-prepared',
-        'data-manabitan-reader-jitendex-bridge'
-      ]
+      attributeFilter: [...DICTIONARY_EXTENSION_MUTATION_ATTRIBUTES]
     });
     return () => {
       if (timer) clearTimeout(timer);
@@ -85,7 +79,7 @@
   <Dialog.Content
     class="writing-horizontal-tb sm:max-w-lg"
     onCloseAutoFocus={(event) => {
-      if (!savedChoice() && !manabitanPresent()) choose('skip');
+      if (!savedChoice() && !preferredDictionaryExtensionPresent(document)) choose('skip');
       const controls = document.querySelector<HTMLButtonElement>('button[data-reader-controls]');
       if (controls) {
         event.preventDefault();
@@ -96,26 +90,28 @@
     <Dialog.Header>
       <Dialog.Title class="text-xl">Look up words as you read</Dialog.Title>
       <Dialog.Description class="text-sm text-muted-foreground">
-        Look up words with Manabitan and the Jitendex Japanese dictionary.
+        {PREFERRED_DICTIONARY_EXTENSION_DESCRIPTION}
       </Dialog.Description>
     </Dialog.Header>
     <div class="grid gap-2">
       {#if bridgeReady}
         <Button
-          data-manabitan-install-jitendex="true"
+          {...PREFERRED_DEFAULT_INSTALL_BUTTON_ATTRIBUTES}
           variant="secondary"
           class="min-h-11 justify-center"
           onclick={() => choose('done')}>Install Jitendex</Button
         >
       {:else}
         <Button
-          href={setupUrl}
+          href={PREFERRED_DICTIONARY_EXTENSION_SETUP_URL}
           target="_blank"
           rel="noopener noreferrer"
           variant="secondary"
           class="min-h-11 justify-center"
-          onclick={() => choose('manabitan')}
-          >{extensionPresent ? 'Update Manabitan' : 'Get Manabitan'}</Button
+          onclick={() => choose('preferred')}
+          >{extensionPresent
+            ? `Update ${PREFERRED_DICTIONARY_EXTENSION_NAME}`
+            : `Get ${PREFERRED_DICTIONARY_EXTENSION_NAME}`}</Button
         >
       {/if}
       <Button variant="outline" class="min-h-11" onclick={() => choose('other')}

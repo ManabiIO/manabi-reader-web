@@ -12,6 +12,8 @@ from lifecycle_evidence import LifecycleEvidence, case_failed
 import unittest
 from playwright.sync_api import expect
 import test_appearance as previous
+from reader_fixture import reader_fixture
+from browser_launch import launch_options
 
 
 # Real raster bytes; browsers need only decode, not implement every encoder.
@@ -41,9 +43,9 @@ class RefinedAppearance(previous.AppearanceBrowser):
         # Real, isolated disk-backed profiles; no API replacements or interception.
         profile = TemporaryDirectory(prefix='reader-appearance-webkit-')
         self.addCleanup(profile.cleanup)
-        self.context = self.playwright.webkit.launch_persistent_context(profile.name)
+        self.context = self.playwright.webkit.launch_persistent_context(profile.name, **launch_options((self.playwright.webkit).name))
         self.context.add_init_script(
-            "try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}")
+            reader_fixture("try { localStorage.setItem('manabi-reader-dictionary-setup-v1', 'skip') } catch {}"))
         self.page = self.context.pages[0]
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
@@ -147,10 +149,9 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.page.get_by_role('button', name='Save', exact=True).click()
         expect(reader.locator('html')).to_have_attribute('data-theme', 'custom')
         self.page.get_by_role('button', name='Edit Midnight notes theme', exact=True).click()
-        self.page.get_by_label('Font color', exact=True).evaluate(
-            'e => {e.value = "#ffeecc"; '
-            'e.dispatchEvent(new Event("change", {bubbles: true}));}'
-        )
+        # Use a native input edit. Assigning the React-controlled value property
+        # updates its change tracker before the synthetic event reaches React.
+        self.page.get_by_label('Font color', exact=True).fill('#ffeecc')
         self.page.get_by_label('Font opacity', exact=True).fill('1')
         self.page.get_by_role('button', name='Save', exact=True).click()
         expect(reader.locator('.book-content')).to_have_css('color', 'rgb(255, 238, 204)')
@@ -159,10 +160,10 @@ class RefinedAppearance(previous.AppearanceBrowser):
     def test_damaged_optional_palette_does_not_break_startup_or_override(self):
         self.settings()
         for raw in ['{invalid', 'null', '[]', '42']:
-            self.page.evaluate('(raw) => {localStorage.setItem("customThemes", raw); localStorage.setItem("appearance", "dark");}', raw)
+            self.page.evaluate(reader_fixture('(raw) => {localStorage.setItem("customThemes", raw); localStorage.setItem("appearance", "dark");}'), raw)
             self.settings()
             self.assertEqual('dark', self.scheme())
-            self.assertEqual(raw, self.page.evaluate('localStorage.getItem("customThemes")'))
+            self.assertEqual(raw, self.page.evaluate(reader_fixture('localStorage.getItem("customThemes")')))
             self.mode('Light')
             self.settings(reload=True)
             expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
@@ -171,7 +172,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
     def test_rapid_tab_edits_converge_without_writing_back_stale_events(self):
         self.settings()
         other = self.context.new_page()
-        other.goto(self.origin + '/reader-web/settings')
+        other.goto(self.origin + reader_fixture('/reader-web/settings'))
         expect(other.get_by_role('heading', name='Appearance', exact=True)).to_be_visible()
         for label in ['Light', 'Dark', 'System', 'Dark', 'Light']:
             self.page.get_by_role('group', name='Appearance mode').get_by_role('button', name=label, exact=True).click()
@@ -182,7 +183,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
         other.evaluate('localStorage.clear()')
         expect(self.page.locator('html')).to_have_attribute('data-appearance', 'system')
         expect(self.page.locator('html')).to_have_attribute('data-theme', 'manabi-theme')
-        self.assertIsNone(other.evaluate('localStorage.getItem("appearance")'))
+        self.assertIsNone(other.evaluate(reader_fixture('localStorage.getItem("appearance")')))
         other.close()
 
     def test_corrupt_persisted_image_is_recoverable_and_never_published(self):
@@ -190,7 +191,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.page.get_by_text('Background images', exact=True).click()
         self.upload('library', [40, 100, 160], 'light')
         # Corrupt each real mode slot independently; there is no shipped legacy schema.
-        self.page.evaluate('''async () => {
+        self.page.evaluate(reader_fixture('''async () => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('manabi-reader-appearance', 1);
             request.onsuccess = () => resolve(request.result);
@@ -209,7 +210,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
             tx.oncomplete = resolve; tx.onabort = () => reject(tx.error);
           });
           db.close();
-        }''')
+        }'''))
         self.settings(reload=True)
         self.page.get_by_text('Background images', exact=True).click()
         expect(self.page.get_by_role('alert')).to_have_count(2)
@@ -228,7 +229,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
         expect(self.page.get_by_role('alert')).to_have_count(0)
         self.upload('library', [170, 60, 90], 'light')
         self.mode('Light')
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('[data-background="library"]')).to_have_attribute(
             'data-background-mode', 'light'
         )
@@ -236,7 +237,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.settings()
         self.page.get_by_text('Background images', exact=True).click()
         other = self.context.new_page()
-        other.goto(self.origin + '/reader-web/settings')
+        other.goto(self.origin + reader_fixture('/reader-web/settings'))
         other.get_by_text('Background images', exact=True).click()
         self.page.locator('#background-library-light').set_input_files({
             'name':'simultaneous-light.png', 'mimeType':'image/png',
@@ -261,13 +262,13 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.settings()
         self.page.get_by_role('navigation', name='Settings categories').get_by_role('link', name='Fonts & text', exact=True).click()
         font = self.page.get_by_role('textbox', name='Primary / Serif font', exact=True)
-        saved = self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")')
+        saved = self.page.evaluate(reader_fixture('localStorage.getItem("fontFamilyGroupOne")'))
         font.focus()
         font.press('Tab')
-        self.assertEqual(saved, self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'))
+        self.assertEqual(saved, self.page.evaluate(reader_fixture('localStorage.getItem("fontFamilyGroupOne")')))
         font.fill('Changed but cancelled')
         font.press('Escape')
-        self.assertEqual(saved, self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'))
+        self.assertEqual(saved, self.page.evaluate(reader_fixture('localStorage.getItem("fontFamilyGroupOne")')))
 
     def test_selected_theme_has_a_distinct_border_and_forced_colors_marker(self):
         self.settings()
@@ -299,7 +300,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
             expect(light.get_by_role('alert')).to_have_count(0)
         self.mode('Light')
         other = self.context.new_page()
-        other.goto(self.origin + '/reader-web/manage')
+        other.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(other.locator('[data-background="library"]')).to_have_attribute(
             'data-background-mode', 'light'
         )
@@ -318,37 +319,37 @@ class RefinedAppearance(previous.AppearanceBrowser):
         expect(self.page.get_by_label('Selection background color', exact=True)).to_have_value('#24506c')
         self.page.get_by_placeholder('Theme Name', exact=True).fill('Personal hex')
         self.page.get_by_role('button', name='Save', exact=True).click()
-        self.page.evaluate("""() => {
+        self.page.evaluate(reader_fixture("""() => {
           const themes = JSON.parse(localStorage.getItem('customThemes'));
           themes['Personal hex'].fontColor = '#112233';
           themes['Personal hex'].backgroundColor = 'rgba(240, 245, 255, 0)';
           localStorage.setItem('customThemes', JSON.stringify(themes));
-        }""")
+        }"""))
         self.settings(reload=True)
         self.page.get_by_role('button', name='Edit Personal hex theme', exact=True).click()
         expect(self.page.get_by_label('Font color', exact=True)).to_have_value('#112233')
         expect(self.page.get_by_label('Background opacity', exact=True)).to_have_value('0')
         self.page.get_by_role('button', name='Save', exact=True).click()
-        self.assertEqual('#112233', self.page.evaluate("JSON.parse(localStorage.getItem('customThemes'))['Personal hex'].fontColor"))
-        saved = self.page.evaluate('localStorage.getItem("customThemes")')
+        self.assertEqual('#112233', self.page.evaluate(reader_fixture("JSON.parse(localStorage.getItem('customThemes'))['Personal hex'].fontColor")))
+        saved = self.page.evaluate(reader_fixture('localStorage.getItem("customThemes")'))
         self.page.get_by_role('button', name='Add custom theme', exact=True).click()
         self.page.get_by_placeholder('Theme Name', exact=True).fill('Personal hex')
         self.page.get_by_role('button', name='Save', exact=True).click()
         name = self.page.get_by_placeholder('Theme Name', exact=True)
         expect(name).to_be_visible()
         self.assertIn('already exists', name.evaluate('e => e.validationMessage'))
-        self.assertEqual(saved, self.page.evaluate('localStorage.getItem("customThemes")'))
+        self.assertEqual(saved, self.page.evaluate(reader_fixture('localStorage.getItem("customThemes")')))
         name.fill('Second palette')
         self.page.get_by_role('button', name='Save', exact=True).click()
-        saved = self.page.evaluate('localStorage.getItem("customThemes")')
+        saved = self.page.evaluate(reader_fixture('localStorage.getItem("customThemes")'))
         self.page.get_by_role('button', name='Edit Second palette theme', exact=True).click()
         self.page.get_by_placeholder('Theme Name', exact=True).fill('Personal hex')
         self.page.get_by_role('button', name='Save', exact=True).click()
-        self.assertEqual(saved, self.page.evaluate('localStorage.getItem("customThemes")'))
+        self.assertEqual(saved, self.page.evaluate(reader_fixture('localStorage.getItem("customThemes")')))
         self.page.get_by_placeholder('Theme Name', exact=True).fill('Renamed palette')
         self.page.get_by_role('button', name='Save', exact=True).click()
         expect(self.page.get_by_role('button', name='Edit Renamed palette theme', exact=True)).to_be_visible()
-        themes = self.page.evaluate('JSON.parse(localStorage.getItem("customThemes"))')
+        themes = self.page.evaluate(reader_fixture('JSON.parse(localStorage.getItem("customThemes"))'))
         self.assertNotIn('Second palette', themes)
         self.assertIn('Renamed palette', themes)
         self.assertEqual('#112233', themes['Personal hex']['fontColor'])
@@ -376,7 +377,7 @@ class RefinedAppearance(previous.AppearanceBrowser):
         self.page.get_by_text('Background images', exact=True).click()
         self.upload('library', [90, 30, 160], 'light')
         self.mode('Light')
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         background = self.page.locator('[data-background="library"]')
         expect(background).to_be_visible()
         self.page.emulate_media(media='print')

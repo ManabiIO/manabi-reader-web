@@ -2,6 +2,7 @@
 import unittest
 from playwright.sync_api import expect
 import test_books_library as fixtures
+from reader_fixture import reader_fixture
 
 
 class PreviewCacheBrowser(fixtures.LibraryBase):
@@ -37,14 +38,14 @@ class PreviewCacheBrowser(fixtures.LibraryBase):
         preview.press('Space')
         expect(preview).to_have_attribute('aria-pressed', 'false')
         self.page.get_by_role('button', name='Cancel selection', exact=True).click()
-        snapshot = '''async () => {
+        snapshot = reader_fixture('''async () => {
           const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('manabi-library-previews',1);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});
           try {const rows=await new Promise((resolve,reject)=>{const r=db.transaction('previews').objectStore('previews').getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});
             return rows.map(row=>({key:row.key,title:row.title,scannedAt:row.scannedAt,direction:row.pageDirection.value,
               creators:row.creators||[],metadataVersion:row.metadataVersion,contentHash:row.contentHash,
               bytes:row.imageData instanceof ArrayBuffer ? row.imageData.byteLength : 0,blobStored:'imagePath' in row,type:row.imageType})).sort((a,b)=>a.key.localeCompare(b.key));
           } finally {db.close();}
-        }'''
+        }''')
         saved = self.page.evaluate(snapshot)
         self.assertEqual(2, len(saved))
         for row in saved:

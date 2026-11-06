@@ -5,6 +5,7 @@ import unittest
 
 from playwright.sync_api import expect
 from test_books_library import LibraryBase
+from reader_fixture import reader_fixture
 
 
 class LibraryGridLabels(LibraryBase):
@@ -213,7 +214,7 @@ class LibraryGridLabels(LibraryBase):
         author_text = button.get_by_text(author, exact=True)
 
         settings = self.context.new_page()
-        settings.goto(self.origin + '/reader-web/settings')
+        settings.goto(self.origin + reader_fixture('/reader-web/settings'))
         expect(settings.get_by_label('Search settings', exact=True)).to_be_visible()
         settings.get_by_role('navigation', name='Settings categories').get_by_role(
             'link', name='All settings', exact=True).click()

@@ -50,6 +50,7 @@ CASES = (
     'test_books_library.BooksLibraryBrowser.test_selected_statistics_view_keeps_same_title_book_identities_distinct',
     'test_statistics_shared_route.SharedStatisticsBrowser.test_shared_composition_preserves_measurements_editor_and_real_exports',
     'test_statistics_shared_route.SharedStatisticsBrowser.test_shared_route_filter_calendar_and_zoom_keep_original_semantics',
+    'test_statistics_shared_route.SharedStatisticsBrowser.test_private_measurements_reveal_before_details_and_rehide_after_reload',
 )
 
 EXPORT_MODES = ('default', 'gated')
@@ -68,7 +69,7 @@ LEGACY_READER_CASES = (
 FULL_PARITY_GATE = (
     'The unchanged complete retained regression and browser inventories remain required on the final source.',
     'Both default and gated production exports must pass the shared-route cases in Chromium and WebKit.',
-    'The two new shared-route cases supplement the existing behavior, geometry, keyboard, appearance and export assertions.',
+    'The shared-route cases supplement the existing behavior, privacy, geometry, keyboard, appearance and export assertions.',
     'All original reader-embedded/tracker/dialog cases remain required separately; this selection is not their replacement.',
     'Source review, collection validation, older-head results, skipped or unfinished runs do not qualify current browser geometry.',
     'Android packaged-host qualification and native parity remain separate from these web-browser results.',

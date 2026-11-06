@@ -36,6 +36,7 @@ import {
   writeStore,
   type StoreValue
 } from '../reader-react/controller';
+import type { PopoverHandle } from './primitives';
 
 export interface StatisticsSummaryProps {
   aggregratedStatistics: BookStatistic[];
@@ -76,7 +77,10 @@ export function createStatisticsSummary(
   const statisticsSummaryBaseRowGap = 1.5;
   let renderFullStatisticsSummaryTable = window && window.matchMedia('(min-width: 768px)').matches;
   let statisticsSummaryTableContainerElm: HTMLElement | null = null;
-  let statisticsSummaryPopover: any;
+  let statisticsSummaryPopover: PopoverHandle | undefined;
+  let statisticsSummaryDetailsClose: HTMLButtonElement | null = null;
+  let statisticsSummaryDetailsOpen = false;
+  let detailsRequest = 0;
   let statisticsSummaryButtonContainer: HTMLElement | null = null;
   let statisticsData: BookStatistic[] = [];
   let currentStatisticsSummaryRows: BookStatistic[] = [];
@@ -190,6 +194,45 @@ export function createStatisticsSummary(
       }
     }
   );
+  function metricAccessibleLabel(dataKey: string, label: string, value: string) {
+    return $lastBlurredTrackerItems$.has(dataKey)
+      ? `${label} value hidden. Activate to reveal.`
+      : `${label}: ${value}. Activate to view details.`;
+  }
+  async function openDetails(anchor: HTMLElement, details: string[]) {
+    if (__readerController.disposed || !anchor.isConnected) return;
+    const request = ++detailsRequest;
+    __readerController.changed((statisticsSummaryPopoverDetails = details));
+    await readerTick();
+    if (__readerController.disposed || request !== detailsRequest || !anchor.isConnected) return;
+    statisticsSummaryPopover?.openAt(anchor);
+  }
+  async function openMetricDetails(dataKey: string, anchor: HTMLElement, details: string[]) {
+    if (__readerController.disposed) return;
+    if ($lastBlurredTrackerItems$.has(dataKey)) {
+      const revealed = new Set($lastBlurredTrackerItems$);
+      revealed.delete(dataKey);
+      writeStore(lastBlurredTrackerItems$, revealed);
+      return;
+    }
+    await openDetails(anchor, details);
+  }
+  async function focusDetails() {
+    const request = detailsRequest;
+    await readerTick();
+    if (
+      !__readerController.disposed &&
+      request === detailsRequest &&
+      statisticsSummaryDetailsOpen &&
+      statisticsSummaryDetailsClose?.isConnected
+    )
+      statisticsSummaryDetailsClose.focus({ preventScroll: true });
+  }
+  function closeDetails() {
+    ++detailsRequest;
+    statisticsSummaryPopover?.close(true);
+    __readerController.changed((statisticsSummaryPopoverDetails = []));
+  }
   function dispatchDeleteRequest(row: BookStatistic) {
     const request: StatisticsDeleteRequest = {
       startDate: '',
@@ -427,6 +470,11 @@ export function createStatisticsSummary(
   );
   const api = {
     controller: __readerController,
+    metricAccessibleLabel,
+    openDetails,
+    openMetricDetails,
+    focusDetails,
+    closeDetails,
     dispatchDeleteRequest,
     handlePropertyChange,
     updateRowsPerPage,
@@ -484,6 +532,19 @@ export function createStatisticsSummary(
       if (Object.is(statisticsSummaryPopover, nextValue)) return;
       statisticsSummaryPopover = nextValue;
       __readerController.invalidate();
+    },
+    get statisticsSummaryDetailsClose() {
+      return statisticsSummaryDetailsClose;
+    },
+    set statisticsSummaryDetailsClose(nextValue: typeof statisticsSummaryDetailsClose) {
+      statisticsSummaryDetailsClose = nextValue;
+    },
+    get statisticsSummaryDetailsOpen() {
+      return statisticsSummaryDetailsOpen;
+    },
+    set statisticsSummaryDetailsOpen(nextValue: typeof statisticsSummaryDetailsOpen) {
+      statisticsSummaryDetailsOpen = nextValue;
+      if (!nextValue) ++detailsRequest;
     },
     get statisticsSummaryButtonContainer() {
       return statisticsSummaryButtonContainer;

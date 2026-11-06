@@ -2,6 +2,7 @@
 from playwright.sync_api import expect
 from test_books_library import LibraryBase, book
 import test_shared_ttu as shared
+from reader_fixture import reader_fixture
 
 
 class ReaderIntegration(LibraryBase):
@@ -20,7 +21,7 @@ class ReaderIntegration(LibraryBase):
         before = self.stores('books', ['data', 'bookmark', 'readerStatistic'])
         self.assertEqual(2, len(before['data']))
         self.seed_shared_source()
-        self.page.goto(self.origin + '/reader-web/shared-library')
+        self.page.goto(self.origin + reader_fixture('/reader-web/shared-library'))
         expect(self.page.get_by_role('navigation', name='Primary navigation')).to_have_count(0)
         self.page.get_by_role('button', name='Shared libraries actions', exact=True).click()
         menu = self.page.get_by_role('menu', name='Page actions', exact=True)
@@ -38,7 +39,7 @@ class ReaderIntegration(LibraryBase):
         # Ambiguity must not block a different, unambiguous title in the same folder.
         self.go_library()
         self.import_book('A unique local book')
-        self.page.goto(self.origin + '/reader-web/shared-library')
+        self.page.goto(self.origin + reader_fixture('/reader-web/shared-library'))
         self.page.get_by_role('checkbox', name='A unique local book', exact=True).check()
         self.page.get_by_role('button', name='Publish selected browser books').click()
         expect(self.page.get_by_role('status')).to_contain_text('published in Ttu Ebook Reader format')
@@ -50,7 +51,7 @@ class ReaderIntegration(LibraryBase):
         self.import_book(title)
         stored = self.stores('books', ['data'])['data'][0]
         self.seed_shared_source()
-        self.page.evaluate('''async book => {
+        self.page.evaluate(reader_fixture('''async book => {
             await new Promise((resolve, reject) => {
                 const open = indexedDB.open('manabi-reader-integrations');
                 open.onerror = () => reject(open.error);
@@ -64,10 +65,10 @@ class ReaderIntegration(LibraryBase):
                     tx.onabort = () => { db.close(); reject(tx.error); };
                 };
             });
-        }''', stored)
+        }'''), stored)
         self.go_library()
         expect(self.page.get_by_role('button', name='Read ' + title, exact=True)).to_have_count(0)
-        self.page.goto(self.origin + '/reader-web/shared-library')
+        self.page.goto(self.origin + reader_fixture('/reader-web/shared-library'))
         expect(self.page.get_by_role('button', name='Refresh shared library')).to_be_enabled()
         expect(self.page.get_by_role('region', name='Publish browser books').get_by_text(title, exact=True)).to_have_count(0)
         self.assertEqual({}, self.read_shared_files())
