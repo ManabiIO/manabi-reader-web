@@ -111,3 +111,17 @@ test('filesystem deletion: a failed book stays intact while later explicit delet
   assert.deepEqual(f.removed, ['A', 'C']);
   assert.deepEqual(Array.from(f.handler.titleToBookCard.keys()), ['B']);
 });
+
+test('filesystem deletion: a completed old-source delete cannot clear new-source book metadata', async () => {
+  let handler;
+  const f = fixture(async () => {
+    handler.clearData();
+    handler.storageSourceName = 'Replacement source';
+    handler.titleToBookCard.set('A', { id: 99, title: 'A' });
+  });
+  handler = f.handler;
+  const result = await handler.deleteBookData(['A', 'B', 'C'], new AbortController().signal);
+  assert.deepEqual(f.removed, ['A']);
+  assert.deepEqual(Array.from(result.deleted), [1]);
+  assert.equal(handler.titleToBookCard.get('A').id, 99);
+});

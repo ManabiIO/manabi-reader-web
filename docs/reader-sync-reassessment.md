@@ -43,6 +43,12 @@ Cloud listing batches run sequentially, so failure cannot admit another batch or
 publish late results. Cloud and local-folder deletions finish their active call
 before returning the exact completed IDs; cancellation admits no further book.
 An already-cancelled local-folder deletion does not request library access.
+Local-folder exports capture their source and book before asynchronous work,
+abort staged streams on pre-commit cancellation/failure, and guard later cache
+updates against source or context replacement. Successful stream close remains
+a commit even if cancellation arrives during close. Obsolete cleanup stops;
+previous versions or an interrupted new filename may remain for review. These
+guards do not establish native-client compare-and-swap or continuous write-back.
 This qualifies the mocked read contract, not live OAuth or conditional write-back.
 
 ### Automatic incoming changes

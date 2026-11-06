@@ -11,6 +11,7 @@ import base64
 import hashlib
 import io
 import zipfile
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -159,8 +160,13 @@ class SharedStorageRuntime(static.ReaderBrowser):
 
     @classmethod
     def setUpClass(cls):
-        output = REPOSITORY / 'test-results'
+        supplied = os.environ.get('READER_SHARED_RUNTIME_EVIDENCE')
+        output = Path(supplied) if supplied is not None else REPOSITORY / 'test-results'
+        if not output.is_absolute() or output.resolve() != output:
+            raise ValueError('Shared-runtime evidence must use an absolute, non-linked directory')
         output.mkdir(exist_ok=True)
+        if supplied is not None:
+            SharedRuntimeHandler.directory_root = output / 'shared-storage-runtime'
         # Compile before starting the server: missing dependencies and source
         # errors fail immediately, rather than timing out on an empty page.
         with (output / 'shared-runtime-build.log').open('w') as log:
@@ -337,6 +343,45 @@ class SharedStorageRuntime(static.ReaderBrowser):
         self.assertEqual(['progress_1_6_1_0.1.json'], result['after'])
         self.assertEqual('original reading data', result['text'])
 
+    def test_filesystem_export_cancellation_preserves_native_files(self):
+        self.open_runtime()
+        result = self.page.evaluate(reader_fixture('''async () => {
+          const {FilesystemStorageHandler} = await import('/reader-web/src/lib/data/storage/handler/filesystem-handler.ts');
+          const {StorageKey} = await import('/reader-web/src/lib/data/storage/storage-types.ts');
+          const disk = await navigator.storage.getDirectory();
+          const directory = await disk.getDirectoryHandle('write-preservation-'+crypto.randomUUID(), {create:true});
+          const name='ttu-user-goals_1_8_1.json', next='ttu-user-goals_1_8_2.json';
+          const original = await directory.getFileHandle(name,{create:true});
+          const first = await original.createWritable();
+          await first.write('original bytes'); await first.close();
+          const handler = new FilesystemStorageHandler(window,StorageKey.FS);
+          const canceled=new AbortController();
+          handler.startContext({title:'Book'},canceled.signal); canceled.abort();
+          let error;
+          try {await handler.writeFile(directory,next,'must not commit',[original],original,{progressBase:0.4,rootFilePrefix:'ttu-user-goals_'});}
+          catch(cause){error=cause.name;}
+          const before=await (await original.getFile()).text();
+          const namesBefore=[];for await(const name of directory.keys())namesBefore.push(name);
+          // Qualify the native abort semantics used by the production guard.
+          const staged=await original.createWritable();
+          await staged.write('discard staged bytes');await staged.abort();
+          const afterAbort=await (await original.getFile()).text();
+          const active=new AbortController();
+          handler.startContext({title:'Book'},active.signal);
+          await handler.writeFile(directory,next,'committed bytes',[original],original,{progressBase:0.4,rootFilePrefix:'ttu-user-goals_'});
+          active.abort();
+          const saved=await directory.getFileHandle(next);
+          const after=await (await saved.getFile()).text();
+          const namesAfter=[];for await(const name of directory.keys())namesAfter.push(name);
+          return {error,before,namesBefore,afterAbort,after,namesAfter};
+        }'''))
+        self.assertEqual('AbortError',result['error'])
+        self.assertEqual('original bytes',result['before'])
+        self.assertEqual('original bytes',result['afterAbort'])
+        self.assertEqual(['ttu-user-goals_1_8_1.json'],result['namesBefore'])
+        self.assertEqual('committed bytes',result['after'])
+        self.assertEqual(['ttu-user-goals_1_8_2.json'],result['namesAfter'])
+
     def test_uncached_provider_observes_replacement_and_disappearance_without_losing_local_data(self):
         self.open_runtime()
         result = self.page.evaluate(reader_fixture('''async () => {
@@ -483,6 +528,7 @@ if __name__ == '__main__':
         SharedStorageRuntime('test_shared_transfer_respects_owner_and_cancels_queued_account_changes'),
         SharedStorageRuntime('test_directory_selection_does_not_create_a_nested_library_in_a_book_folder'),
         SharedStorageRuntime('test_uncached_provider_observes_replacement_and_disappearance_without_losing_local_data'),
+        SharedStorageRuntime('test_filesystem_export_cancellation_preserves_native_files'),
         SharedStorageRuntime('test_all_legacy_open_paths_reject_ambiguous_same_source_titles'),
         SharedStorageRuntime('test_google_and_onedrive_open_paths_reject_unrelated_local_title_before_authorization'),
     ])

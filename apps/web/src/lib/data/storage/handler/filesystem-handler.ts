@@ -32,10 +32,20 @@ import { handleErrorDuringReplication } from '$lib/functions/replication/error-h
 import pLimit from 'p-limit';
 import { getExternalBookData } from '$lib/manabi/external-book-data';
 import { replicationProgress$ } from '$lib/functions/replication/replication-progress';
-import { throwIfAborted } from '$lib/functions/replication/replication-error';
+import { AbortError, throwIfAborted } from '$lib/functions/replication/replication-error';
 import { selectTtuFile, ttuPrefixes } from '$lib/manabi/ttu-folder-contract';
 
+interface FilesystemContext {
+  title: string;
+  sanitizedTitle: string;
+  signal: AbortSignal | undefined;
+  isCurrent(): boolean;
+  isActive(): boolean;
+  assertActive(): void;
+}
+
 export class FilesystemStorageHandler extends BaseStorageHandler {
+  private sourceGeneration = 0;
   private rootDirectory: FileSystemDirectoryHandle | undefined;
 
   private titleToDirectory = new Map<string, FileSystemDirectoryHandle>();
@@ -72,16 +82,20 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
   }
 
   async getBookList() {
+    const source = this.captureFilesystemSource();
     if (!this.dataListFetched) {
       database.listLoading$.next(true);
 
       const rootDirectory = await this.ensureRoot();
+      source.assertCurrent();
       const directories = (await FilesystemStorageHandler.list(
         rootDirectory,
         true
       )) as FileSystemDirectoryHandle[];
+      source.assertCurrent();
 
       await this.setTitleData(directories);
+      source.assertCurrent();
 
       this.dataListFetched = true;
     }
@@ -96,6 +110,7 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
     this.rootFileListFetched = false;
 
     if (clearAll) {
+      this.sourceGeneration++;
       this.rootDirectory = undefined;
       this.titleToDirectory.clear();
       this.titleToBookCard.clear();
@@ -152,7 +167,9 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
   }
 
   async updateLastRead(book: BooksDbBookData) {
+    const operation = this.captureFilesystemContext();
     const { file, files, rootDirectory } = await this.getExternalFile('bookdata_');
+    operation.assertActive();
 
     if (!file) {
       return;
@@ -163,9 +180,10 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
     const { characters, lastBookModified, lastBookOpen } =
       BaseStorageHandler.getBookMetadata(filename);
 
-    await this.writeFile(rootDirectory, filename, bookData, files, file);
+    await this.writeFile(rootDirectory, filename, bookData, files, file, { operation });
 
-    this.addBookCard(this.currentContext.title, { characters, lastBookModified, lastBookOpen });
+    if (operation.isActive())
+      this.addBookCard(operation.title, { characters, lastBookModified, lastBookOpen });
   }
 
   async getFilenameForRecentCheck(fileIdentifier: string) {
@@ -420,8 +438,10 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
   }
 
   async saveBook(data: Omit<BooksDbBookData, 'id'> | File, skipTimestampFallback = true) {
+    const operation = this.captureFilesystemContext();
     const isFile = data instanceof File;
     const { file, files, rootDirectory } = await this.getExternalFile('bookdata_', 0.2);
+    operation.assertActive();
     const filename = BaseStorageHandler.getBookFileName(
       data,
       file && skipTimestampFallback ? '' : file?.name
@@ -452,17 +472,23 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
       bookData = await this.zipBookData(data, 0.4);
     }
 
-    await this.writeFile(rootDirectory, filename, bookData, files, file, isFile ? 0.6 : 0.4);
+    await this.writeFile(rootDirectory, filename, bookData, files, file, {
+      progressBase: isFile ? 0.6 : 0.4,
+      operation
+    });
 
-    this.addBookCard(this.currentContext.title, { characters, lastBookModified, lastBookOpen });
+    if (operation.isActive())
+      this.addBookCard(operation.title, { characters, lastBookModified, lastBookOpen });
 
     return 0;
   }
 
   async saveProgress(data: BooksDbBookmarkData | File) {
+    const operation = this.captureFilesystemContext();
     const filename = BaseStorageHandler.getProgressFileName(data);
     const { lastBookmarkModified, progress } = BaseStorageHandler.getProgressMetadata(filename);
     const { file, files, rootDirectory } = await this.getExternalFile('progress_');
+    operation.assertActive();
 
     await this.writeFile(
       rootDirectory,
@@ -470,15 +496,17 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
       data instanceof File ? data : JSON.stringify(data),
       files,
       file,
-      0.6
+      { progressBase: 0.6, operation }
     );
 
-    this.addBookCard(this.currentContext.title, { lastBookmarkModified, progress });
+    if (operation.isActive()) this.addBookCard(operation.title, { lastBookmarkModified, progress });
   }
 
   async saveStatistics(statistics: BooksDbStatistic[], lastStatisticModified: number) {
+    const operation = this.captureFilesystemContext();
     const isMerge = this.statisticsMergeMode === MergeMode.MERGE;
     const { file, files, rootDirectory } = await this.getExternalFile('statistics_');
+    operation.assertActive();
 
     let statisticsToStore: BooksDbStatistic[] = statistics;
     let newStatisticModified = lastStatisticModified;
@@ -509,16 +537,12 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
       newStatisticModified
     );
 
-    await this.writeFile(
-      rootDirectory,
-      filename,
-      JSON.stringify(statisticsToStore),
-      files,
-      file,
-      0.6
-    );
+    await this.writeFile(rootDirectory, filename, JSON.stringify(statisticsToStore), files, file, {
+      progressBase: 0.6,
+      operation
+    });
 
-    this.addBookCard(this.currentContext.title, {});
+    if (operation.isActive()) this.addBookCard(operation.title, {});
   }
 
   async saveCover(data: Blob | undefined) {
@@ -527,25 +551,32 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
       return;
     }
 
+    const operation = this.captureFilesystemContext();
     const { file, files, rootDirectory } = await this.getExternalFile('cover_');
+    operation.assertActive();
 
     if (!file) {
       const filename = await BaseStorageHandler.getCoverFileName(data);
 
-      await this.writeFile(rootDirectory, filename, data, files, undefined, 0.6);
+      await this.writeFile(rootDirectory, filename, data, files, undefined, {
+        progressBase: 0.6,
+        operation
+      });
     }
 
-    if (this.titleToBookCard.has(this.currentContext.title)) {
-      this.addBookCard(this.currentContext.title, { imagePath: data });
+    if (operation.isActive() && this.titleToBookCard.has(operation.title)) {
+      this.addBookCard(operation.title, { imagePath: data });
     }
   }
 
   async saveReadingGoals(readingGoals: BooksDbReadingGoal[], lastGoalModified: number) {
+    const operation = this.captureFilesystemContext();
     const isMerge = this.readingGoalsMergeMode === MergeMode.MERGE;
     const { file, rootDirectory } = await this.getRootFile(
       BaseStorageHandler.readingGoalsFilePrefix,
       0.4
     );
+    operation.assertActive();
 
     let readingGoalsToStore: BooksDbReadingGoal[] = readingGoals;
     let newReadingGoalModified = lastGoalModified;
@@ -571,20 +602,18 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
 
     const filename = BaseStorageHandler.getReadingGoalsFileName(newReadingGoalModified);
 
-    await this.writeFile(
-      rootDirectory,
-      filename,
-      JSON.stringify(readingGoalsToStore),
-      [],
-      file,
-      0.6,
-      BaseStorageHandler.readingGoalsFilePrefix
-    );
+    await this.writeFile(rootDirectory, filename, JSON.stringify(readingGoalsToStore), [], file, {
+      progressBase: 0.6,
+      rootFilePrefix: BaseStorageHandler.readingGoalsFilePrefix,
+      operation
+    });
   }
 
   async saveAudioBook(data: BooksDbAudioBook | File) {
+    const operation = this.captureFilesystemContext();
     const filename = BaseStorageHandler.getAudioBookFileName(data);
     const { file, files, rootDirectory } = await this.getExternalFile(FilePrefix.AUDIO_BOOK);
+    operation.assertActive();
 
     await this.writeFile(
       rootDirectory,
@@ -592,13 +621,15 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
       data instanceof File ? data : JSON.stringify(data),
       files,
       file,
-      0.6
+      { progressBase: 0.6, operation }
     );
   }
 
   async saveSubtitleData(data: BooksDbSubtitleData | File) {
+    const operation = this.captureFilesystemContext();
     const filename = BaseStorageHandler.getSubtitleDataFileName(data);
     const { file, files, rootDirectory } = await this.getExternalFile(FilePrefix.SUBTITLE);
+    operation.assertActive();
 
     await this.writeFile(
       rootDirectory,
@@ -606,14 +637,16 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
       data instanceof File ? data : JSON.stringify(data),
       files,
       file,
-      0.6
+      { progressBase: 0.6, operation }
     );
   }
 
   async deleteBookData(booksToDelete: string[], cancelSignal: AbortSignal) {
+    const source = this.captureFilesystemSource();
     throwIfAborted(cancelSignal);
     const rootDirectory = await this.ensureRoot();
     throwIfAborted(cancelSignal);
+    source.assertCurrent();
     const deleted: number[] = [];
 
     let error = '';
@@ -623,16 +656,17 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
     for (const bookToDelete of booksToDelete) {
       try {
         throwIfAborted(cancelSignal);
+        source.assertCurrent();
+        const deletedId = this.titleToBookCard.get(bookToDelete)?.id;
 
         await rootDirectory.removeEntry(BaseStorageHandler.sanitizeForFilename(bookToDelete), {
           recursive: true
         });
 
-        const deletedId = this.titleToBookCard.get(bookToDelete)?.id;
-
         if (deletedId) {
           deleted.push(deletedId);
         }
+        if (!source.isCurrent()) break;
 
         this.titleToDirectory.delete(bookToDelete);
         this.titleToFiles.delete(bookToDelete);
@@ -653,15 +687,20 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
   private async ensureRoot(
     askForStorageUnlock = this.askForStorageUnlock
   ): Promise<FileSystemDirectoryHandle> {
+    const source = this.captureFilesystemSource();
     try {
       if (this.rootDirectory) {
-        await FilesystemStorageHandler.verifyPermission(this.rootDirectory);
+        const root = this.rootDirectory;
+        await FilesystemStorageHandler.verifyPermission(root);
+        source.assertCurrent();
 
-        return this.rootDirectory;
+        return root;
       }
 
       const db = await database.db;
+      source.assertCurrent();
       const storageSource = await db.get('storageSource', this.storageSourceName);
+      source.assertCurrent();
 
       if (!storageSource) {
         throw new Error(`No storage source with name ${this.storageSourceName} found`);
@@ -678,9 +717,11 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
       }
 
       await FilesystemStorageHandler.verifyPermission(handleData.directoryHandle);
+      source.assertCurrent();
 
       this.rootDirectory = handleData.directoryHandle;
     } catch (error: any) {
+      source.assertCurrent();
       if (
         error.message.includes('activation is required') &&
         (!this.rootDirectory || askForStorageUnlock)
@@ -699,6 +740,7 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
             }
           ]);
         });
+        source.assertCurrent();
 
         return this.ensureRoot(false);
       }
@@ -710,6 +752,7 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
   }
 
   private async setTitleData(directories: FileSystemDirectoryHandle[], clearDataOnError = true) {
+    const source = this.captureFilesystemSource();
     const listLimiter = pLimit(1);
     const listTasks: Promise<void>[] = [];
 
@@ -717,9 +760,11 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
       listTasks.push(
         listLimiter(async () => {
           try {
+            source.assertCurrent();
             const files = (await FilesystemStorageHandler.list(
               directory
             )) as FileSystemFileHandle[];
+            source.assertCurrent();
 
             if (!files.length) {
               const title = BaseStorageHandler.desanitizeFilename(directory.name);
@@ -770,6 +815,7 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
             );
 
             await Promise.all(fileTasks);
+            source.assertCurrent();
 
             this.titleToDirectory.set(bookCard.title, directory);
             this.titleToFiles.set(bookCard.title, files);
@@ -783,7 +829,7 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
     );
 
     await Promise.all(listTasks).catch((error) => {
-      if (clearDataOnError) {
+      if (clearDataOnError && source.isCurrent()) {
         this.clearData();
       }
 
@@ -792,12 +838,15 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
   }
 
   private async getExternalFile(fileIdentifier: string, progressBase = 0.4) {
+    const source = this.captureFilesystemSource();
     const progressPerStep = progressBase / 2;
     const rootDirectory = await this.ensureRoot();
+    source.assertCurrent();
 
     BaseStorageHandler.reportProgress(progressPerStep);
 
     const files = await this.getExternalFiles(rootDirectory);
+    source.assertCurrent();
     const file = selectTtuFile(files, fileIdentifier);
 
     BaseStorageHandler.reportProgress(progressPerStep);
@@ -806,12 +855,15 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
   }
 
   private async getRootFile(fileIdentifier: string, progressBase = 1) {
+    const source = this.captureFilesystemSource();
     const progressPerStep = progressBase / 2;
     const rootDirectory = await this.ensureRoot();
+    source.assertCurrent();
 
     BaseStorageHandler.reportProgress(progressPerStep);
 
     await this.setRootFiles(rootDirectory);
+    source.assertCurrent();
 
     return { file: this.rootFileHandles.get(fileIdentifier), rootDirectory };
   }
@@ -819,30 +871,37 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
   private async getExternalFiles(
     rootHandle: FileSystemDirectoryHandle
   ): Promise<FileSystemFileHandle[]> {
-    if (!this.cacheStorageData || !this.titleToFiles.has(this.currentContext.title)) {
+    const source = this.captureFilesystemSource();
+    const title = this.currentContext.title;
+    const sanitizedTitle = this.sanitizedTitle;
+    if (!this.cacheStorageData || !this.titleToFiles.has(title)) {
       const directory = await rootHandle
-        .getDirectoryHandle(this.sanitizedTitle, { create: false })
+        .getDirectoryHandle(sanitizedTitle, { create: false })
         .catch((error: unknown) => {
           if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
           return undefined;
         });
+      source.assertCurrent();
 
       if (directory) {
         await this.setTitleData([directory], false);
+        source.assertCurrent();
       } else {
         // Disappearance is not permission to reuse a previous native-app revision.
-        this.titleToDirectory.delete(this.currentContext.title);
-        this.titleToFiles.delete(this.currentContext.title);
-        this.titleToBookCard.delete(this.currentContext.title);
+        this.titleToDirectory.delete(title);
+        this.titleToFiles.delete(title);
+        this.titleToBookCard.delete(title);
       }
     }
 
-    return this.titleToFiles.get(this.currentContext.title) || [];
+    return this.titleToFiles.get(title) || [];
   }
 
   private async setRootFiles(rootHandle: FileSystemDirectoryHandle) {
+    const source = this.captureFilesystemSource();
     if ((!this.cacheStorageData || !this.rootFileListFetched) && !this.rootFiles.size) {
       const files = (await FilesystemStorageHandler.list(rootHandle)) as FileSystemFileHandle[];
+      source.assertCurrent();
 
       for (let index = 0, { length } = files; index < length; index += 1) {
         const file = files[index];
@@ -864,49 +923,128 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
     }
   }
 
+  private captureFilesystemSource() {
+    const name = this.storageSourceName;
+    const generation = this.sourceGeneration;
+    const isCurrent = () => this.storageSourceName === name && this.sourceGeneration === generation;
+    return {
+      isCurrent,
+      assertCurrent: () => {
+        if (!isCurrent()) throw new AbortError('Filesystem source was retired');
+      }
+    };
+  }
+
+  private captureFilesystemContext(): FilesystemContext {
+    const source = this.captureFilesystemSource();
+    const context = this.currentContext;
+    const signal = this.cancelSignal;
+    const title = context.title;
+    const sanitizedTitle = this.sanitizedTitle;
+    const storageSource = this.storageSourceName;
+    const isCurrent = () =>
+      this.currentContext === context &&
+      this.cancelSignal === signal &&
+      this.storageSourceName === storageSource &&
+      source.isCurrent();
+    const assertActive = () => {
+      throwIfAborted(signal);
+      if (!isCurrent()) throw new AbortError('Filesystem export context was retired');
+    };
+    assertActive();
+    return {
+      title,
+      sanitizedTitle,
+      signal,
+      isCurrent,
+      assertActive,
+      isActive: () => !signal?.aborted && isCurrent()
+    };
+  }
+
   private async writeFile(
     rootDirectory: FileSystemDirectoryHandle,
     filename: string,
     data: any,
     files: FileSystemFileHandle[],
     file: FileSystemFileHandle | undefined,
-    progressBase = 0.4,
-    rootFilePrefix?: string
+    options: { progressBase?: number; rootFilePrefix?: string; operation?: FilesystemContext } = {}
   ) {
+    const {
+      progressBase = 0.4,
+      rootFilePrefix,
+      operation = this.captureFilesystemContext()
+    } = options;
+    const { title, sanitizedTitle, signal, isCurrent, assertActive } = operation;
     const progressPerStep = progressBase / 2;
+    assertActive();
     const directory = rootFilePrefix
       ? rootDirectory
-      : this.titleToDirectory.get(this.currentContext.title) ||
-        (await rootDirectory.getDirectoryHandle(this.sanitizedTitle, { create: true }));
+      : this.titleToDirectory.get(title) ||
+        (await rootDirectory.getDirectoryHandle(sanitizedTitle, { create: true }));
+    assertActive();
     const savedFile = await directory.getFileHandle(filename, { create: true });
+    assertActive();
     const writer = await savedFile.createWritable();
 
-    await writer.write(data);
-    await writer.close();
+    let closing = false;
+    let abortPromise: Promise<void> | undefined;
+    const abortWriter = () => {
+      // Observe rejection immediately, even while a native write is pending.
+      abortPromise ??= Promise.resolve()
+        .then(() => writer.abort())
+        .catch(() => {});
+      return abortPromise;
+    };
+    const onAbort = () => {
+      if (!closing) void abortWriter();
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      assertActive();
+      await writer.write(data);
+      assertActive();
+      // close cannot be rolled back once admitted. Its result decides whether
+      // committed bytes may truthfully be acknowledged.
+      closing = true;
+      await writer.close();
+    } catch (error) {
+      // Abort discards the stream's staged bytes. Never remove the named file:
+      // it may predate this export or have been opened by another writer.
+      await abortWriter();
+      // A failed abort must not replace the original write/cancellation error.
+      throw error;
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+    }
 
+    // A fulfilled close acknowledges committed bytes, even if cancellation
+    // arrived during close. Do not claim rollback or start obsolete cleanup.
+    if (signal?.aborted || !isCurrent()) return;
     BaseStorageHandler.reportProgress(progressPerStep);
 
     if (file) {
-      if (!(await savedFile.isSameEntry(file))) {
+      const sameEntry = await savedFile.isSameEntry(file);
+      if (signal?.aborted || !isCurrent()) return;
+      if (!sameEntry) {
         await directory.removeEntry(file.name);
       }
+      if (signal?.aborted || !isCurrent()) return;
 
       if (!rootFilePrefix) {
         const titleFiles = files.filter((entry) => entry.name !== file.name);
         titleFiles.push(savedFile);
 
-        this.titleToFiles.set(this.currentContext.title, titleFiles);
+        this.titleToFiles.set(title, titleFiles);
       }
     } else if (!rootFilePrefix) {
-      files.push(savedFile);
-
-      this.titleToFiles.set(this.currentContext.title, files);
+      this.titleToFiles.set(title, [...files, savedFile]);
     }
 
     if (rootFilePrefix) {
       this.rootFileHandles.set(rootFilePrefix, savedFile);
     } else {
-      this.titleToDirectory.set(this.currentContext.title, directory);
+      this.titleToDirectory.set(title, directory);
     }
 
     BaseStorageHandler.reportProgress(progressPerStep);
