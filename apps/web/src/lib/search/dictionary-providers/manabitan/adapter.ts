@@ -152,6 +152,10 @@ export async function openManabitanDictionaryProvider(): Promise<DictionaryRunti
     credentials: 'omit',
     signal: AbortSignal.timeout(15000)
   });
+  if (response.status === 503)
+    throw new Error(
+      'Dictionary tools are unavailable. Your saved books remain available. Reconnect and retry.'
+    );
   if (!response.ok)
     throw new Error(
       'The built-in dictionary assets are unavailable. Retry after reloading this Reader release.'

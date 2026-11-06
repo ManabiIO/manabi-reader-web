@@ -262,7 +262,18 @@ export function registerReaderServiceWorker(worker, config) {
     } catch {
       /* Online use can continue when optional storage is unavailable. */
     }
-    const response = await worker.fetch(request);
+    let response;
+    try {
+      response = await worker.fetch(request);
+    } catch {
+      // Missing optional assets remain an ordinary, retryable HTTP failure.
+      // Rejecting respondWith can surface as a global WebKit page error even
+      // when the application's dictionary loader catches its fetch rejection.
+      return new Response('Optional reader tools are unavailable.', {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }
+      });
+    }
     if (cache && isUsableRuntimeResponse(response, key)) {
       try {
         await cache.put(key, response.clone());
