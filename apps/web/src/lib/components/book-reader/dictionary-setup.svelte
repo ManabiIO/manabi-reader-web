@@ -53,7 +53,7 @@
       extensionPresent = preferredDictionaryExtensionPresent(document);
       bridgeReady = preferredDictionaryReaderBridgeReady(document);
       const choice = savedChoice();
-      if ((!choice && !extensionPresent) || (choice === 'preferred' && bridgeReady)) open = true;
+      if (choice === 'preferred' && bridgeReady) open = true;
     }, 1200);
   }
 

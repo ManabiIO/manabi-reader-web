@@ -70,8 +70,7 @@ export function createDictionary(
             __readerController.changed((extensionPresent = extensionAvailable()));
             __readerController.changed((bridgeReady = readerBridgeReady()));
             const choice = savedChoice();
-            if ((!choice && !extensionPresent) || (choice === 'preferred' && bridgeReady))
-              __readerController.changed((open = true));
+            if (choice === 'preferred' && bridgeReady) __readerController.changed((open = true));
           }, 1200))
         );
       }
