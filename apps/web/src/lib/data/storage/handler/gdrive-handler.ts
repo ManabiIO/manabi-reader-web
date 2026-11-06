@@ -41,17 +41,27 @@ export class GDriveStorageHandler extends ApiStorageHandler {
       database.listLoading$.next(true);
 
       try {
-        await this.ensureTitle();
+        const root = await this.ensureTitle(undefined, undefined, true);
+        if (!root) {
+          this.dataListFetched = true;
+          return [];
+        }
 
         const titles = await this.list(
           `trashed=false and mimeType='application/vnd.google-apps.folder' and '${this.rootId}' in parents`,
           'files(id,name),nextPageToken'
         );
         const titleIdToName = new Map<string, string>();
+        const names = new Set<string>();
 
         for (let index = 0, { length } = titles; index < length; index += 1) {
           const title = titles[index];
           const desanitizedTitle = BaseStorageHandler.desanitizeFilename(title.name);
+          if (names.has(desanitizedTitle))
+            throw new Error(
+              'Multiple book folders have the same title. Review them before using this library.'
+            );
+          names.add(desanitizedTitle);
 
           this.titleToId.set(desanitizedTitle, title.id);
           titleIdToName.set(title.id, desanitizedTitle);
@@ -104,29 +114,49 @@ export class GDriveStorageHandler extends ApiStorageHandler {
     parent = 'root',
     readOnly = false
   ) {
-    if (name === BaseStorageHandler.rootName && this.rootId) {
+    const isRoot = name === BaseStorageHandler.rootName && parent === 'root';
+    if (isRoot && this.rootId) {
       return this.rootId;
     }
 
-    const externalId = this.titleToId.get(name);
+    // A title can equal the compatibility root's name. Root IDs and book IDs
+    // must not share a name-only cache or a book can target its parent library.
+    const externalId = !isRoot && parent === this.rootId ? this.titleToId.get(name) : undefined;
 
     if (externalId) {
       return externalId;
     }
 
     const sanitizedName = BaseStorageHandler.sanitizeForFilename(name);
-    const params = new URLSearchParams();
-
-    params.append('corpora', 'user');
-    params.append('spaces', 'drive');
-    params.append('fields', 'files(id)');
-    params.append(
-      'q',
-      `trashed=false and '${parent}' in parents and mimeType = 'application/vnd.google-apps.folder' and name = "${sanitizedName}"`
-    );
-
-    let titleId: string = (await this.request(`${this.baseFileApiUrl}?${params.toString()}`))
-      ?.files?.[0]?.id;
+    let titleId = '';
+    if (!isRoot) {
+      const folders = await this.list(
+        `trashed=false and '${parent}' in parents and mimeType='application/vnd.google-apps.folder'`,
+        'files(id,name),nextPageToken'
+      );
+      const matches = folders.filter(
+        (folder) => BaseStorageHandler.desanitizeFilename(folder.name) === name
+      );
+      if (matches.length > 1)
+        throw new Error(
+          'Multiple matching cloud folders require review before this library can be used.'
+        );
+      if (matches.length) {
+        if (parent === this.rootId) this.titleToId.set(name, matches[0].id);
+        return matches[0].id;
+      }
+      if (readOnly) return '';
+    } else {
+      const matches = await this.list(
+        `trashed=false and '${parent}' in parents and mimeType = 'application/vnd.google-apps.folder' and name = "${sanitizedName}"`,
+        'files(id),nextPageToken'
+      );
+      if (matches.length > 1)
+        throw new Error(
+          'Multiple matching cloud folders require review before this library can be used.'
+        );
+      titleId = matches[0]?.id || '';
+    }
 
     if (!titleId && !readOnly) {
       const body = JSON.stringify({
@@ -144,15 +174,15 @@ export class GDriveStorageHandler extends ApiStorageHandler {
       titleId = response.id;
     }
 
-    if (titleId) {
+    if (titleId && !isRoot && parent === this.rootId) {
       this.titleToId.set(name, titleId);
     }
 
-    if (titleId && name === BaseStorageHandler.rootName) {
+    if (titleId && isRoot) {
       this.rootId = titleId;
     }
 
-    if (!titleId && name === BaseStorageHandler.rootName) {
+    if (!titleId && isRoot && !readOnly) {
       throw new Error('Root folder not found');
     }
 

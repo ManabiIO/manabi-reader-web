@@ -72,12 +72,17 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
       database.listLoading$.next(true);
 
       try {
-        await this.ensureTitle();
+        const root = await this.ensureTitle(undefined, undefined, true);
+        if (!root) {
+          this.dataListFetched = true;
+          return [];
+        }
 
         const remoteFolders = await this.list(this.rootId);
         const batchRequests: BatchRequest[][] = [];
         const batchIdToTitle = new Map<string, string>();
         const titleIdToName = new Map<string, string>();
+        const names = new Set<string>();
         const listParams = new URLSearchParams();
 
         listParams.append('select', `id,name`);
@@ -90,6 +95,11 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
           for (let index2 = 0, { length: length2 } = iteration; index2 < length2; index2 += 1) {
             const remoteFolder = iteration[index2];
             const title = BaseStorageHandler.desanitizeFilename(remoteFolder.name);
+            if (names.has(title))
+              throw new Error(
+                'Multiple book folders have the same title. Review them before using this library.'
+              );
+            names.add(title);
             const id = `${batchRequests.length}_${requests.length}`;
 
             this.titleToId.set(title, remoteFolder.id);
@@ -176,11 +186,12 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
     parent = 'root',
     readOnly = false
   ) {
-    if (name === BaseStorageHandler.rootName && this.rootId) {
+    const isRoot = name === BaseStorageHandler.rootName && parent === 'root';
+    if (isRoot && this.rootId) {
       return this.rootId;
     }
 
-    const externalId = this.titleToId.get(name);
+    const externalId = !isRoot && parent === this.rootId ? this.titleToId.get(name) : undefined;
 
     if (externalId) {
       return externalId;
@@ -194,7 +205,7 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
 
     let titleId = '';
 
-    if (name === BaseStorageHandler.rootName) {
+    if (isRoot) {
       titleId = (await this.request(`${this.baseEndpoint}/${parent}/children?${params.toString()}`))
         ?.value?.[0]?.id;
     } else if (this.rootId) {
@@ -205,9 +216,11 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
         const remoteFolder = remoteFolders[index];
         const title = BaseStorageHandler.desanitizeFilename(remoteFolder.name);
 
-        this.titleToId.set(title, remoteFolder.id);
-
         if (title === name) {
+          if (titleId)
+            throw new Error(
+              'Multiple matching cloud folders require review before this library can be used.'
+            );
           titleId = remoteFolder.id;
         }
       }
@@ -234,15 +247,15 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
       titleId = response.id;
     }
 
-    if (titleId) {
+    if (titleId && !isRoot && parent === this.rootId) {
       this.titleToId.set(name, titleId);
     }
 
-    if (titleId && name === BaseStorageHandler.rootName) {
+    if (titleId && isRoot) {
       this.rootId = titleId;
     }
 
-    if (!titleId && name === BaseStorageHandler.rootName) {
+    if (!titleId && isRoot && !readOnly) {
       throw new Error('Root folder not found');
     }
 

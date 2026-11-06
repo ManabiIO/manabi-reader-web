@@ -21,6 +21,21 @@ There is no outgoing Drive writer.
 Existing TTU-shaped Drive handlers and shared-folder auto import/export are not
 evidence that the proposed safety requirements are already implemented.
 
+### Compatibility-source read preservation (2026-11-06)
+
+The inherited Google Drive and OneDrive compatibility handlers now keep library
+listing, missing-book/state reads and existence checks free of cloud mutations.
+A missing library stays missing until an explicit export creates it; deleting
+from a missing library also creates nothing. Cancellation is checked before and
+after the root lookup. Access failures remain errors rather than empty libraries.
+Root-folder identity is separate from book-title caches, including when a book
+is named `ttu-reader-data`. Ambiguous Google root matches and duplicate decoded
+book titles require review instead of selecting an arbitrary folder. Stateful
+transport fixtures exercise the actual provider/API/base modules and compare all
+cloud bytes, names, parents, IDs and metadata, including unrelated files. They
+also prove an explicit export can still create a library after an empty listing.
+This qualifies the mocked read contract, not live OAuth or conditional write-back.
+
 ### Automatic incoming changes
 
 Saved connection v3 adds `automaticReceive` alongside v2's `automaticChecks`.

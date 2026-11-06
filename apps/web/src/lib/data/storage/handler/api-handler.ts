@@ -516,7 +516,8 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
     const { file, data: existingData } = await this.getRootFile(
       BaseStorageHandler.readingGoalsFilePrefix,
       isMerge ? 'json' : '',
-      0.2
+      0.2,
+      false
     );
 
     let readingGoalsToStore: BooksDbReadingGoal[] = readingGoals;
@@ -572,7 +573,10 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
   }
 
   async deleteBookData(booksToDelete: string[], cancelSignal: AbortSignal) {
-    await this.ensureTitle();
+    throwIfAborted(cancelSignal);
+    const root = await this.ensureTitle(undefined, undefined, true);
+    throwIfAborted(cancelSignal);
+    if (!root) return { error: '', deleted: [] };
 
     let error = '';
 
@@ -724,7 +728,9 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
   ) {
     const progressPerStep = progressBase / 5;
 
-    await this.ensureTitle();
+    const root = await this.ensureTitle(undefined, undefined, readOnly);
+
+    if (!root) return { titleId: '', file: undefined, files: [], data: undefined };
 
     BaseStorageHandler.reportProgress(progressPerStep);
 
@@ -757,11 +763,14 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
   protected async getRootFile(
     fileIdentifier: string,
     typeToRetrieve: XMLHttpRequestResponseType = '',
-    progressBase = 1
+    progressBase = 1,
+    readOnly = true
   ) {
     const progressPerStep = progressBase / 3;
 
-    await this.ensureTitle();
+    const root = await this.ensureTitle(undefined, undefined, readOnly);
+
+    if (!root) return { file: undefined, data: undefined };
 
     BaseStorageHandler.reportProgress(progressPerStep);
 
