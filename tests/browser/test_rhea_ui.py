@@ -235,7 +235,13 @@ class RheaReader(previous.RefinedAppearance):
             content.evaluate('node => node.dataset.slowFontOwner = "retained"')
             self.assertGreaterEqual(content.evaluate('node => node.getBoundingClientRect().width'), 100)
             release.set()
-            self.wait_for_fonts()
+            # WebKit may leave FontFaceSet.status at loading after the selected
+            # face has loaded (the production observer follows face.loaded and
+            # that face's status for the same reason). Assert the actual face,
+            # not an unrelated/global font-set completion signal.
+            self.page.wait_for_function("""() => Array.from(document.fonts).some(face =>
+              face.family.replace(/^['"]|['"]$/g, '') === 'Noto Serif JP' && face.status === 'loaded')""",
+              timeout=15000)
             expect(content).to_have_attribute('data-slow-font-owner', 'retained')
             expect(content).to_have_attribute('aria-busy', 'false')
             self.assertFalse(content.evaluate('node => node.inert'))
