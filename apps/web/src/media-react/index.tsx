@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { readerName, storageName } from '../runtime/edition';
+import { readerName } from '../runtime/edition';
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Head } from '../reader-react/dom';
@@ -68,7 +68,7 @@ export function VideosScreen() {
       import('$lib/media/cloud-browser'),
       import('$lib/media/profile-lifetime'),
       import('$lib/manabi/media-profile'),
-      import('$lib/media/store')
+      import('$lib/media/reader-store')
     ])
       .then(([workspaceModule, cloudModule, lifetimeModule, profileModule, storeModule]) => {
         if (disposed) return;
@@ -115,7 +115,7 @@ export function VideosScreen() {
             setLifetimeError('');
             const target = new workspaceModule.VideoWorkspace(host, {
               scope,
-              store: new storeModule.MediaStore(undefined, storageName('manabi-media-v1')),
+              store: storeModule.createReaderMediaStore(),
               booksURL: `${base}/manage`,
               runtimeBase: `${assets}/moss`,
               onAppearance: (trigger) => {

@@ -10,11 +10,12 @@ import re
 import unittest
 from playwright.sync_api import expect
 from test_books_library import LibraryBase
+from reader_fixture import reader_fixture
 
 
 class SharedStatisticsBrowser(LibraryBase):
     def seed(self, count=2):
-        self.page.evaluate('''async count => {
+        self.page.evaluate(reader_fixture('''async count => {
           const db = await new Promise((resolve, reject) => {
             const r = indexedDB.open('books');
             r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
@@ -33,8 +34,8 @@ class SharedStatisticsBrowser(LibraryBase):
               tx.oncomplete = resolve; tx.onabort = tx.onerror = () => reject(tx.error);
             });
           } finally { db.close(); }
-        }''', count)
-        self.page.goto(self.origin + '/reader-web/statistics')
+        }'''), count)
+        self.page.goto(self.origin + reader_fixture('/reader-web/statistics'))
         expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         expect(self.page.get_by_role('button', name='Filter books', exact=True)).to_be_enabled()
 
@@ -145,7 +146,7 @@ class SharedStatisticsBrowser(LibraryBase):
         self.import_book('Statistics resume geometry')
         self.page.get_by_role('button', name='Read Statistics resume geometry', exact=True).click()
         expect(self.page.locator('.book-content').first).to_have_attribute('aria-busy', 'false')
-        self.page.goto(self.origin + '/reader-web/statistics')
+        self.page.goto(self.origin + reader_fixture('/reader-web/statistics'))
         expect(self.page.get_by_role('link', name='Resume reading', exact=True)).to_be_visible()
         self.page.set_viewport_size({'width': 320, 'height': 568})
         self.page.get_by_role('button', name='Heatmap', exact=True).click()
@@ -184,7 +185,7 @@ class SharedStatisticsBrowser(LibraryBase):
         self.seed(count=1)
         hidden = ['readingTime', 'charactersRead', 'lastReadingSpeed']
         self.page.evaluate(
-            "values => localStorage.setItem('lastBlurredTrackerItems', JSON.stringify(values))",
+            reader_fixture("values => localStorage.setItem('lastBlurredTrackerItems', JSON.stringify(values))"),
             hidden)
         self.page.reload()
         panel = self.options()
@@ -248,7 +249,7 @@ class SharedStatisticsBrowser(LibraryBase):
                         expect(details).to_have_count(0)
                         expect(metric).to_be_focused()
                 self.assertEqual(hidden, self.page.evaluate(
-                    "JSON.parse(localStorage.getItem('lastBlurredTrackerItems'))"))
+                    reader_fixture("JSON.parse(localStorage.getItem('lastBlurredTrackerItems'))")))
                 # Query refresh retires all transient reveals, including an open
                 # detail surface, while retaining the saved privacy preference.
                 metric.press('Enter')

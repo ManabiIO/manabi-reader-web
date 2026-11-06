@@ -14,6 +14,8 @@ import wave
 import zipfile
 from playwright.sync_api import sync_playwright, expect
 from test_static_reader import StaticHandler
+from reader_fixture import reader_fixture
+from browser_launch import launch_options
 
 
 def browser_options():
@@ -82,7 +84,7 @@ class WhispersyncBrowser(unittest.TestCase):
         launch = {'headless': True}
         if BROWSER_OPTIONS.executable:
             launch['executable_path'] = BROWSER_OPTIONS.executable
-        cls.browser = getattr(cls.playwright, BROWSER_OPTIONS.browser).launch(**launch)
+        cls.browser = getattr(cls.playwright, BROWSER_OPTIONS.browser).launch(**launch_options((getattr(cls.playwright, BROWSER_OPTIONS.browser)).name, **launch))
 
     @classmethod
     def tearDownClass(cls):
@@ -115,8 +117,8 @@ class WhispersyncBrowser(unittest.TestCase):
             'writingMode': writing_mode,
             'manabi-reader-dictionary-setup-v1': 'skip',
         }
-        self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') { for (const [key,value] of Object.entries(' + json.dumps(settings) + ')) localStorage.setItem(key,value); }')
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') { for (const [key,value] of Object.entries(' + json.dumps(settings) + reader_fixture(')) localStorage.setItem(key,value); }'))
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files(
             {'name': 'whispersync.epub', 'mimeType': 'application/epub+zip', 'buffer': epub()})
@@ -135,8 +137,8 @@ class WhispersyncBrowser(unittest.TestCase):
         self.open_fixture(view_mode, writing_mode)
         self.page.get_by_role('button', name='Match book', exact=True).press('Enter')
         expect(self.page.get_by_text('2 / 2 matched', exact=True)).to_be_visible(timeout=30000)
-        self.assertEqual(view_mode, self.page.evaluate('localStorage.getItem("viewMode")'))
-        self.assertEqual(writing_mode, self.page.evaluate('localStorage.getItem("writingMode")'))
+        self.assertEqual(view_mode, self.page.evaluate(reader_fixture('localStorage.getItem("viewMode")')))
+        self.assertEqual(writing_mode, self.page.evaluate(reader_fixture('localStorage.getItem("writingMode")')))
         self.assertEqual(
             writing_mode,
             self.page.evaluate('getComputedStyle(document.documentElement).writingMode'),
@@ -327,7 +329,7 @@ class WhispersyncBrowser(unittest.TestCase):
     def test_whispersync_corrupt_restore_reports_error_and_explicit_reset_recovers(self):
         self.open_fixture()
         self.wait_for_saved_captions()
-        self.page.evaluate('''() => new Promise((resolve, reject) => {
+        self.page.evaluate(reader_fixture('''() => new Promise((resolve, reject) => {
           const request = indexedDB.open('manabi-whispersync-v1', 1)
           request.onerror = () => reject(request.error)
           request.onsuccess = () => {
@@ -339,7 +341,7 @@ class WhispersyncBrowser(unittest.TestCase):
             transaction.oncomplete = () => { db.close(); resolve() }
             transaction.onabort = () => { db.close(); reject(transaction.error) }
           }
-        })''')
+        })'''))
         self.page.reload()
         expect(self.page.locator('.book-content')).to_be_visible(timeout=30000)
         self.open_panel()
@@ -354,7 +356,7 @@ class WhispersyncBrowser(unittest.TestCase):
         expect(self.page.locator('input[type=file][accept*=".srt"]')).to_be_enabled()
 
     def wait_for_saved_captions(self):
-        self.page.wait_for_function('''expected => new Promise((resolve, reject) => {
+        self.page.wait_for_function(reader_fixture('''expected => new Promise((resolve, reject) => {
           const request = indexedDB.open('manabi-whispersync-v1', 1)
           request.onerror = () => reject(request.error)
           request.onsuccess = () => {
@@ -364,7 +366,7 @@ class WhispersyncBrowser(unittest.TestCase):
             transaction.oncomplete = () => { db.close(); resolve(all.result.some(record => record.subtitleSource === expected)) }
             transaction.onabort = () => { db.close(); reject(transaction.error) }
           }
-        })''', arg=CAPTIONS)
+        })'''), arg=CAPTIONS)
 
     def test_whispersync_cross_chapter_navigation_in_real_paginated_reader(self):
         self.open_fixture()

@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 from playwright.sync_api import expect, sync_playwright
 from test_books_library import LibraryBase
 from test_static_reader import StaticHandler, ThreadingHTTPServer
+from reader_fixture import reader_fixture
 
 
 CONNECTION = 'f025a7a2-27d6-4ad8-830d-f5e01d51dcf1'
@@ -153,7 +154,7 @@ class CloudSeriesReceiptReplay(LibraryBase):
             SeriesHandler.status_requests = 0
 
     def snapshot(self):
-        return self.page.evaluate('''async () => {
+        return self.page.evaluate(reader_fixture('''async () => {
           const open = name => new Promise((resolve,reject) => {
             const request = indexedDB.open(name);
             request.onsuccess = () => resolve(request.result);
@@ -177,7 +178,7 @@ class CloudSeriesReceiptReplay(LibraryBase):
           }
           books.close();
           return {metadata, reading};
-        }''')
+        }'''))
 
     def wait_snapshot(self, predicate):
         deadline = time.monotonic() + 20

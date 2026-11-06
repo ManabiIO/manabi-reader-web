@@ -9,6 +9,10 @@ One Reader implementation supports two build-time compositions. Web is the activ
 
 `config/reader-editions.mjs` defines reviewed product identities. `READER_EDITION` selects the composition during the build. URL parameters cannot select a provider or change a storage identity.
 
+The shared application currently uses stable Expo 58.0.23, Expo UI 58.0.27,
+Expo Router 58.0.30 and the SDK-matched React Native 0.88.1. The private composition
+inherits these versions through its exact shared-source pin.
+
 ## Distribution boundary
 
 The public build prepares only the pinned Manabitan provider. A private build requires an absolute external provider build module and runtime entry, a production-capable release, and reviewed revision/content hashes. Metro substitutes only the provider selection and optional product extension modules; features continue to use the neutral Reader contract.
@@ -16,6 +20,12 @@ The public build prepares only the pinned Manabitan provider. A private build re
 Asset preparation stages tracked public files and the selected provider's verified manifest. It rejects symlinks and mismatched bytes. Stale ignored provider output and dictionary archives are excluded. Final artifact verification checks product identity, base path, provider inventory and bytes. The private artifact also rejects unselected provider paths/implementation markers and source maps. Provider notices and redistribution rights remain part of each release's qualification.
 
 `reader-edition.json` is the small publication identity consumed by the backend. `reader-product.json` carries UI/storage metadata. Neither marker is permission to publish; source pins, qualification and backend release gates must also pass.
+
+The application has no `ua-parser-js` dependency or accompanying types. Its EPUB
+and HTMLZ ZIP configuration retains a small Android Chromium worker workaround;
+it is not Kiwi-specific detection or a layout decision. The indirect
+`ua-parser-js` 1.0.41 dependency in React Native Web's `fbjs` graph is MIT licensed;
+the AGPL 2.x dependency and its unused detection helpers are absent.
 
 ## Local data and offline behavior
 
@@ -32,6 +42,12 @@ Proactive preprocessing and mounted-chapter interaction are separate capabilitie
 ## Current qualification
 
 Run `pnpm test:edition`, `pnpm test:expo`, the unit suites, `pnpm --dir apps/web check`, `pnpm check`, and the final export verifiers. `tests/browser/test_reader_editions.py` exercises the actual exported app in Chromium and WebKit, small/large layouts, book import/open/offline reopen, and unrelated-data preservation. It defaults to `apps/web/build`; private composition sets `READER_EDITION_TEST_OUTPUT` to its exact `dist` directory. An explicit output must be absolute, exist, and contain no symlink components; invalid overrides fail rather than testing a different build. The local receipt inventories that same output before and after browser qualification.
+
+Legacy public browser fixtures derive their physical storage names, app branding
+and navigation prefix from the built product marker. Browser APIs and upstream
+TTU storage remain unchanged. Public workflows prepare the provider before
+staging Expo assets. The retired production notifier cannot dispatch private
+backend Actions after a public merge.
 
 The `reader-editions.yml` workflow is manual on the default branch. It performs qualification without automatic publishing. The backend keeps both new edition descriptors disabled until a real qualified artifact and activation checks exist.
 

@@ -4,6 +4,7 @@ import unittest
 from playwright.sync_api import expect
 from test_books_library import LibraryBase
 from test_static_reader import StaticHandler
+from reader_fixture import reader_fixture, reader_product_name
 
 
 class LibraryNoticesBrowser(LibraryBase):
@@ -25,9 +26,9 @@ class LibraryNoticesBrowser(LibraryBase):
         self.import_book('Ambiguous history', color=(45, 100, 55))
         expect(self.page.get_by_role('button', name='Read Ambiguous history', exact=True)).to_have_count(2)
         for row in self.stores('books', ['data'])['data']:
-            self.page.goto(self.origin + '/reader-web/b?id=' + str(row['id']))
+            self.page.goto(self.origin + reader_fixture('/reader-web/b?id=') + str(row['id']))
             expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
-        self.page.evaluate('''() => new Promise((resolve, reject) => {
+        self.page.evaluate(reader_fixture('''() => new Promise((resolve, reject) => {
           const request = indexedDB.open('books');
           request.onerror = () => reject(request.error);
           request.onsuccess = () => {
@@ -38,13 +39,13 @@ class LibraryNoticesBrowser(LibraryBase):
             tx.oncomplete = () => {db.close(); resolve();};
             tx.onabort = () => {db.close(); reject(tx.error);};
           };
-        })''')
+        })'''))
         StaticHandler.personal_enabled = True
         StaticHandler.account_fixture = {
             'user': {'id': '42', 'username': 'notice-reader'},
             'csrf_token': 'c' * 64, 'providers': []
         }
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         expect(self.page.locator('section[aria-labelledby="reading-sync-heading"] [role="status"]')).to_contain_text(
             'older same-title statistics record', timeout=15000)
         self.go_library()
@@ -60,7 +61,7 @@ class LibraryNoticesBrowser(LibraryBase):
         for width, height, scale, mode in [(1200, 900, 100, 'light'), (390, 700, 100, 'dark'),
                                            (320, 568, 200, 'light'), (320, 320, 200, 'dark')]:
             with self.subTest(width=width, height=height, scale=scale, mode=mode):
-                self.page.get_by_role('heading', name='Manabi Reader', exact=True).click()
+                self.page.get_by_role('heading', name=reader_product_name(), exact=True).click()
                 self.page.mouse.move(0, height - 1)
                 self.page.set_viewport_size({'width': width, 'height': height})
                 self.page.emulate_media(color_scheme=mode)

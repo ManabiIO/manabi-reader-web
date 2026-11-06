@@ -11,6 +11,7 @@ from playwright.sync_api import expect
 from reader_controls import reveal_reader_controls
 from test_books_library import LibraryBase, book, raster
 from test_static_reader import StaticHandler
+from reader_fixture import reader_fixture
 
 
 FONT_PATH = re.compile(r"/NotoSerifJP-Regular[^/]*\.woff2(?:\?.*)?$")
@@ -67,12 +68,12 @@ class GalleryRevealBase(LibraryBase):
         self.output = Path('test-results') / 'gallery-reveal' / self.engine / self._testMethodName
         self.output.mkdir(parents=True, exist_ok=True)
         self.context.tracing.start(screenshots=True, snapshots=True, sources=True)
-        self.context.add_init_script('''
+        self.context.add_init_script(reader_fixture('''
           localStorage.setItem('hideSpoilerImage', '1');
           localStorage.setItem('hideSpoilerImageMode', 'all');
           localStorage.setItem('viewMode', 'continuous');
           localStorage.setItem('fontFamilyGroupOne', 'Klee One');
-        ''')
+        '''))
         self.go_library()
 
     def tearDown(self):

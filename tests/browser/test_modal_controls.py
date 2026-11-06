@@ -8,6 +8,7 @@ from pathlib import Path
 import unittest
 from playwright.sync_api import expect
 from test_books_library import LibraryBase
+from reader_fixture import reader_fixture
 
 
 class ModalControlsBrowser(LibraryBase):
@@ -214,7 +215,7 @@ class ModalControlsBrowser(LibraryBase):
 
     def test_legacy_theme_dialog_uses_same_close_control_and_cancels(self):
         self.page.set_viewport_size({'width': 320, 'height': 520})
-        self.page.goto(self.origin + '/reader-web/settings')
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings'))
         trigger = self.page.get_by_role('button', name='Add custom theme', exact=True)
         trigger.click()
         panel = self.dialog()
@@ -224,7 +225,7 @@ class ModalControlsBrowser(LibraryBase):
         close.click()
         expect(panel).to_have_count(0)
         expect(trigger).to_be_focused()
-        self.assertNotIn('Do not save this theme', self.page.evaluate('localStorage.getItem("customThemes") || ""'))
+        self.assertNotIn('Do not save this theme', self.page.evaluate(reader_fixture('localStorage.getItem("customThemes") || ""')))
 
     def test_reader_sheets_have_gutters_and_unobscured_close_controls(self):
         self.open_reader()

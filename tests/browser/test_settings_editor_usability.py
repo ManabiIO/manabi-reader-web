@@ -8,11 +8,12 @@ import unittest
 from pathlib import Path
 from playwright.sync_api import expect
 from test_books_library import LibraryBase
+from reader_fixture import reader_fixture
 
 
 class SettingsEditorUsabilityBrowser(LibraryBase):
     def settings(self, category='library'):
-        self.page.goto(self.origin + '/reader-web/settings#' + category)
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings#') + category)
         if category == 'library':
             expect(self.page.locator('[data-setting="storage-sources"]').get_by_role(
                 'button', name='Add source', exact=True)).to_be_enabled()
@@ -53,7 +54,7 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
         self.settings()
         before = self.stores('books', ['storageSource'])
         for mode in ('light', 'dark'):
-            self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
+            self.page.evaluate(reader_fixture('v => localStorage.setItem("appearance", v)'), mode)
             self.page.set_viewport_size({'width': 320, 'height': 480})
             self.settings()
             self.page.evaluate('document.documentElement.style.fontSize = "200%"')
@@ -132,7 +133,7 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
         panel = self.editor()
         name = 'Native queued storage source'
         self.fill_source(panel, name)
-        self.page.evaluate('''async name => {
+        self.page.evaluate(reader_fixture('''async name => {
           const db=await new Promise((resolve,reject)=>{
             const r=indexedDB.open('books');
             r.onsuccess=()=>resolve(r.result); r.onerror=()=>reject(r.error);
@@ -149,7 +150,7 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
             if(this.name==='storageSource' && args[0]?.name===name) window.__sourceAdds++;
             return nativeAdd.apply(this,args);
           };
-        }''', name)
+        }'''), name)
         try:
             panel.get_by_role('button', name='Save', exact=True).click()
             expect(panel.locator('form')).to_have_attribute('aria-busy', 'true')
@@ -290,12 +291,12 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
     def test_direct_settings_entry_keeps_library_back_fallback_across_categories(self):
         self.settings('library')
         back = self.page.get_by_role('link', name='Back', exact=True)
-        expect(back).to_have_attribute('href', '/reader-web/manage')
+        expect(back).to_have_attribute('href', reader_fixture('/reader-web/manage'))
         typography = self.page.get_by_role('navigation', name='Settings categories').get_by_role(
             'link', name='Fonts & text', exact=True)
         typography.click()
         expect(typography).to_have_attribute('aria-current', 'page')
-        expect(back).to_have_attribute('href', '/reader-web/manage')
+        expect(back).to_have_attribute('href', reader_fixture('/reader-web/manage'))
 
     def test_app_back_restores_library_entry_and_forward_restores_settings_visit(self):
         original = self.page.evaluate('history.state')
@@ -304,10 +305,10 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
         expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
         self.page.get_by_role('navigation', name='Settings categories').get_by_role(
             'link', name='Fonts & text', exact=True).click()
-        expect(self.page).to_have_url(self.origin + '/reader-web/settings#typography')
+        expect(self.page).to_have_url(self.origin + reader_fixture('/reader-web/settings#typography'))
         length = self.page.evaluate('history.length')
         self.page.get_by_role('link', name='Back', exact=True).click()
-        expect(self.page).to_have_url(self.origin + '/reader-web/manage')
+        expect(self.page).to_have_url(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
             'aria-busy', 'false')
         self.assertEqual(original, self.page.evaluate('history.state'))
@@ -315,9 +316,9 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
         self.page.go_forward()
         expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
         expect(self.page.get_by_role('link', name='Back', exact=True)).to_have_attribute(
-            'href', '/reader-web/manage')
+            'href', reader_fixture('/reader-web/manage'))
         self.page.get_by_role('link', name='Back', exact=True).click()
-        expect(self.page).to_have_url(self.origin + '/reader-web/manage')
+        expect(self.page).to_have_url(self.origin + reader_fixture('/reader-web/manage'))
         self.assertEqual(original, self.page.evaluate('history.state'))
         self.assertEqual(length, self.page.evaluate('history.length'))
 
@@ -333,10 +334,10 @@ class SettingsEditorUsabilityBrowser(LibraryBase):
                     self.page.get_by_role('menuitem', name=destination, exact=True).click()
                 back = self.page.get_by_role('link', name='Back', exact=True)
                 expect(back).to_be_visible()
-                expect(back).to_have_attribute('href', '/reader-web/manage')
+                expect(back).to_have_attribute('href', reader_fixture('/reader-web/manage'))
                 length = self.page.evaluate('history.length')
                 back.click()
-                expect(self.page).to_have_url(self.origin + '/reader-web/manage')
+                expect(self.page).to_have_url(self.origin + reader_fixture('/reader-web/manage'))
                 expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
                     'aria-busy', 'false')
                 self.assertEqual(original, self.page.evaluate('history.state'))

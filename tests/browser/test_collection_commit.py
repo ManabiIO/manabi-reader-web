@@ -13,9 +13,10 @@ from urllib.parse import urlsplit
 from playwright.sync_api import expect
 from test_books_library import LibraryBase
 from test_static_reader import StaticHandler
+from reader_fixture import reader_fixture
 
 
-TRACE = r'''() => {
+TRACE = reader_fixture(r'''() => {
   const events = [];
   const note = (kind, details = {}) => {
     events.push({kind, time: performance.now(), ...details});
@@ -69,7 +70,7 @@ TRACE = r'''() => {
       return request;
     };
   }
-}'''
+}''')
 
 
 class CollectionCommitBrowser(LibraryBase):
@@ -130,7 +131,7 @@ class CollectionCommitBrowser(LibraryBase):
         # Fault injection aborts a real native transaction at its first read.
         # It does not replace storage, synthesize a successful write, or touch
         # previously committed records. The second user submission is explicit.
-        self.page.evaluate('''() => {
+        self.page.evaluate(reader_fixture('''() => {
           const original = IDBObjectStore.prototype.get;
           window.__organizationReadAbortCount = 0;
           IDBObjectStore.prototype.get = function (...args) {
@@ -144,7 +145,7 @@ class CollectionCommitBrowser(LibraryBase):
             }
             return request;
           };
-        }''')
+        }'''))
         dialog.get_by_role('button', name='Create', exact=True).click()
         expect(dialog.get_by_role('alert')).to_contain_text('The library change could not be saved')
         expect(field).to_have_value('Retry shelf')
@@ -194,11 +195,11 @@ class CollectionCommitBrowser(LibraryBase):
             'csrf_token': 'c' * 64,
             'providers': []
         }
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         expect(self.page.get_by_text('Signed in as', exact=False)).to_contain_text('offline-recovery')
         self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
         expect(self.page.get_by_role('status', name='Settings sync status')).to_contain_text('synced')
-        self.page.evaluate('''async ({restoreCollection, requireWorker}) => {
+        self.page.evaluate(reader_fixture('''async ({restoreCollection, requireWorker}) => {
           const open = indexedDB.open('manabi-reader-integrations');
           const db = await new Promise((resolve, reject) => {
             open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error);
@@ -233,7 +234,7 @@ class CollectionCommitBrowser(LibraryBase):
             await new Promise(resolve => setTimeout(resolve, 25));
           }
           throw new Error('Automatic offline worker did not activate');
-        }''', {'restoreCollection': restore_collection, 'requireWorker': self.engine != 'webkit'})
+        }'''), {'restoreCollection': restore_collection, 'requireWorker': self.engine != 'webkit'})
 
     def enter_preference_outage(self):
         if self.engine == 'webkit':
@@ -271,7 +272,7 @@ class CollectionCommitBrowser(LibraryBase):
             self.context.set_offline(False)
 
     def read_recovery_metadata(self, key):
-        return self.page.evaluate('''async key => {
+        return self.page.evaluate(reader_fixture('''async key => {
           const open = indexedDB.open('manabi-reader-integrations');
           const db = await new Promise((resolve, reject) => {
             open.onsuccess = () => resolve(open.result); open.onerror = () => reject(open.error);
@@ -283,7 +284,7 @@ class CollectionCommitBrowser(LibraryBase):
               request.onerror = () => reject(request.error);
             });
           } finally { db.close(); }
-        }''', key)
+        }'''), key)
 
     def recover_preference_until(self, key, predicate):
         deadline = time.monotonic() + 15
@@ -310,7 +311,7 @@ class CollectionCommitBrowser(LibraryBase):
         try:
             self.prepare_preference_recovery()
             self.enter_preference_outage()
-            self.page.goto(self.origin + '/reader-web/settings')
+            self.page.goto(self.origin + reader_fixture('/reader-web/settings'))
             expect(self.page.locator('html')).to_have_attribute('data-appearance', 'light')
             if self.engine == 'webkit':
                 deadline = time.monotonic() + 15
@@ -390,7 +391,7 @@ class CollectionCommitBrowser(LibraryBase):
               };
             })();''')
             self.enter_preference_outage()
-            self.page.goto(self.origin + '/reader-web/settings')
+            self.page.goto(self.origin + reader_fixture('/reader-web/settings'))
             self.wait_for_recovery_probe('__organizationApplyAborts')
             expect(self.page.locator('html')).to_have_attribute('data-appearance', 'light')
             self.assertEqual(self.read_recovery_metadata('books-organization-v1')['collections'], [])

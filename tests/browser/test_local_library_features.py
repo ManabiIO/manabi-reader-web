@@ -27,6 +27,8 @@ from reader_controls import reveal_reader_controls
 from offline_shell import enter_offline_shell
 from test_static_reader import ThreadingHTTPServer, StaticHandler
 from test_books_library import LibraryBase, book, cross_resource_book
+from reader_fixture import reader_fixture
+from browser_launch import launch_options
 
 TITLE = 'Manabi Yatsu Portability Fixture'
 STAMP = 1790212589793
@@ -225,7 +227,7 @@ class LocalFeatureBrowser(LibraryBase):
             books.click()
 
     def open_migration(self, raw=None):
-        self.page.goto(self.origin+'/reader-web/import-ttu?source=yatsu')
+        self.page.goto(self.origin+reader_fixture('/reader-web/import-ttu?source=yatsu'))
         field=self.page.get_by_label('Choose Yatsu backup ZIPs',exact=True)
         expect(field).to_be_enabled()
         field.set_input_files({'name':'Yatsu.zip','mimeType':'application/zip','buffer':raw or yatsu_fixture()})
@@ -237,7 +239,7 @@ class LocalFeatureBrowser(LibraryBase):
         expect(self.page.get_by_label('Choose Yatsu backup ZIPs',exact=True)).to_be_enabled(timeout=60000)
 
     def configure_dav(self, writable=False):
-        self.page.goto(self.origin+'/reader-web/connections')
+        self.page.goto(self.origin+reader_fixture('/reader-web/connections'))
         self.page.get_by_role('button',name='Add WebDAV folder',exact=True).click()
         self.page.get_by_label('Name',exact=True).fill('Test DAV')
         self.page.get_by_label('WebDAV folder URL',exact=True).fill(self.dav_url)
@@ -258,11 +260,11 @@ class LocalFeatureBrowser(LibraryBase):
             expect(self.page.get_by_role('link',name='Read WebDAV offline book',exact=True)).to_be_visible()
 
     def seed_resume(self, char=4, stamp=STAMP):
-        self.page.evaluate('''({char,stamp})=>new Promise((resolve,reject)=>{
+        self.page.evaluate(reader_fixture('''({char,stamp})=>new Promise((resolve,reject)=>{
           const o=indexedDB.open('books');o.onsuccess=()=>{const db=o.result,tx=db.transaction(['data','bookmark'],'readwrite');
           tx.objectStore('data').getAll().onsuccess=e=>{const book=e.target.result[0];tx.objectStore('bookmark').put({dataId:book.id,exploredCharCount:char,progress:0.2,lastBookmarkModified:stamp});};
           tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error);};o.onerror=()=>reject(o.error);
-        })''',dict(char=char,stamp=stamp))
+        })'''),dict(char=char,stamp=stamp))
 
     def test_explicit_webdav_upload_is_create_only_and_backup_download_is_unchanged(self):
         self.dav.state['allow_uploads'] = True
@@ -330,7 +332,7 @@ class LocalFeatureBrowser(LibraryBase):
         self.assertEqual('book-note',note['status'])
         self.assertEqual('A book-wide note',note['body'])
         self.assertEqual('A book-wide note',note['source']['text'])
-        self.assertIsNone(self.page.evaluate("localStorage.getItem('manabi-yatsu-settings-receipt-v1')"))
+        self.assertIsNone(self.page.evaluate(reader_fixture("localStorage.getItem('manabi-yatsu-settings-receipt-v1')")))
         self.open_migration();self.migrate()
         after=self.stores('books',['readerImportRecord','readerAnnotation'])
         self.assertEqual(data['readerImportRecord'],after['readerImportRecord'])
@@ -352,7 +354,7 @@ class LocalFeatureBrowser(LibraryBase):
         self.assertEqual(0,self.dav.state['puts'])
         self.assertFalse(any(r[0]=='MKCOL' for r in self.dav.state['requests']))
         self.go_library()
-        enter_offline_shell(self.page, self.origin + '/reader-web/')
+        enter_offline_shell(self.page, self.origin + reader_fixture('/reader-web/'))
         self.assertTrue(self.page.evaluate('!!navigator.serviceWorker.controller'))
         self.page.evaluate('window.__beforeOfflineReload = true')
         with self.origin_unavailable():
@@ -420,10 +422,10 @@ class LocalFeatureBrowser(LibraryBase):
         self.search('BEFORE_EDIT')
         expect(self.page.get_by_role('button',name='Open passage in Reindexed book: BEFORE_EDIT',exact=True)).to_be_visible()
         self.wait_rows('readerSearchProjection',lambda r:len(r)==1)
-        self.page.evaluate("""()=>new Promise((resolve,reject)=>{const o=indexedDB.open('books');
+        self.page.evaluate(reader_fixture("""()=>new Promise((resolve,reject)=>{const o=indexedDB.open('books');
           o.onsuccess=()=>{const db=o.result,tx=db.transaction('data','readwrite');tx.objectStore('data').getAll().onsuccess=e=>{
             const b=e.target.result[0];b.elementHtml=b.elementHtml.replace('BEFORE_EDIT','AFTER_EDIT');tx.objectStore('data').put(b);};
-          tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)}})""")
+          tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)}})"""))
         self.search('AFTER_EDIT')
         expect(self.page.get_by_role('button',name='Open passage in Reindexed book: AFTER_EDIT',exact=True)).to_be_visible()
         self.search('BEFORE_EDIT')
@@ -479,9 +481,9 @@ class LocalFeatureBrowser(LibraryBase):
         self.page.get_by_label('Safe reader settings (optional)',exact=True).check()
         settings.get_by_role('checkbox').check()
         self.migrate()
-        self.assertEqual('26',self.page.evaluate("localStorage.getItem('fontSize')"))
-        self.assertIsNone(self.page.evaluate("localStorage.getItem('webdavPassword')"))
-        self.assertNotEqual('true',self.page.evaluate("localStorage.getItem('autoReplication')"))
+        self.assertEqual('26',self.page.evaluate(reader_fixture("localStorage.getItem('fontSize')")))
+        self.assertIsNone(self.page.evaluate(reader_fixture("localStorage.getItem('webdavPassword')")))
+        self.assertNotEqual('true',self.page.evaluate(reader_fixture("localStorage.getItem('autoReplication')")))
         self.assertEqual([],self.stores('manabi-reader-integrations',['books'])['books'])
 
     def sync_dav(self):
@@ -523,7 +525,7 @@ class LocalFeatureBrowser(LibraryBase):
         self.connect_dav(writable=True);self.seed_resume()
         self.page.get_by_label('Sync this book’s reading data with WebDAV',exact=True).check()
         other=self.context.new_page()
-        other.goto(self.origin+'/reader-web/b?id=1')
+        other.goto(self.origin+reader_fixture('/reader-web/b?id=1'))
         expect(other.get_by_text('WEBDAV_SEARCH_NEEDLE 本を読む。',exact=True)).to_be_visible()
         self.page.get_by_role('button',name='Sync WebDAV offline book',exact=True).click()
         expect(self.page.get_by_text('A book is open in another tab. Return all reader tabs to the Library before syncing reading data.',exact=True)).to_be_visible()
@@ -602,15 +604,14 @@ class LocalFeatureBrowser(LibraryBase):
         self.page.get_by_role('button',name='Bookmarks and Notes',exact=True).click()
         self.page.get_by_role('button',name='Add Bookmark',exact=True).click()
         self.wait_rows('readerAnnotation',lambda rows:len(rows)==1)
-        self.page.goto(self.origin+'/reader-web/connections');self.sync_dav()
+        self.page.goto(self.origin+reader_fixture('/reader-web/connections'));self.sync_dav()
         page_a=self.page
         # Use two durable device profiles, as for device A. WebKit's ephemeral
         # context cannot store Blob values in this runtime (even in a bare IDB
         # transaction); that capability failure has a separate rollback regression.
         profile_b = tempfile.TemporaryDirectory()
-        device_b = getattr(self.playwright, self.engine).launch_persistent_context(
-            profile_b.name, viewport=dict(width=1200,height=900))
-        device_b.add_init_script("localStorage.setItem('manabi-reader-dictionary-setup-v1','skip')")
+        device_b = getattr(self.playwright, self.engine).launch_persistent_context(profile_b.name, **launch_options((getattr(self.playwright, self.engine)).name, viewport=dict(width=1200,height=900)))
+        device_b.add_init_script(reader_fixture("localStorage.setItem('manabi-reader-dictionary-setup-v1','skip')"))
         try:
             self.page=device_b.new_page()
             self.page.on('pageerror',lambda e:self.errors.append(str(e)))
@@ -618,10 +619,10 @@ class LocalFeatureBrowser(LibraryBase):
             self.page.get_by_label('Sync this book’s reading data with WebDAV',exact=True).check()
             self.sync_dav()
             self.wait_rows('readerAnnotation',lambda rows:len(rows)==1)
-            self.page.evaluate("""()=>new Promise((resolve,reject)=>{const o=indexedDB.open('books');o.onsuccess=()=>{
+            self.page.evaluate(reader_fixture("""()=>new Promise((resolve,reject)=>{const o=indexedDB.open('books');o.onsuccess=()=>{
               const db=o.result,tx=db.transaction('readerAnnotation','readwrite');tx.store=tx.objectStore('readerAnnotation');
               tx.store.getAll().onsuccess=e=>{const a=e.target.result[0];a.revision=99;a.label='Changed on device B';a.modifiedAt='2026-09-25T06:00:00.000Z';tx.store.put(a)};
-              tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)}})""")
+              tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)}})"""))
             self.sync_dav()
             page_b=self.page;self.page=page_a;self.sync_dav()
             rows=self.stores('books',['readerAnnotation'])['readerAnnotation']
@@ -640,10 +641,10 @@ class LocalFeatureBrowser(LibraryBase):
 
     def test_repeated_yatsu_import_does_not_restore_removed_collection_membership(self):
         self.open_migration();self.migrate()
-        self.page.evaluate("""()=>new Promise((resolve,reject)=>{const o=indexedDB.open('manabi-reader-integrations');o.onsuccess=()=>{
+        self.page.evaluate(reader_fixture("""()=>new Promise((resolve,reject)=>{const o=indexedDB.open('manabi-reader-integrations');o.onsuccess=()=>{
           const db=o.result,tx=db.transaction('metadata','readwrite'),st=tx.objectStore('metadata');
           st.get('books-organization-v1').onsuccess=e=>{const org=e.target.result;org.collections.forEach(c=>c.members=[]);st.put(org,'books-organization-v1')};
-          tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)}})""")
+          tx.oncomplete=()=>{db.close();resolve()};tx.onerror=()=>reject(tx.error)}})"""))
         self.open_migration();self.migrate()
         rows=self.stores('manabi-reader-integrations',['metadata'])['metadata']
         org=next(r for r in rows if isinstance(r,dict) and 'collections' in r)
@@ -677,7 +678,7 @@ class LocalFeatureBrowser(LibraryBase):
             while not self.dav.state['get_started'].is_set():
                 self.assertLess(time.monotonic(), deadline)
                 self.page.wait_for_timeout(20)
-            other.goto(self.origin + '/reader-web/connections')
+            other.goto(self.origin + reader_fixture('/reader-web/connections'))
             other.get_by_role('button', name='Disconnect Test DAV', exact=True).click()
             expect(other.get_by_role('button', name='Browse Test DAV', exact=True)).to_have_count(0)
             gate.set()
@@ -735,7 +736,7 @@ class LocalFeatureBrowser(LibraryBase):
         gate = self.start_held_dav_sync()
         other = self.context.new_page()
         try:
-            other.goto(self.origin + '/reader-web/connections')
+            other.goto(self.origin + reader_fixture('/reader-web/connections'))
             other.get_by_role('button', name='Disconnect Test DAV', exact=True).click()
             self.wait_source_operation_queued()
             self.assertEqual(1, len(self.stores('manabi-reader-integrations', ['books'])['books']))
@@ -756,7 +757,7 @@ class LocalFeatureBrowser(LibraryBase):
         gate = self.start_held_dav_sync()
         other = self.context.new_page()
         try:
-            other.goto(self.origin + '/reader-web/connections')
+            other.goto(self.origin + reader_fixture('/reader-web/connections'))
             other.get_by_label('Sync this book’s reading data with WebDAV', exact=True).uncheck()
             self.wait_source_operation_queued()
             gate.set()
@@ -786,7 +787,7 @@ class LocalFeatureBrowser(LibraryBase):
 
     def test_mismatched_webdav_root_cannot_retarget_saved_reading_data(self):
         self.establish_dav_state()
-        self.page.evaluate("""() => new Promise((resolve, reject) => {
+        self.page.evaluate(reader_fixture("""() => new Promise((resolve, reject) => {
           const request = indexedDB.open('manabi-reader-integrations');
           request.onsuccess = () => {
             const db = request.result, tx = db.transaction('metadata', 'readwrite'), store = tx.objectStore('metadata');
@@ -800,7 +801,7 @@ class LocalFeatureBrowser(LibraryBase):
             tx.oncomplete = () => { db.close(); resolve(); };
             tx.onabort = () => reject(tx.error);
           };
-        })""")
+        })"""))
         self.page.reload()
         self.page.get_by_role('button', name='Sync WebDAV offline book', exact=True).click()
         expect(self.page.get_by_text('This book belongs to a different WebDAV folder. Reimport it from the selected folder before enabling sync.', exact=True)).to_be_visible()

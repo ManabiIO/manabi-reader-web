@@ -113,7 +113,7 @@ jobs:
           path: test-results/media/formatter/
           if-no-files-found: error
           retention-days: 7
-      - run: node scripts/prepare-expo.mjs
+      - run: pnpm prepare:dictionary && node scripts/prepare-expo.mjs
       - run: pnpm --dir apps/web check
       - name: Build the actual application
         env:

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from test_foliate_slide import FoliateSlide, P
 from reader_controls import reveal_reader_controls
+from reader_fixture import reader_fixture
 
 
 class EpubNavigationBrowser(FoliateSlide):
@@ -37,7 +38,7 @@ class EpubNavigationBrowser(FoliateSlide):
 
     def tearDown(self):
         try:
-            evidence = self.page.evaluate("""async () => {
+            evidence = self.page.evaluate(reader_fixture("""async () => {
               const evidence = window.readerNavigationEvidence ?? {events:[]}
               const p = document.querySelector('foliate-paginator')
               evidence.final = p?.getContents().length ? {
@@ -57,7 +58,7 @@ class EpubNavigationBrowser(FoliateSlide):
                 }
               })
               return evidence
-            }""")
+            }"""))
         except Exception as error:
             evidence = {'diagnosticError': str(error)}
         try:
@@ -132,20 +133,20 @@ class EpubNavigationBrowser(FoliateSlide):
         self.assertEqual([], self.errors)
 
     def test_focused_iframe_bookmark_shortcut_and_return_keep_the_saved_page(self):
-        self.context.add_init_script("localStorage.setItem('autoBookmark', 'false')")
+        self.context.add_init_script(reader_fixture("localStorage.setItem('autoBookmark', 'false')"))
         self.open_slide(False, mobile=True)
         self.page.emulate_media(reduced_motion='reduce')
         self.page.mouse.click(195, 360)
         self.page.keyboard.press('PageDown')
         self.page.wait_for_function(f"() => {P}.page === 2")
         self.page.keyboard.press('b')
-        self.page.wait_for_function("""() => new Promise((resolve,reject) => {
+        self.page.wait_for_function(reader_fixture("""() => new Promise((resolve,reject) => {
           const open=indexedDB.open('books');
           open.onerror=()=>reject(open.error);
           open.onsuccess=()=>{const db=open.result,r=db.transaction('bookmark').objectStore('bookmark').getAll();
             r.onerror=()=>{db.close();reject(r.error)};
             r.onsuccess=()=>{db.close();resolve(r.result.some(b=>b.exploredCharCount>0))};};
-        })""")
+        })"""))
         self.assertTrue(self.page.evaluate(f'{P}.getContents()[0].doc.hasFocus()'))
         self.page.keyboard.press('PageDown')
         self.page.wait_for_function(f"() => {P}.page === 3")

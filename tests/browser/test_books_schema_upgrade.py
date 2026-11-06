@@ -13,6 +13,7 @@ import threading
 import unittest
 
 from playwright.sync_api import sync_playwright
+from browser_launch import launch_options
 
 ROOT = Path(__file__).resolve().parents[2]
 OPTIONS = None
@@ -37,7 +38,7 @@ class BooksSchemaUpgrade(unittest.TestCase):
             thread.start()
             try:
                 with sync_playwright() as playwright, tempfile.TemporaryDirectory() as profile:
-                    context = getattr(playwright, OPTIONS.browser).launch_persistent_context(profile)
+                    context = getattr(playwright, OPTIONS.browser).launch_persistent_context(profile, **launch_options((getattr(playwright, OPTIONS.browser)).name))
                     try:
                         page = context.pages[0]
                         errors = []

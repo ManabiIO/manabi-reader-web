@@ -4,6 +4,7 @@ from unittest.mock import patch
 from playwright.sync_api import expect
 from reader_controls import reveal_reader_controls
 from test_local_library_features import LocalFeatureBrowser, DavHandler, TITLE, archive_files, zip_bytes, yatsu_fixture
+from reader_fixture import reader_fixture
 
 
 class LocalLibraryReview(LocalFeatureBrowser):
@@ -17,7 +18,7 @@ class LocalLibraryReview(LocalFeatureBrowser):
         for damage in ('text', 'shape', 'legacy'):
             self.search('unmatched query')
             expect(self.page.get_by_text('No matches in content saved in this browser.', exact=True)).to_be_visible()
-            self.page.evaluate("""async damage => {
+            self.page.evaluate(reader_fixture("""async damage => {
                 const db = await new Promise((resolve, reject) => {
                     const r = indexedDB.open('books'); r.onsuccess=()=>resolve(r.result); r.onerror=()=>reject(r.error);
                 });
@@ -32,7 +33,7 @@ class LocalLibraryReview(LocalFeatureBrowser):
                         store.put(row);
                     };
                 }); } finally { db.close(); }
-            }""", damage)
+            }"""), damage)
             self.search('CACHE_RECOVERY')
             expect(hit).to_be_visible()
             expect(self.page.get_by_text('1 books could not be searched.', exact=False)).to_have_count(0)
@@ -105,8 +106,8 @@ class LocalLibraryReview(LocalFeatureBrowser):
             self.assertEqual([], self.stores('manabi-reader-integrations', ['books'])['books'])
 
     def test_yatsu_failed_preference_write_is_not_acknowledged_and_can_retry(self):
-        self.context.add_init_script("""localStorage.setItem('fontSize', '20');
-          localStorage.setItem('writingMode', 'vertical-rl');""")
+        self.context.add_init_script(reader_fixture("""localStorage.setItem('fontSize', '20');
+          localStorage.setItem('writingMode', 'vertical-rl');"""))
         files = archive_files(yatsu_fixture())
         files['yatsu-local-settings.json'] = dict(app='Yatsu Reader', schemaVersion=1,
             settings={'fontSize': 26, 'writingMode': 'horizontal-tb'})
@@ -115,26 +116,26 @@ class LocalLibraryReview(LocalFeatureBrowser):
         self.page.get_by_text('Data to import', exact=True).click()
         self.page.get_by_label('Safe reader settings (optional)', exact=True).check()
         settings.get_by_role('checkbox').check()
-        self.page.evaluate("""() => {
+        self.page.evaluate(reader_fixture("""() => {
           window.originalSetItem = Storage.prototype.setItem;
           Storage.prototype.setItem = function(key, value) {
             if (key === 'writingMode' && value === 'horizontal-tb')
               throw new DOMException('Preference write failed', 'QuotaExceededError');
             return window.originalSetItem.call(this, key, value);
           };
-        }""")
+        }"""))
         try:
             self.migrate()
             expect(settings).to_contain_text('Not enough browser storage. This item was not imported')
-            self.assertEqual('20', self.page.evaluate("localStorage.getItem('fontSize')"))
-            self.assertEqual('vertical-rl', self.page.evaluate("localStorage.getItem('writingMode')"))
-            self.assertIsNone(self.page.evaluate("localStorage.getItem('manabi-yatsu-settings-receipt-v1')"))
+            self.assertEqual('20', self.page.evaluate(reader_fixture("localStorage.getItem('fontSize')")))
+            self.assertEqual('vertical-rl', self.page.evaluate(reader_fixture("localStorage.getItem('writingMode')")))
+            self.assertIsNone(self.page.evaluate(reader_fixture("localStorage.getItem('manabi-yatsu-settings-receipt-v1')")))
         finally:
             self.page.evaluate('() => { Storage.prototype.setItem = window.originalSetItem; }')
         self.migrate()
-        self.assertEqual('26', self.page.evaluate("localStorage.getItem('fontSize')"))
-        self.assertEqual('horizontal-tb', self.page.evaluate("localStorage.getItem('writingMode')"))
-        self.assertIsNotNone(self.page.evaluate("localStorage.getItem('manabi-yatsu-settings-receipt-v1')"))
+        self.assertEqual('26', self.page.evaluate(reader_fixture("localStorage.getItem('fontSize')")))
+        self.assertEqual('horizontal-tb', self.page.evaluate(reader_fixture("localStorage.getItem('writingMode')")))
+        self.assertIsNotNone(self.page.evaluate(reader_fixture("localStorage.getItem('manabi-yatsu-settings-receipt-v1')")))
 
 
 def load_tests(loader, _tests, _pattern):

@@ -14,6 +14,8 @@ import time
 import unittest
 from playwright.sync_api import Error as PlaywrightError, sync_playwright, expect
 from test_static_reader import StaticHandler, ThreadingHTTPServer
+from reader_fixture import reader_fixture
+from browser_launch import launch_options
 
 CONTENT = '地元の本。\n' + '日本語の物語を読みます。少しずつ先に進みます。\n' * 180
 
@@ -37,7 +39,7 @@ class LocalLibraryBrowser(unittest.TestCase):
     def new_context(self):
         profile = tempfile.TemporaryDirectory(prefix='reader-local-library-')
         self.addCleanup(profile.cleanup)
-        context = self.playwright.chromium.launch_persistent_context(profile.name)
+        context = self.playwright.chromium.launch_persistent_context(profile.name, **launch_options((self.playwright.chromium).name))
         # Cleanup runs after tearDown and also if setUp fails midway through admission.
         self.addCleanup(context.close)
         return context
@@ -48,7 +50,7 @@ class LocalLibraryBrowser(unittest.TestCase):
         self.page.set_default_timeout(20000)
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         # Refresh connections exists, enabled, in the pre-hydration HTML. The
         # local-folder control is mounted only by onMount, and stays disabled
         # until initial account/storage loading finishes. Do not let this
@@ -70,7 +72,7 @@ class LocalLibraryBrowser(unittest.TestCase):
     def seed(self, writable):
         # Initialize the capability at the storage boundary. All subsequent
         # interaction goes through the unchanged production UI/library adapter.
-        self.page.evaluate('''async ({content,writable}) => {
+        self.page.evaluate(reader_fixture('''async ({content,writable}) => {
           const root = await navigator.storage.getDirectory();
           const handle = await root.getDirectoryHandle('Fixture books', {create:true});
           const file = await handle.getFileHandle('local-book.txt', {create:true});
@@ -98,7 +100,7 @@ class LocalLibraryBrowser(unittest.TestCase):
               }
             };
           });
-        }''', {'content': CONTENT, 'writable': writable})
+        }'''), {'content': CONTENT, 'writable': writable})
         self.page.get_by_role('button', name='Refresh connections').click()
         expect(self.page.get_by_role('button', name='Browse Fixture books')).to_be_visible()
 
@@ -160,33 +162,33 @@ class LocalLibraryBrowser(unittest.TestCase):
         self.page.keyboard.press('KeyB')
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
-            saved = self.page.evaluate('''() => new Promise(resolve => {
+            saved = self.page.evaluate(reader_fixture('''() => new Promise(resolve => {
               const r=indexedDB.open('books');r.onsuccess=()=>{const db=r.result,tx=db.transaction('bookmark');
                 const q=tx.objectStore('bookmark').count();q.onsuccess=()=>resolve(q.result>0);
                 tx.oncomplete=()=>db.close();};
-            })''')
+            })'''))
             if saved:
                 break
             self.page.wait_for_timeout(50)
         self.assertTrue(saved)
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         expect(self.page.get_by_role('button', name='Refresh connections')).to_be_enabled()
         self.assertEqual([], self.documents())
         self.assertEqual(CONTENT, self.original())
         self.page.reload()
         expect(self.page.get_by_role('button', name='Browse Fixture books')).to_be_visible()
         self.assertEqual([], self.documents())
-        self.assertTrue(self.page.evaluate('''() => new Promise(resolve => {
+        self.assertTrue(self.page.evaluate(reader_fixture('''() => new Promise(resolve => {
           const r=indexedDB.open('books');r.onsuccess=()=>{const db=r.result,tx=db.transaction('bookmark');
             const q=tx.objectStore('bookmark').count();q.onsuccess=()=>resolve(q.result>0);
             tx.oncomplete=()=>db.close();};
-        })'''))
+        })''')))
         self.assertEqual(CONTENT, self.original())
 
     def test_library_groups_real_files_into_a_verified_series(self):
         self.seed(True)
         self.add_book('second-book.txt', '二冊目の本。\n' + CONTENT)
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.get_by_role('button', name='Read local-book', exact=True)).to_be_visible(
             timeout=30000)
         expect(self.page.get_by_role('button', name='Read second-book', exact=True)).to_be_visible()

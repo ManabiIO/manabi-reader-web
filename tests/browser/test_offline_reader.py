@@ -13,9 +13,10 @@ from urllib.parse import urljoin
 from playwright.sync_api import sync_playwright, expect
 from browser_launch import launch_options
 from test_static_reader import ThreadingHTTPServer, StaticHandler, ROOT, TITLE, epub
+from reader_fixture import reader_fixture
 
 OPTIONS = None
-SCOPE = '/reader-web/'
+SCOPE = reader_fixture('/reader-web/')
 
 
 class OfflineStaticHandler(StaticHandler):
@@ -27,7 +28,7 @@ class OfflineStaticHandler(StaticHandler):
 
 
 def decoded_local_image(page):
-    return page.locator('.book-content #safe-image').evaluate('''async image => {
+    return page.locator('.book-content #safe-image').evaluate(reader_fixture('''async image => {
       const url = image.currentSrc || image.src;
       if (!url.startsWith('blob:')) throw new Error('Expected an imported local image');
       try {
@@ -94,7 +95,7 @@ def decoded_local_image(page):
         width: image.naturalWidth, height: image.naturalHeight,
         sha256: [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
       };
-    }''')
+    }'''))
 
 
 class OfflineReader(unittest.TestCase):
@@ -223,7 +224,7 @@ class OfflineReader(unittest.TestCase):
                             expect(page.get_by_text(re.compile(message))).to_be_visible()
                             counter = '__readerAbortedByteReads' if abort_bytes_once else '__readerAbortedWrites'
                             self.assertEqual(page.evaluate('window.' + counter), 1)
-                            self.assertEqual(page.evaluate("""() => new Promise((resolve, reject) => {
+                            self.assertEqual(page.evaluate(reader_fixture("""() => new Promise((resolve, reject) => {
                               const open = indexedDB.open('books');
                               open.onupgradeneeded = () => open.transaction.abort();
                               open.onerror = () => reject(open.error);
@@ -234,7 +235,7 @@ class OfflineReader(unittest.TestCase):
                                 tx.onabort = () => { db.close(); reject(tx.error); };
                                 tx.oncomplete = () => { db.close(); resolve(count.result); };
                               };
-                            })"""), 0)
+                            })""")), 0)
                             self.assertEqual(errors, [])
                             expect(page.get_by_role('button', name='Read ' + TITLE, exact=True)).to_have_count(0)
                             page.get_by_role('dialog').get_by_role('button', name='Close', exact=True).first.click()
@@ -298,7 +299,7 @@ class OfflineReader(unittest.TestCase):
                         # Reopening updates last-read metadata, not binary content.
                         # No PNG Blob bytes should be read again just to touch the record.
                         self.assertEqual(page.evaluate('window.__readerPngByteReads'), 0)
-                        stored = page.evaluate("""() => new Promise((resolve, reject) => {
+                        stored = page.evaluate(reader_fixture("""() => new Promise((resolve, reject) => {
                           const open = indexedDB.open('books');
                           open.onupgradeneeded = () => open.transaction.abort();
                           open.onerror = () => reject(open.error);
@@ -315,7 +316,7 @@ class OfflineReader(unittest.TestCase):
                               db.close();
                             };
                           };
-                        })""")
+                        })"""))
                         self.assertEqual(stored['version'], 16)
                         self.assertGreater(stored['images'], 0)
                         self.assertTrue(stored['byteRecords'])

@@ -1,12 +1,13 @@
 """Metadata-only last-read writes through the actual handler/native IndexedDB."""
 import unittest
 from test_library_deletion import LibraryDeletionRuntime
+from reader_fixture import reader_fixture
 
 
 class BookLastRead(LibraryDeletionRuntime):
     def test_last_read_preserves_newer_content_without_reading_image_blobs(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const {BrowserStorageHandler} = await import('/reader-web/src/lib/data/storage/handler/browser-handler.ts');
           const {StorageKey} = await import('/reader-web/src/lib/data/storage/storage-types.ts');
@@ -30,14 +31,14 @@ class BookLastRead(LibraryDeletionRuntime):
           const project = book => ({...book,blobs:{image:[...new Uint8Array(book.blobs.image.bytes)]},
             coverImage:[...new Uint8Array(book.coverImage.bytes)]});
           return {reads,error,before:project(before),after:project(after)};
-        }""")
+        }"""))
         self.assertEqual(0, result['reads'])
         self.assertIsNone(result.get('error'))
         self.assertEqual({**result['before'], 'lastBookOpen': 200}, result['after'])
 
     def test_stale_updates_do_not_recreate_deleted_books_or_lower_newer_timestamps(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {database}=await import('/reader-web/src/lib/data/store.ts');
           const {BrowserStorageHandler}=await import('/reader-web/src/lib/data/storage/handler/browser-handler.ts');
           const {StorageKey}=await import('/reader-web/src/lib/data/storage/storage-types.ts');
@@ -51,13 +52,13 @@ class BookLastRead(LibraryDeletionRuntime):
           await db.delete('data',id);
           await handler.updateLastRead({...book,id,lastBookOpen:600});
           return {time:kept.lastBookOpen,keys:await db.getAllKeys('data')};
-        }""")
+        }"""))
         self.assertEqual(500, result['time'])
         self.assertEqual([], result['keys'])
 
     def test_last_read_captures_arguments_before_waiting_for_database(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const {BrowserStorageHandler} = await import('/reader-web/src/lib/data/storage/handler/browser-handler.ts');
           const {StorageKey} = await import('/reader-web/src/lib/data/storage/storage-types.ts');
@@ -79,12 +80,12 @@ class BookLastRead(LibraryDeletionRuntime):
           await pending;
           return {selected:(await db.get('data',id)).lastBookOpen,
                   unrelated:(await db.get('data',other)).lastBookOpen};
-        }""")
+        }"""))
         self.assertEqual({'selected': 200, 'unrelated': 100}, result)
 
     def test_native_abort_rolls_back_is_observed_and_allows_retry(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {database}=await import('/reader-web/src/lib/data/store.ts');
           const {updateBookLastRead}=await import('/reader-web/src/lib/data/database/books-db/book-records.ts');
           const db=await database.db;
@@ -103,7 +104,7 @@ class BookLastRead(LibraryDeletionRuntime):
           const before=await db.get('data',id);
           await updateBookLastRead(db,id,300);
           return {enqueued,error,before:before.lastBookOpen,after:(await db.get('data',id)).lastBookOpen};
-        }""")
+        }"""))
         self.assertTrue(result['enqueued'])
         self.assertEqual('AbortError', result['error'])
         self.assertEqual(100, result['before'])

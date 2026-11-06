@@ -29,9 +29,11 @@ silently skip a missing optional runtime when the feature is enabled.
 
 ## Exact SDK topology
 
-The reviewed installation is Expo **58.0.16**, whose nested `@expo/cli` resolves
-to **58.1.13**. The executable exporter is under
-`node_modules/expo/node_modules/@expo/cli`, not an unrelated hoisted CLI.
+The reviewed installation is Expo **58.0.23**, whose scoped `@expo/cli` resolves
+to **58.1.19**. Resolve the executable exporter from the installed
+`expo/package.json` with `createRequire`, rather than an unrelated hoisted CLI.
+The package set follows that SDK release’s `bundledNativeModules.json`;
+`expo install --check` also qualifies its React DOM type version.
 
 | Stage                                   | HTML and generated JS/CSS                                                              | Imported fonts/model/WASM                         | Public assets              |
 | --------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------- | -------------------------- |

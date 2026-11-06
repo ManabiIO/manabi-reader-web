@@ -5,6 +5,7 @@ import unittest
 from urllib.parse import parse_qs, urlsplit
 from playwright.sync_api import expect
 from test_foliate_slide import FoliateSlide, P
+from reader_fixture import reader_fixture
 
 TITLE = 'Visible reading count acceptance'
 TEXT = '日本語読書学習中'
@@ -27,13 +28,13 @@ def progress_epub():
 class FoliateProgressBoundary(FoliateSlide):
     def open_progress_book(self, vertical):
         self.page.set_viewport_size({'width': 390, 'height': 844})
-        self.context.add_init_script("""(() => {
+        self.context.add_init_script(reader_fixture("""(() => {
           localStorage.setItem('manabi-dev-foliate-epub','true');
           localStorage.setItem('viewMode','paginated');
           localStorage.setItem('autoBookmark','false');
-        })()""")
-        self.context.add_init_script("localStorage.setItem('writingMode','" + ('vertical-rl' if vertical else 'horizontal-tb') + "')")
-        self.page.goto(self.origin + '/reader-web/manage')
+        })()"""))
+        self.context.add_init_script(reader_fixture("localStorage.setItem('writingMode','") + ('vertical-rl' if vertical else 'horizontal-tb') + "')")
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name': 'progress.epub', 'mimeType': 'application/epub+zip', 'buffer': progress_epub()
@@ -65,13 +66,13 @@ class FoliateProgressBoundary(FoliateSlide):
         self.page.evaluate(f'{P}.getContents()[0].doc.defaultView.focus()')
         self.assertTrue(self.page.evaluate(f'{P}.getContents()[0].doc.hasFocus()'))
         self.page.keyboard.press('b')
-        self.page.wait_for_function("""id => new Promise((resolve,reject) => {
+        self.page.wait_for_function(reader_fixture("""id => new Promise((resolve,reject) => {
           const open=indexedDB.open('books'); open.onerror=()=>reject(open.error);
           open.onsuccess=()=>{const db=open.result;
             const request=db.transaction('bookmark').objectStore('bookmark').get(id);
             request.onerror=()=>{db.close();reject(request.error);};
             request.onsuccess=()=>{db.close();resolve(request.result?.exploredCharCount===window.expectedReadingCount);};};
-        })""", arg=book_id)
+        })"""), arg=book_id)
 
     def check_first_and_later(self, vertical):
         book_id = self.open_progress_book(vertical)

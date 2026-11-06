@@ -4,6 +4,7 @@ import unittest
 from urllib.parse import parse_qs, urlsplit
 from playwright.sync_api import expect
 from test_epub_publication import EpubPublicationBrowser
+from reader_fixture import reader_fixture
 
 P = "document.querySelector('foliate-paginator')"
 
@@ -14,20 +15,20 @@ class EpubReadLifetimeBrowser(EpubPublicationBrowser):
         self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('ruby')")
         url = self.page.url
         book_id = int(parse_qs(urlsplit(url).query)['id'][0])
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.get_by_role('button', name='Read Reader browser acceptance', exact=True)).to_be_visible()
         return url, book_id
 
     def test_saved_epub_open_commits_timestamp_without_rereading_image_bytes(self):
         url, book_id = self.import_image_book()
-        self.page.evaluate("""id => new Promise((resolve,reject) => {
+        self.page.evaluate(reader_fixture("""id => new Promise((resolve,reject) => {
           const request=indexedDB.open('books');request.onerror=()=>reject(request.error);
           request.onsuccess=()=>{const db=request.result,tx=db.transaction('data','readwrite');
             const read=tx.objectStore('data').get(id);
             read.onsuccess=()=>{if(!read.result)throw new Error('Missing test book');
               tx.objectStore('data').put({...read.result,lastBookOpen:0});};
             tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>{db.close();reject(tx.error);};};
-        })""", book_id)
+        })"""), book_id)
         # Observe only the subsequent saved-book open. Initial import must still
         # encode image bytes, and every observed call executes the native method.
         self.context.add_init_script("""(() => {
@@ -40,13 +41,13 @@ class EpubReadLifetimeBrowser(EpubPublicationBrowser):
         })()""")
         self.page.goto(url)
         self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('ruby')")
-        self.page.wait_for_function("""id => new Promise((resolve,reject) => {
+        self.page.wait_for_function(reader_fixture("""id => new Promise((resolve,reject) => {
           const request=indexedDB.open('books');request.onerror=()=>reject(request.error);
           request.onsuccess=()=>{const db=request.result,tx=db.transaction('data');
             const read=tx.objectStore('data').get(id);
             tx.oncomplete=()=>{db.close();resolve(read.result?.lastBookOpen>0);};
             tx.onabort=()=>{db.close();reject(tx.error);};};
-        })""", arg=book_id)
+        })"""), arg=book_id)
         self.assertEqual(0, self.page.evaluate('window.imageReadsForLastOpen'))
         self.page.wait_for_function(f"() => {{const image={P}.getContents()[0].doc.querySelector('#safe-image');return image?.complete && image.naturalWidth>0;}}")
         image = self.page.evaluate(f"""() => {{const image={P}.getContents()[0].doc.querySelector('#safe-image');
@@ -61,20 +62,20 @@ class EpubReadLifetimeBrowser(EpubPublicationBrowser):
         for cycle in range(12):
             with self.subTest(cycle=cycle):
                 self.page.get_by_role('button', name='Read Reader browser acceptance', exact=True).click()
-                expect(self.page).to_have_url(re.compile(r'/reader-web/b\?id='))
+                expect(self.page).to_have_url(re.compile(reader_fixture(r'/reader-web/b\?id=')))
                 # Leave before waiting for renderer readiness. This must not
                 # leave image reads owned by an already departed page.
-                self.page.goto(self.origin + '/reader-web/manage')
+                self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
                 expect(self.page.get_by_role('button', name='Read Reader browser acceptance', exact=True)).to_be_visible()
                 self.assertEqual([], self.errors)
-        summary = self.page.evaluate("""id=>new Promise((resolve,reject)=>{
+        summary = self.page.evaluate(reader_fixture("""id=>new Promise((resolve,reject)=>{
           const request=indexedDB.open('books');request.onerror=()=>reject(request.error);
           request.onsuccess=()=>{const db=request.result,tx=db.transaction('data');
             const read=tx.objectStore('data').get(id);
             tx.oncomplete=()=>{db.close();const b=read.result;resolve(b&&{
               id:b.id,resources:b.epubPublication?.resources.length,images:Object.keys(b.blobs).length});};
             tx.onabort=()=>{db.close();reject(tx.error);};};
-        })""", book_id)
+        })"""), book_id)
         self.assertEqual(book_id, summary['id'])
         self.assertGreater(summary['resources'], 0)
         self.assertGreater(summary['images'], 0)

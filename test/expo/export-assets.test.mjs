@@ -626,7 +626,7 @@ test('Android update metadata cannot substitute for an APK', async (t) => {
   assert.ok(result.errors.some((error) => /assets\/index.android.bundle/.test(error)));
 });
 test('actual installed exporter retains the expected update versus embedded topology', async () => {
-  assert.equal(JSON.parse(await fs.readFile(expoPackage)).version, '58.0.16');
+  assert.equal(JSON.parse(await fs.readFile(expoPackage)).version, '58.0.23');
   const embed = await fs.readFile(
     path.join(cli, 'build/src/export/embed/exportEmbedAsync.js'),
     'utf8'

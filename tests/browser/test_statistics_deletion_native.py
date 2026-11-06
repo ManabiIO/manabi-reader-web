@@ -6,6 +6,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import threading
 from playwright.sync_api import sync_playwright
+from browser_launch import launch_options
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / 'test-results/statistics-deletion'
@@ -31,7 +32,7 @@ def main():
     evidence = {'engine': args.browser, 'timezone': 'Pacific/Apia', 'errors': [], 'console': []}
     try:
         with sync_playwright() as playwright:
-            browser = getattr(playwright, args.browser).launch()
+            browser = getattr(playwright, args.browser).launch(**launch_options((getattr(playwright, args.browser)).name))
             try:
                 context = browser.new_context(timezone_id='Pacific/Apia')
                 page = context.new_page()

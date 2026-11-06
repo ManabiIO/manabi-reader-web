@@ -1,5 +1,5 @@
 """Actual exported edition: local books, isolated data, responsive UI and offline reopening."""
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import SimpleHTTPRequestHandler
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import unquote, urlsplit
@@ -12,6 +12,7 @@ from playwright.sync_api import sync_playwright, expect
 from browser_launch import launch_options
 from reader_edition_output import reader_edition_output
 from test_books_library import book
+from test_static_reader import ThreadingHTTPServer
 from test_unified_search import dictionary_archive
 
 ROOT = reader_edition_output(Path(__file__).resolve().parents[2] / 'apps/web/build')
@@ -67,7 +68,10 @@ class ReaderEditionBrowser(unittest.TestCase):
                             page = context.pages[0]
                             page.set_default_timeout(25000)
                             errors = []
+                            failed_requests = []
                             page.on('pageerror', lambda error: errors.append(str(error)))
+                            page.on('requestfailed', lambda request: failed_requests.append({
+                                'url': request.url, 'failure': request.failure}))
                             page.goto(base + '/reader-product.json')
                             page.evaluate('''async namespace => {
                               localStorage.setItem('fontSize', '91');
@@ -164,6 +168,9 @@ class ReaderEditionBrowser(unittest.TestCase):
                             }''')
                             self.assertEqual(['keep', '91', 'keep', 'keep'], saved)
                             self.assertEqual([], errors)
+                        except Exception as error:
+                            error.add_note(json.dumps({'pageErrors': errors, 'failedRequests': failed_requests}))
+                            raise
                         finally:
                             EditionHandler.network_disabled = False
                             context.close()

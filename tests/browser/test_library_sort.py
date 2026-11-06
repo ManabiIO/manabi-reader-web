@@ -9,6 +9,7 @@ from playwright.sync_api import expect
 from test_books_library import LibraryBase
 from test_static_reader import StaticHandler, ThreadingHTTPServer
 from offline_shell import enter_offline_shell
+from reader_fixture import reader_fixture
 
 
 class LibrarySortBrowser(LibraryBase):
@@ -25,7 +26,7 @@ class LibrarySortBrowser(LibraryBase):
         expect(self.trigger()).to_be_focused()
 
     def saved_sort(self):
-        return self.page.evaluate('localStorage.getItem("booklistSortOptions")')
+        return self.page.evaluate(reader_fixture('localStorage.getItem("booklistSortOptions")'))
 
     def test_direct_sort_keyboard_order_and_offline_reload_preserve_reading_data(self):
         # Use a dedicated real origin so it can be stopped without affecting
@@ -85,7 +86,7 @@ class LibrarySortBrowser(LibraryBase):
         self.page.get_by_role('menuitem', name='Sort by…', exact=True).click()
         expect(self.page.get_by_role('menuitemradio', name='Author', exact=True)).to_have_attribute('aria-checked', 'true')
         self.page.keyboard.press('Escape')
-        enter_offline_shell(self.page, self.origin + '/reader-web/')
+        enter_offline_shell(self.page, self.origin + reader_fixture('/reader-web/'))
         self.context.set_offline(True)
         try:
             expect(self.trigger()).to_have_accessible_name('Sort books: Author, ascending')
@@ -134,7 +135,7 @@ class LibrarySortBrowser(LibraryBase):
         expect(self.trigger()).to_have_accessible_name('Sort books: Finished date, oldest first')
         expect(self.page.locator('.finished-title')).to_have_text(['Earlier finish', 'Later finish'])
         self.assertEqual(original, self.saved_sort())
-        self.assertEqual('asc', self.page.evaluate('localStorage.getItem("manabi-finished-order")'))
+        self.assertEqual('asc', self.page.evaluate(reader_fixture('localStorage.getItem("manabi-finished-order")')))
         self.choose_collection('Books')
         expect(self.trigger()).to_have_accessible_name('Sort books: Title, ascending')
         self.assertEqual(before, self.stores('books', ['bookmark', 'statistic']))
@@ -145,7 +146,7 @@ class LibrarySortBrowser(LibraryBase):
         for width, scale, mode in [(1200, 100, 'light'), (390, 100, 'dark'),
                                    (320, 200, 'light'), (320, 200, 'dark')]:
             with self.subTest(width=width, scale=scale, mode=mode):
-                self.page.evaluate('mode => localStorage.setItem("appearance", mode)', mode)
+                self.page.evaluate(reader_fixture('mode => localStorage.setItem("appearance", mode)'), mode)
                 self.page.reload()
                 self.page.set_viewport_size({'width': width, 'height': 700})
                 self.page.evaluate('scale => document.documentElement.style.fontSize=scale+"%"', scale)

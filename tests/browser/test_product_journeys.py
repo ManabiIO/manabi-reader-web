@@ -11,6 +11,7 @@ from xml.sax.saxutils import escape
 
 from playwright.sync_api import expect
 from test_books_library import LibraryBase, book
+from reader_fixture import reader_fixture
 
 
 class ProductJourneyBase(LibraryBase):
@@ -94,7 +95,7 @@ class ProductJourneys(ProductJourneyBase):
         # Explicit counts come from authored paragraphs, not the worker output.
         body = ''.join(f'<p>PAGE_TOKEN passage {index:03d}. 日本語の本文。</p>' for index in range(127))
         body += '<p>ONLY_ONE_RESULT at the end.</p>'
-        self.page.evaluate('(writing) => localStorage.setItem("writingMode", writing)', writing)
+        self.page.evaluate(reader_fixture('(writing) => localStorage.setItem("writingMode", writing)'), writing)
         self.page.set_viewport_size({'width': width, 'height': height})
         self.go_library()
         self.import_book('Pagination journey', body=body)

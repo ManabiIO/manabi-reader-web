@@ -9,6 +9,7 @@ import unittest
 from playwright.sync_api import expect, sync_playwright
 from browser_launch import launch_options
 from test_static_reader import ReaderBrowser, linked_epub, ThreadingHTTPServer, StaticHandler
+from reader_fixture import reader_fixture
 
 P = "document.querySelector('foliate-paginator')"
 
@@ -146,8 +147,8 @@ class FoliateSlide(ReaderBrowser):
     def open_numbered_book(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
         title, archive = numbered_epub()
-        self.context.add_init_script("localStorage.setItem('manabi-dev-foliate-epub','true');localStorage.setItem('viewMode','paginated');localStorage.setItem('writingMode','horizontal-tb')")
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.context.add_init_script(reader_fixture("localStorage.setItem('manabi-dev-foliate-epub','true');localStorage.setItem('viewMode','paginated');localStorage.setItem('writingMode','horizontal-tb')"))
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({'name':'numbered.epub','mimeType':'application/epub+zip','buffer':archive})
         self.page.get_by_role('button', name='Read ' + title, exact=True).click()
@@ -557,8 +558,8 @@ class FoliateSlide(ReaderBrowser):
 
     def test_chapter_seams_and_pending_neighbor_load(self):
         title, archive = linked_epub()
-        self.context.add_init_script("localStorage.setItem('manabi-dev-foliate-epub','true');localStorage.setItem('viewMode','paginated');")
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.context.add_init_script(reader_fixture("localStorage.setItem('manabi-dev-foliate-epub','true');localStorage.setItem('viewMode','paginated');"))
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({'name':'linked.epub','mimeType':'application/epub+zip','buffer':archive})
         self.page.get_by_role('button', name='Read ' + title, exact=True).click()

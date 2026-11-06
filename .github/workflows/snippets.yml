@@ -48,7 +48,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '24.21.0', cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: node scripts/prepare-expo.mjs
+      - run: pnpm prepare:dictionary && node scripts/prepare-expo.mjs
       - name: Document, IndexedDB, outbox and transfer regression tests
         shell: bash
         run: |

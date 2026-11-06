@@ -7,6 +7,7 @@ import unittest
 import zlib
 from playwright.sync_api import expect
 import test_static_reader as baseline
+from reader_fixture import reader_fixture
 
 
 def png(rgb, width=80, height=60):
@@ -35,7 +36,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             if reload:
                 self.page.reload()
             else:
-                self.page.goto(self.origin + '/reader-web/settings')
+                self.page.goto(self.origin + reader_fixture('/reader-web/settings'))
         response = probe.value.response()
         self.assertIsNotNone(response)
         self.assertEqual(404, response.status)
@@ -85,12 +86,12 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         with page.expect_request_finished(
             predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
         ):
-            page.goto(self.origin + '/reader-web/manage')
+            page.goto(self.origin + reader_fixture('/reader-web/manage'))
         self.wait_for_optional_catalog(page)
         with page.expect_request_finished(
             predicate=lambda r: r.url == self.origin + '/api/reader-web/session/'
         ):
-            page.goto(self.origin + '/reader-web/settings')
+            page.goto(self.origin + reader_fixture('/reader-web/settings'))
 
         # Hold a forced refresh in the real HTTP handler, then destroy its page.
         # This deterministically covers the WebKit teardown path without request
@@ -123,7 +124,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         errors = []
         page.on('pageerror', lambda error: errors.append(error.stack or str(error)))
         try:
-            page.goto(self.origin + '/reader-web/manage')
+            page.goto(self.origin + reader_fixture('/reader-web/manage'))
             self.assertTrue(started.wait(timeout=5), 'connection request did not reach the server')
             self.wait_for_optional_catalog(page)
             page.close()
@@ -143,7 +144,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             'csrf_token': 'c' * 64,
             'providers': []
         }
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         try:
             self.assertTrue(started.wait(timeout=5), 'account bootstrap did not reach the server')
         finally:
@@ -231,7 +232,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
                     expect(field).to_have_css('background-color', palette['background'])
                     expect(field).to_have_css('color', palette['foreground'])
             self.page.screenshot(path='test-results/palette-' + theme + '.png', full_page=True)
-        self.page.goto(self.origin + '/reader-web/statistics')
+        self.page.goto(self.origin + reader_fixture('/reader-web/statistics'))
         expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         self.assertEqual('dark', self.scheme())
         self.page.screenshot(path='test-results/appearance-statistics-dark.png', full_page=True)
@@ -241,9 +242,9 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         # mounted app while its optional session request is still in flight.
         self.context.add_init_script(
             'if (location.origin === ' + json.dumps(self.origin) +
-            ' && localStorage.getItem("theme") === null) {' +
+            reader_fixture(' && localStorage.getItem("theme") === null) {') +
             'for (const [key, value] of Object.entries(' + json.dumps(values) +
-            ')) localStorage.setItem(key, value); }'
+            reader_fixture(')) localStorage.setItem(key, value); }')
         )
 
     def test_legacy_night_theme_is_not_reset(self):
@@ -251,9 +252,9 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         self.settings()
         self.assertEqual('dark', self.scheme())
         expect(self.page.locator('button[title="gray-theme"]')).to_have_attribute('aria-pressed', 'true')
-        self.assertEqual('gray-theme', self.page.evaluate('localStorage.getItem("theme")'))
+        self.assertEqual('gray-theme', self.page.evaluate(reader_fixture('localStorage.getItem("theme")')))
         self.mode('Light')
-        self.assertEqual('gray-theme', self.page.evaluate('localStorage.getItem("theme")'))
+        self.assertEqual('gray-theme', self.page.evaluate(reader_fixture('localStorage.getItem("theme")')))
 
     def test_legacy_custom_theme_is_not_reset(self):
         custom = {key: 'rgba(240, 240, 240, 1)' for key in ['fontColor','selectionFontColor','selectionBackgroundColor','hintFuriganaShadowColor','hintFuriganaFontColor','tooltipTextFontColor']}
@@ -263,8 +264,8 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         self.assertEqual('dark', self.scheme())
         expect(self.page.get_by_role('button', name='Edit Personal theme', exact=True)).to_be_visible()
         self.mode('Light')
-        self.assertEqual(custom, self.page.evaluate('JSON.parse(localStorage.getItem("customThemes")).Personal'))
-        self.assertEqual('Personal', self.page.evaluate('localStorage.getItem("theme")'))
+        self.assertEqual(custom, self.page.evaluate(reader_fixture('JSON.parse(localStorage.getItem("customThemes")).Personal')))
+        self.assertEqual('Personal', self.page.evaluate(reader_fixture('localStorage.getItem("theme")')))
 
     def test_backgrounds_are_independent_persistent_cover_and_mode_aware(self):
         self.settings()
@@ -283,7 +284,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         for _ in range(25):
             self.page.keyboard.press('ArrowRight')
 
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         background = self.page.locator('[data-background="library"]')
         expect(background).to_have_attribute('data-background-mode', 'dark')
         style = background.evaluate(
@@ -345,11 +346,11 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         ).to_be_visible()
 
         self.mode('Dark')
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('[data-background="library"]')).to_have_count(0)
         self.settings()
         self.mode('Light')
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('[data-background="library"]')).to_have_attribute(
             'data-background-mode', 'light'
         )
@@ -386,7 +387,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
             'fieldset:has(#background-library-light)'
         ).get_by_role('switch').uncheck()
         self.mode('Light')
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         self.assertEqual(
             'rgba(255, 255, 255, 0)',
             self.page.locator('.page-background').evaluate(
@@ -437,7 +438,7 @@ class AppearanceBrowser(baseline.ReaderBrowser):
         self.upload('library', [100, 60, 150], 'light')
         self.mode('Light')
         self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), 390)
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         self.page.evaluate('navigator.serviceWorker.ready')
         # An activated worker takes control on the next navigation; the page
         # that registered it may remain deliberately uncontrolled.

@@ -91,7 +91,7 @@ jobs:
       - name: Install reviewed dependency graph without a remote cache
         id: dependencies
         run: pnpm install --frozen-lockfile
-      - run: node scripts/prepare-expo.mjs
+      - run: pnpm prepare:dictionary && node scripts/prepare-expo.mjs
       - name: Lint committed application and component boundaries
         run: |
           pnpm eslint .

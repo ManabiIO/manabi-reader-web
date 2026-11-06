@@ -12,6 +12,7 @@ from xml.sax.saxutils import escape
 from playwright.sync_api import expect
 from test_product_journeys import ProductJourneyBase
 from search_geometry import assert_mark_visible
+from reader_fixture import reader_fixture
 
 
 class SearchQuality(ProductJourneyBase):
@@ -178,7 +179,7 @@ class SearchQuality(ProductJourneyBase):
         expect(mark).to_have_count(1)
         measurements = []
         settings = self.context.new_page()
-        settings.goto(self.origin + '/reader-web/settings')
+        settings.goto(self.origin + reader_fixture('/reader-web/settings'))
         expect(settings.get_by_label('Search settings', exact=True)).to_be_visible()
         settings.get_by_role('navigation', name='Settings categories').get_by_role('link', name='All settings', exact=True).click()
         for theme in ('manabi-theme', 'light-theme', 'ecru-theme', 'water-theme', 'gray-theme', 'dark-theme', 'black-theme'):

@@ -1,6 +1,7 @@
 """Actual static no-script and hydrated Library search controls."""
 from playwright.sync_api import expect
 from test_books_library import LibraryBase
+from reader_fixture import reader_fixture
 
 
 class LibrarySearchReadiness(LibraryBase):
@@ -10,7 +11,7 @@ class LibrarySearchReadiness(LibraryBase):
         static_context = self.context.browser.new_context(java_script_enabled=False)
         try:
             static_page = static_context.new_page()
-            static_page.goto(self.origin + '/reader-web/manage')
+            static_page.goto(self.origin + reader_fixture('/reader-web/manage'))
             expect(static_page.get_by_role('searchbox', name='Search library', exact=True)).to_be_disabled()
         finally:
             static_context.close()

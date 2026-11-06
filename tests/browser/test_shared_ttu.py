@@ -15,6 +15,7 @@ import zipfile
 from playwright.sync_api import expect
 from browser_launch import launch_options
 import test_static_reader as static
+from reader_fixture import reader_fixture
 
 
 class SharedTtuBrowser(static.ReaderBrowser):
@@ -31,14 +32,14 @@ class SharedTtuBrowser(static.ReaderBrowser):
         # without opening/creating anything, then insert the fixture capability.
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
-            ready = self.page.evaluate('''async () => (await indexedDB.databases()).some(
-              database => database.name === 'books' && database.version >= 6)''')
+            ready = self.page.evaluate(reader_fixture('''async () => (await indexedDB.databases()).some(
+              database => database.name === 'books' && database.version >= 6)'''))
             if ready:
                 break
             self.page.wait_for_timeout(50)
         else:
             self.fail('The actual Reader did not initialize its books database')
-        self.page.evaluate('''async () => {
+        self.page.evaluate(reader_fixture('''async () => {
           const opfs = await navigator.storage.getDirectory();
           const root = await opfs.getDirectoryHandle('ttu-reader-data', {create:true});
           await new Promise((resolve,reject) => {
@@ -51,7 +52,7 @@ class SharedTtuBrowser(static.ReaderBrowser):
               tx.oncomplete=()=>{db.close();resolve();}; tx.onerror=()=>reject(tx.error);
             };
           });
-        }''')
+        }'''))
 
     def read_shared_files(self):
         return self.page.evaluate('''async () => {
@@ -74,7 +75,7 @@ class SharedTtuBrowser(static.ReaderBrowser):
         self.open_book()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
         self.seed_shared_source()
-        self.page.goto(self.origin + '/reader-web/shared-library')
+        self.page.goto(self.origin + reader_fixture('/reader-web/shared-library'))
         self.page.get_by_role('heading', name='Publish browser books').wait_for()
         self.page.get_by_label(static.TITLE, exact=True).check()
         self.page.get_by_role('button', name='Publish selected browser books').click()
@@ -109,11 +110,11 @@ class SharedTtuBrowser(static.ReaderBrowser):
         self.page.get_by_label(static.TITLE, exact=True).check()
         self.page.get_by_role('button', name='Import selected shared books').click()
         expect(self.page.get_by_role('status')).to_contain_text('bookmarks and statistics imported', timeout=30000)
-        result = self.page.evaluate('''() => new Promise(resolve => {
+        result = self.page.evaluate(reader_fixture('''() => new Promise(resolve => {
           const open=indexedDB.open('books');open.onsuccess=()=>{const db=open.result,tx=db.transaction(['bookmark','readerStatistic']);
           const p=tx.objectStore('bookmark').getAll(),s=tx.objectStore('readerStatistic').getAll();
           tx.oncomplete=()=>{resolve({progress:p.result,statistics:s.result});db.close();};};
-        })''')
+        })'''))
         self.assertEqual(30, result['progress'][0]['exploredCharCount'])
         self.assertNotEqual(777, result['progress'][0]['dataId'])
         imported_day = next(row for row in result['statistics'] if row['dateKey']=='2026-09-19')
@@ -126,7 +127,7 @@ class SharedTtuBrowser(static.ReaderBrowser):
         (output/'shared-ttu-wire-fixture.json').write_text(json.dumps({'files':self.read_shared_files(),'progress':progress,'statistics':[day]},ensure_ascii=False))
 
     def test_shared_duplicate_progress_is_a_repair_case_not_last_file_wins(self):
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         self.seed_shared_source()
         self.page.evaluate('''async () => {
           const root=await (await navigator.storage.getDirectory()).getDirectoryHandle('ttu-reader-data');
@@ -135,7 +136,7 @@ class SharedTtuBrowser(static.ReaderBrowser):
             const writer=await (await dir.getFileHandle(name,{create:true})).createWritable();await writer.write('{}');await writer.close();
           }
         }''')
-        self.page.goto(self.origin + '/reader-web/shared-library')
+        self.page.goto(self.origin + reader_fixture('/reader-web/shared-library'))
         expect(self.page.get_by_role('status')).to_contain_text('Conflicting progress_', timeout=15000)
         self.assertEqual(3, len(self.read_shared_files()['Conflicted book']))
 

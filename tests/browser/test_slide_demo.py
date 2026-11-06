@@ -12,6 +12,7 @@ import re
 import unittest
 from pathlib import Path
 from playwright.sync_api import sync_playwright
+from browser_launch import launch_options
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / 'test-results' / 'slide-demo'
@@ -74,7 +75,7 @@ class SlideDemo(unittest.TestCase):
         options = {'headless': True}
         if os.environ.get('CHROMIUM_PATH'):
             options['executable_path'] = os.environ['CHROMIUM_PATH']
-        cls.browser = cls.playwright.chromium.launch(**options)
+        cls.browser = cls.playwright.chromium.launch(**launch_options((cls.playwright.chromium).name, **options))
         OUTPUT.mkdir(parents=True, exist_ok=True)
         (OUTPUT / 'environment.json').write_text(json.dumps({
             'browser': cls.browser.version,

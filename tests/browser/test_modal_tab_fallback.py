@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import unittest
 from playwright.sync_api import expect, sync_playwright
+from browser_launch import launch_options
 
 
 class ModalTabFallbackBrowser(unittest.TestCase):
@@ -26,7 +27,7 @@ class ModalTabFallbackBrowser(unittest.TestCase):
             '''
         ], cwd=root, text=True)
         cls.playwright = sync_playwright().start()
-        cls.browser = getattr(cls.playwright, os.environ.get('LIBRARY_BROWSER', 'chromium')).launch()
+        cls.browser = getattr(cls.playwright, os.environ.get('LIBRARY_BROWSER', 'chromium')).launch(**launch_options((getattr(cls.playwright, os.environ.get('LIBRARY_BROWSER', 'chromium'))).name))
 
     @classmethod
     def tearDownClass(cls):

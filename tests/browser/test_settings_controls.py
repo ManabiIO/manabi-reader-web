@@ -9,6 +9,7 @@ from pathlib import Path
 import unittest
 from playwright.sync_api import expect
 from test_books_library import LibraryBase
+from reader_fixture import reader_fixture
 
 FONT = {'name': 'Review custom font', 'fileName': 'review.WOFF2', 'path': '/userfonts/review.WOFF2'}
 FONT_BYTES = b'synthetic font-storage fixture, not a rendering font'
@@ -17,8 +18,8 @@ FONT_BYTES = b'synthetic font-storage fixture, not a rendering font'
 class SettingsControlsBrowser(LibraryBase):
     def settings(self, section, values=None):
         if values:
-            self.page.evaluate('values => { for (const [key,value] of Object.entries(values)) localStorage.setItem(key,value); }', values)
-        self.page.goto(self.origin + '/reader-web/settings')
+            self.page.evaluate(reader_fixture('values => { for (const [key,value] of Object.entries(values)) localStorage.setItem(key,value); }'), values)
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings'))
         nav = self.page.get_by_role('navigation', name='Settings categories', exact=True)
         nav.get_by_role('link', name=section, exact=True).click()
         expect(self.page.locator('#settings-content').get_by_role('heading', name=section, exact=True)).to_be_visible()
@@ -31,7 +32,7 @@ class SettingsControlsBrowser(LibraryBase):
         return dialog
 
     def catalog(self):
-        return self.page.evaluate('JSON.parse(localStorage.getItem("userfonts") || "[]")')
+        return self.page.evaluate(reader_fixture('JSON.parse(localStorage.getItem("userfonts") || "[]")'))
 
     def capture(self, name, animations='allow'):
         output = Path('test-results')
@@ -99,15 +100,15 @@ class SettingsControlsBrowser(LibraryBase):
         switch.press('Space')
         expect(switch).to_be_checked()
         expect(switch).to_be_focused()
-        self.page.wait_for_function('() => localStorage.getItem("showPercentage") === "1"')
+        self.page.wait_for_function(reader_fixture('() => localStorage.getItem("showPercentage") === "1"'))
         self.capture('expo-switch-320-200', animations='disabled')
         self.assertLessEqual(self.page.locator('html').evaluate('e => e.scrollWidth-e.clientWidth'), 1)
         # The visible state label operates the same named input exactly once.
         label.get_by_text('On', exact=True).click()
         expect(switch).not_to_be_checked()
-        self.page.wait_for_function('() => localStorage.getItem("showPercentage") === "0"')
+        self.page.wait_for_function(reader_fixture('() => localStorage.getItem("showPercentage") === "0"'))
         switch.press('Space')
-        self.page.wait_for_function('() => localStorage.getItem("showPercentage") === "1"')
+        self.page.wait_for_function(reader_fixture('() => localStorage.getItem("showPercentage") === "1"'))
         self.page.reload()
         self.page.get_by_role('navigation', name='Settings categories').get_by_role('link', name='Reading controls', exact=True).click()
         expect(switch).to_be_checked()
@@ -128,8 +129,8 @@ class SettingsControlsBrowser(LibraryBase):
         library.press('Space')
         expect(library).not_to_be_checked()
         expect(reader).to_be_checked()
-        self.assertEqual(self.page.evaluate('JSON.parse(localStorage.getItem("manabi.background.library"))'), {'fade': False, 'amount': 25})
-        self.assertEqual(self.page.evaluate('JSON.parse(localStorage.getItem("manabi.background.reader"))'), {'fade': True, 'amount': 60})
+        self.assertEqual(self.page.evaluate(reader_fixture('JSON.parse(localStorage.getItem("manabi.background.library"))')), {'fade': False, 'amount': 25})
+        self.assertEqual(self.page.evaluate(reader_fixture('JSON.parse(localStorage.getItem("manabi.background.reader"))')), {'fade': True, 'amount': 60})
         self.page.reload()
         self.page.get_by_text('Background images', exact=True).click()
         expect(library).not_to_be_checked()
@@ -148,13 +149,13 @@ class SettingsControlsBrowser(LibraryBase):
         expect(vertical).to_have_attribute('aria-pressed', 'true')
         expect(vertical).to_be_focused()
         expect(horizontal).to_have_attribute('aria-pressed', 'false')
-        self.page.wait_for_function('() => localStorage.getItem("writingMode") === "vertical-rl"')
+        self.page.wait_for_function(reader_fixture('() => localStorage.getItem("writingMode") === "vertical-rl"'))
         self.assertLessEqual(self.page.locator('html').evaluate('e => e.scrollWidth-e.clientWidth'), 1)
         self.capture('choices-writing-320-200', animations='disabled')
         horizontal.press('Space')
         expect(horizontal).to_have_attribute('aria-pressed', 'true')
         expect(horizontal).to_be_focused()
-        self.page.wait_for_function('() => localStorage.getItem("writingMode") === "horizontal-tb"')
+        self.page.wait_for_function(reader_fixture('() => localStorage.getItem("writingMode") === "horizontal-tb"'))
         self.page.reload()
         self.page.get_by_role('navigation', name='Settings categories').get_by_role('link', name='Page layout', exact=True).click()
         expect(horizontal).to_have_attribute('aria-pressed', 'true')
@@ -174,7 +175,7 @@ class SettingsControlsBrowser(LibraryBase):
         picker.press('Enter')
         expect(picker).to_have_value('none')
         expect(picker).to_be_focused()
-        self.page.wait_for_function('() => localStorage.getItem("pageTurnEffect") === "none"')
+        self.page.wait_for_function(reader_fixture('() => localStorage.getItem("pageTurnEffect") === "none"'))
         for width, scale in ((1200, 100), (390, 100), (320, 200)):
             self.page.set_viewport_size({'width': width, 'height': 900})
             self.page.evaluate('scale => document.documentElement.style.fontSize=scale+"%"', scale)
@@ -185,7 +186,7 @@ class SettingsControlsBrowser(LibraryBase):
         self.page.get_by_role('navigation', name='Settings categories').get_by_role('link', name='Page layout', exact=True).click()
         expect(picker).to_have_value('none')
         picker.select_option('slide')
-        self.page.wait_for_function('() => localStorage.getItem("pageTurnEffect") === "slide"')
+        self.page.wait_for_function(reader_fixture('() => localStorage.getItem("pageTurnEffect") === "slide"'))
 
     def test_shared_appearance_choices_wrap_and_preserve_theme_controls(self):
         self.settings('Appearance', {'appearance': 'light'})
@@ -196,7 +197,7 @@ class SettingsControlsBrowser(LibraryBase):
             choice = group.get_by_role('button', name=mode, exact=True)
             choice.click()
             expect(choice).to_have_attribute('aria-pressed', 'true')
-            self.page.wait_for_function('mode => localStorage.getItem("appearance") === mode', arg=mode.lower())
+            self.page.wait_for_function(reader_fixture('mode => localStorage.getItem("appearance") === mode'), arg=mode.lower())
             for name in ('System', 'Light', 'Dark'):
                 self.assert_reachable(group.get_by_role('button', name=name, exact=True))
             self.assertLessEqual(self.page.locator('html').evaluate('e => e.scrollWidth-e.clientWidth'), 1)
@@ -211,7 +212,7 @@ class SettingsControlsBrowser(LibraryBase):
 
     def test_shared_theme_editor_keeps_drafts_and_actions_reachable_at_enlarged_text(self):
         self.settings('Appearance', {'appearance': 'dark', 'theme': 'manabi-theme'})
-        before = self.page.evaluate('localStorage.getItem("customThemes")')
+        before = self.page.evaluate(reader_fixture('localStorage.getItem("customThemes")'))
         add = self.page.get_by_role('button', name='Add custom theme', exact=True)
         for width, scale in ((1200, 100), (390, 100), (320, 200)):
             self.page.set_viewport_size({'width': width, 'height': 480 if width == 320 else 640})
@@ -234,7 +235,7 @@ class SettingsControlsBrowser(LibraryBase):
             cancel.click()
             expect(dialog).to_have_count(0)
             expect(add).to_be_focused()
-            self.assertEqual(before, self.page.evaluate('localStorage.getItem("customThemes")'))
+            self.assertEqual(before, self.page.evaluate(reader_fixture('localStorage.getItem("customThemes")')))
 
     def test_shared_theme_editor_copies_current_appearance_and_preserves_color_alpha(self):
         self.settings('Appearance', {'appearance': 'dark', 'theme': 'manabi-theme'})
@@ -258,7 +259,7 @@ class SettingsControlsBrowser(LibraryBase):
         dialog.get_by_label('Theme name', exact=True).fill('Copied dark palette')
         dialog.get_by_role('button', name='Save', exact=True).click()
         expect(dialog).to_have_count(0)
-        saved = self.page.evaluate('JSON.parse(localStorage.getItem("customThemes"))["Copied dark palette"]')
+        saved = self.page.evaluate(reader_fixture('JSON.parse(localStorage.getItem("customThemes"))["Copied dark palette"]'))
         self.assertEqual(saved['fontColor'], 'rgba(18,52,86,0.4)')
         self.page.reload()
         self.page.get_by_role('button', name='Edit Copied dark palette theme', exact=True).click()
@@ -318,14 +319,14 @@ class SettingsControlsBrowser(LibraryBase):
         expect(self.dialog().get_by_label('Font color', exact=True)).to_have_value('#112233')
         self.dialog().get_by_role('button', name='Cancel', exact=True).click()
         expect(edit).to_be_focused()
-        self.assertEqual(self.page.evaluate('JSON.parse(localStorage.getItem("customThemes"))'), themes)
+        self.assertEqual(self.page.evaluate(reader_fixture('JSON.parse(localStorage.getItem("customThemes"))')), themes)
         self.page.reload()
         expect(selected).to_have_attribute('aria-pressed', 'true')
         delete.click()
         expect(selected).to_have_count(0)
         expect(group.get_by_role('button', name='Manabi', exact=True)).to_have_attribute('aria-pressed', 'true')
-        self.assertEqual(self.page.evaluate('localStorage.getItem("theme")'), 'manabi-theme')
-        self.assertEqual(self.page.evaluate('JSON.parse(localStorage.getItem("customThemes"))'), {'Keep this palette': palette})
+        self.assertEqual(self.page.evaluate(reader_fixture('localStorage.getItem("theme")')), 'manabi-theme')
+        self.assertEqual(self.page.evaluate(reader_fixture('JSON.parse(localStorage.getItem("customThemes"))')), {'Keep this palette': palette})
         expect(group.get_by_role('button', name='Edit Keep this palette theme', exact=True)).to_have_count(0)
 
     def test_size_inspection_retains_exact_pixels_and_automatic(self):
@@ -380,11 +381,11 @@ class SettingsControlsBrowser(LibraryBase):
         slider.evaluate('''e => { e.value = '50'; e.dispatchEvent(new Event('input', {bubbles:true})); }''')
         expect(slider).to_have_attribute('aria-valuetext', '50%, 150 pixels per side')
         expect(panel).to_contain_text('Current: 137 px per side')
-        self.assertEqual(self.page.evaluate('localStorage.getItem("firstDimensionMargin")'), '137')
+        self.assertEqual(self.page.evaluate(reader_fixture('localStorage.getItem("firstDimensionMargin")')), '137')
         self.page.set_viewport_size({'width': 900, 'height': 800})
         expect(slider).to_have_attribute('aria-valuetext', '35%, 140 pixels per side')
         slider.dispatch_event('change')
-        self.assertEqual(self.page.evaluate('localStorage.getItem("firstDimensionMargin")'), '137')
+        self.assertEqual(self.page.evaluate(reader_fixture('localStorage.getItem("firstDimensionMargin")')), '137')
         slider.press('ArrowRight')
         expect(self.page.get_by_role('spinbutton', name='Reader Top/bottom margin', exact=True)).to_have_value('160')
         slider.evaluate('''e => { e.value = '25'; e.dispatchEvent(new Event('input', {bubbles:true})); }''')
@@ -392,7 +393,7 @@ class SettingsControlsBrowser(LibraryBase):
         slider.dispatch_event('pointercancel')
         slider.dispatch_event('change')
         expect(panel).to_contain_text('Current: 160 px per side')
-        self.assertEqual(self.page.evaluate('localStorage.getItem("firstDimensionMargin")'), '160')
+        self.assertEqual(self.page.evaluate(reader_fixture('localStorage.getItem("firstDimensionMargin")')), '160')
         slider.press('Escape')
         expect(trigger).to_be_focused()
         self.page.reload()
@@ -417,7 +418,7 @@ class SettingsControlsBrowser(LibraryBase):
                 panel.get_by_role('slider').press('Escape')
                 expect(panel).to_have_count(0)
                 expect(trigger).to_be_focused()
-                self.assertEqual(self.page.evaluate('localStorage.getItem("secondDimensionMaxValue")'), '0')
+                self.assertEqual(self.page.evaluate(reader_fixture('localStorage.getItem("secondDimensionMaxValue")')), '0')
 
     def test_native_keyboard_save_reload_and_remove_preserve_builtin_choice(self):
         self.settings('Fonts & text', {'fontFamilyGroupOne': 'System Sans'})
@@ -428,7 +429,7 @@ class SettingsControlsBrowser(LibraryBase):
         dialog.get_by_label('Font name', exact=True).press('Enter')
         expect(dialog.get_by_role('button', name='Use ' + FONT['name'], exact=True)).to_be_visible()
         self.assertEqual(self.catalog(), [FONT])
-        actual = self.page.evaluate('''async path => { const cache=await caches.open('ttu-userfonts'); const response=await cache.match(path); return {text:await response.text(),mime:response.headers.get('Content-Type')}; }''', FONT['path'])
+        actual = self.page.evaluate(reader_fixture('''async path => { const cache=await caches.open('ttu-userfonts'); const response=await cache.match(path); return {text:await response.text(),mime:response.headers.get('Content-Type')}; }'''), FONT['path'])
         self.assertEqual(actual, {'text': FONT_BYTES.decode(), 'mime': 'font/woff2'})
         dialog.get_by_role('button', name='Done', exact=True).click()
         expect(dialog).to_have_count(0)
@@ -438,12 +439,12 @@ class SettingsControlsBrowser(LibraryBase):
         dialog.get_by_role('button', name='Remove ' + FONT['name'], exact=True).click()
         expect(dialog).to_contain_text('No custom fonts yet.')
         self.assertEqual(self.catalog(), [])
-        self.assertEqual(self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'), 'System Sans')
-        self.assertFalse(self.page.evaluate('''async path => !!(await (await caches.open('ttu-userfonts')).match(path))''', FONT['path']))
+        self.assertEqual(self.page.evaluate(reader_fixture('localStorage.getItem("fontFamilyGroupOne")')), 'System Sans')
+        self.assertFalse(self.page.evaluate(reader_fixture('''async path => !!(await (await caches.open('ttu-userfonts')).match(path))'''), FONT['path']))
 
     def test_opening_cache_failure_and_retry_never_prune_saved_or_unlisted_fonts(self):
         self.settings('Fonts & text', {'userfonts': json.dumps([FONT]), 'fontFamilyGroupOne': 'System Sans'})
-        self.page.evaluate('''async () => {
+        self.page.evaluate(reader_fixture('''async () => {
           const cache=await caches.open('ttu-userfonts');
           await cache.put('/userfonts/unlisted.ttf',new Response('synthetic unlisted bytes'));
           window.__unlistedFontWasStored=!!(await cache.match('/userfonts/unlisted.ttf'));
@@ -458,7 +459,7 @@ class SettingsControlsBrowser(LibraryBase):
             return name==='ttu-userfonts' && window.__denyFontCache
               ? Promise.reject(new Error('Font cache temporarily denied')) : open.call(this,name);
           };
-        }''')
+        }'''))
         dialog = self.fonts()
         expect(dialog.get_by_role('alert')).to_contain_text('Font cache temporarily denied')
         self.assertEqual(self.catalog(), [FONT])
@@ -471,7 +472,7 @@ class SettingsControlsBrowser(LibraryBase):
         # Some WebKit builds acknowledge Cache.put but do not retain synthetic
         # entries. When the fixture is retained, verify the actual bytes too.
         if self.page.evaluate('window.__unlistedFontWasStored'):
-            self.assertTrue(self.page.evaluate("async () => !!(await (await caches.open('ttu-userfonts')).match('/userfonts/unlisted.ttf'))"))
+            self.assertTrue(self.page.evaluate(reader_fixture("async () => !!(await (await caches.open('ttu-userfonts')).match('/userfonts/unlisted.ttf'))")))
 
     def test_font_submission_validation_and_close_during_native_save(self):
         self.settings('Fonts & text')
@@ -525,31 +526,31 @@ class SettingsControlsBrowser(LibraryBase):
                 self.assertLessEqual(menu.evaluate('e=>e.scrollWidth-e.clientWidth'), 1)
                 self.assertLess(saved.bounding_box()['height'], menu.bounding_box()['height'] * 0.5,
                                 'A long saved family must leave room for other font choices')
-                self.assertEqual(self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'), custom)
+                self.assertEqual(self.page.evaluate(reader_fixture('localStorage.getItem("fontFamilyGroupOne")')), custom)
                 self.capture(f'font-choices-{mode}-{width}-{scale}')
                 saved.press('Escape')
                 expect(menu).to_have_count(0)
                 expect(trigger).to_be_focused()
-                self.assertEqual(self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'), custom)
+                self.assertEqual(self.page.evaluate(reader_fixture('localStorage.getItem("fontFamilyGroupOne")')), custom)
             trigger.press('Enter')
             selected = self.page.get_by_role('menuitemradio', name='Noto Serif JP', exact=True)
             selected.focus()
             selected.press('Enter')
             expect(trigger).to_be_focused()
             expect(self.page.get_by_role('textbox', name='Primary / Serif font', exact=True)).to_have_value('Noto Serif JP')
-            self.assertEqual(self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'), 'Noto Serif JP')
+            self.assertEqual(self.page.evaluate(reader_fixture('localStorage.getItem("fontFamilyGroupOne")')), 'Noto Serif JP')
             secondary = self.page.get_by_role('button', name='Show available sans-serif fonts', exact=True)
             secondary.press('Enter')
             expect(self.page.get_by_role('menuitemradio', name='Saved preference: "My Sans", sans-serif', exact=True)).to_have_attribute('aria-checked', 'true')
             self.page.get_by_role('menuitemradio', name='Noto Sans JP', exact=True).press('Enter')
             expect(secondary).to_be_focused()
-            self.assertEqual(self.page.evaluate('localStorage.getItem("fontFamilyGroupTwo")'), 'Noto Sans JP')
+            self.assertEqual(self.page.evaluate(reader_fixture('localStorage.getItem("fontFamilyGroupTwo")')), 'Noto Sans JP')
 
     def test_stored_font_rows_reflow_and_navigation_never_changes_saved_preferences(self):
         missing = {'name': 'Missing' + 'LongName' * 16, 'fileName': 'missing' + 'file' * 30 + '.woff2', 'path': '/userfonts/missing.woff2'}
         for mode in ('light', 'dark'):
             self.settings('Fonts & text', {'appearance': mode, 'userfonts': json.dumps([missing]), 'fontFamilyGroupOne': 'System Sans'})
-            before = self.page.evaluate("[localStorage.getItem('userfonts'),localStorage.getItem('fontFamilyGroupOne')]")
+            before = self.page.evaluate(reader_fixture("[localStorage.getItem('userfonts'),localStorage.getItem('fontFamilyGroupOne')]"))
             for width, scale in ((1200, 100), (390, 100), (320, 200)):
                 self.page.set_viewport_size({'width': width, 'height': 568})
                 self.page.evaluate('v => document.documentElement.style.fontSize=v+"%"', scale)
@@ -573,7 +574,7 @@ class SettingsControlsBrowser(LibraryBase):
                 expect(listing).to_be_visible()
                 dialog.get_by_role('button', name='Done', exact=True).click()
                 expect(dialog).to_have_count(0)
-                self.assertEqual(before, self.page.evaluate("[localStorage.getItem('userfonts'),localStorage.getItem('fontFamilyGroupOne')]"))
+                self.assertEqual(before, self.page.evaluate(reader_fixture("[localStorage.getItem('userfonts'),localStorage.getItem('fontFamilyGroupOne')]")))
 
     def test_compact_large_text_panels_keep_targets_and_labels_reachable(self):
         for mode in ('light', 'dark'):

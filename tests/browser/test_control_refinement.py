@@ -3,6 +3,7 @@ from reader_controls import reveal_reader_controls
 import test_modal_controls as modal_controls
 from playwright.sync_api import expect
 import unittest
+from reader_fixture import reader_fixture
 
 
 class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
@@ -37,7 +38,7 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
     def test_navigation_uses_shared_close_without_overlapping_enlarged_headers(self):
         # This pushed screen now uses contextual overflow, not a global navigation sheet.
         self.page.set_viewport_size({'width': 320, 'height': 568})
-        self.page.goto(self.origin + '/reader-web/settings')
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings'))
         self.page.evaluate('document.documentElement.style.fontSize = "125%"')
         trigger = self.page.get_by_role('button', name='Settings actions', exact=True)
         trigger.click()
@@ -338,7 +339,7 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
         panel.get_by_label('Name', exact=True).fill('Durable collection')
         # A real readwrite transaction queues the application's write behind
         # it. No database method, response, or production UI is replaced.
-        self.page.evaluate('''async () => {
+        self.page.evaluate(reader_fixture('''async () => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('manabi-reader-integrations');
             request.onsuccess = () => resolve(request.result);
@@ -352,7 +353,7 @@ class ControlRefinementBrowser(modal_controls.ModalControlsBrowser):
             if (hold) tx.objectStore('metadata').get('books-organization-v1').onsuccess = pump;
           };
           pump();
-        }''')
+        }'''))
         try:
             panel.get_by_role('button', name='Save', exact=True).click()
             expect(panel.locator('form')).to_have_attribute('aria-busy', 'true')

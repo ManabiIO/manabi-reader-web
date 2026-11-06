@@ -8,6 +8,7 @@ import unittest
 from playwright.sync_api import expect
 from test_books_library import LibraryBase, book
 from test_static_reader import StaticHandler
+from reader_fixture import reader_fixture
 
 
 class LibraryOrganizationSync(LibraryBase):
@@ -27,7 +28,7 @@ class LibraryOrganizationSync(LibraryBase):
             'user': {'id': 'alice', 'username': 'reader-alice'},
             'csrf_token': 'c' * 64, 'providers': []
         }
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         expect(self.page.get_by_text('reader-alice', exact=True)).to_be_visible()
         self.page.evaluate('''() => {
           const original = window.fetch.bind(window);
@@ -63,7 +64,7 @@ class LibraryOrganizationSync(LibraryBase):
         }
         StaticHandler.preference_revision = 0
         StaticHandler.preference_settings = {}
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
         status = self.page.get_by_role('status', name='Settings sync status')
         expect(status).to_contain_text('synced')
@@ -71,7 +72,7 @@ class LibraryOrganizationSync(LibraryBase):
         library = self.context.new_page()
         library.on('pageerror', lambda error: self.errors.append(error.stack or str(error)))
         try:
-            library.goto(self.origin + '/reader-web/manage?collection=want-to-read')
+            library.goto(self.origin + reader_fixture('/reader-web/manage?collection=want-to-read'))
             expect(library.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false')
             expect(library.get_by_role('button', name='Read Before sync', exact=True)).to_be_visible()
             # Another device has replaced the shared membership. Sync it from
@@ -114,13 +115,13 @@ class LibraryOrganizationSync(LibraryBase):
         self.assertEqual(2, len(rows), 'Second import did not produce a distinct book')
         self.assertEqual(2, len({row['contentHash'] for row in rows}))
         for row in rows:
-            self.page.goto(self.origin + '/reader-web/b?id=' + str(row['id']))
+            self.page.goto(self.origin + reader_fixture('/reader-web/b?id=') + str(row['id']))
             expect(self.page.locator('.book-content')).to_have_attribute(
                 'aria-busy', 'false', timeout=35000)
         tracked = self.stores('books', ['readerStatistic'])['readerStatistic']
         self.assertEqual({'content:' + row['contentHash'] for row in rows},
                          {row['bookKey'] for row in tracked})
-        self.page.evaluate('''books => new Promise((resolve, reject) => {
+        self.page.evaluate(reader_fixture('''books => new Promise((resolve, reject) => {
           const open = indexedDB.open('books');
           open.onerror = () => reject(open.error);
           open.onsuccess = () => {
@@ -137,13 +138,13 @@ class LibraryOrganizationSync(LibraryBase):
             tx.oncomplete = () => {db.close(); resolve();};
             tx.onerror = () => reject(tx.error);
           };
-        })''', rows)
+        })'''), rows)
         StaticHandler.personal_enabled = True
         StaticHandler.personal_mutations = []
         StaticHandler.account_fixture = {
             'user': {'id': '42', 'username': 'reader'}, 'csrf_token': 'c' * 64, 'providers': []
         }
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         status = self.page.locator('section[aria-labelledby="reading-sync-heading"] [role="status"]')
         expect(status).to_contain_text('older same-title statistics record', timeout=15000)
         deadline = time.monotonic() + 15
@@ -164,7 +165,7 @@ class LibraryOrganizationSync(LibraryBase):
         self.assertEqual({21, 22}, {request['payload']['charactersRead'] for request in sent})
         self.assertEqual(9, self.stores('books', ['statistic'])['statistic'][0]['charactersRead'])
         self.assertEqual(2, len(self.stores('books', ['data'])['data']))
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         first = self.page.locator('[data-book-key="book:%d"]' % rows[0]['id'])
         second = self.page.locator('[data-book-key="book:%d"]' % rows[1]['id'])
         expect(first).to_be_visible()
@@ -184,11 +185,11 @@ class LibraryOrganizationSync(LibraryBase):
             'user': {'id': '42', 'username': 'reader-a'}, 'csrf_token': 'c' * 64,
             'providers': []
         }
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         status = self.page.locator('section[aria-labelledby="reading-sync-heading"] [role="status"]')
         expect(status).to_contain_text('synced', timeout=15000)
 
-        annotation_id = self.page.evaluate('''async () => {
+        annotation_id = self.page.evaluate(reader_fixture('''async () => {
           const opened=indexedDB.open('books');
           const db=await new Promise((resolve,reject)=>{opened.onsuccess=()=>resolve(opened.result);
             opened.onerror=()=>reject(opened.error);});
@@ -208,7 +209,7 @@ class LibraryOrganizationSync(LibraryBase):
             bookKey,annotationId:id,baseRevision:0,localRevision:1,value,createdAt:now});
           await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);
             tx.onerror=()=>reject(tx.error);});db.close();return id;
-        }''')
+        }'''))
         StaticHandler.account_fixture['user'] = {'id': '43', 'username': 'reader-b'}
         self.page.get_by_role('button', name='Refresh connections').click()
         expect(self.page.get_by_text('Signed in as', exact=False)).to_contain_text('reader-b')
@@ -238,14 +239,14 @@ class LibraryOrganizationSync(LibraryBase):
             'user': {'id': '42', 'username': 'reader'}, 'csrf_token': 'c' * 64,
             'providers': []
         }
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         status = self.page.locator('section[aria-labelledby="reading-sync-heading"] [role="status"]')
         expect(status).to_contain_text('synced', timeout=15000)
         baseline = next((row for row in self.stores('books', ['readerPersonalRecord'])['readerPersonalRecord']
                          if row['kind'] == 'resume' and row['entityId'] == book_key), None)
         revision = baseline['revision'] if baseline else 0
         StaticHandler.personal_mutations = []
-        self.page.evaluate('''async ({bookId, bookKey, revision}) => {
+        self.page.evaluate(reader_fixture('''async ({bookId, bookKey, revision}) => {
           const opened = indexedDB.open('books');
           const db = await new Promise((resolve, reject) => {
             opened.onsuccess = () => resolve(opened.result);
@@ -269,7 +270,7 @@ class LibraryOrganizationSync(LibraryBase):
             tx.onerror = () => reject(tx.error);
           });
           db.close();
-        }''', {'bookId': book_row['id'], 'bookKey': book_key, 'revision': revision})
+        }'''), {'bookId': book_row['id'], 'bookKey': book_key, 'revision': revision})
 
         button = self.page.get_by_role('button', name='Sync personal reading data now')
         button.click()
@@ -291,7 +292,7 @@ class LibraryOrganizationSync(LibraryBase):
         self.import_book('Shared content ownership')
         book_row = self.stores('books', ['data'])['data'][0]
         book_key = 'content:' + book_row['contentHash']
-        self.page.evaluate('''async bookId => {
+        self.page.evaluate(reader_fixture('''async bookId => {
           const opened = indexedDB.open('books');
           const db = await new Promise((resolve, reject) => {
             opened.onsuccess = () => resolve(opened.result);
@@ -322,14 +323,14 @@ class LibraryOrganizationSync(LibraryBase):
             tx.onerror = () => reject(tx.error);
           });
           db.close();
-        }''', book_row['id'])
+        }'''), book_row['id'])
         StaticHandler.personal_enabled = True
         StaticHandler.personal_mutations = []
         StaticHandler.account_fixture = {
             'user': {'id': '42', 'username': 'reader-a'}, 'csrf_token': 'c' * 64,
             'providers': []
         }
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         status = self.page.locator('section[aria-labelledby="reading-sync-heading"] [role="status"]')
         expect(status).to_contain_text('queued', timeout=15000)
         button = self.page.get_by_role('button', name='Sync personal reading data now')
@@ -349,12 +350,12 @@ class LibraryOrganizationSync(LibraryBase):
             'user': {'id': '42', 'username': 'reader'}, 'csrf_token': 'c' * 64,
             'providers': []
         }
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         status = self.page.locator('section[aria-labelledby="reading-sync-heading"] [role="status"]')
         expect(status).to_contain_text('synced', timeout=15000)
-        self.page.goto(self.origin + '/reader-web/b?id=' + str(book_id))
+        self.page.goto(self.origin + reader_fixture('/reader-web/b?id=') + str(book_id))
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
-        enter_offline_shell(self.page, self.origin + '/reader-web/')
+        enter_offline_shell(self.page, self.origin + reader_fixture('/reader-web/'))
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
         self.context.set_offline(True)
         reveal_reader_controls(self.page)

@@ -3,6 +3,7 @@ import threading
 import unittest
 from playwright.sync_api import expect
 import test_editors_picks as picks
+from reader_fixture import reader_fixture
 
 
 class CatalogDocumentLifetime(picks.EditorsPicksBrowser):
@@ -23,7 +24,7 @@ class CatalogDocumentLifetime(picks.EditorsPicksBrowser):
             return original.apply(this, arguments);
           };
         })()""")
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         # Flush queued onMount callbacks, rather than checking prerendered HTML.
         self.page.evaluate('() => new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
@@ -39,7 +40,7 @@ class CatalogDocumentLifetime(picks.EditorsPicksBrowser):
     def test_pagehide_aborts_catalog_and_pageshow_restarts_the_same_component(self):
         picks.PicksHandler.index_started = threading.Event()
         picks.PicksHandler.index_gate = threading.Event()
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         self.assertTrue(picks.PicksHandler.index_started.wait(timeout=5))
         with self.page.expect_event('requestfailed', predicate=lambda request: request.url.endswith('/opds/index.xml')):
             self.page.evaluate("window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted:true}))")

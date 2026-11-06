@@ -13,6 +13,7 @@ import time
 import unittest
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright
+from browser_launch import launch_options
 
 ROOT = Path(__file__).resolve().parents[2]
 SCOPE = '/reader-web/'
@@ -171,7 +172,7 @@ class OfflineWorker(unittest.TestCase):
     def setUpClass(cls):
         cls.playwright = sync_playwright().start()
         kwargs = {'executable_path': OPTIONS.executable} if OPTIONS.executable else {}
-        cls.browser = getattr(cls.playwright, OPTIONS.browser).launch(**kwargs)
+        cls.browser = getattr(cls.playwright, OPTIONS.browser).launch(**launch_options((getattr(cls.playwright, OPTIONS.browser)).name, **kwargs))
 
     @classmethod
     def tearDownClass(cls):

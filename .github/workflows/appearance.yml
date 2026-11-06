@@ -46,7 +46,7 @@ jobs:
           node-version: '24.21.0'
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: node scripts/prepare-expo.mjs
+      - run: pnpm prepare:dictionary && node scripts/prepare-expo.mjs
       - run: node tools/appearance/lint.mjs
   appearance:
     # Dedicated edition/Expo qualification branches skip legacy cache/upload jobs.
@@ -99,7 +99,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
-      - run: node scripts/prepare-expo.mjs
+      - run: pnpm prepare:dictionary && node scripts/prepare-expo.mjs
       - run: node --experimental-strip-types tools/appearance/generate-css.mjs --check
       - run: |
           set -o pipefail

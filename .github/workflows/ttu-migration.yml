@@ -44,7 +44,7 @@ jobs:
         with:
           python-version: '3.13'
       - run: pnpm install --frozen-lockfile
-      - run: node scripts/prepare-expo.mjs
+      - run: pnpm prepare:dictionary && node scripts/prepare-expo.mjs
       - name: Verify committed source
         run: pnpm eslint .
       - run: pnpm --dir apps/web check

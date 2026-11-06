@@ -105,9 +105,10 @@
   async function mediaRuntime(): Promise<LazyMediaRuntime> {
     if (!videoLearningEnabled) throw new Error('Video learning is disabled.');
     if (!mediaRuntimePromise) {
-      const pending = Promise.all([import('../media/store'), import('../media/video-search')]).then(
-        ([store, search]) => ({ store: new store.MediaStore(), search })
-      );
+      const pending = Promise.all([
+        import('../media/reader-store'),
+        import('../media/video-search')
+      ]).then(([store, search]) => ({ store: store.createReaderMediaStore(), search }));
       mediaRuntimePromise = pending;
       void pending.catch(() => {
         if (mediaRuntimePromise === pending) mediaRuntimePromise = undefined;
@@ -327,7 +328,8 @@
               selectedBooks,
               selectedOwner,
               signal,
-              (batch) => receive({ ...batch, rows: bookContentRows(batch.hits, selectedBooksById) }),
+              (batch) =>
+                receive({ ...batch, rows: bookContentRows(batch.hits, selectedBooksById) }),
               { progress: false }
             )
         });

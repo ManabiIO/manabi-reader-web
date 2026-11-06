@@ -15,6 +15,7 @@ import zipfile
 from playwright.sync_api import sync_playwright, expect
 from browser_launch import launch_options
 from test_static_reader import StaticHandler, ThreadingHTTPServer, epub, TITLE
+from reader_fixture import reader_fixture
 
 OTHER = 'Other book'
 STAMP = 1789837322544
@@ -111,9 +112,9 @@ class MigrationBrowser(unittest.TestCase):
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
         try:
-            page.goto(cls.origin + '/reader-web/manage')
-            page.wait_for_function('''() => indexedDB.databases().then(databases =>
-              databases.some(database => database.name === 'books' && database.version >= 6))''',
+            page.goto(cls.origin + reader_fixture('/reader-web/manage'))
+            page.wait_for_function(reader_fixture('''() => indexedDB.databases().then(databases =>
+              databases.some(database => database.name === 'books' && database.version >= 6))'''),
               timeout=30000)
             for title in (TITLE, OTHER):
                 epub_input = page.locator('input[type=file][accept*=".epub"]').first
@@ -123,7 +124,7 @@ class MigrationBrowser(unittest.TestCase):
                 expect(page.get_by_role('button', name='Read ' + title, exact=True)).to_be_visible(timeout=30000)
             # Source history deliberately initialized at the persistence boundary.
             # Export remains the actual user-facing exporter with real serializers.
-            page.evaluate('''stamp => new Promise((resolve,reject) => {
+            page.evaluate(reader_fixture('''stamp => new Promise((resolve,reject) => {
               const open=indexedDB.open('books'); open.onerror=()=>reject(open.error);
               open.onsuccess=()=>{ const db=open.result,tx=db.transaction(['data','bookmark','statistic','audioBook','subtitle','lastModified'],'readwrite');
                 const all=tx.objectStore('data').getAll();all.onsuccess=()=>{
@@ -139,7 +140,7 @@ class MigrationBrowser(unittest.TestCase):
                   }
                 };tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);
               };
-            })''', STAMP)
+            })'''), STAMP)
             page.get_by_role('button', name='Library actions', exact=True).click()
             page.get_by_role('menuitem', name='Select Books', exact=True).click()
             page.get_by_role('button', name='Select All Visible', exact=True).click()
@@ -172,7 +173,7 @@ class MigrationBrowser(unittest.TestCase):
         self.errors = []
         self.page.on('pageerror', lambda error: self.errors.append(str(error)))
         StaticHandler.probes.clear()
-        self.page.goto(self.origin + '/reader-web/import-ttu')
+        self.page.goto(self.origin + reader_fixture('/reader-web/import-ttu'))
         expect(self.page.get_by_role('heading', name='Import from Ttu Ebook Reader', exact=True)).to_be_visible(timeout=30000)
         expect(self.page.get_by_label('Choose Ttu export ZIPs', exact=True)).to_be_enabled()
 
@@ -199,16 +200,16 @@ class MigrationBrowser(unittest.TestCase):
         self.page.get_by_role('button', name='Clear list', exact=True).click()
 
     def snapshot(self):
-        return self.page.evaluate('''() => new Promise((resolve,reject)=>{
+        return self.page.evaluate(reader_fixture('''() => new Promise((resolve,reject)=>{
           const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
           open.onsuccess=()=>{const db=open.result,names=['data','bookmark','statistic','readerStatistic','audioBook','subtitle','readingGoal','storageSource'];
             const tx=db.transaction(names),out={};for(const name of names){const request=tx.objectStore(name).getAll();
               request.onsuccess=()=>out[name]=name==='data'?request.result.map(({blobs,coverImage,...book})=>({...book,media:Object.keys(blobs)})):request.result;}
             tx.oncomplete=()=>{db.close();out.statistic=[...out.statistic,...out.readerStatistic];resolve(out);};tx.onerror=()=>reject(tx.error);};
-        })''')
+        })'''))
 
     def organization(self):
-        return self.page.evaluate('''() => new Promise((resolve, reject) => {
+        return self.page.evaluate(reader_fixture('''() => new Promise((resolve, reject) => {
           const request = indexedDB.open('manabi-reader-integrations');
           request.onerror = () => reject(request.error);
           request.onsuccess = () => {
@@ -217,7 +218,7 @@ class MigrationBrowser(unittest.TestCase):
             read.onsuccess = () => { db.close(); resolve(read.result); };
             read.onerror = () => reject(read.error);
           };
-        })''')
+        })'''))
 
     def subset(self, *parts, title=None):
         return zip_bytes({name:body for name,body in self.source_entries.items()
@@ -262,11 +263,11 @@ class MigrationBrowser(unittest.TestCase):
         data=self.snapshot()
         self.assertEqual(2,len(data['data']))
         self.assertEqual(2,len(data['statistic']))
-        self.page.evaluate('''() => new Promise((resolve,reject)=>{const open=indexedDB.open('books');open.onsuccess=()=>{
+        self.page.evaluate(reader_fixture('''() => new Promise((resolve,reject)=>{const open=indexedDB.open('books');open.onsuccess=()=>{
           const db=open.result,tx=db.transaction(['bookmark','readerStatistic'],'readwrite');
           tx.objectStore('bookmark').clear();const all=tx.objectStore('readerStatistic').getAll();all.onsuccess=()=>{
             for(const row of all.result)tx.objectStore('readerStatistic').put({...row,readingTime:999,lastStatisticModified:row.lastStatisticModified+100});};
-          tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);};})''')
+          tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);};})'''))
         before=self.snapshot()
         self.page.reload()
         # ZIP compression, entry ordering and container timestamp do not determine identity.
@@ -302,10 +303,10 @@ class MigrationBrowser(unittest.TestCase):
     def test_changed_source_conflicts_atomically_then_explicit_replace_and_older_retry(self):
         self.load()
         self.run_import()
-        self.page.evaluate('''() => new Promise(resolve=>{const open=indexedDB.open('books');open.onsuccess=()=>{
+        self.page.evaluate(reader_fixture('''() => new Promise(resolve=>{const open=indexedDB.open('books');open.onsuccess=()=>{
           const db=open.result,tx=db.transaction('readerStatistic','readwrite'),store=tx.objectStore('readerStatistic'),all=store.getAll();
           all.onsuccess=()=>{for(const row of all.result)store.put({...row,readingTime:800,lastStatisticModified:row.lastStatisticModified+10});};
-          tx.oncomplete=()=>{db.close();resolve();};};})''')
+          tx.oncomplete=()=>{db.close();resolve();};};})'''))
         before=self.snapshot()
         files={}
         for name,body in self.source_entries.items():
@@ -445,24 +446,24 @@ class MigrationBrowser(unittest.TestCase):
         self.clear();self.load(zip_bytes(files),'repeat-long-history.zip');self.run_import();self.assertEqual(data,self.snapshot())
 
     def test_migration_entrypoint_and_google_drive_labels_use_official_names(self):
-        self.page.goto(self.origin+'/reader-web/manage')
+        self.page.goto(self.origin+reader_fixture('/reader-web/manage'))
         self.page.get_by_role('button',name='Library actions',exact=True).click()
         self.page.get_by_role('menuitem',name='Add Books',exact=True).click()
         self.page.get_by_role('menuitem',name='Import from Ttu Ebook Reader',exact=True).click()
         expect(self.page.get_by_role('heading',name='Import from Ttu Ebook Reader',exact=True)).to_be_visible()
         self.assertNotRegex(self.page.locator('body').inner_text(),r'\b(?:TTU|GDrive)\b')
-        self.page.goto(self.origin+'/reader-web/manage')
+        self.page.goto(self.origin+reader_fixture('/reader-web/manage'))
         self.page.get_by_role('button',name='Library actions',exact=True).click()
         self.page.get_by_role('menuitem',name='Add Books',exact=True).click()
         self.page.get_by_role('menuitem',name='Import from Yatsu Reader',exact=True).click()
         expect(self.page.get_by_role('heading',name='Import from Yatsu Reader',exact=True)).to_be_visible()
-        self.page.goto(self.origin+'/reader-web/settings')
+        self.page.goto(self.origin+reader_fixture('/reader-web/settings'))
         self.assertNotRegex(self.page.locator('body').inner_text(),r'\b(?:TTU|GDrive)\b')
 
     def test_real_yatsu_v11_backup_imports_book_position_and_statistics_idempotently(self):
         fixture = Path(__file__).resolve().parents[1] / 'fixtures' / 'yatsu' / 'complete-local-backup-v11.zip'
         title = 'Manabi Yatsu Portability Fixture'
-        self.page.goto(self.origin + '/reader-web/import-ttu?source=yatsu')
+        self.page.goto(self.origin + reader_fixture('/reader-web/import-ttu?source=yatsu'))
         expect(self.page.get_by_role('heading', name='Import from Yatsu Reader', exact=True)).to_be_visible()
         picker = self.page.get_by_label('Choose Yatsu backup ZIPs', exact=True)
         picker.set_input_files(str(fixture))
@@ -488,7 +489,7 @@ class MigrationBrowser(unittest.TestCase):
         expect(self.row(title).get_by_role('status')).to_contain_text('Already imported; existing data kept.', timeout=60000)
         self.assertEqual(snapshot, self.snapshot())
         self.assertEqual(organization, self.organization())
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         collection = self.page.get_by_role('complementary', name='Collections').get_by_role(
             'button', name=re.compile(r'^Portable Shelf\b'))
         expect(collection).to_be_visible()
@@ -501,7 +502,7 @@ class MigrationBrowser(unittest.TestCase):
         manifest = json.loads(files['yatsu-backup-manifest.json'])
         manifest['bookCount'] += 1
         files['yatsu-backup-manifest.json'] = json.dumps(manifest)
-        self.page.goto(self.origin + '/reader-web/import-ttu?source=yatsu')
+        self.page.goto(self.origin + reader_fixture('/reader-web/import-ttu?source=yatsu'))
         picker = self.page.get_by_label('Choose Yatsu backup ZIPs', exact=True)
         expect(picker).to_be_visible()
         # Include intermediate paints: an inspection error must not compete with

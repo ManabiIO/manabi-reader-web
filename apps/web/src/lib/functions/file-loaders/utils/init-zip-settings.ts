@@ -8,14 +8,14 @@ import { configure as zipConfigure } from '@zip.js/zip.js';
 
 export default function initZipSettings() {
   zipConfigure({
-    useWebWorkers: !isKiwiBrowser()
+    useWebWorkers: !usesAndroidChromiumZipWorkerWorkaround()
   });
 }
 
-function isKiwiBrowser() {
+function usesAndroidChromiumZipWorkerWorkaround() {
   if (typeof window === 'undefined') return false;
-  // Retain the Android Chromium ZIP-worker workaround without a general UA
-  // database. This is a compression capability workaround, never layout logic.
+  // Keep the existing Android Chromium fallback until affected devices are
+  // qualified with ZIP workers. This does not identify Kiwi or control layout.
   return (
     /Android\b/i.test(window.navigator.userAgent) &&
     /\bChrome\/\d/i.test(window.navigator.userAgent)

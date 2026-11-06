@@ -7,11 +7,12 @@ import sys
 import unittest
 from playwright.sync_api import expect
 from test_local_library import LocalLibraryBrowser, CONTENT
+from reader_fixture import reader_fixture
 
 
 class ReadingRecoveryBrowser(LocalLibraryBrowser):
     def seed_history(self):
-        self.page.evaluate('''() => new Promise((resolve, reject) => {
+        self.page.evaluate(reader_fixture('''() => new Promise((resolve, reject) => {
           const open=indexedDB.open('books');
           open.onerror=()=>reject(open.error);
           open.onsuccess=()=>{
@@ -28,10 +29,10 @@ class ReadingRecoveryBrowser(LocalLibraryBrowser):
             };
             tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);
           };
-        })''')
+        })'''))
 
     def local_history(self):
-        return self.page.evaluate('''() => new Promise((resolve,reject)=>{
+        return self.page.evaluate(reader_fixture('''() => new Promise((resolve,reject)=>{
           const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
           open.onsuccess=()=>{
             const db=open.result,tx=db.transaction(['bookmark','readerStatistic']);
@@ -40,7 +41,7 @@ class ReadingRecoveryBrowser(LocalLibraryBrowser):
             tx.oncomplete=()=>{resolve({bookmarks:bookmarks.result,statistics:statistics.result});db.close();};
             tx.onerror=()=>reject(tx.error);
           };
-        })''')
+        })'''))
 
     def test_missing_legacy_managed_directory_keeps_local_history(self):
         self.seed(True)
@@ -61,12 +62,12 @@ class ReadingRecoveryBrowser(LocalLibraryBrowser):
         self.seed(True)
         self.import_book()
         self.seed_history()
-        self.page.evaluate('''() => new Promise((resolve,reject) => {
+        self.page.evaluate(reader_fixture('''() => new Promise((resolve,reject) => {
           const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
           open.onsuccess=()=>{const db=open.result,tx=db.transaction(['bookmark','readerStatistic'],'readwrite');
             tx.objectStore('bookmark').clear();tx.objectStore('readerStatistic').clear();
             tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);};
-        })''')
+        })'''))
         self.page.reload()
         expect(self.page.get_by_role('button', name='Browse Fixture books')).to_be_visible()
         self.assertEqual({'bookmarks': [], 'statistics': []}, self.local_history())
@@ -81,7 +82,7 @@ class ReadingRecoveryBrowser(LocalLibraryBrowser):
           const folder=await root.getDirectoryHandle('Fixture books');
           await folder.removeEntry('local-book.txt');
         }''')
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         self.page.get_by_role('button', name='Read local-book', exact=True).click()
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=35000)
         self.assertIn('地元の本', self.page.locator('.book-content').inner_text())

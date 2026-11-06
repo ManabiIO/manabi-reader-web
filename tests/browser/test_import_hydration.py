@@ -13,6 +13,8 @@ from urllib.parse import urlsplit
 
 from playwright.sync_api import sync_playwright, expect
 from test_static_reader import StaticHandler, ThreadingHTTPServer
+from reader_fixture import reader_fixture
+from browser_launch import launch_options
 
 
 class DelayedScripts(StaticHandler):
@@ -37,11 +39,11 @@ class ImportHydrationBrowser(unittest.TestCase):
         errors = []
         try:
             with tempfile.TemporaryDirectory() as profile, sync_playwright() as playwright:
-                context = getattr(playwright, engine).launch_persistent_context(profile)
+                context = getattr(playwright, engine).launch_persistent_context(profile, **launch_options((getattr(playwright, engine)).name))
                 page = context.pages[0]
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 try:
-                    page.goto(f'http://127.0.0.1:{server.server_port}/reader-web/import-ttu', wait_until='commit')
+                    page.goto(reader_fixture(f'http://127.0.0.1:{server.server_port}/reader-web/import-ttu'), wait_until='commit')
                     chooser = page.get_by_label('Choose Ttu export ZIPs', exact=True)
                     expect(chooser).to_be_attached()
                     expect(chooser).to_be_enabled()
@@ -71,7 +73,7 @@ class ImportHydrationBrowser(unittest.TestCase):
                     expect(page.get_by_role('status').filter(has_text='before-hydration.zip:')).to_have_count(0)
                     self.assertEqual(errors, [])
                     for route in ('manage', 'settings'):
-                        page.goto(f'http://127.0.0.1:{server.server_port}/reader-web/{route}')
+                        page.goto(reader_fixture(f'http://127.0.0.1:{server.server_port}/reader-web/{route}'))
                         expect(page.locator('#manabi-import-bootstrap')).to_have_count(0)
                         expect(page.locator('#root')).to_be_visible()
                     self.assertEqual(errors, [])

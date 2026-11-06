@@ -8,6 +8,7 @@ import unittest
 from playwright.sync_api import expect
 import test_resume_refinement as previous
 from test_books_library import book
+from reader_fixture import reader_fixture
 
 # Keep the existing catalog cases in this combined entry point exactly once.
 CatalogLifetimeBrowser = previous.CatalogLifetimeBrowser
@@ -60,7 +61,7 @@ class AppleControlsBrowser(previous.ResumeControlsBrowser):
 
     def test_action_emphasis_hover_and_link_navigation_in_both_modes(self):
         for mode in ('light', 'dark'):
-            self.page.evaluate('v => localStorage.setItem("appearance", v)', mode)
+            self.page.evaluate(reader_fixture('v => localStorage.setItem("appearance", v)'), mode)
             self.go_library()
             expect(self.page.locator('html')).to_have_attribute('data-appearance', mode)
             self.page.set_viewport_size({'width': 1200, 'height': 1000})
@@ -136,7 +137,7 @@ class AppleControlsBrowser(previous.ResumeControlsBrowser):
 
     def test_custom_theme_editor_reopens_validates_and_saves_after_input_migration(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
-        self.page.goto(self.origin + '/reader-web/settings')
+        self.page.goto(self.origin + reader_fixture('/reader-web/settings'))
         trigger = self.page.get_by_role('button', name='Add custom theme', exact=True)
         for _ in range(3):
             trigger.click()
@@ -151,14 +152,14 @@ class AppleControlsBrowser(previous.ResumeControlsBrowser):
             self.page.keyboard.press('Escape')
             expect(panel).to_have_count(0)
             expect(trigger).to_be_focused()
-            self.assertNotIn('Unsaved attempt', self.page.evaluate('localStorage.getItem("customThemes") || ""'))
+            self.assertNotIn('Unsaved attempt', self.page.evaluate(reader_fixture('localStorage.getItem("customThemes") || ""')))
         trigger.click()
         panel = self.dialog()
         panel.get_by_label('Theme name', exact=True).fill('Apple pass custom')
         self.capture('apple-theme-editor')
         panel.get_by_role('button', name='Save', exact=True).click()
         expect(panel).to_have_count(0)
-        saved = json.loads(self.page.evaluate('localStorage.getItem("customThemes")'))
+        saved = json.loads(self.page.evaluate(reader_fixture('localStorage.getItem("customThemes")')))
         self.assertIn('Apple pass custom', saved)
 
 

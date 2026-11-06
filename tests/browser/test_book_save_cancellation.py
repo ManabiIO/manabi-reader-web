@@ -5,6 +5,8 @@ from pathlib import Path
 import tempfile
 import unittest
 from test_shared_safety import SharedStorageRuntime
+from reader_fixture import reader_fixture
+from browser_launch import launch_options
 
 
 class BookSaveCancellation(SharedStorageRuntime):
@@ -12,7 +14,7 @@ class BookSaveCancellation(SharedStorageRuntime):
         self.engine = os.environ.get('LIBRARY_BROWSER', 'chromium')
         profile = tempfile.TemporaryDirectory(prefix='reader-save-' + self.engine + '-')
         self.addCleanup(profile.cleanup)
-        context = getattr(self.playwright, self.engine).launch_persistent_context(profile.name)
+        context = getattr(self.playwright, self.engine).launch_persistent_context(profile.name, **launch_options((getattr(self.playwright, self.engine)).name))
         self.assertEqual(self.engine, context.browser.browser_type.name)
         return context
 
@@ -28,7 +30,7 @@ class BookSaveCancellation(SharedStorageRuntime):
 
     def test_cancellation_during_binary_preparation_preserves_the_existing_book(self):
         self.open_runtime()
-        result = self.page.evaluate("""async () => {
+        result = self.page.evaluate(reader_fixture("""async () => {
           const {database} = await import('/reader-web/src/lib/data/store.ts');
           const {BrowserStorageHandler} = await import('/reader-web/src/lib/data/storage/handler/browser-handler.ts');
           const {StorageKey} = await import('/reader-web/src/lib/data/storage/storage-types.ts');
@@ -56,7 +58,7 @@ class BookSaveCancellation(SharedStorageRuntime):
           handler.startContext({title:original.title},new AbortController().signal);
           const retry=await handler.saveBook({...original,elementHtml:'<p>Fresh retry</p>',lastBookModified:3});
           return {outcome,after:after.elementHtml,id,retry,final:(await db.get('data',id)).elementHtml};
-        }""")
+        }"""))
         self.assertEqual({'error':'AbortError'},result['outcome'])
         self.assertEqual('<p>Original</p>',result['after'])
         self.assertEqual(result['id'],result['retry'])
@@ -64,7 +66,7 @@ class BookSaveCancellation(SharedStorageRuntime):
 
     def test_cancellation_after_native_write_is_enqueued_rolls_back_and_drains_completion(self):
         self.open_runtime()
-        result=self.page.evaluate("""async()=>{
+        result=self.page.evaluate(reader_fixture("""async()=>{
           const {database}=await import('/reader-web/src/lib/data/store.ts');
           const {ReplicationSaveBehavior}=await import('/reader-web/src/lib/functions/replication/replication-options.ts');
           const db=await database.db,controller=new AbortController();
@@ -84,7 +86,7 @@ class BookSaveCancellation(SharedStorageRuntime):
           const rows=await db.getAllKeys('data');
           const retry=await database.upsertData(book,ReplicationSaveBehavior.Overwrite,true,true,new AbortController().signal);
           return {enqueued,outcome,rows,final:await db.getAllKeys('data'),retry:retry.id};
-        }""")
+        }"""))
         self.assertTrue(result['enqueued'])
         self.assertEqual({'error':'AbortError'},result['outcome'])
         self.assertEqual([],result['rows'])
@@ -93,7 +95,7 @@ class BookSaveCancellation(SharedStorageRuntime):
 
     def test_last_read_uses_current_content_and_never_lowers_a_newer_timestamp(self):
         self.open_runtime()
-        result=self.page.evaluate("""async()=>{
+        result=self.page.evaluate(reader_fixture("""async()=>{
           const {database}=await import('/reader-web/src/lib/data/store.ts');
           const {BrowserStorageHandler}=await import('/reader-web/src/lib/data/storage/handler/browser-handler.ts');
           const {StorageKey}=await import('/reader-web/src/lib/data/storage/storage-types.ts');
@@ -116,14 +118,14 @@ class BookSaveCancellation(SharedStorageRuntime):
             open:current.lastBookOpen,modified:current.lastBookModified,
             bytes:current.blobs.image && Array.from(new Uint8Array(current.blobs.image.bytes))},
             after:{title:after.title,html:after.elementHtml,open:after.lastBookOpen}};
-        }""")
+        }"""))
         self.assertEqual({'title':'New title','html':'<p>New content</p>','hash':'b'*64,
                           'open':200,'modified':100,'bytes':[1,2,3]},result['current'])
         self.assertEqual({'title':'New title','html':'<p>New content</p>','open':300},result['after'])
 
     def test_delayed_last_read_does_not_recreate_a_deleted_book(self):
         self.open_runtime()
-        result=self.page.evaluate("""async()=>{
+        result=self.page.evaluate(reader_fixture("""async()=>{
           const {database}=await import('/reader-web/src/lib/data/store.ts');
           const {BrowserStorageHandler}=await import('/reader-web/src/lib/data/storage/handler/browser-handler.ts');
           const {StorageKey}=await import('/reader-web/src/lib/data/storage/storage-types.ts');
@@ -135,14 +137,14 @@ class BookSaveCancellation(SharedStorageRuntime):
           const removed=await database.deleteData([id],new Map([[id,book.title]]),new AbortController().signal,true);
           await handler.updateLastRead({...book,id,lastBookOpen:2});
           return {removed,ids:await db.getAllKeys('data')};
-        }""")
+        }"""))
         self.assertEqual('',result['removed']['error'])
         self.assertEqual(1,len(result['removed']['deleted']))
         self.assertEqual([],result['ids'])
 
     def test_native_image_read_abort_is_a_visible_failure_not_user_cancellation(self):
         self.open_runtime()
-        result=self.page.evaluate("""async()=>{
+        result=self.page.evaluate(reader_fixture("""async()=>{
           const {database}=await import('/reader-web/src/lib/data/store.ts');
           const {ReplicationSaveBehavior}=await import('/reader-web/src/lib/functions/replication/replication-options.ts');
           const signal=new AbortController().signal,db=await database.db;
@@ -157,7 +159,7 @@ class BookSaveCancellation(SharedStorageRuntime):
           const retry=await database.upsertData({...source,elementHtml:'<p>Retry</p>'},ReplicationSaveBehavior.Overwrite);
           return {outcome,aborted:signal.aborted,after:after.elementHtml,retry:retry.id,id,
             final:(await db.get('data',id)).elementHtml};
-        }""")
+        }"""))
         self.assertFalse(result['aborted'])
         self.assertEqual('Error',result['outcome']['name'])
         self.assertEqual('AbortError',result['outcome']['cause'])
@@ -168,7 +170,7 @@ class BookSaveCancellation(SharedStorageRuntime):
 
     def test_summary_cursor_preserves_distinct_same_title_cards(self):
         self.open_runtime()
-        result=self.page.evaluate("""async()=>{
+        result=self.page.evaluate(reader_fixture("""async()=>{
           const {database}=await import('/reader-web/src/lib/data/store.ts');
           const {BrowserStorageHandler}=await import('/reader-web/src/lib/data/storage/handler/browser-handler.ts');
           const {StorageKey}=await import('/reader-web/src/lib/data/storage/storage-types.ts');
@@ -184,7 +186,7 @@ class BookSaveCancellation(SharedStorageRuntime):
           };
           try{cards=await handler.getBookList();}finally{IDBObjectStore.prototype.getAll=original;}
           return {ids,usedGetAll,cards:cards.map(({id,title,contentHash})=>({id,title,contentHash}))};
-        }""")
+        }"""))
         self.assertFalse(result['usedGetAll'])
         self.assertEqual(result['ids'],[card['id'] for card in result['cards']])
         self.assertEqual(['a'*64,'b'*64],[card['contentHash'] for card in result['cards']])
@@ -193,7 +195,7 @@ class BookSaveCancellation(SharedStorageRuntime):
 
     def test_save_uses_one_snapshot_even_when_input_changes_during_an_image_read(self):
         self.open_runtime()
-        result=self.page.evaluate("""async()=>{
+        result=self.page.evaluate(reader_fixture("""async()=>{
           const {database}=await import('/reader-web/src/lib/data/store.ts');
           const {BrowserStorageHandler}=await import('/reader-web/src/lib/data/storage/handler/browser-handler.ts');
           const {StorageKey}=await import('/reader-web/src/lib/data/storage/storage-types.ts');
@@ -225,7 +227,7 @@ class BookSaveCancellation(SharedStorageRuntime):
             hash:saved.contentHash,html:saved.elementHtml,modified:saved.lastBookModified,
             section:saved.sections[0].characters,href:saved.publicationManifest.spine[0].href,
             image:await saved.blobs.image.text()},card:handler.titleToBookCard.get(original.title)?.id};
-        }""")
+        }"""))
         self.assertEqual(result['id'],result['savedId'])
         self.assertEqual(result['otherBefore'],result['otherAfter'])
         self.assertEqual({'title':'Snapshot original','hash':'a'*64,'html':'<p>Intended update</p>',
@@ -234,7 +236,7 @@ class BookSaveCancellation(SharedStorageRuntime):
 
     def test_save_snapshots_input_before_waiting_for_the_database(self):
         self.open_runtime()
-        result=self.page.evaluate("""async()=>{
+        result=self.page.evaluate(reader_fixture("""async()=>{
           const {database}=await import('/reader-web/src/lib/data/store.ts');
           const {DatabaseService}=await import('/reader-web/src/lib/data/database/books-db/database.service.ts');
           const {ReplicationSaveBehavior}=await import('/reader-web/src/lib/functions/replication/replication-options.ts');
@@ -245,14 +247,14 @@ class BookSaveCancellation(SharedStorageRuntime):
           incoming.title='After ready';incoming.elementHtml='<p>Later text</p>';
           ready(db);const saved=await pending,stored=await db.get('data',saved.id);
           return {saved:{title:saved.title,html:saved.elementHtml},stored:{title:stored.title,html:stored.elementHtml}};
-        }""")
+        }"""))
         expected={'title':'Before ready','html':'<p>Admitted text</p>'}
         self.assertEqual(expected,result['saved'])
         self.assertEqual(expected,result['stored'])
 
     def test_save_source_policy_and_noop_return_match_the_committed_record(self):
         self.open_runtime()
-        result=self.page.evaluate("""async()=>{
+        result=self.page.evaluate(reader_fixture("""async()=>{
           const {database}=await import('/reader-web/src/lib/data/store.ts');
           const {ReplicationSaveBehavior:behavior}=await import('/reader-web/src/lib/functions/replication/replication-options.ts');
           const db=await database.db,book={title:'Source policy',elementHtml:'<p>Source</p>',styleSheet:'',
@@ -269,14 +271,14 @@ class BookSaveCancellation(SharedStorageRuntime):
             retained:retained.storageSource??null,retainedStored:retainedStored.storageSource??null,
             updated:updated.storageSource??null,updatedStored:updatedStored.storageSource??null,
             linked:linked.storageSource??null,linkedStored:(await db.get('data',linked.id)).storageSource??null};
-        }""")
+        }"""))
         self.assertEqual({'inserted':None,'insertedStored':None,'retained':'Connected library',
                           'retainedStored':'Connected library','updated':None,'updatedStored':None,
                           'linked':'Connected library','linkedStored':'Connected library'},result)
 
     def test_save_rejects_ambiguous_same_identity_without_replacing_either_copy(self):
         self.open_runtime()
-        result=self.page.evaluate("""async()=>{
+        result=self.page.evaluate(reader_fixture("""async()=>{
           const {database}=await import('/reader-web/src/lib/data/store.ts');
           const {ReplicationSaveBehavior}=await import('/reader-web/src/lib/functions/replication/replication-options.ts');
           const db=await database.db,book={title:'Ambiguous save',contentHash:'c'.repeat(64),
@@ -290,7 +292,7 @@ class BookSaveCancellation(SharedStorageRuntime):
           await db.delete('data',second);
           const retry=await database.upsertData({...book,elementHtml:'<p>Replacement</p>'},ReplicationSaveBehavior.Overwrite);
           return {first,before,after,outcome,retry:retry.id,html:(await db.get('data',first)).elementHtml};
-        }""")
+        }"""))
         self.assertIn('multiple local copies',result['outcome'].get('message',''))
         self.assertEqual(result['before'],result['after'])
         self.assertEqual(result['first'],result['retry'])
@@ -299,7 +301,7 @@ class BookSaveCancellation(SharedStorageRuntime):
 
     def test_database_failure_is_observed_while_binary_preparation_is_pending(self):
         self.open_runtime()
-        result=self.page.evaluate("""async()=>{
+        result=self.page.evaluate(reader_fixture("""async()=>{
           const {database}=await import('/reader-web/src/lib/data/store.ts');
           const {DatabaseService}=await import('/reader-web/src/lib/data/database/books-db/database.service.ts');
           const {ReplicationSaveBehavior}=await import('/reader-web/src/lib/functions/replication/replication-options.ts');
@@ -323,7 +325,7 @@ class BookSaveCancellation(SharedStorageRuntime):
             await new Promise(resolve=>setTimeout(resolve,0));
           } finally { release(); }
           return {outcome:await pending,rows:await db.getAllKeys('data')};
-        }""")
+        }"""))
         self.assertEqual({'sameCause':True},result['outcome'])
         self.assertEqual([],result['rows'])
 

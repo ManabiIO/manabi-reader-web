@@ -16,6 +16,8 @@ from test_appearance import png
 import unittest
 from playwright.sync_api import expect
 import test_appearance_refinement as previous
+from reader_fixture import reader_fixture
+from browser_launch import launch_options
 
 
 def chaptered_epub():
@@ -232,7 +234,7 @@ class RheaReader(previous.RefinedAppearance):
         expect(panel.get_by_label('Reading font', exact=True)).to_have_value('Noto Serif JP')
         expect(panel.get_by_label('Reading line spacing', exact=True)).to_have_value('1.9')
         expect(panel.get_by_role('button', name='Ecru theme', exact=True)).to_have_attribute('aria-pressed', 'true')
-        self.assertGreater(int(self.page.evaluate('localStorage.getItem("fontSize")')), 20)
+        self.assertGreater(int(self.page.evaluate(reader_fixture('localStorage.getItem("fontSize")'))), 20)
         self.page.keyboard.press('Escape')
         self.page.get_by_role('button', name='Hide reading controls', exact=True).click()
         expect(self.page.get_by_role('banner', name='Reader toolbar')).to_have_count(0)
@@ -242,10 +244,10 @@ class RheaReader(previous.RefinedAppearance):
         panel = self.open_reading_appearance()
         panel.get_by_role('button', name='Scroll', exact=True).click()
         expect(panel.get_by_role('button', name='Scroll', exact=True)).to_have_attribute('aria-pressed', 'true')
-        self.page.wait_for_function('localStorage.getItem("viewMode") === "continuous"')
+        self.page.wait_for_function(reader_fixture('localStorage.getItem("viewMode") === "continuous"'))
         expect(self.page.locator('.book-content')).to_be_visible()
         panel.get_by_role('button', name='Pages', exact=True).click()
-        self.page.wait_for_function('localStorage.getItem("viewMode") === "paginated"')
+        self.page.wait_for_function(reader_fixture('localStorage.getItem("viewMode") === "paginated"'))
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
         panel.get_by_role('button', name='All Settings…', exact=True).click()
         expect(self.page.get_by_label('Search settings', exact=True)).to_be_visible()
@@ -254,7 +256,7 @@ class RheaReader(previous.RefinedAppearance):
         original_context, original_page = self.context, self.page
         profile = tempfile.TemporaryDirectory(prefix='reader-touch-')
         if os.environ.get('APPEARANCE_BROWSER', 'chromium') == 'webkit':
-            touch = self.playwright.webkit.launch_persistent_context(profile.name, has_touch=True, viewport={'width': 390, 'height': 844})
+            touch = self.playwright.webkit.launch_persistent_context(profile.name, **launch_options((self.playwright.webkit).name, has_touch=True, viewport={'width': 390, 'height': 844}))
         else:
             touch = self.browser.new_context(has_touch=True, viewport={'width': 390, 'height': 844})
         self.context = touch
@@ -271,7 +273,7 @@ class RheaReader(previous.RefinedAppearance):
             self.assertGreaterEqual(box['x'], 0)
             self.assertLessEqual(box['x'] + box['width'], 390)
             panel.get_by_role('button', name='Increase text size', exact=True).tap()
-            self.page.wait_for_function('localStorage.getItem("fontSize") === "21"')
+            self.page.wait_for_function(reader_fixture('localStorage.getItem("fontSize") === "21"'))
             self.page.evaluate('''() => {
               window.backdropTouchEnds = [];
               document.addEventListener('touchend', event => {
@@ -302,8 +304,8 @@ class RheaReader(previous.RefinedAppearance):
             self.context, self.page = original_context, original_page
 
     def test_contents_navigation_reflows_and_returns_focus_at_phone_and_desktop(self):
-        self.context.add_init_script("if (location.pathname.endsWith('/manage')) { localStorage.setItem('fontFamilyGroupOne', 'Klee One'); localStorage.setItem('viewMode', 'paginated'); }")
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.context.add_init_script(reader_fixture("if (location.pathname.endsWith('/manage')) { localStorage.setItem('fontFamilyGroupOne', 'Klee One'); localStorage.setItem('viewMode', 'paginated'); }"))
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name': 'chapters.epub', 'mimeType': 'application/epub+zip', 'buffer': chaptered_epub()})
@@ -345,7 +347,7 @@ class RheaReader(previous.RefinedAppearance):
             # Bookmark persistence is asynchronous. Reload only after the real
             # IndexedDB transaction commits the explicit save.
             deadline = time.monotonic() + 20
-            while not self.page.evaluate('''async started => {
+            while not self.page.evaluate(reader_fixture('''async started => {
               const db = await new Promise((resolve, reject) => {
                 const request = indexedDB.open('books');
                 request.onsuccess = () => resolve(request.result);
@@ -360,7 +362,7 @@ class RheaReader(previous.RefinedAppearance):
                 });
                 return saved?.lastBookmarkModified >= started && saved.exploredCharCount > 0;
               } finally { db.close(); }
-            }''', started):
+            }'''), started):
                 self.assertLess(time.monotonic(), deadline, 'Explicit bookmark did not commit')
                 self.page.wait_for_timeout(25)
             self.page.reload()
@@ -409,7 +411,7 @@ class RheaReader(previous.RefinedAppearance):
             'link', name=name, exact=True).click()
 
     def test_empty_library_has_keyboard_import_action(self):
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         action = self.page.get_by_role('button', name='Import files', exact=True)
         expect(action).to_be_visible()
         expect(self.page.locator('input[type=file][accept*=".epub"]')).to_be_hidden()
@@ -419,7 +421,7 @@ class RheaReader(previous.RefinedAppearance):
             action.press('Enter')
 
     def test_library_workspace_import_collection_search_and_completion(self):
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         self.page.locator('input[type=file][accept*=".epub"]').set_input_files({
             'name': 'acceptance.epub',
             'mimeType': 'application/epub+zip',
@@ -464,7 +466,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_library_overflow_is_labeled_keyboard_operable_and_mobile_sized(self):
         self.page.set_viewport_size({'width':390, 'height':844})
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         trigger = self.page.get_by_role('button', name='Library actions', exact=True)
         trigger.focus()
         trigger.press('Enter')
@@ -490,7 +492,7 @@ class RheaReader(previous.RefinedAppearance):
         expect(font).to_be_visible()
         font.fill('24')
         font.press('Tab')
-        self.assertEqual('24', self.page.evaluate('localStorage.getItem("fontSize")'))
+        self.assertEqual('24', self.page.evaluate(reader_fixture('localStorage.getItem("fontSize")')))
         self.category('Reading controls')
         search = self.page.get_by_label('Search settings', exact=True)
         search.fill('font size')
@@ -517,7 +519,7 @@ class RheaReader(previous.RefinedAppearance):
         choice.focus()
         choice.press('Enter')
         expect(self.page.get_by_role('textbox', name='Primary / Serif font', exact=True)).to_have_value('Noto Serif JP')
-        self.assertEqual('Noto Serif JP', self.page.evaluate('localStorage.getItem("fontFamilyGroupOne")'))
+        self.assertEqual('Noto Serif JP', self.page.evaluate(reader_fixture('localStorage.getItem("fontFamilyGroupOne")')))
         expect(trigger).to_be_focused()
 
     def test_dialog_traps_focus_and_escape_preserves_custom_theme(self):
@@ -562,7 +564,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.keyboard.press('Escape')
         expect(dialog).to_have_count(0)
         expect(trigger).to_be_focused()
-        self.assertNotIn('Not saved', self.page.evaluate('localStorage.getItem("customThemes") || ""'))
+        self.assertNotIn('Not saved', self.page.evaluate(reader_fixture('localStorage.getItem("customThemes") || ""')))
 
     def test_reader_tools_do_not_turn_pages_and_keep_ttu_commands(self):
         self.open_book(font='Klee One')
@@ -608,7 +610,7 @@ class RheaReader(previous.RefinedAppearance):
         expect(toolbar).to_be_visible()
 
     def test_autobookmark_does_not_dismiss_an_open_reader_menu(self):
-        self.context.add_init_script("localStorage.setItem('autoBookmarkTime', '2');")
+        self.context.add_init_script(reader_fixture("localStorage.setItem('autoBookmarkTime', '2');"))
         self.open_book(font='Klee One')
         self.wait_for_fonts()
         started = self.page.evaluate('Date.now()')
@@ -621,7 +623,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.keyboard.press('ArrowDown')
         # Observe the actual scheduled bookmark commit; no synthetic bookmark or
         # timeout used to suppress an autosave. The menu must survive that commit.
-        self.page.wait_for_function('''async (started) => {
+        self.page.wait_for_function(reader_fixture('''async (started) => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('books');
             request.onsuccess = () => resolve(request.result);
@@ -636,7 +638,7 @@ class RheaReader(previous.RefinedAppearance):
             });
             return data?.lastBookmarkModified >= started && data.exploredCharCount > 0;
           } finally { db.close(); }
-        }''', arg=started, timeout=15000)
+        }'''), arg=started, timeout=15000)
         expect(menu).to_be_visible()
         self.assertTrue(menu.evaluate('e => e.contains(document.activeElement)'))
         self.page.keyboard.press('Escape')
@@ -660,7 +662,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_library_sort_and_export_preserve_all_export_parts(self):
         self.open_book(font='Klee One')
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         self.page.get_by_role('button', name='Library actions', exact=True).click()
         self.page.get_by_role('menuitem', name='View Options', exact=True).hover()
         self.page.get_by_role('menuitem', name='Sort by…', exact=True).hover()
@@ -711,7 +713,7 @@ class RheaReader(previous.RefinedAppearance):
         # Read the real IndexedDB records after the reader's bookmark transaction
         # completes; these provide the expected values and the immutability check.
         def read_records(identifier=book_id):
-            return self.page.evaluate('''async id => {
+            return self.page.evaluate(reader_fixture('''async id => {
               const db = await new Promise((resolve, reject) => {
                 const request = indexedDB.open('books');
                 request.onsuccess = () => resolve(request.result);
@@ -728,7 +730,7 @@ class RheaReader(previous.RefinedAppearance):
                 ));
                 return { book, bookmark };
               } finally { db.close(); }
-            }''', identifier)
+            }'''), identifier)
 
         deadline = time.monotonic() + 20
         while True:
@@ -752,7 +754,7 @@ class RheaReader(previous.RefinedAppearance):
 
         screenshot_dir = os.environ.get('BOOK_DETAILS_SCREENSHOT_DIR')
         self.page.set_viewport_size({'width': 390, 'height': 844})
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute('aria-busy', 'false')
         for width, height, view in ((390, 844, 'Grid'), (390, 844, 'List'), (1440, 900, 'Grid'), (1440, 900, 'List')):
             with self.subTest(width=width, view=view):
@@ -797,7 +799,7 @@ class RheaReader(previous.RefinedAppearance):
             'buffer': renamed_epub(unstarted_title)
         })
         self.page.get_by_role('button', name='Read ' + unstarted_title, exact=True).wait_for()
-        unstarted_id = self.page.evaluate('''async title => {
+        unstarted_id = self.page.evaluate(reader_fixture('''async title => {
           const db = await new Promise((resolve, reject) => {
             const request = indexedDB.open('books');
             request.onsuccess = () => resolve(request.result);
@@ -811,7 +813,7 @@ class RheaReader(previous.RefinedAppearance):
             });
             return rows.find(row => row.title === title)?.id;
           } finally { db.close(); }
-        }''', unstarted_title)
+        }'''), unstarted_title)
         self.assertIsNotNone(unstarted_id)
         self.page.get_by_role('button', name='Actions for ' + unstarted_title, exact=True).click()
         self.page.get_by_role('menuitem', name='Book Details', exact=True).click()
@@ -829,7 +831,7 @@ class RheaReader(previous.RefinedAppearance):
 
     def test_statistics_filter_is_one_focus_managed_sheet(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
-        self.page.goto(self.origin + '/reader-web/statistics')
+        self.page.goto(self.origin + reader_fixture('/reader-web/statistics'))
         expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         trigger = self.page.get_by_role('button', name='Filter books', exact=True)
         trigger.click()
@@ -876,7 +878,7 @@ class RheaReader(previous.RefinedAppearance):
         self.settings()
         self.category('Tracking & goals')
         self.page.get_by_role('switch', name='Enable Statistics', exact=True).check()
-        self.assertEqual('1', self.page.evaluate('localStorage.getItem("statisticsEnabled")'))
+        self.assertEqual('1', self.page.evaluate(reader_fixture('localStorage.getItem("statisticsEnabled")')))
         self.page.set_viewport_size({'width': 390, 'height': 844})
         self.open_book(font='Klee One')
         trigger = self.page.get_by_role('button', name='Open reading tracker', exact=True)
@@ -972,8 +974,8 @@ class RheaReader(previous.RefinedAppearance):
                 target.writestr(name, value)
             target.writestr('second.png', png([24,100,146], 500, 700))
         values = {'fontFamilyGroupOne':'Klee One', 'hideSpoilerImage': '1' if hide_spoilers else '0'}
-        self.context.add_init_script('for (const [key, value] of Object.entries(' + json.dumps(values) + ')) localStorage.setItem(key, value);')
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.context.add_init_script('for (const [key, value] of Object.entries(' + json.dumps(values) + reader_fixture(')) localStorage.setItem(key, value);'))
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name':'gallery.epub', 'mimeType':'application/epub+zip', 'buffer':output.getvalue()
@@ -1047,7 +1049,7 @@ class RheaReader(previous.RefinedAppearance):
         self.page.keyboard.press('Escape')
 
     def test_statistics_navigation_and_options_sheet(self):
-        self.page.goto(self.origin + '/reader-web/statistics')
+        self.page.goto(self.origin + reader_fixture('/reader-web/statistics'))
         expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         self.page.get_by_role('button', name='Heatmap', exact=True).click()
         expect(self.page.get_by_role('button', name='Heatmap', exact=True)).to_have_attribute('aria-pressed','true')
@@ -1060,13 +1062,13 @@ class RheaReader(previous.RefinedAppearance):
         expect(panel).to_have_count(0)
 
     def test_statistics_raw_recovery_download_preserves_ambiguous_days(self):
-        self.page.goto(self.origin + '/reader-web/statistics')
+        self.page.goto(self.origin + reader_fixture('/reader-web/statistics'))
         expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         expect(self.page.get_by_role('button', name='Statistics options', exact=True)).to_be_visible()
         # The header can render before the application's database upgrade. A
         # bare open here would create an empty v1 database if it wins that race.
         # Observe the real schema, never create or upgrade it from this fixture.
-        self.page.wait_for_function('''() => new Promise((resolve, reject) => {
+        self.page.wait_for_function(reader_fixture('''() => new Promise((resolve, reject) => {
           const open = indexedDB.open('books');
           let absent = false;
           open.onupgradeneeded = () => { absent = true; open.transaction.abort(); };
@@ -1078,8 +1080,8 @@ class RheaReader(previous.RefinedAppearance):
             db.close();
             resolve(ready);
           };
-        })''')
-        self.page.evaluate('''() => new Promise((resolve, reject) => {
+        })'''))
+        self.page.evaluate(reader_fixture('''() => new Promise((resolve, reject) => {
           const deadline = setTimeout(() => reject(new Error('Statistics seed transaction stalled')), 15000);
           const open = indexedDB.open('books');
           open.onerror = () => { clearTimeout(deadline); reject(open.error); };
@@ -1103,7 +1105,7 @@ class RheaReader(previous.RefinedAppearance):
             tx.onerror = () => { clearTimeout(deadline); db.close(); reject(tx.error); };
             tx.onabort = () => { clearTimeout(deadline); db.close(); reject(tx.error); };
           };
-        })''')
+        })'''))
         self.page.reload()
         self.page.get_by_role('button', name='Statistics options', exact=True).click()
         self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()

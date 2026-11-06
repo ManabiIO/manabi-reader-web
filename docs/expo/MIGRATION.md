@@ -13,7 +13,7 @@ This branch is one deliberately large, **unmerged draft PR**. It replaces active
 
 ## Platform boundary
 
-- Expo SDK **58.0.16**, React **19.3.0**, React Native **0.88.0**, Expo UI **58.0.21** and Router **58.0.24**. Windows is deferred; its renderer no longer constrains the web/Android version choice.
+- Expo SDK **58.0.23**, React **19.3.0**, React Native **0.88.1**, Expo UI **58.0.27** and Router **58.0.30**. Windows is deferred; its renderer no longer constrains the web/Android version choice.
 - `app.config.ts` admits **Android and web only**. Scripts generate/export Android explicitly. There are no Expo iOS, macOS, Windows, or Linux application targets. Existing native Apple applications remain separate.
 - Route entries live in `src/app` and re-export screens outside that directory. Both Statistics entries now select the same shared screen/controller. Other nonreader presentations remain temporarily duplicated and must converge; platform file selection alone is not shared UI. Executable graph tests use the installed Expo DOM transform and positively check the common Statistics composition on both platforms while excluding browser owners from the Android shell.
 - Expo Router owns the application routes on Android and web. The deployed web prefix remains `/reader-web` (or an explicit `BASE_PATH`), and the existing route/query shapes remain the compatibility contract.

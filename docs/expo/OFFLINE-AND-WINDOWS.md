@@ -18,7 +18,7 @@ is not the app being developed here.
 | Android | Expo app, Expo UI controls, one embedded DOM storage/reader owner             | APK, device, accessibility and offline restart acceptance remain required |
 
 After restoring the pre-desktop baseline, the application advances to Expo
-**58.0.16**, React Native **0.88.0**, React **19.3.0**. There is no native desktop
+**58.0.23**, React Native **0.88.1**, React **19.3.0**. There is no native desktop
 version constraint. See the [upgrade qualification](MIGRATION.md#october-20-sdk-58-upgrade).
 
 Expo UI documents universal Android/iOS/web controls, without a Windows native

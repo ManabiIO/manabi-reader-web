@@ -18,6 +18,7 @@ from test_books_library import LibraryBase, book
 from test_static_reader import StaticHandler, ThreadingHTTPServer
 from test_library_cloud_relocation import CloudRelocationHandler, GOOGLE, DROPBOX
 from reader_controls import reveal_reader_controls
+from reader_fixture import reader_fixture
 
 
 class LibraryParityBrowser(LibraryBase):
@@ -257,7 +258,7 @@ class LibraryParityBrowser(LibraryBase):
         StaticHandler.account_requests = []
         StaticHandler.preference_revision = 0
         StaticHandler.preference_settings = {}
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         self.page.get_by_label('Sync reader settings with this Manabi account', exact=True).check()
         status = self.page.get_by_role('status', name='Settings sync status')
         expect(status).to_contain_text('synced')
@@ -266,7 +267,7 @@ class LibraryParityBrowser(LibraryBase):
         self.dialog().get_by_label('Publisher', exact=True).fill('Synced publisher')
         self.dialog().get_by_role('button', name='Save', exact=True).click()
         expect(self.dialog()).to_have_count(0)
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         self.page.get_by_role('button', name='Sync settings now', exact=True).click()
         expect(status).to_contain_text('synced')
         preferences = [request for request in StaticHandler.account_requests
@@ -325,7 +326,7 @@ class LibraryParityBrowser(LibraryBase):
         other = self.context.new_page()
         other.on('pageerror', lambda error: self.errors.append(str(error)))
         try:
-            other.goto(self.origin + '/reader-web/manage')
+            other.goto(self.origin + reader_fixture('/reader-web/manage'))
             other.get_by_role('button', name='Actions for Parity 0', exact=True).click()
             other.get_by_role('menuitem', name='Edit Metadata…', exact=True).click()
             editor = other.locator('[data-slot="dialog-content"]')
@@ -353,7 +354,7 @@ class LibraryParityBrowser(LibraryBase):
         self.assertIn('series=', series_url)
         prior_length = self.page.evaluate('history.length')
         self.page.get_by_role('button', name='Start Reading Parity 0', exact=True).click()
-        expect(self.page).to_have_url(re.compile(r'/reader-web/b\?id='))
+        expect(self.page).to_have_url(re.compile(reader_fixture(r'/reader-web/b\?id=')))
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
         reveal_reader_controls(self.page).get_by_role('button', name='Library', exact=True).click()
         expect(self.page).to_have_url(series_url)
@@ -617,7 +618,7 @@ class LibraryPreferenceParityBrowser(LibraryBase):
         panel.get_by_label('Blur cover',exact=True).check()
         panel.get_by_role('button',name='Save',exact=True).click()
         expect(panel).to_have_count(0)
-        self.page.goto(self.origin + '/reader-web/connections')
+        self.page.goto(self.origin + reader_fixture('/reader-web/connections'))
         self.page.get_by_label('Sync reader settings with this Manabi account',exact=True).check()
         status = self.page.get_by_role('status',name='Settings sync status')
         expect(status).to_contain_text('book metadata saved locally',timeout=15000)

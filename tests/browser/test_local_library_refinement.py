@@ -8,6 +8,7 @@ from playwright.sync_api import expect
 from reader_controls import reveal_reader_controls
 from test_local_library_features import LocalFeatureBrowser, DavHandler, TITLE
 from test_local_library_review import LocalLibraryReview
+from reader_fixture import reader_fixture
 
 
 class LocalLibraryRefinement(LocalFeatureBrowser):
@@ -143,7 +144,7 @@ class LocalLibraryRefinement(LocalFeatureBrowser):
         self.import_book('Cache write failure', body='<p>CACHE_ABORT_NEEDLE 日本語</p>')
         # Admit only Books before injecting the failure. Changing from Everything
         # after submitting can finish two legitimate projection attempts.
-        self.page.goto(self.origin + '/reader-web/manage?scope=books')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage?scope=books'))
         expect(self.page.get_by_role('region', name='Library shelves')).to_have_attribute(
             'data-hydrated', 'true', timeout=30000)
         self.page.evaluate("""() => {

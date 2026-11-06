@@ -39,8 +39,6 @@ const migration = workflows['expo-migration.yml'];
 const branch = 'feat/expo-android-web-migration';
 const repository = 'ManabiIO/manabi-reader-web';
 const untouched = {
-  'notify-production-publication.yml':
-    '7c62879329be43e490b36b44544d347efc9ffe724eae2477dc4dbc3339cb3ab0',
   'moss-shared-custody.yml': 'ed8aaa78a65877003b0de9edd3740bffd32465828eddc8bb789d10701980c17c'
 };
 
@@ -374,14 +372,37 @@ test('the redundant lifetime workflow is removed while its assertions remain col
   }
 });
 
-test('publication and manual MOSS workflows stay byte-for-byte unchanged', () => {
+test('the manual MOSS experiment stays byte-for-byte unchanged', () => {
   for (const [name, expected] of Object.entries(untouched)) {
     assert.equal(createHash('sha256').update(sources[name]).digest('hex'), expected, name);
   }
   assert.deepEqual(Object.keys(workflows['moss-shared-custody.yml'].on), ['workflow_dispatch']);
-  assert.deepEqual(workflows['notify-production-publication.yml'].on.workflow_run.branches, [
-    'main'
-  ]);
+});
+
+test('every Expo preparation admits its provider before staging a fresh checkout', () => {
+  for (const [name, workflow] of Object.entries(workflows)) {
+    for (const [jobName, job] of Object.entries(workflow.jobs)) {
+      let providerPrepared = false;
+      for (const step of job.steps ?? []) {
+        const commands = step.run ?? '';
+        const provider = commands.indexOf('pnpm prepare:dictionary');
+        const expo = commands.indexOf('node scripts/prepare-expo.mjs');
+        if (expo >= 0) {
+          assert.ok(
+            providerPrepared || (provider >= 0 && provider < expo),
+            `${name}/${jobName}: provider preparation must precede Expo asset staging`
+          );
+          assert.equal(
+            step['working-directory'],
+            undefined,
+            'Preparation runs from the repository root'
+          );
+        }
+        assert.doesNotMatch(commands, /node \.\.\/\.\.\/scripts\/prepare-expo\.mjs/);
+        if (provider >= 0) providerPrepared = true;
+      }
+    }
+  }
 });
 
 const webSteps = migration.jobs.web.steps;

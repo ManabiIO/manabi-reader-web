@@ -134,3 +134,34 @@ test('edition identity and resource names are fixed at build time', async () => 
     /Invalid Reader storage namespace/
   );
 });
+
+test('Reader media, profile and search consumers share only their edition database', async () => {
+  const idb = new IDBFactory();
+  const { MediaStore } = await load('apps/web/src/lib/media/store.ts', 'manabitan');
+  const publicFactory = (await load('apps/web/src/lib/media/reader-store.ts', 'manabitan'))
+    .createReaderMediaStore;
+  const privateFactory = (await load('apps/web/src/lib/media/reader-store.ts', 'manabi'))
+    .createReaderMediaStore;
+  const legacy = new MediaStore(idb, 'manabi-media-v1');
+  const publicMedia = publicFactory(idb),
+    publicSearch = publicFactory(idb),
+    privateMedia = privateFactory(idb);
+  try {
+    await legacy.putLocal('guest', 'fixture', 'same-id', 'untouched development data');
+    await publicMedia.putLocal('guest', 'fixture', 'same-id', 'public media');
+    assert.equal(await publicSearch.local('guest', 'fixture', 'same-id'), 'public media');
+    assert.equal(await privateMedia.local('guest', 'fixture', 'same-id'), undefined);
+    await privateMedia.putLocal('guest', 'fixture', 'same-id', 'private media');
+    assert.equal(await publicSearch.local('guest', 'fixture', 'same-id'), 'public media');
+    assert.equal(await legacy.local('guest', 'fixture', 'same-id'), 'untouched development data');
+    assert.deepEqual((await idb.databases()).map((database) => database.name).sort(), [
+      'manabi-media-v1',
+      'manabi-reader-v1:manabi-media-v1',
+      'manabitan-reader-v1:manabi-media-v1'
+    ]);
+  } finally {
+    await Promise.all(
+      [legacy, publicMedia, publicSearch, privateMedia].map((store) => store.close())
+    );
+  }
+});

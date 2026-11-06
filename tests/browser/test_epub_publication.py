@@ -7,6 +7,8 @@ import unittest
 import zipfile
 from playwright.sync_api import expect, sync_playwright
 from test_static_reader import ReaderBrowser, StaticHandler, ThreadingHTTPServer
+from reader_fixture import reader_fixture
+from browser_launch import launch_options
 
 P = "document.querySelector('foliate-paginator')"
 TITLE = 'Resource EPUB acceptance'
@@ -140,7 +142,7 @@ class EpubPublicationBrowser(ReaderBrowser):
         cls.thread.start()
         cls.origin = 'http://127.0.0.1:' + str(cls.server.server_port)
         cls.playwright = sync_playwright().start()
-        cls.browser = getattr(cls.playwright, os.environ.get('SLIDE_BROWSER', 'chromium')).launch()
+        cls.browser = getattr(cls.playwright, os.environ.get('SLIDE_BROWSER', 'chromium')).launch(**launch_options((getattr(cls.playwright, os.environ.get('SLIDE_BROWSER', 'chromium'))).name))
 
     def open_resource_book(self, view='paginated', malformed=False, payload=None):
         settings = {
@@ -148,8 +150,8 @@ class EpubPublicationBrowser(ReaderBrowser):
             'hideFurigana': 'false', 'hideSpoilerImage': 'false'
         }
         self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') {'
-            'for (const [key,value] of Object.entries(' + json.dumps(settings) + ')) localStorage.setItem(key,value);}')
-        self.page.goto(self.origin + '/reader-web/manage')
+            'for (const [key,value] of Object.entries(' + json.dumps(settings) + reader_fixture(')) localStorage.setItem(key,value);}'))
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name': 'resources.epub', 'mimeType': 'application/epub+zip', 'buffer': resource_epub(malformed) if payload is None else payload
@@ -221,12 +223,12 @@ class EpubPublicationBrowser(ReaderBrowser):
 
     def test_fixed_layout_epub_is_rejected_instead_of_reflowed(self):
         self.context.add_init_script(
-            "localStorage.setItem('manabi-dev-foliate-epub','true');"
-            "localStorage.setItem('viewMode','paginated')"
+            reader_fixture("localStorage.setItem('manabi-dev-foliate-epub','true');"
+            "localStorage.setItem('viewMode','paginated')")
         )
         for spine_override in (False, True):
             with self.subTest(spine_override=spine_override):
-                self.page.goto(self.origin + '/reader-web/manage')
+                self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
                 expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
                 self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
                     'name': 'fixed.epub',
@@ -253,7 +255,7 @@ class EpubPublicationBrowser(ReaderBrowser):
         self.check_numeric_repair('continuous')
 
     def check_numeric_repair(self, view):
-        self.context.add_init_script("localStorage.setItem('importHTMLFixMode', 'Extended')")
+        self.context.add_init_script(reader_fixture("localStorage.setItem('importHTMLFixMode', 'Extended')"))
         self.open_resource_book(view=view, payload=numeric_epub())
         for reload in (False, True):
             if reload:
@@ -288,7 +290,7 @@ class EpubPublicationBrowser(ReaderBrowser):
                 elif entry.filename == 'EPUB/one.xhtml':
                     data = data.replace(b'<ruby>', 'SECOND PUBLICATION <ruby>'.encode(), 1)
                 target.writestr(entry, data)
-        self.page.goto(self.origin + '/reader-web/manage')
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name':'second.epub','mimeType':'application/epub+zip','buffer':output.getvalue()
@@ -323,14 +325,14 @@ class EpubPublicationBrowser(ReaderBrowser):
         self.assertEqual([], self.errors)
 
     def metadata(self):
-        return self.page.evaluate('''() => new Promise((resolve,reject) => {
+        return self.page.evaluate(reader_fixture('''() => new Promise((resolve,reject) => {
           const open=indexedDB.open('books');open.onerror=()=>reject(open.error);
           open.onsuccess=()=>{const db=open.result;const tx=db.transaction('data');
             const read=tx.objectStore('data').getAll();read.onerror=()=>reject(read.error);
             read.onsuccess=()=>{const b=read.result.find(b=>b.title==='Resource EPUB acceptance');db.close();
               resolve({sourceFormat:b.sourceFormat,manifest:b.publicationManifest,
                 publication:b.epubPublication,html:b.elementHtml,sections:b.sections});};};
-        })''')
+        })'''))
 
     def color(self):
         return self.page.evaluate(f"() => {{const doc={P}.getContents()[0].doc;return doc.defaultView.getComputedStyle(doc.querySelector('.text')).color}}")
@@ -400,24 +402,24 @@ class EpubPublicationBrowser(ReaderBrowser):
         self.open_book(foliate=True, include_images=False)
         self.page.evaluate(f"async()=>{{const p={P};for(let i=0;i<3;i++){{const t=await p.preparePageTurn(1);if(t)t.commit();}}}}")
         self.page.keyboard.press('b')
-        self.page.wait_for_function('''() => new Promise(resolve=>{
+        self.page.wait_for_function(reader_fixture('''() => new Promise(resolve=>{
           const open=indexedDB.open('books');open.onsuccess=()=>{const db=open.result;
             const read=db.transaction('bookmark').objectStore('bookmark').getAll();
             read.onsuccess=()=>{db.close();resolve(read.result.some(b=>b.exploredCharCount>0));};};
-        })''')
-        saved = self.page.evaluate('''() => new Promise((resolve,reject)=>{
+        })'''))
+        saved = self.page.evaluate(reader_fixture('''() => new Promise((resolve,reject)=>{
           const open=indexedDB.open('books');open.onerror=()=>reject(open.error);open.onsuccess=()=>{
             const db=open.result;const tx=db.transaction(['data','bookmark'],'readwrite');
             const read=tx.objectStore('data').openCursor();read.onsuccess=()=>{const c=read.result;if(!c)return;
               const value=c.value;delete value.epubPublication;c.update(value);c.continue();};
             const marks=tx.objectStore('bookmark').getAll();
             tx.oncomplete=()=>{db.close();resolve(marks.result);};tx.onabort=()=>reject(tx.error);};
-        })''')
+        })'''))
         self.page.reload()
         self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('ruby')")
-        actual = self.page.evaluate('''() => new Promise(resolve=>{const open=indexedDB.open('books');
+        actual = self.page.evaluate(reader_fixture('''() => new Promise(resolve=>{const open=indexedDB.open('books');
           open.onsuccess=()=>{const db=open.result;const q=db.transaction('bookmark').objectStore('bookmark').getAll();
-            q.onsuccess=()=>{db.close();resolve(q.result);};};})''')
+            q.onsuccess=()=>{db.close();resolve(q.result);};};})'''))
         self.assertEqual(saved, actual)
 
 

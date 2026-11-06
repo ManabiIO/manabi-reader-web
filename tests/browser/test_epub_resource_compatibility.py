@@ -11,6 +11,7 @@ import zipfile
 from playwright.sync_api import expect
 from test_epub_publication import EpubPublicationBrowser, resource_epub, TITLE
 from test_static_reader import StaticHandler
+from reader_fixture import reader_fixture
 
 
 def identical_spine_epub():
@@ -33,8 +34,8 @@ class ResourceCompatibilityBrowser(EpubPublicationBrowser):
         settings = {'manabi-dev-foliate-epub':'false', 'viewMode':'paginated',
                     'writingMode':'horizontal-tb', 'hideFurigana':'false', 'hideSpoilerImage':'false'}
         self.context.add_init_script('if (location.origin === ' + json.dumps(self.origin) + ') {'
-            'for (const [key,value] of Object.entries(' + json.dumps(settings) + ')) localStorage.setItem(key,value);}')
-        self.page.goto(self.origin + '/reader-web/manage')
+            'for (const [key,value] of Object.entries(' + json.dumps(settings) + reader_fixture(')) localStorage.setItem(key,value);}'))
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
         expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
         self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
             'name':'resources.epub', 'mimeType':'application/epub+zip',

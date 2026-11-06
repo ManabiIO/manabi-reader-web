@@ -12,6 +12,7 @@ import wave
 from playwright.sync_api import sync_playwright, expect
 from test_static_reader import ThreadingHTTPServer
 import test_whispersync as existing
+from browser_launch import launch_options
 
 OUTPUT = Path('test-results/voice-pitch-app')
 GAPPED_CAPTIONS = '''1
@@ -67,7 +68,7 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
         launch = {'headless': True}
         if existing.BROWSER_OPTIONS.executable:
             launch['executable_path'] = existing.BROWSER_OPTIONS.executable
-        cls.browser = getattr(cls.playwright, existing.BROWSER_OPTIONS.browser).launch(**launch)
+        cls.browser = getattr(cls.playwright, existing.BROWSER_OPTIONS.browser).launch(**launch_options((getattr(cls.playwright, existing.BROWSER_OPTIONS.browser)).name, **launch))
         cls.wav = voice_fixture()
 
     def setUp(self):
