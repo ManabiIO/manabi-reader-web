@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  loadVerifiedRuntimeAsset,
+  verifiedRuntimeCacheName
+} from '../../apps/web/src/lib/service-worker/verified-runtime-assets.mjs';
+import { createHash } from 'node:crypto';
+import { Buffer } from 'node:buffer';
+import {
   registerReaderServiceWorker,
   isShellAsset,
   isPackagedFont,
@@ -296,6 +302,31 @@ test('runtime cache refuses HTML, wrong MIME, redirects and failed responses, in
   );
   assert.equal(await body(await h.request(key)), 'valid');
   assert.equal(await body(await cache.match(key)), 'valid');
+});
+
+test('activation serves first-page verified tools without claiming that page or reading foreign caches', async () => {
+  const scope = url('/reader/'),
+    asset = url('/reader/engine/runtime.js'),
+    other = url('/reader/engine/other.js');
+  const h = makeHarness({ scope, optionalRuntimeAssets: [asset, other] });
+  const value = 'first-page actual bytes';
+  await loadVerifiedRuntimeAsset(
+    scope,
+    asset,
+    { sha256: createHash('sha256').update(value).digest('hex'), bytes: Buffer.byteLength(value) },
+    { storage: h.storage, fetch: async () => new Response(value) }
+  );
+  await (
+    await h.storage.open(verifiedRuntimeCacheName(url('/foreign/')))
+  ).put(other, new Response('foreign', { headers: { 'Content-Type': 'text/javascript' } }));
+  await h.event('activate');
+  h.setFetch(async () => {
+    throw new Error('offline');
+  });
+  assert.equal(await body(await h.request(asset)), value);
+  assert.equal(h.fetched.length, 0);
+  assert.equal((await h.request(other)).status, 503);
+  assert.equal(h.request('/reader/engine/undeclared.js'), undefined);
 });
 
 test('runtime storage denial and quota leave the network response usable', async () => {
