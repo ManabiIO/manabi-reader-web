@@ -88,11 +88,17 @@ class FixtureHandler(BaseHTTPRequestHandler):
         mime = 'text/javascript'
         status = 200
         if path == SCOPE + 'service-worker.js':
-            status_source = (ROOT / 'apps/web/src/lib/service-worker/offline-status.mjs').read_text()
-            worker_source = (ROOT / 'apps/web/src/lib/service-worker/reader-service-worker.mjs').read_text()
-            worker_source, imports = re.subn(
-                r"import\s*\{[^}]+\}\s*from './offline-status.mjs';", '', worker_source)
-            assert imports == 1, 'The fixture must inline the real worker dependency exactly once'
+            source_root = ROOT / 'apps/web/src/lib/service-worker'
+            worker_source = (source_root / 'reader-service-worker.mjs').read_text()
+            dependencies = []
+            for name in ['offline-status.mjs', 'verified-runtime-assets.mjs']:
+                dependencies.append((source_root / name).read_text())
+                worker_source, imports = re.subn(
+                    r"import\s*\{[^}]+\}\s*from '" + re.escape('./' + name) + r"';",
+                    '', worker_source)
+                assert imports == 1, f'The fixture must inline {name} exactly once'
+            assert not re.search(r'^\s*import\b', worker_source, re.MULTILINE), (
+                'The classic worker fixture must inline all real module dependencies')
             config = {
                 'build': [SCOPE + 'app-' + version + '.js', SCOPE + 'offline-status.mjs'],
                 'files': [
@@ -107,7 +113,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
             }
             # Concatenate the exact dependency/worker modules into a classic
             # worker so Firefox does not require module-service-worker support.
-            body = (status_source + '\n' + worker_source).replace('export ', '')
+            body = '\n'.join([*dependencies, worker_source]).replace('export ', '')
             body += '\nregisterReaderServiceWorker(self, ' + json.dumps(config) + ');'
             headers['Cache-Control'] = 'no-store'
         elif path == SCOPE + 'offline-status.mjs':

@@ -57,6 +57,7 @@ try {
     [
       '--test',
       fileURLToPath(new URL('./service-worker.test.mjs', import.meta.url)),
+      fileURLToPath(new URL('./verified-runtime-assets.test.mjs', import.meta.url)),
       archive,
       restored,
       localMedia,

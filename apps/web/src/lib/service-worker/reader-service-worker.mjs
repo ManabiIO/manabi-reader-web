@@ -11,6 +11,7 @@ import {
   isUsableShellResponse,
   OFFLINE_STATUS_REQUEST
 } from './offline-status.mjs';
+import { verifiedRuntimeCacheName } from './verified-runtime-assets.mjs';
 
 /**
  * Register Reader's static application-shell worker. Cache ownership includes
@@ -261,6 +262,17 @@ export function registerReaderServiceWorker(worker, config) {
       if (isUsableRuntimeResponse(saved, key)) return saved;
     } catch {
       /* Online use can continue when optional storage is unavailable. */
+    }
+    // A user may have loaded verified tools before this worker controlled the
+    // first document. Read only that registration's explicitly persisted assets.
+    try {
+      const name = verifiedRuntimeCacheName(scope);
+      if ((await storage.keys()).includes(name)) {
+        const saved = await (await storage.open(name)).match(key);
+        if (isUsableRuntimeResponse(saved, key)) return saved;
+      }
+    } catch {
+      /* An optional cache failure still permits a network retry. */
     }
     let response;
     try {

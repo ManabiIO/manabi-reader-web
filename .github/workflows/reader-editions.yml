@@ -42,7 +42,8 @@ jobs:
       - run: pnpm test:dictionary-boundary && pnpm test:edition
       - run: pnpm build
       - run: node scripts/verify-expo-export.mjs --platform web --output apps/web/build
-      - run: python -m pip install 'playwright==1.63.0' && python -m playwright install --with-deps chromium webkit
+      - run: python -m pip install 'playwright==1.64.1' && python -m playwright install --with-deps chromium webkit
       - run: python tests/browser/test_reader_editions.py
+      - run: python tests/browser/test_verified_runtime_assets.py
       # Qualification stays on its producing revision. No automatic publication,
       # private checkout, cache save or remote artifact upload occurs here.
