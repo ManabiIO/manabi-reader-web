@@ -35,32 +35,36 @@ export function BookReader(props: Partial<BookReaderProps> & ReaderViewProps) {
   if (!c) return null;
   if (language.error || language.loading)
     return (
-      <Dom as="div" className="mx-auto max-w-xl space-y-4 p-6">
-        {language.error ? (
-          <>
-            <Dom as="p" role="alert">
-              {language.error}
+      <ReaderScope name="react-reader-book-reader">
+        <Dom as="div" className="reader-page-frame">
+          <Dom as="div" className="mx-auto max-w-xl space-y-4" data-reader-language-recovery="">
+            {language.error ? (
+              <>
+                <Dom as="p" role="alert">
+                  {language.error}
+                </Dom>
+                {language.canReadOriginal ? (
+                  <Dom as="p">You can read the original text without language analysis.</Dom>
+                ) : null}
+              </>
+            ) : (
+              <Dom as="p" role="status">
+                {language.original ? 'Opening original text…' : 'Opening language tools…'}
+              </Dom>
+            )}
+            <Dom as="div" className="flex flex-wrap gap-3">
+              {language.error ? (
+                <ActionButton onPress={language.retry}>Retry language tools</ActionButton>
+              ) : null}
+              {language.canReadOriginal ? (
+                <ActionButton variant="outline" onPress={language.readOriginal}>
+                  Read original text
+                </ActionButton>
+              ) : null}
             </Dom>
-            {language.canReadOriginal ? (
-              <Dom as="p">You can read the original text without language analysis.</Dom>
-            ) : null}
-          </>
-        ) : (
-          <Dom as="p" role="status">
-            {language.original ? 'Opening original text…' : 'Opening language tools…'}
           </Dom>
-        )}
-        <Dom as="div" className="flex flex-wrap gap-3">
-          {language.error ? (
-            <ActionButton onPress={language.retry}>Retry language tools</ActionButton>
-          ) : null}
-          {language.canReadOriginal ? (
-            <ActionButton variant="outline" onPress={language.readOriginal}>
-              Read original text
-            </ActionButton>
-          ) : null}
         </Dom>
-      </Dom>
+      </ReaderScope>
     );
   if (language.book?.hasAnalysis && c.useFoliatePaginator)
     return (
