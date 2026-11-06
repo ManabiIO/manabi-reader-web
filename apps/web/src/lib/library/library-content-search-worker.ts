@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { storageName } from '../../runtime/edition';
+
 import { openDB } from 'idb';
 import {
   findContent,
@@ -50,7 +52,7 @@ async function search(request: SearchRequest) {
   const emit = (message: Record<string, unknown>) => {
     if (!cancelled()) self.postMessage({ ...message, requestId: request.requestId });
   };
-  const db = await openDB('books', undefined, {
+  const db = await openDB(storageName('books'), undefined, {
     upgrade(db, _old, _new, tx) {
       tx.abort();
     },

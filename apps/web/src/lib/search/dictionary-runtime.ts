@@ -6,6 +6,7 @@
 
 import { openDictionaryProvider } from './dictionary-provider-selection';
 import type { DictionaryRuntime } from './dictionary-provider';
+import { validateDictionaryRuntime } from './validate-dictionary-provider';
 
 export type {
   DictionaryPreview,
@@ -21,7 +22,18 @@ let leases = 0;
 
 async function open(): Promise<DictionaryRuntime> {
   await retirement;
-  return openDictionaryProvider();
+  const runtime = await openDictionaryProvider();
+  try {
+    validateDictionaryRuntime(runtime);
+    return runtime;
+  } catch (error) {
+    try {
+      await runtime?.client?.close?.();
+    } catch {
+      /* Preserve admission failure. */
+    }
+    throw error;
+  }
 }
 
 /** One local-storage owner per tab; retiring owners finish before a new one opens. */

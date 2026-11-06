@@ -117,7 +117,7 @@ for (const strict of [false, true]) {
   await settle(() => !library.loading && !workspace.scanning, 'cold IndexedDB work completes');
   assert.match(container.textContent, /No books in your library/);
   assert.equal(document.querySelectorAll('#manabi-packaged-fonts').length, 1);
-  assert.ok(requests.includes('/api/reader-web/session/'));
+  assert.ok(requests.includes('/api/reader-web/session/?edition=manabitan'));
 
   // Anchor destinations must work independently of Expo's primary-click routing:
   // native gestures and copied links use the DOM href, including its query/hash.
@@ -264,7 +264,9 @@ for (const strict of [false, true]) {
   );
   assert.deepEqual(workspace.sort, { property: 'title', direction: 'desc' });
   assert.deepEqual(
-    JSON.parse(window.localStorage.getItem('booklistSortOptions'))[StorageKey.BROWSER],
+    JSON.parse(window.localStorage.getItem('manabitan-reader-v1:booklistSortOptions'))[
+      StorageKey.BROWSER
+    ],
     workspace.sort
   );
   for (const provider of [StorageKey.GDRIVE, StorageKey.ONEDRIVE, StorageKey.FS])
@@ -273,10 +275,11 @@ for (const strict of [false, true]) {
   const remountedNativeLibrary = createNativeLibraryService();
   assert.deepEqual((await remountedNativeLibrary.state({}, authority)).sort, workspace.sort);
   const failedAdmission = await remountedNativeLibrary.state({}, authority);
-  const storedSorts = window.localStorage.getItem('booklistSortOptions');
+  const storedSorts = window.localStorage.getItem('manabitan-reader-v1:' + 'booklistSortOptions');
   const setItem = window.Storage.prototype.setItem;
   window.Storage.prototype.setItem = function (key, value) {
-    if (key === 'booklistSortOptions') throw new Error('Sort persistence unavailable');
+    if (key === 'manabitan-reader-v1:booklistSortOptions')
+      throw new Error('Sort persistence unavailable');
     return setItem.call(this, key, value);
   };
   try {
@@ -287,13 +290,18 @@ for (const strict of [false, true]) {
       ),
       /Sort persistence unavailable/
     );
-    assert.equal(window.localStorage.getItem('booklistSortOptions'), storedSorts);
+    assert.equal(
+      window.localStorage.getItem('manabitan-reader-v1:' + 'booklistSortOptions'),
+      storedSorts
+    );
     assert.deepEqual(workspace.sort, { property: 'title', direction: 'desc' });
     assert.deepEqual((await remountedNativeLibrary.state({}, authority)).sort, workspace.sort);
   } finally {
     window.Storage.prototype.setItem = setItem;
   }
-  const previousFinishedOrder = window.localStorage.getItem('manabi-finished-order');
+  const previousFinishedOrder = window.localStorage.getItem(
+    'manabitan-reader-v1:' + 'manabi-finished-order'
+  );
   try {
     await act(async () => workspace.setFinishedOrder('asc'));
     assert.equal(
@@ -308,7 +316,10 @@ for (const strict of [false, true]) {
       { token: finishedAdmission.token, type: 'finished.order', value: 'desc' },
       authority
     );
-    assert.equal(window.localStorage.getItem('manabi-finished-order'), 'desc');
+    assert.equal(
+      window.localStorage.getItem('manabitan-reader-v1:' + 'manabi-finished-order'),
+      'desc'
+    );
     const restartedFinished = createNativeLibraryService();
     assert.equal(
       (await restartedFinished.state({ collection: 'finished' }, authority)).finishedOrder,
@@ -316,7 +327,8 @@ for (const strict of [false, true]) {
     );
     const deniedOrder = await restartedFinished.state({ collection: 'finished' }, authority);
     window.Storage.prototype.setItem = function (key, value) {
-      if (key === 'manabi-finished-order') throw new Error('Finished persistence unavailable');
+      if (key === 'manabitan-reader-v1:manabi-finished-order')
+        throw new Error('Finished persistence unavailable');
       return setItem.call(this, key, value);
     };
     try {
@@ -337,11 +349,18 @@ for (const strict of [false, true]) {
       restartedFinished.dispose();
     }
   } finally {
-    if (previousFinishedOrder === null) window.localStorage.removeItem('manabi-finished-order');
-    else window.localStorage.setItem('manabi-finished-order', previousFinishedOrder);
+    if (previousFinishedOrder === null)
+      window.localStorage.removeItem('manabitan-reader-v1:' + 'manabi-finished-order');
+    else
+      window.localStorage.setItem(
+        'manabitan-reader-v1:' + 'manabi-finished-order',
+        previousFinishedOrder
+      );
   }
   const layoutKeys = ['manabi-library-layout', 'manabi-series-layout', 'manabi-finished-layout'];
-  const previousLayouts = layoutKeys.map((key) => window.localStorage.getItem(key));
+  const previousLayouts = layoutKeys.map((key) =>
+    window.localStorage.getItem('manabitan-reader-v1:' + key)
+  );
   try {
     await act(async () => workspace.setLayout('list'));
     assert.equal((await remountedNativeLibrary.state({}, authority)).layout, 'list');
@@ -350,22 +369,29 @@ for (const strict of [false, true]) {
       { token: layoutAdmission.token, type: 'layout', value: 'grid' },
       authority
     );
-    assert.equal(window.localStorage.getItem(layoutKeys[0]), 'grid');
-    assert.equal(window.localStorage.getItem(layoutKeys[1]), previousLayouts[1]);
-    assert.equal(window.localStorage.getItem(layoutKeys[2]), previousLayouts[2]);
+    assert.equal(window.localStorage.getItem('manabitan-reader-v1:' + layoutKeys[0]), 'grid');
+    assert.equal(
+      window.localStorage.getItem('manabitan-reader-v1:' + layoutKeys[1]),
+      previousLayouts[1]
+    );
+    assert.equal(
+      window.localStorage.getItem('manabitan-reader-v1:' + layoutKeys[2]),
+      previousLayouts[2]
+    );
     const restarted = createNativeLibraryService();
     assert.equal((await restarted.state({}, authority)).layout, 'grid');
     const finished = await restarted.state({ collection: 'finished' }, authority);
     await restarted.action({ token: finished.token, type: 'layout', value: 'list' }, authority);
     assert.equal(
-      window.localStorage.getItem(layoutKeys[2]),
+      window.localStorage.getItem('manabitan-reader-v1:' + layoutKeys[2]),
       'timeline',
       'native list preserves the web timeline choice'
     );
-    assert.equal(window.localStorage.getItem(layoutKeys[0]), 'grid');
+    assert.equal(window.localStorage.getItem('manabitan-reader-v1:' + layoutKeys[0]), 'grid');
     const failedLayout = await restarted.state({}, authority);
     window.Storage.prototype.setItem = function (key, value) {
-      if (key === layoutKeys[0]) throw new Error('Layout persistence unavailable');
+      if (key === 'manabitan-reader-v1:' + layoutKeys[0])
+        throw new Error('Layout persistence unavailable');
       return setItem.call(this, key, value);
     };
     try {
@@ -379,7 +405,8 @@ for (const strict of [false, true]) {
     }
     const getItem = window.Storage.prototype.getItem;
     window.Storage.prototype.getItem = function (key) {
-      if (layoutKeys.includes(key)) throw new Error('Layout read unavailable');
+      if (layoutKeys.some((logical) => key === 'manabitan-reader-v1:' + logical))
+        throw new Error('Layout read unavailable');
       return getItem.call(this, key);
     };
     try {
@@ -391,8 +418,8 @@ for (const strict of [false, true]) {
   } finally {
     layoutKeys.forEach((key, index) =>
       previousLayouts[index] === null
-        ? window.localStorage.removeItem(key)
-        : window.localStorage.setItem(key, previousLayouts[index])
+        ? window.localStorage.removeItem('manabitan-reader-v1:' + key)
+        : window.localStorage.setItem('manabitan-reader-v1:' + key, previousLayouts[index])
     );
   }
   remountedNativeLibrary.dispose();
@@ -424,7 +451,7 @@ for (const strict of [false, true]) {
   URL.revokeObjectURL = (url) => revoked.push(url);
   globalThis.caches = {
     async open(name) {
-      assert.equal(name, 'ttu-userfonts');
+      assert.equal(name, 'manabitan-reader-v1:ttu-userfonts');
       return {
         async match(path) {
           reads.push(path);

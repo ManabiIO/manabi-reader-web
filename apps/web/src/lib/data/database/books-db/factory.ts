@@ -4,12 +4,14 @@
  * All rights reserved.
  */
 
+import { storageName } from '../../../../runtime/edition';
+
 import { currentStorageVersion, type default as BooksDb } from './versions/books-db';
 import { openDB, unwrap } from 'idb';
 import upgradeBooksDbFromV2 from './versions/v2/upgrade';
 import { ensureBooksSchema } from './schema';
 
-export function createBooksDb(name = 'books') {
+export function createBooksDb(name = storageName('books')) {
   let upgradeFailure: unknown;
   let failed = false;
   const opening = openDB<BooksDb>(name, currentStorageVersion, {

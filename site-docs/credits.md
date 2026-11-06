@@ -1,6 +1,6 @@
 # Credits
 
-Manabi Reader for Web began as a fork of [ッツ Ebook Reader](https://github.com/ttu-ttu/ebook-reader), also known as Ttsu Reader. Ttsu provided the foundation for EPUB, HTMLZ, and text reading, flexible layouts, bookmarks, reading statistics, and data import and export. We preserve its [original README](https://github.com/ManabiIO/manabi-reader-web/blob/main/docs/ttu-upstream-readme.md), [BSD 3-Clause license](https://github.com/ManabiIO/manabi-reader-web/blob/main/LICENSE), and ッツ Reader Authors notice.
+Manabitan Reader began as a fork of [ッツ Ebook Reader](https://github.com/ttu-ttu/ebook-reader), also known as Ttsu Reader. Ttsu provided the foundation for EPUB, HTMLZ, and text reading, flexible layouts, bookmarks, reading statistics, and data import and export. We preserve its [original README](https://github.com/ManabiIO/manabi-reader-web/blob/main/docs/ttu-upstream-readme.md), [BSD 3-Clause license](https://github.com/ManabiIO/manabi-reader-web/blob/main/LICENSE), and ッツ Reader Authors notice.
 
 The EPUB reader includes code derived from [Foliate.js](https://github.com/johnfactotum/foliate-js), used under its MIT license.
 

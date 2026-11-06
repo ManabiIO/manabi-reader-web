@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { storageName } from '../../runtime/edition';
+
 import { writable } from '$lib/state/store';
 import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { organizationIdentityReplacements, type BookIdentityRecord } from './book-identity.ts';
@@ -100,7 +102,7 @@ function publish(value: Organization) {
 function notifyOrganizationChange() {
   if (typeof BroadcastChannel === 'undefined') return;
   try {
-    const channel = new BroadcastChannel(key);
+    const channel = new BroadcastChannel(storageName(key));
     channel.postMessage('changed');
     channel.close();
   } catch {
@@ -240,7 +242,7 @@ export function watchOrganization(onError: (error: unknown) => void = () => unde
   void reloadOrganization().catch(onError);
   let channel: BroadcastChannel | undefined;
   try {
-    if (typeof BroadcastChannel !== 'undefined') channel = new BroadcastChannel(key);
+    if (typeof BroadcastChannel !== 'undefined') channel = new BroadcastChannel(storageName(key));
   } catch {
     // Cross-tab notifications are optional; denied messaging cannot prevent
     // this tab from loading or saving its local organization.

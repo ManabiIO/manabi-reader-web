@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { localStorage } from '$lib/data/window/local-storage';
+
 /**
  * Import only inside the single DOM reader runtime. Native UI imports contract.ts instead.
  */

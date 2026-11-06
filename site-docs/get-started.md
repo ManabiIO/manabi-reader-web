@@ -2,7 +2,7 @@
 
 You can start without an account.
 
-1. Open [Manabi Reader for Web](https://manabi.io/reader-web/).
+1. Open [Manabitan Reader](https://manabi.io/manabitan-reader/).
 2. Open **Library actions** (the ellipsis), then **Add Books**.
 3. Choose **Import File(s)** or **Import Folder(s)**. Select an EPUB, HTMLZ, or text file, or a folder of books.
 4. Select a cover to read.

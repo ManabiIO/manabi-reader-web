@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import ts from 'typescript';
+import { readerEdition } from '../../config/reader-editions.mjs';
 import { runInNewContext } from 'node:vm';
 const app = new URL('../../apps/web/', import.meta.url);
 test('Expo document retains manifest, icon, pre-paint appearance and root contracts for every deployment prefix', () => {
@@ -47,7 +48,14 @@ test('Expo only targets Android/web and does not request microphone or unused ba
     compilerOptions: { module: ts.ModuleKind.CommonJS }
   }).outputText;
   const output = {};
-  runInNewContext(code, { exports: output, process: { env: {} } });
+  runInNewContext(code, {
+    exports: output,
+    process: { env: {} },
+    require: (name) => {
+      assert.equal(name, '../../config/reader-editions.mjs');
+      return { readerEdition };
+    }
+  });
   const config = output.default;
   assert.deepEqual(Array.from(config.platforms), ['android', 'web']);
   assert.equal(config.ios, undefined);

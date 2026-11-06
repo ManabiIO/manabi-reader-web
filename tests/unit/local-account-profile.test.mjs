@@ -17,7 +17,7 @@ const { outputFiles } = await build({
   format: 'cjs',
   write: false
 });
-const key = 'manabi-reader-local-profile-v1';
+const key = 'manabitan-reader-v1:manabi-reader-local-profile-v1';
 const alice = { id: 'alice', username: 'Alice' };
 const bob = { id: 'bob', username: 'Bob' };
 function session(user) {
@@ -49,6 +49,7 @@ function client(profile = alice) {
       throw new Error('offline');
     }
   };
+  context.window.localStorage = context.localStorage;
   vm.runInNewContext(outputFiles[0].text, context);
   return { api: context.module.exports, context, data, listeners };
 }

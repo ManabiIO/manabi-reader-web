@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { readerName } from '../runtime/edition';
+
 import { Fragment, useLayoutEffect, useRef, type ReactNode } from 'react';
 /**
  * React/controller port of lib/components/book-card/book-manager-header.svelte; transactions retain their original guards.
@@ -47,6 +49,7 @@ import {
 } from '@phosphor-icons/react';
 import { AppNav, ActionMenu } from './navigation';
 import { ConnectionStatus } from '../runtime/ConnectionStatus';
+import { ReaderProductActions } from '../product/ReaderExtensions';
 import { LibrarySelectionToolbar } from '../features/library/LibrarySelectionToolbar';
 import { selectionLayout } from '../features/library/selection-layout.web';
 import { LibrarySortControls } from '../features/library/LibrarySortControls';
@@ -128,6 +131,7 @@ export function HeaderView({
               (c.selectMode || c.searchExpanded || !!c.libraryMenu?.search.query) && (
                 <div className="library-header-inner">
                   <ConnectionStatus />
+                  <ReaderProductActions />
                 </div>
               )}
             <div
@@ -231,12 +235,13 @@ export function HeaderView({
                             .join(' ')}
                         >
                           <span className={['whitespace-nowrap'].filter(Boolean).join(' ')}>
-                            {'Manabi Reader'}
+                            {readerName}
                           </span>
                         </h1>
                       </>
                     )}
                     <ConnectionStatus />
+                    <ReaderProductActions />
                   </div>
                   <div
                     className={['library-toolbar-actions flex shrink-0 items-center gap-1.5']
@@ -490,7 +495,7 @@ export function HeaderView({
                           </>
                         ) : null}
                         <Menu.Separator />
-                        <Menu.Label>{'Manabi Reader'}</Menu.Label>
+                        <Menu.Label>{readerName}</Menu.Label>
                         <Menu.Item onSelect={openUserGuide}>{'User guide'}</Menu.Item>
                         <Menu.Item onSelect={() => goto(resolve('/connections'))}>
                           <UserCircle aria-hidden={'true'} />
@@ -765,7 +770,7 @@ export function HeaderView({
                     .filter(Boolean)
                     .join(' ')}
                 >
-                  {'Manabi Reader'}
+                  {readerName}
                 </span>
               </div>
               <div className={['flex items-center gap-1'].filter(Boolean).join(' ')}>

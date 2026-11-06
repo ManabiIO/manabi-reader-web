@@ -15,6 +15,11 @@ import {
   type ReaderViewProps
 } from './dom';
 import { createDictionary, type DictionaryProps } from './dictionary-controller';
+import {
+  PREFERRED_DICTIONARY_EXTENSION_NAME,
+  PREFERRED_DICTIONARY_EXTENSION_DESCRIPTION,
+  PREFERRED_DEFAULT_INSTALL_BUTTON_ATTRIBUTES
+} from '$lib/integrations/external-dictionary-interop';
 
 export function DictionarySetup(props: Partial<DictionaryProps> & ReaderViewProps) {
   const latest = useLatest(props);
@@ -39,7 +44,7 @@ export function DictionarySetup(props: Partial<DictionaryProps> & ReaderViewProp
       >
         <Dialog.Content
           onCloseAutoFocus={(event) => {
-            if (!c.savedChoice() && !c.manabitanPresent()) c.choose('skip');
+            if (!c.savedChoice() && !c.extensionAvailable()) c.choose('skip');
             const controls = document.querySelector<HTMLButtonElement>(
               'button[data-reader-controls]'
             );
@@ -57,14 +62,14 @@ export function DictionarySetup(props: Partial<DictionaryProps> & ReaderViewProp
             <Dialog.Description
               className={['text-sm text-muted-foreground'].filter(Boolean).join(' ')}
             >
-              {' Look up words with Manabitan and the Jitendex Japanese dictionary. '}
+              {` ${PREFERRED_DICTIONARY_EXTENSION_DESCRIPTION} `}
             </Dialog.Description>
           </Dialog.Header>
           <Dom as="div" className={['grid gap-2'].filter(Boolean).join(' ')}>
             {c.bridgeReady ? (
               <>
                 <Button
-                  data-manabitan-install-jitendex={'true'}
+                  {...PREFERRED_DEFAULT_INSTALL_BUTTON_ATTRIBUTES}
                   variant={'secondary'}
                   onClick={() => c.choose('done')}
                   className={['min-h-11 justify-center'].filter(Boolean).join(' ')}
@@ -80,10 +85,10 @@ export function DictionarySetup(props: Partial<DictionaryProps> & ReaderViewProp
                   target={'_blank'}
                   rel={'noopener noreferrer'}
                   variant={'secondary'}
-                  onClick={() => c.choose('manabitan')}
+                  onClick={() => c.choose('preferred')}
                   className={['min-h-11 justify-center'].filter(Boolean).join(' ')}
                 >
-                  {c.extensionPresent ? 'Update Manabitan' : 'Get Manabitan'}
+                  {`${c.extensionPresent ? 'Update' : 'Get'} ${PREFERRED_DICTIONARY_EXTENSION_NAME}`}
                 </Button>
               </>
             )}

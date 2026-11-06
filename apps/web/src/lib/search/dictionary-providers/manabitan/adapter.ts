@@ -171,6 +171,7 @@ export async function openManabitanDictionaryProvider(): Promise<DictionaryRunti
     throw new Error('This Reader release needs its matching dictionary runtime.');
 
   const clientAsset = relativeAsset(manifest.client);
+  const defaultFileName = manifest.defaultDictionary.fileName;
   const rendererAsset = relativeAsset(manifest.renderer);
   const presetsAsset = relativeAsset(manifest.presets);
   const styleAsset = relativeAsset(manifest.style);
@@ -224,10 +225,7 @@ export async function openManabitanDictionaryProvider(): Promise<DictionaryRunti
       renderer.renderDictionaryResults(container, result, providerClient, lookup),
     installDefault: (options) =>
       presets.downloadDefaultDictionary(
-        new URL(
-          `${base}/dictionary-archives/${manifest.defaultDictionary.fileName}`,
-          location.href
-        ),
+        new URL(`${base}/dictionary-archives/${defaultFileName}`, location.href),
         options
       ),
     recommendations: async ({ signal }) => {

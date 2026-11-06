@@ -12,19 +12,20 @@ export function FieldFrame({
   label,
   accessibilityLabel,
   accessibilityDescribedBy,
+  universalInput,
   hideLabel,
   children,
   style
 }: FieldFrameProps) {
   const frame = useRef<HTMLLabelElement>(null);
   const labelId = useId();
-  // Expo's universal Picker does not expose native HTML naming/description
-  // props. Apply them only to its real select, within this browser leaf. TextField
+  // Expo's universal controls do not expose native HTML naming/description
+  // props. Apply them to the actual control within this browser leaf. TextField
   // already owns its input's ARIA props and must not be overwritten here.
   // Run after every committed render so changed props and replaced controls
   // receive current semantics, including removal of a previous override.
   useLayoutEffect(() => {
-    const control = frame.current?.querySelector('select');
+    const control = frame.current?.querySelector(universalInput ? 'input, textarea' : 'select');
     if (!control) return;
     if (accessibilityLabel) control.setAttribute('aria-label', accessibilityLabel);
     else control.removeAttribute('aria-label');

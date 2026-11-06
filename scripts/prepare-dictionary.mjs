@@ -126,67 +126,70 @@ if (!manifest) {
 // A static archive is available for explicit user setup. It is NOT fetched by
 // opening Reader/search and is excluded from shell service-worker caching.
 const dictionary = manifest.defaultDictionary;
-if (
-  !dictionary ||
-  !/^[a-zA-Z0-9._-]+\.zip$/.test(dictionary.fileName) ||
-  !Number.isSafeInteger(dictionary.bytes) ||
-  dictionary.bytes <= 0 ||
-  !/^[a-f0-9]{64}$/.test(dictionary.sha256)
-)
-  throw new Error('Invalid dictionary descriptor.');
-
-const archives = path.join(assets, 'dictionary-archives');
-await pruneGeneratedDirectory(archives, new Set([dictionary.fileName]));
-const archivePath = path.join(archives, dictionary.fileName);
-const matches = (bytes) =>
-  bytes.byteLength === dictionary.bytes &&
-  createHash('sha256').update(bytes).digest('hex') === dictionary.sha256;
-
-let existing;
-try {
-  existing = await fs.readFile(archivePath);
-} catch {
-  /* First build. */
-}
-
-if (!existing || !matches(existing)) {
-  const source = new URL(dictionary.source);
+if (dictionary || provider.requiresDefaultDictionary !== false) {
   if (
-    source.protocol !== 'https:' ||
-    source.hostname !== 'github.com' ||
-    source.username ||
-    source.password
+    !dictionary ||
+    !/^[a-zA-Z0-9._-]+\.zip$/.test(dictionary.fileName) ||
+    !Number.isSafeInteger(dictionary.bytes) ||
+    dictionary.bytes <= 0 ||
+    !/^[a-f0-9]{64}$/.test(dictionary.sha256)
   )
-    throw new Error('Unapproved default dictionary source.');
+    throw new Error('Invalid dictionary descriptor.');
 
-  const response = await fetch(source, {
-    signal: AbortSignal.timeout(120000),
-    credentials: 'omit'
-  });
-  if (!response.ok || !response.body)
-    throw new Error('Could not fetch the pinned default dictionary.');
+  const archives = path.join(assets, 'dictionary-archives');
+  await pruneGeneratedDirectory(archives, new Set([dictionary.fileName]));
+  const archivePath = path.join(archives, dictionary.fileName);
+  const matches = (bytes) =>
+    bytes.byteLength === dictionary.bytes &&
+    createHash('sha256').update(bytes).digest('hex') === dictionary.sha256;
 
-  const reader = response.body.getReader(),
-    chunks = [];
-  let count = 0;
+  let existing;
   try {
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      count += value.byteLength;
-      if (count > dictionary.bytes) throw new Error('Default dictionary exceeds its pinned size.');
-      chunks.push(value);
-    }
-  } finally {
-    await reader.cancel().catch(() => {});
-    reader.releaseLock();
+    existing = await fs.readFile(archivePath);
+  } catch {
+    /* First build. */
   }
 
-  const bytes = Buffer.concat(chunks);
-  if (!matches(bytes)) throw new Error('Default dictionary checksum mismatch.');
-  const temporary = `${archivePath}.${process.pid}.tmp`;
-  await fs.writeFile(temporary, bytes);
-  await fs.rename(temporary, archivePath);
+  if (!existing || !matches(existing)) {
+    const source = new URL(dictionary.source);
+    if (
+      source.protocol !== 'https:' ||
+      source.hostname !== 'github.com' ||
+      source.username ||
+      source.password
+    )
+      throw new Error('Unapproved default dictionary source.');
+
+    const response = await fetch(source, {
+      signal: AbortSignal.timeout(120000),
+      credentials: 'omit'
+    });
+    if (!response.ok || !response.body)
+      throw new Error('Could not fetch the pinned default dictionary.');
+
+    const reader = response.body.getReader(),
+      chunks = [];
+    let count = 0;
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        count += value.byteLength;
+        if (count > dictionary.bytes)
+          throw new Error('Default dictionary exceeds its pinned size.');
+        chunks.push(value);
+      }
+    } finally {
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
+
+    const bytes = Buffer.concat(chunks);
+    if (!matches(bytes)) throw new Error('Default dictionary checksum mismatch.');
+    const temporary = `${archivePath}.${process.pid}.tmp`;
+    await fs.writeFile(temporary, bytes);
+    await fs.rename(temporary, archivePath);
+  }
 }
 
 console.log(

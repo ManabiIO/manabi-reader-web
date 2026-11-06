@@ -43,7 +43,7 @@ const deferred = () => {
 };
 async function fixture(t) {
   const factory = new fakeIndexedDB.IDBFactory();
-  const opening = factory.open('manabi-reader-appearance', 1);
+  const opening = factory.open('manabitan-reader-v1:manabi-reader-appearance', 1);
   opening.onupgradeneeded = () => opening.result.createObjectStore('backgrounds');
   const db = await request(opening);
   await request(

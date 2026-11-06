@@ -87,7 +87,7 @@ test('native lock requests receive the signal and retain the callback result', a
       locks: {
         request: async (name, options, work) => {
           calls++;
-          assert.equal(name, 'manabi-reader:native-cancel');
+          assert.equal(name, 'manabitan-reader-v1:manabi-reader:native-cancel');
           assert.equal(options.signal, controller.signal);
           return work();
         }

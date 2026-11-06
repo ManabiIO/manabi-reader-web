@@ -64,8 +64,8 @@ function worker() {
   };
 }
 async function database(t) {
-  await deleteDB('books');
-  const db = await openDB('books', 1, {
+  await deleteDB('manabitan-reader-v1:books');
+  const db = await openDB('manabitan-reader-v1:books', 1, {
     upgrade(db) {
       db.createObjectStore('data', { keyPath: 'id' });
       for (const name of ['readerBookScope', 'readerLocalIdentity', 'readerSearchProjection'])
@@ -74,7 +74,7 @@ async function database(t) {
   });
   t.after(async () => {
     db.close();
-    await deleteDB('books');
+    await deleteDB('manabitan-reader-v1:books');
   });
   return db;
 }

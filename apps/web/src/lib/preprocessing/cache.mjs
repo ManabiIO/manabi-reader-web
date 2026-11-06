@@ -1,4 +1,5 @@
 /** @license BSD-3-Clause */
+import { storageName } from '../../runtime/edition.ts';
 import { canonicalJSON, utf8Size } from './contracts.mjs';
 export class MemoryChapterCache {
   constructor(maxBytes = 32 * 1024 * 1024) {
@@ -57,7 +58,7 @@ export class IndexedDBChapterCache {
     if (!this.idb) return Promise.reject(new Error('IndexedDB unavailable'));
     this.opening = new Promise((resolve, reject) => {
       let abandoned = false;
-      const request = this.idb.open('reader-derived-chapters-v1', 1);
+      const request = this.idb.open(storageName('reader-derived-chapters-v1'), 1);
       request.onupgradeneeded = () => {
         const store = request.result.createObjectStore('chapters', { keyPath: 'key' });
         store.createIndex('touched', 'touched');

@@ -4,25 +4,27 @@
  * All rights reserved.
  */
 
+import { editionStorage } from '../../../runtime/edition-storage';
+
 class WindowStorage {
-  private _store = new Map<string, string>();
-
+  private readonly store = new Map<string, string>();
+  get length() {
+    return this.store.size;
+  }
+  key(index: number) {
+    return [...this.store.keys()][index] ?? null;
+  }
   setItem(key: string, value: string) {
-    this._store.set(key, value);
+    this.store.set(key, value);
   }
-
   getItem(key: string) {
-    return this._store.get(key);
+    return this.store.get(key) ?? null;
   }
-
   removeItem(key: string) {
-    this._store.delete(key);
-  }
-
-  clear() {
-    this._store = new Map();
+    this.store.delete(key);
   }
 }
 
-export const localStorage =
-  typeof window === 'undefined' ? new WindowStorage() : window.localStorage;
+export const localStorage = editionStorage(
+  typeof window === 'undefined' ? new WindowStorage() : window.localStorage
+);

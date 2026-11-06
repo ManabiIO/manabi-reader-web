@@ -4,6 +4,7 @@
  * All rights reserved.
  */
 
+import { storageName } from '../runtime/edition';
 import type { BookmarkManager } from '$lib/components/book-reader/types';
 import {
   CueTimeline,
@@ -173,7 +174,10 @@ export function createAudioPanel(
     __readerController.changed((highlight = new ReaderHighlight(window)));
     __readerController.changed((highlightSupported = highlight.supported));
     __readerController.changed(
-      (session = new AudiobookSessionCoordinator(new AudiobookSessionStore(), key))
+      (session = new AudiobookSessionCoordinator(
+        new AudiobookSessionStore(undefined, storageName('manabi-whispersync-v1')),
+        key
+      ))
     );
     __readerController.changed(
       (navigator = new ReaderNavigator({

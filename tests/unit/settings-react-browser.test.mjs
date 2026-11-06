@@ -105,7 +105,7 @@ const { outputFiles } = await build({
           const original = IDBObjectStore.prototype.put;
           IDBObjectStore.prototype.put = function(...args) {
             const request = original.apply(this, args);
-            if (this.name === 'books' && this.transaction.db.name === 'manabi-reader-integrations') {
+            if (this.name === 'books' && this.transaction.db.name === 'manabitan-reader-v1:manabi-reader-integrations') {
               IDBObjectStore.prototype.put = original;
               this.transaction.abort();
             }
@@ -511,7 +511,7 @@ test('Settings category links keep one mounted screen and synchronize browser Ba
       const document = window.document;
       await until(() => document.querySelector('button[title="manabi-theme"]'), 'themes mount');
       assert.equal(
-        window.localStorage.getItem('fontFamilyGroupOne'),
+        window.localStorage.getItem('manabitan-reader-v1:' + 'fontFamilyGroupOne'),
         null,
         'opening Settings must not persist the device-effective default font'
       );
@@ -550,7 +550,10 @@ test('Settings category links keep one mounted screen and synchronize browser Ba
       window.history.forward();
       await until(() => heading() === 'All settings', 'Forward restores the later category');
       assert.equal(api.location(), window.location.href);
-      assert.equal(window.localStorage.getItem('fontFamilyGroupOne'), null);
+      assert.equal(
+        window.localStorage.getItem('manabitan-reader-v1:' + 'fontFamilyGroupOne'),
+        null
+      );
       stop();
     });
 });
@@ -655,11 +658,11 @@ function accountServer() {
     },
     async fetch(path, options = {}) {
       server.requests.push({ path, ...options });
-      const user = path.endsWith('/session/')
+      const user = path.split('?')[0].endsWith('/session/')
         ? server.user.id
         : options.headers.get('X-Manabi-User');
       let value;
-      if (path.endsWith('/session/'))
+      if (path.split('?')[0].endsWith('/session/'))
         value = { user: server.user, csrf_token: 'c'.repeat(64), providers: [] };
       else if (path.endsWith('/connections/')) value = { items: [] };
       else if (path.includes('/preferences/')) {

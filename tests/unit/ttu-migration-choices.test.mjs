@@ -8,7 +8,7 @@ import { loadOfflineModule, deferred } from './fixtures/offline-module.mjs';
 
 const alice = { id: 'alice', username: 'Alice' };
 const bob = { id: 'bob', username: 'Bob' };
-const profileKey = 'manabi-reader-local-profile-v1';
+const profileKey = 'manabitan-reader-v1:manabi-reader-local-profile-v1';
 const imported = (id, extra = {}) => ({
   id,
   title: `Book ${id}`,

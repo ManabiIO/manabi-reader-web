@@ -54,6 +54,11 @@ export interface DictionaryClient {
 }
 
 export interface DictionaryRuntime {
+  /** Optional on-demand interaction; valid even without proactive analysis. */
+  attachChapter?: (
+    root: HTMLElement,
+    context: { bookKey: string; chapterID: string; signal: AbortSignal; analysis: object | null }
+  ) => (() => void) | Promise<() => void>;
   client: DictionaryClient;
   render: (
     container: HTMLElement,

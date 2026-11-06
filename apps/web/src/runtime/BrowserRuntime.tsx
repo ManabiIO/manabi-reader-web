@@ -47,6 +47,7 @@ import { embeddedFontStyleSheet } from './embedded-fonts';
 import { SnippetCapture } from '../snippets-react';
 import { observeBrowserConnectivity } from './browser-connectivity';
 import './connection-notice.css';
+import { ReaderExtensions } from '../product/ReaderExtensions';
 
 export function BrowserRuntime({
   embedded = false,
@@ -136,7 +137,7 @@ export function BrowserRuntime({
     if (embedded) {
       const lifetime = new AbortController();
       const style = document.createElement('style');
-      style.id = userFontsCacheName;
+      style.id = 'ttu-userfonts';
       document.head.append(style);
       let release = () => {};
       void caches
@@ -160,14 +161,14 @@ export function BrowserRuntime({
       };
     }
     const css = buildLocalFontStyleSheet(fonts);
-    let style = document.getElementById(userFontsCacheName);
+    let style = document.getElementById('ttu-userfonts');
     if (!css) {
       style?.remove();
       return undefined;
     }
     if (!style) {
       style = document.createElement('style');
-      style.id = userFontsCacheName;
+      style.id = 'ttu-userfonts';
       document.head.append(style);
     }
     style.textContent = css;
@@ -210,6 +211,7 @@ export function BrowserRuntime({
         </aside>
       )}
       <SnippetCapture />
+      <ReaderExtensions />
       <DialogHost />
     </>
   );

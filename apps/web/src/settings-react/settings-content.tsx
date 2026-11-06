@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { EXTERNAL_DICTIONARY_POPUP_DETECTION_TOOLTIP } from '$lib/integrations/external-dictionary-interop';
 import { useReaderController } from '../reader-react/controller';
 import {
   Dom,
@@ -1620,7 +1621,7 @@ export function SettingsContent(
                         category={'tracking'}
                         keywords={'trackerPopupDetection'}
                         title={'Dictionary Detection'}
-                        tooltip={`If enabled auto pause is skipped if open yomitan/jpdb-browser-reader was detected - yomitan requires disabled 'Secure Container' settings`}
+                        tooltip={EXTERNAL_DICTIONARY_POPUP_DETECTION_TOOLTIP}
                       >
                         <ButtonToggleGroup
                           options={optionsForToggle}

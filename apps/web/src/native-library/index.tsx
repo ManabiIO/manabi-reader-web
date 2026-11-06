@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { readerName } from '../runtime/edition';
+
 import {
   Fragment,
   useCallback,
@@ -880,7 +882,7 @@ function Library() {
           />
         )
       }
-      title={query.series ? (state?.trail.at(-1)?.name ?? 'Series') : 'Manabi Reader'}
+      title={query.series ? (state?.trail.at(-1)?.name ?? 'Series') : readerName}
       backAction={
         query.series ? (
           <ActionButton

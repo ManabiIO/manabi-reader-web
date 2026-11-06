@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { storageName } from '../../runtime/edition';
+
 import { openDB, type DBSchema } from 'idb';
 import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { summarize, type SnippetSummary } from '../snippets/summary';
@@ -45,7 +47,7 @@ export function integrationDB() {
   const forget = () => {
     if (promise === opening) promise = undefined;
   };
-  const opening = openDB<IntegrationDB>('manabi-reader-integrations', 3, {
+  const opening = openDB<IntegrationDB>(storageName('manabi-reader-integrations'), 3, {
     upgrade(db, oldVersion, _version, tx) {
       if (oldVersion < 1) {
         db.createObjectStore('metadata');
@@ -129,7 +131,7 @@ export async function exclusive<T>(
 ): Promise<T> {
   signal?.throwIfAborted();
   if (typeof navigator !== 'undefined' && navigator.locks) {
-    return navigator.locks.request(`manabi-reader:${name}`, { signal }, work);
+    return navigator.locks.request(storageName(`manabi-reader:${name}`), { signal }, work);
   }
   // Browsers without Web Locks still serialize one tab; remote writes retain
   // their server-side preconditions. Local persistent folders require Chromium.

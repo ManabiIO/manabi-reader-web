@@ -1,5 +1,5 @@
 [project]
-site_name = "Manabi Reader for Web"
+site_name = "Manabitan Reader"
 site_description = "Read and organize your own ebooks in your browser."
 site_url = "https://manabi.io/Manabi-Web/Docs/"
 repo_url = "https://github.com/ManabiIO/manabi-reader-web"
@@ -18,9 +18,9 @@ nav = [
   { "Move from Ttsu" = "move-from-ttsu.md" },
   { "Compare readers" = [
     { "Choose a reader" = "compare/index.md" },
-    { "Manabi Reader for Web versus Ttsu Reader" = "compare/ttsu.md" },
-    { "Manabi Reader for Web versus Yatsu Reader" = "compare/yatsu.md" },
-    { "Manabi Reader for Web versus Manabi Reader for iOS and macOS" = "compare/native.md" },
+    { "Manabitan Reader versus Ttsu Reader" = "compare/ttsu.md" },
+    { "Manabitan Reader versus Yatsu Reader" = "compare/yatsu.md" },
+    { "Manabitan Reader versus Manabi Reader for iOS and macOS" = "compare/native.md" },
   ] },
   { "Credits" = "credits.md" },
   { "Contribute" = "contribute.md" },

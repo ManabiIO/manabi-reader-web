@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { storageName } from '../../runtime/edition';
+
 export enum LocalFont {
   YUKYOKASHO = 'YuKyokasho',
   SYSTEMSANS = 'System Sans',
@@ -48,7 +50,7 @@ export function availablePrimaryFonts(yuKyokashoAvailable: boolean | undefined):
     : [...primaryPackagedFonts];
 }
 
-export const userFontsCacheName = 'ttu-userfonts';
+export const userFontsCacheName = storageName('ttu-userfonts');
 
 export const reservedFontNames = new Set([
   LocalFont.YUKYOKASHO,

@@ -39,8 +39,9 @@ const result = await build({
               ? 'export const localProfileUser = () => null;'
               : `
         import { writableStorageSubject } from './src/lib/data/internal/writable-storage-subject';
-        const number = writableStorageSubject(globalThis.localStorage, Number, String);
-        const string = writableStorageSubject(globalThis.localStorage, s => s, s => s);
+        import { localStorage } from './src/lib/data/window/local-storage';
+        const number = writableStorageSubject(localStorage, Number, String);
+        const string = writableStorageSubject(localStorage, s => s, s => s);
         export const fontSize$ = number('fontSize', 20);
         export const writingMode$ = string('writingMode', 'vertical-rl');`
         }));
@@ -59,12 +60,13 @@ globalThis.localStorage = {
     values.set(key, value);
   }
 };
+globalThis.window = { localStorage: globalThis.localStorage };
 const { importYatsuSettings, config, fontSize$, writingMode$ } = await import(
   'data:text/javascript;base64,' + Buffer.from(result.outputFiles[0].contents).toString('base64')
 );
 const unhandled = [];
 config.onUnhandledError = (error) => unhandled.push(error);
-const receipt = 'manabi-yatsu-settings-receipt-v1';
+const receipt = 'manabitan-reader-v1:manabi-yatsu-settings-receipt-v1';
 const snapshot = (settings) => ({ app: 'Yatsu Reader', schemaVersion: 1, settings });
 function reset() {
   rejectWrite = () => false;
@@ -78,11 +80,11 @@ test('persistence failures throw before next/set publish, rather than escape via
   reset();
   const seen = [];
   const sub = fontSize$.subscribe((value) => seen.push(value));
-  rejectWrite = (key) => key === 'fontSize';
+  rejectWrite = (key) => key === 'manabitan-reader-v1:fontSize';
   assert.throws(() => fontSize$.next(26), { name: 'QuotaExceededError' });
   assert.throws(() => fontSize$.set(28), { name: 'QuotaExceededError' });
   assert.equal(fontSize$.getValue(), 20);
-  assert.equal(values.get('fontSize'), '20');
+  assert.equal(values.get('manabitan-reader-v1:fontSize'), '20');
   assert.deepEqual(seen, [20]);
   await delay(10);
   assert.deepEqual(unhandled, []);
@@ -90,24 +92,25 @@ test('persistence failures throw before next/set publish, rather than escape via
   rejectWrite = () => false;
   fontSize$.set(26);
   assert.equal(fontSize$.getValue(), 26);
-  assert.equal(values.get('fontSize'), '26');
+  assert.equal(values.get('manabitan-reader-v1:fontSize'), '26');
 });
 
 test('settings failure rolls back earlier writes and does not acknowledge an unpersisted value', async () => {
   reset();
-  rejectWrite = (key, value) => key === 'writingMode' && value === 'horizontal-tb';
+  rejectWrite = (key, value) =>
+    key === 'manabitan-reader-v1:writingMode' && value === 'horizontal-tb';
   const input = snapshot({ fontSize: 26, writingMode: 'horizontal-tb' });
   await assert.rejects(importYatsuSettings(input), { name: 'QuotaExceededError' });
   assert.equal(fontSize$.getValue(), 20);
   assert.equal(writingMode$.getValue(), 'vertical-rl');
-  assert.equal(values.get('fontSize'), '20');
-  assert.equal(values.get('writingMode'), 'vertical-rl');
+  assert.equal(values.get('manabitan-reader-v1:fontSize'), '20');
+  assert.equal(values.get('manabitan-reader-v1:writingMode'), 'vertical-rl');
   assert.equal(values.has(receipt), false);
   await delay(10);
   assert.deepEqual(unhandled, []);
   rejectWrite = () => false;
   assert.equal((await importYatsuSettings(input)).status, 'imported');
-  assert.equal(values.get('writingMode'), 'horizontal-tb');
+  assert.equal(values.get('manabitan-reader-v1:writingMode'), 'horizontal-tb');
   fontSize$.next(30);
   assert.equal((await importYatsuSettings(input)).status, 'unchanged');
   assert.equal(fontSize$.getValue(), 30);
@@ -123,7 +126,7 @@ test('a failed receipt write restores values and the prior acknowledgement for a
   });
   assert.equal(values.get(receipt), prior);
   assert.equal(fontSize$.getValue(), 22);
-  assert.equal(values.get('fontSize'), '22');
+  assert.equal(values.get('manabitan-reader-v1:fontSize'), '22');
   rejectWrite = () => false;
   assert.equal((await importYatsuSettings(snapshot({ fontSize: 26 }))).status, 'imported');
 });

@@ -4,6 +4,8 @@ import fs from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readerEdition } from '../config/reader-editions.mjs';
+import { editionStaticBytes } from './stage-reader-assets.mjs';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
@@ -485,6 +487,10 @@ export async function verifyExport({
     // public/index.html is generated from expo-index.html and then transformed by Expo.
     // Only retained static payloads have a byte-identity contract; final HTML is checked below.
     const publicFiles = await inventory(path.join(app, 'static'));
+    const product = files.has(publicRoot + 'reader-product.json')
+      ? await json(publicRoot + 'reader-product.json')
+      : null;
+    const edition = product ? readerEdition(product.edition) : null;
     for (const [name, expected] of publicFiles) {
       if (name.startsWith('moss/') && !media) continue;
       // Android's packaged assets did not retain the .tar.gz URL in the real APK.
@@ -497,7 +503,11 @@ export async function verifyExport({
       const emitted = files.get(publicRoot + packagedName);
       if (check(!!emitted, `Public file was not exported: ${publicRoot}${name}`))
         check(
-          (await hashFile(expected.path)) === (await hashFile(emitted.path)),
+          (edition && ['appearance-init.js', 'manifest.webmanifest'].includes(name)
+            ? createHash('sha256')
+                .update(editionStaticBytes(name, await fs.readFile(expected.path), edition))
+                .digest('hex')
+            : await hashFile(expected.path)) === (await hashFile(emitted.path)),
           `Public file bytes differ: ${publicRoot}${name}`
         );
     }
@@ -526,7 +536,10 @@ export async function verifyExport({
         await read(`${dir}moss.wasm`);
       }
     const version = JSON.parse(
-      await fs.readFile(path.join(app, 'src/lib/search/dictionary-providers/manabitan/version.json'), 'utf8')
+      await fs.readFile(
+        path.join(app, 'src/lib/search/dictionary-providers/manabitan/version.json'),
+        'utf8'
+      )
     );
     const dictionaryRoot = `${publicRoot}manabitan/${version.revision}/`;
     const dictionary = await json(`${dictionaryRoot}manifest.json`);
@@ -1004,7 +1017,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       args.get('--output') ??
       `apps/web/${args.get('--platform') === 'web' ? 'build' : 'dist-android'}`,
     app: args.get('--app'),
-    base: args.get('--base') ?? process.env.BASE_PATH ?? '/reader-web',
+    base: args.get('--base') ?? process.env.BASE_PATH ?? readerEdition().basePath,
     media: media === 'true'
   });
   if (args.has('--report')) {

@@ -57,6 +57,7 @@ import {
   throttleTime
 } from 'rxjs';
 import { ReaderController, readerTick, type StoreValue } from './controller';
+import { EXTERNAL_DICTIONARY_POPUP_SELECTOR } from '$lib/integrations/external-dictionary-interop';
 export interface TrackerProps {
   bookTitle: string;
   bookId: number;
@@ -430,9 +431,7 @@ export function createTracker(
     () => {
       if ($trackerAutoPause$ !== TrackerAutoPause.OFF && !yomiPopover) {
         __readerController.changed(
-          (yomiPopover = document.querySelector(
-            '.yomichan-popup,.yomichan-float,.yomitan-popup,.yomitan-float'
-          ))
+          (yomiPopover = document.querySelector(EXTERNAL_DICTIONARY_POPUP_SELECTOR))
         );
         if (!yomiPopover) {
           yomiObserver.observe(document.body, { childList: true, subtree: false });
@@ -470,9 +469,7 @@ export function createTracker(
   });
   function handleYomiMutation() {
     __readerController.changed(
-      (yomiPopover = document.querySelector(
-        '.yomichan-popup,.yomichan-float,.yomitan-popup,.yomitan-float'
-      ))
+      (yomiPopover = document.querySelector(EXTERNAL_DICTIONARY_POPUP_SELECTOR))
     );
     if (yomiPopover) {
       yomiObserver.disconnect();

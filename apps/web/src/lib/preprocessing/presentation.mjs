@@ -2,9 +2,17 @@
 // Renderer-neutral pre-publication barrier. A renderer supplies an OFFSCREEN or
 // HIDDEN stage, then a synchronous commit. No transformation of visible prose.
 export class ChapterOpeningController {
-  constructor({ session, stage, ready = () => {}, report = () => {}, isVisible = () => true }) {
+  constructor({
+    session,
+    stage,
+    interaction,
+    ready = () => {},
+    report = () => {},
+    isVisible = () => true
+  }) {
     this.session = session;
     this.stage = stage;
+    this.interaction = interaction;
     this.ready = ready;
     this.report = report;
     this.isVisible = isVisible;
@@ -38,6 +46,22 @@ export class ChapterOpeningController {
           throw new Error('Preprocessor mount must return a disposer');
       }
       check();
+      // Interaction is independent of proactive analysis. An on-demand provider
+      // can attach to unchanged source without inventing a non-null sidecar.
+      if (this.interaction) {
+        const previousUnmount = unmount;
+        const detach = await this.interaction(staged.root, { result, index, revision, signal });
+        if (typeof detach !== 'function')
+          throw new Error('Chapter interaction must return a disposer');
+        unmount = () => {
+          try {
+            detach();
+          } finally {
+            previousUnmount?.();
+          }
+        };
+        check();
+      }
       // Annotation mounting precedes layout, image readiness and resume
       // restoration. Measuring inside stage() before mount can reveal the wrong
       // page when markup/ruby/bindings affect the prepared chapter's geometry.

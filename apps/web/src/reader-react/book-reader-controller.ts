@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { localStorage } from '$lib/data/window/local-storage';
+
 import type { createFoliate } from './foliate-controller';
 import type { createPaginated } from './paginated-controller';
 import {

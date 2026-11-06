@@ -58,7 +58,7 @@ function harness({ failFirstRead, failWrite, channelThrows = false, initial = em
     globals: {
       BroadcastChannel: class {
         constructor(name) {
-          assert.equal(name, key);
+          assert.equal(name, `manabitan-reader-v1:${key}`);
           if (channelThrows) throw new globalThis.DOMException('denied', 'SecurityError');
           channels.push(this);
         }

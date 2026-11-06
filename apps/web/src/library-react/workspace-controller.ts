@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { localStorage } from '$lib/data/window/local-storage';
+
 /**
  * React/controller port of lib/library/library-workspace.svelte; transactions retain their original guards.
  */

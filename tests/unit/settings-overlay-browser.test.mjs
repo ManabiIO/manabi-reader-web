@@ -171,7 +171,8 @@ async function fixture(run, hash = 'typography') {
   window.HTMLDialogElement.prototype.close = function () {
     this.open = false;
   };
-  if (hash === 'layout') window.localStorage.setItem('writingMode', 'horizontal-tb');
+  if (hash === 'layout')
+    window.localStorage.setItem('manabitan-reader-v1:' + 'writingMode', 'horizontal-tb');
   window.eval(javascript);
   const api = window.controls;
   const until = async (predicate, message) => {
@@ -254,7 +255,7 @@ test('Custom fonts retains the active dialog content, accessible title, scrollin
           'focus returns to the same font control'
         );
         assert.equal(
-          window.localStorage.getItem('userfonts'),
+          window.localStorage.getItem('manabitan-reader-v1:' + 'userfonts'),
           null,
           'inspection and cancellation do not save fonts'
         );
@@ -301,7 +302,7 @@ test('Custom theme dialog owns every forward and reverse Tab and returns focus w
     dialog.dispatchEvent(new window.Event('cancel', { cancelable: true }));
     await until(() => !document.querySelector('dialog[open]'), 'theme dialog closes');
     await until(() => document.activeElement === trigger, 'same theme trigger regains focus');
-    assert.equal(window.localStorage.getItem('customThemes'), null);
+    assert.equal(window.localStorage.getItem('manabitan-reader-v1:' + 'customThemes'), null);
   }, 'appearance');
 });
 
@@ -348,7 +349,7 @@ test('size presets reposition when controller content mounts or grows without a 
     const { document } = window;
     const trigger = () => button(document, 'Size presets for maximum page width');
     await until(trigger, 'page layout controls mount');
-    const before = window.localStorage.getItem('secondDimensionMaxValue');
+    const before = window.localStorage.getItem('manabitan-reader-v1:' + 'secondDimensionMaxValue');
     trigger().focus();
     trigger().click();
     const panel = () =>
@@ -372,18 +373,19 @@ test('size presets reposition when controller content mounts or grows without a 
     await notifyContentResize();
     assert.equal(panel().style.top, '232px');
     assert.equal(
-      window.localStorage.getItem('secondDimensionMaxValue'),
+      window.localStorage.getItem('manabitan-reader-v1:' + 'secondDimensionMaxValue'),
       before,
       'repositioning never commits a preset'
     );
     button(panel(), '50%').click();
     await until(
-      () => window.localStorage.getItem('secondDimensionMaxValue') === '450',
+      () =>
+        window.localStorage.getItem('manabitan-reader-v1:' + 'secondDimensionMaxValue') === '450',
       'a chosen preset still commits current-axis pixels'
     );
     button(panel(), 'Automatic').click();
     await until(
-      () => window.localStorage.getItem('secondDimensionMaxValue') === '0',
+      () => window.localStorage.getItem('manabitan-reader-v1:' + 'secondDimensionMaxValue') === '0',
       'Automatic still resets the maximum'
     );
     panel()
@@ -413,12 +415,12 @@ test('font menus keep their descriptive accessible names and device-effective se
       document.querySelectorAll('[role="menuitemradio"][aria-checked="true"]').length,
       1
     );
-    assert.equal(window.localStorage.getItem('fontFamilyGroupOne'), null);
+    assert.equal(window.localStorage.getItem('manabitan-reader-v1:' + 'fontFamilyGroupOne'), null);
     document
       .querySelector('[role="menu"]')
       .dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await until(() => !document.querySelector('[role="menuitemradio"]'), 'font menu closes');
-    assert.equal(window.localStorage.getItem('fontFamilyGroupOne'), null);
+    assert.equal(window.localStorage.getItem('manabitan-reader-v1:' + 'fontFamilyGroupOne'), null);
   });
 });
 

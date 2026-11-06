@@ -4,6 +4,9 @@
  * All rights reserved.
  */
 
+import { localStorage } from '$lib/data/window/local-storage';
+import { readerEdition, logicalStorageKey } from '../../runtime/edition';
+
 import { boundedBytes } from '$lib/library/bounded-response';
 import { derived, get, writable } from '$lib/state/store';
 import {
@@ -153,7 +156,7 @@ async function performAccountRefresh(force: boolean): Promise<ManabiSession | nu
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const response = await fetch(`${ROOT}session/`, {
+    const response = await fetch(`${ROOT}session/?edition=${readerEdition}`, {
       credentials: 'same-origin',
       cache: 'no-store',
       redirect: 'error',
@@ -348,7 +351,7 @@ export async function connectProvider(provider: string) {
   if (!/^[a-z][a-z0-9-]{0,31}$/.test(provider)) throw new Error('Invalid provider');
   const result = await request<{ authorize_url: string }>(`oauth/${provider}/connect/`, {
     method: 'POST',
-    value: {}
+    value: { edition: readerEdition }
   });
   const url = providerAuthorization(result.authorize_url, provider, location.hostname);
   if (!url) throw new IntegrationError('invalid_response');
@@ -360,7 +363,7 @@ export async function requestSeriesWriteAccess(connectionId: string) {
   if (!/^[0-9a-f-]{36}$/i.test(connectionId)) throw new Error('Invalid connection ID');
   const result = await request<{ authorize_url: string }>('oauth/onedrive/connect/', {
     method: 'POST',
-    value: { purpose: 'series_edit', connection_id: connectionId }
+    value: { purpose: 'series_edit', connection_id: connectionId, edition: readerEdition }
   });
   const url = providerAuthorization(result.authorize_url, 'onedrive', location.hostname);
   if (!url) throw new IntegrationError('invalid_response');
@@ -382,7 +385,7 @@ export const providerLabels: Record<string, string> = {
 // Sign-out in another tab revokes local visibility and in-flight network authority.
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
-    if (event.key !== LOCAL_PROFILE_KEY && event.key !== null) return;
+    if (event.key !== null && logicalStorageKey(event.key) !== LOCAL_PROFILE_KEY) return;
     invalidateAccount(false);
     void refreshAccount(true);
   });
@@ -397,7 +400,7 @@ export async function requestDocumentWriteAccess(provider: string, connectionId:
     throw new Error('Invalid cloud connection.');
   const result = await request<{ authorize_url: string }>(`oauth/${provider}/connect/`, {
     method: 'POST',
-    value: { purpose: 'document_edit', connection_id: connectionId }
+    value: { purpose: 'document_edit', connection_id: connectionId, edition: readerEdition }
   });
   const url = providerAuthorization(result.authorize_url, provider, location.hostname);
   if (!url) throw new IntegrationError('invalid_response');

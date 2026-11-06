@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { readerName } from '../runtime/edition';
+
 import React from 'react';
 import { useReaderController } from './controller';
 import {
@@ -185,7 +187,7 @@ export function ReaderAppearance(props: Partial<AppearanceProps> & ReaderViewPro
             ))}
           </Dom>
           <Dom as="p" className={['-mt-3 text-xs text-muted-foreground'].filter(Boolean).join(' ')}>
-            {' Theme and appearance apply throughout Manabi Reader. '}
+            {` Theme and appearance apply throughout ${readerName}. `}
           </Dom>
           <Dom as="label" className={['setting-row'].filter(Boolean).join(' ')}>
             <Dom as="span">{'Font'}</Dom>

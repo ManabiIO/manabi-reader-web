@@ -50,7 +50,10 @@ test('Metro preserves the legacy video release flag while preferring explicit Ex
         return require(name);
       }
     });
-    assert.equal(output.exports.cacheVersion, `:video-learning=${expected === 'true'}`);
+    assert.equal(
+      output.exports.cacheVersion,
+      `:video-learning=${expected === 'true'}:edition=default:provider=bundled:provider-input=public`
+    );
     assert.equal(env.EXPO_PUBLIC_ENABLE_VIDEO_LEARNING, expected);
     assert.equal(env.VITE_ENABLE_VIDEO_LEARNING, initial.VITE_ENABLE_VIDEO_LEARNING);
   }

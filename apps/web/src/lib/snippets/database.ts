@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { storageName } from '../../runtime/edition';
+
 import { summarize, type SnippetSummary } from './summary';
 import { integrationDB, equal } from '../manabi/persistence';
 import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
@@ -96,7 +98,7 @@ export const changed = () => {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('manabi-snippets-changed'));
   if (typeof BroadcastChannel !== 'undefined') {
     try {
-      const channel = new BroadcastChannel('manabi-snippets');
+      const channel = new BroadcastChannel(storageName('manabi-snippets'));
       channel.postMessage('changed');
       channel.close();
     } catch {

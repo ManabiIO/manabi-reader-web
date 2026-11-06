@@ -17,12 +17,13 @@ const { outputFiles } = await build({
       import { database } from './lib/data/store';
       import { editImportedNote } from './lib/manabi/imported-notes';
       import { AudiobookSessionStore, emptySession, sessionKey } from './lib/features/whispersync/persistence';
+      import { storageName } from './runtime/edition';
       const root = createRoot(document.getElementById('root'));
       const audioKey = sessionKey(1, 'Retained fixture');
       const bookKey = 'local:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
       const noteId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
       async function withAudio(work) {
-        const store = new AudiobookSessionStore();
+        const store = new AudiobookSessionStore(undefined, storageName('manabi-whispersync-v1'));
         try { return await work(store); } finally { await store.close(); }
       }
       window.fixture = {

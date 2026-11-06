@@ -26,6 +26,7 @@ module.exports = (async () => {
         'apps/web/dist/**',
         'apps/web/dist-android/**',
         'apps/web/public/**',
+        'apps/web/.reader-public-*/**',
         'apps/web/src/runtime/font-assets.ts',
         'apps/web/static/manabitan/**',
         'apps/web/static/dictionary-archives/**',

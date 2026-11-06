@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { storageName } from '../../runtime/edition';
+
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { writable } from '$lib/state/store';
 import type { BackgroundMode, BackgroundTarget } from './state';
@@ -74,7 +76,7 @@ const queues: Record<BackgroundTarget, Promise<void>> = {
 
 function db() {
   if (!database)
-    database = openDB<BackgroundDatabase>('manabi-reader-appearance', 1, {
+    database = openDB<BackgroundDatabase>(storageName('manabi-reader-appearance'), 1, {
       upgrade(value) {
         value.createObjectStore('backgrounds');
       },
@@ -449,7 +451,7 @@ export function startBackgrounds(): () => void {
   };
   if (typeof BroadcastChannel !== 'undefined') {
     try {
-      channel = new BroadcastChannel('manabi-reader-backgrounds');
+      channel = new BroadcastChannel(storageName('manabi-reader-backgrounds'));
       channel.onmessage = ({ data }) => {
         if (data === 'library' || data === 'reader') void refresh(data);
       };

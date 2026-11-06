@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { readerName } from '../runtime/edition';
+
 import React from 'react';
 import { RouteBack } from '../shared-ui/RouteBack.web';
 import { useReaderController } from '../reader-react/controller';
@@ -167,7 +169,7 @@ export function ConnectionsScreen(
           <AppNav></AppNav>
         </Dom>
         <Head>
-          <Dom as="title">{'Accounts and libraries · Manabi Reader'}</Dom>
+          <Dom as="title">{`Accounts and libraries · ${readerName}`}</Dom>
         </Head>
         <Dom as="main" className={['connections-page'].filter(Boolean).join(' ')}>
           <Dom as="header">

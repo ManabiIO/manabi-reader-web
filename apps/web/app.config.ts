@@ -5,7 +5,9 @@
  */
 
 import type { ExpoConfig } from 'expo/config';
-const base = process.env.BASE_PATH ?? '/reader-web';
+import { readerEdition } from '../../config/reader-editions.mjs';
+const edition = readerEdition();
+const base = process.env.BASE_PATH ?? edition.basePath;
 if (base !== '' && !/^\/[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/.test(base))
   throw new Error('BASE_PATH must be root-relative without a trailing slash.');
 if (
@@ -16,6 +18,11 @@ if (
 )
   throw new Error('Cloud client secrets belong on Django, never in a public app build.');
 process.env.EXPO_PUBLIC_READER_BASE_PATH = base;
+process.env.EXPO_PUBLIC_READER_EDITION = edition.id;
+process.env.EXPO_PUBLIC_READER_NAME = edition.name;
+process.env.EXPO_PUBLIC_READER_STORAGE_NAMESPACE = edition.storageNamespace;
+if (edition.provider === 'external' && !process.env.READER_PROVIDER_ENTRY)
+  throw new Error('The private Reader edition requires its configured dictionary provider.');
 for (const key of [
   'BASE_PATH',
   'CLEAR_ON_RELOAD',
@@ -39,19 +46,19 @@ for (const key of [
 }
 /** Android + web only. Apple's apps are separate native codebases. */
 const config: ExpoConfig = {
-  name: 'Manabi Reader',
-  slug: 'manabi-reader',
+  name: edition.name,
+  slug: `${edition.id}-reader`,
   version: '2.0.0',
-  scheme: 'manabi-reader',
+  scheme: `${edition.id}-reader`,
   userInterfaceStyle: 'automatic',
   platforms: ['android', 'web'],
   android: {
-    package: 'io.manabi.reader',
+    package: edition.androidPackage,
     // WebView's connectivity observer needs this normal permission to report
     // real navigator.onLine changes to the shared offline notice.
     permissions: ['android.permission.ACCESS_NETWORK_STATE']
   },
-  web: { bundler: 'metro', output: 'single', name: 'Manabi Reader', lang: 'ja' },
+  web: { bundler: 'metro', output: 'single', name: edition.name, lang: 'ja' },
   plugins: [
     // Keep the full route shell available after the initial offline precache.
     ['expo-router', { asyncRoutes: false }],

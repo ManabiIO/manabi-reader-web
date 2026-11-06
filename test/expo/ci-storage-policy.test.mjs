@@ -188,13 +188,43 @@ for (const [name, fixture, migrationExpected, legacyExpected] of cases) {
       );
     }
     for (const [file, workflow] of Object.entries(workflows)) {
-      if (file === 'expo-migration.yml' || Object.hasOwn(untouched, file)) continue;
+      if (
+        file === 'expo-migration.yml' ||
+        file === 'contribution-license.yml' ||
+        file === 'reader-editions.yml' ||
+        Object.hasOwn(untouched, file)
+      )
+        continue;
       for (const [job, definition] of Object.entries(workflow.jobs)) {
         assert.equal(admits(definition.if, github), legacyExpected, `${file}/${job}`);
       }
     }
   });
 }
+
+test('edition qualification is manual, public and default-branch only', () => {
+  const workflow = workflows['reader-editions.yml'];
+  assert.deepEqual(Object.keys(workflow.on), ['workflow_dispatch']);
+  const guard = workflow.jobs.web.if;
+  assert.equal(admits(guard, context({ event: 'workflow_dispatch', head: 'main' })), true);
+  for (const fixture of [
+    { event: 'push', head: 'main' },
+    { event: 'pull_request', head: 'main' },
+    { event: 'workflow_dispatch' },
+    { event: 'workflow_dispatch', head: 'main', visibility: 'private', privateValue: true },
+    { event: 'workflow_dispatch', head: 'main', visibility: null, privateValue: null }
+  ])
+    assert.equal(admits(guard, context(fixture)), false);
+  assert.equal(workflow.jobs.web['runs-on'], 'ubuntu-24.04');
+  assert.deepEqual(workflow.permissions, { contents: 'read' });
+});
+
+test('contribution acknowledgement never checks out or runs contributor source', () => {
+  const workflow = workflows['contribution-license.yml'];
+  assert.deepEqual(Object.keys(workflow.on), ['pull_request_target']);
+  assert.deepEqual(workflow.permissions, { contents: 'read' });
+  assert(!workflow.jobs.acknowledgement.steps.some((step) => step.uses));
+});
 
 test('only three stock, read-only jobs; no duplicate push or matrix allocation', () => {
   assert.deepEqual(Object.keys(migration.jobs), ['regression', 'web', 'android']);
@@ -320,7 +350,12 @@ test('the redundant lifetime workflow is removed while its assertions remain col
   ])
     assert.ok(commands.includes(suite), suite);
   for (const [name, workflow] of Object.entries(workflows)) {
-    if (name === 'expo-migration.yml' || Object.hasOwn(untouched, name)) continue;
+    if (
+      name === 'expo-migration.yml' ||
+      name === 'reader-editions.yml' ||
+      Object.hasOwn(untouched, name)
+    )
+      continue;
     for (const job of Object.values(workflow.jobs))
       assert.doesNotMatch(job.if, /workflow_dispatch/);
   }

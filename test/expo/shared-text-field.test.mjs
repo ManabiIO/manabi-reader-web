@@ -71,9 +71,11 @@ async function bundle(native) {
     stdin: {
       contents: native
         ? `export {TextField} from './apps/web/src/shared-ui/TextField.tsx';
+           export {TextEntry} from './apps/web/src/shared-ui/TextEntry.tsx';
            export {UiThemeProvider,createUiTheme} from './apps/web/src/shared-ui/theme';
            export {inspected} from '@expo/ui/jetpack-compose';`
-        : `export {TextField} from './apps/web/src/shared-ui/TextField.web.tsx';`,
+        : `export {TextField} from './apps/web/src/shared-ui/TextField.web.tsx';
+           export {TextEntry} from './apps/web/src/shared-ui/TextEntry.tsx';`,
       resolveDir: process.cwd()
     },
     bundle: true,
@@ -104,7 +106,12 @@ async function bundle(native) {
             path: appRequire.resolve('react-native-web'),
             external: true
           }));
-          if (!native) return;
+          if (!native) {
+            b.onResolve({ filter: /^@expo\/ui$/ }, () => ({
+              path: `${expoSource}/universal/index.ts`
+            }));
+            return;
+          }
           b.onResolve({ filter: /^@expo\/ui$/ }, () => ({
             path: 'universal',
             namespace: 'fixture'
@@ -347,6 +354,88 @@ test('web input preserves edits, names, disabled semantics, Enter focus and defa
   assert.equal(container.querySelector('input'), input);
   await act(async () => input.blur());
   assert.equal(blurred, 1);
+});
+
+test('universal secure and multiline entry preserves controlled edits and real web input semantics', async (t) => {
+  const { container, render } = mount(t);
+  let owner;
+  const changes = [];
+  function Fixture({ secure = true, multiline = false, reject = false, editable = true }) {
+    const [value, setValue] = React.useState('Saved');
+    owner = setValue;
+    return h(web.TextEntry, {
+      label: 'Note contents',
+      value,
+      secure,
+      multiline,
+      editable,
+      maxLength: 64,
+      onChangeText(next) {
+        changes.push(next);
+        if (!reject) setValue(next);
+      }
+    });
+  }
+  await render(h(Fixture));
+  let input = container.querySelector('input');
+  assert.equal(input.type, 'password');
+  assert.equal(input.maxLength, 64);
+  assert.equal(
+    document.getElementById(input.getAttribute('aria-labelledby')).textContent,
+    'Note contents'
+  );
+  await act(async () => input.focus());
+  await act(async () => edit(input, 'Accepted'));
+  assert.equal(input.value, 'Accepted');
+  await render(h(Fixture, { reject: true }));
+  await act(async () => edit(input, 'Rejected'));
+  assert.equal(input.value, 'Accepted');
+  assert.equal(document.activeElement, input);
+  await act(async () => owner('Remote update'));
+  assert.equal(input.value, 'Remote update');
+  await render(h(Fixture, { editable: false }));
+  assert.equal(input.readOnly, true);
+  await act(async () => edit(input, 'Late event'));
+  assert.equal(input.value, 'Remote update');
+  assert.deepEqual(changes, ['Accepted', 'Rejected']);
+  await render(h(Fixture, { secure: false, multiline: true }));
+  input = container.querySelector('textarea');
+  assert.ok(input);
+  assert.equal(input.rows, 4);
+  assert.equal(
+    document.getElementById(input.getAttribute('aria-labelledby')).textContent,
+    'Note contents'
+  );
+  await act(async () => owner('Line one\nLine two'));
+  assert.equal(input.value, 'Line one\nLine two');
+});
+
+test('universal Android entry uses actual Compose password transformation, multiline and disabled semantics', async (t) => {
+  const { render } = mount(t);
+  const show = (props) =>
+    render(
+      h(native.TextEntry, {
+        label: 'Anki API key',
+        value: 'secret',
+        onChangeText() {},
+        ...props
+      })
+    );
+  await show({ secure: true, multiline: true });
+  assert.equal(native.inspected.field.visualTransformation, 'password');
+  assert.equal(native.inspected.field.singleLine, true);
+  assert.equal(native.inspected.field.keyboardOptions.autoCorrectEnabled, false);
+  assert.ok(
+    native.inspected.field.modifiers.some(
+      (item) => item.$type === 'semantics' && item.contentDescription === 'Anki API key'
+    )
+  );
+  await show({ multiline: true, editable: false, maxLength: 256 });
+  assert.equal(native.inspected.field.visualTransformation, undefined);
+  assert.equal(native.inspected.field.readOnly, true);
+  assert.equal(native.inspected.field.singleLine, false);
+  assert.equal(native.inspected.field.minLines, 4);
+  assert.equal(native.inspected.field.maxLength, 256);
 });
 
 test.after(() => dom.window.close());

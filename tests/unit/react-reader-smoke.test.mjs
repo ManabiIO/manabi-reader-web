@@ -127,7 +127,7 @@ test(
         confirmClose: 'false',
         'manabi-reader-dictionary-setup-v1': 'skip'
       }))
-        window.localStorage.setItem(key, value);
+        window.localStorage.setItem('manabitan-reader-v1:' + key, value);
       await build({
         stdin: {
           contents: entry,
@@ -220,10 +220,10 @@ test(
       const appearance = window.document.querySelector('.reader-modal');
       assert.ok(appearance);
       assert.ok(window.document.getElementById(appearance.getAttribute('aria-labelledby')));
-      const beforeFont = window.localStorage.getItem('fontSize');
+      const beforeFont = window.localStorage.getItem('manabitan-reader-v1:' + 'fontSize');
       click('Increase text size');
       await pause();
-      assert.notEqual(window.localStorage.getItem('fontSize'), beforeFont);
+      assert.notEqual(window.localStorage.getItem('manabitan-reader-v1:' + 'fontSize'), beforeFont);
       assert.equal(window.document.querySelector('.book-content ruby'), originalRuby);
       assert.equal(originalRuby.dataset.readerTestMutation, 'preserve');
       click('Close reading appearance');

@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/prepare-dictionary.mjs && cd apps/web && pnpm dev",
-    "build": "node scripts/check-dictionary-boundary.mjs && node scripts/prepare-dictionary.mjs && cd apps/web && pnpm build",
+    "build": "node scripts/check-dictionary-boundary.mjs && node scripts/prepare-dictionary.mjs && pnpm --dir apps/web build && node scripts/verify-reader-edition.mjs",
     "prepare": "husky",
     "check": "eslint --fix-dry-run .",
     "check:pretty": "prettier --debug-check .",
@@ -17,7 +17,8 @@
     "test:expo": "node test/expo/run.mjs",
     "android": "pnpm --dir apps/web android",
     "export:android": "pnpm --dir apps/web export:android",
-    "test:dictionary-boundary": "node scripts/check-dictionary-boundary.mjs"
+    "test:dictionary-boundary": "node scripts/check-dictionary-boundary.mjs",
+    "test:edition": "node --test tests/unit/reader-editions.test.mjs test/expo/edition-storage.test.mjs test/preprocessing/*.test.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "21.2.2",

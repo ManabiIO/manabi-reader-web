@@ -1,4 +1,4 @@
-# Manabi Reader for Web
+# Manabitan Reader
 
 Read and organize your own ebooks in a browser. There is no store or discovery feed.
 
@@ -7,4 +7,4 @@ Read and organize your own ebooks in a browser. There is no store or discovery f
 - [Read a book](reading.md): adjust the page, use bookmarks, and track progress.
 - [Accounts and data](accounts-and-data.md): choose storage and keep a backup.
 
-[Open Manabi Reader for Web](https://manabi.io/reader-web/){ .md-button }
+[Open Manabitan Reader](https://manabi.io/manabitan-reader/){ .md-button }

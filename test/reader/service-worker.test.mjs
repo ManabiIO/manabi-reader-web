@@ -118,6 +118,7 @@ function makeHarness({ scope = url('/'), version = 'new', ...overrides } = {}) {
     fonts: `${prefix}remote-fonts:${version}`,
     packagedFonts: `${prefix}packaged-fonts:v1`,
     staticFonts: `${prefix}static-fonts:${version}`,
+    runtime: `${prefix}optional-runtime:${version}`,
     setPrecacheResponse(fn) {
       precacheResponse = fn;
     },
@@ -185,6 +186,7 @@ test('installation never skips waiting or claims existing tabs', async () => {
 
 test('archives, optional engines and decorative public files are not mandatory shell entries', async () => {
   const h = makeHarness({
+    optionalRuntimeAssets: ['/manabitan/worker.js'],
     files: [
       '/dict.ZIP?download=1',
       '/dictionaries/preset.bin',
@@ -224,6 +226,119 @@ test('explicit lazy runtime asset list is excluded even under hashed build paths
   });
   await h.event('install');
   assert.ok(!h.precached.some((p) => p.includes('worker-123')));
+});
+
+test('optional engine files cache only after demand and reopen offline without installing dictionaries', async () => {
+  const assets = ['/engine/runtime.js', '/engine/engine.wasm', '/engine/manifest.json'];
+  const h = makeHarness({
+    files: [...assets, '/dictionary-archives/default.zip'],
+    optionalRuntimeAssets: assets
+  });
+  await h.event('install');
+  assert.ok(h.precached.every((key) => !key.includes('/engine/') && !key.endsWith('.zip')));
+  assert.equal(h.caches.has(h.runtime), false);
+  h.setFetch(
+    async (request) =>
+      new Response(`engine:${request.url}`, {
+        headers: {
+          'Content-Type': request.url.endsWith('.wasm') ? 'application/wasm' : 'text/javascript'
+        }
+      })
+  );
+  const key = url('/engine/engine.wasm');
+  assert.equal(await body(await h.request(key)), `engine:${key}`);
+  assert.deepEqual(
+    (await (await h.storage.open(h.runtime)).keys()).map((key) => key.url),
+    [key]
+  );
+  h.setFetch(async () => {
+    throw new Error('offline');
+  });
+  assert.equal(await body(await h.request(key)), `engine:${key}`);
+  await assert.rejects(h.request('/engine/runtime.js'), /offline/);
+  assert.equal(h.request('/dictionary-archives/default.zip'), undefined);
+});
+
+test('runtime cache refuses HTML, wrong MIME, redirects and failed responses, including cached fallbacks', async () => {
+  const key = url('/engine/core.wasm');
+  const h = makeHarness({ optionalRuntimeAssets: [key] });
+  const cache = await h.storage.open(h.runtime);
+  await cache.put(key, new Response('old fallback', { headers: { 'Content-Type': 'text/html' } }));
+  for (const [status, mime] of [
+    [200, 'text/html'],
+    [200, 'application/octet-stream'],
+    [404, 'application/wasm'],
+    [204, 'application/wasm']
+  ]) {
+    h.setFetch(
+      async () =>
+        new Response(status === 204 ? null : 'invalid', {
+          status,
+          headers: { 'Content-Type': mime }
+        })
+    );
+    assert.equal((await h.request(key)).status, status);
+    assert.equal(await body(await cache.match(key)), 'old fallback');
+  }
+  h.setFetch(async () => Response.redirect(key, 302));
+  assert.equal((await h.request(key)).status, 302);
+  h.setFetch(
+    async () => new Response('valid', { headers: { 'Content-Type': 'application/wasm' } })
+  );
+  assert.equal(await body(await h.request(key)), 'valid');
+  assert.equal(await body(await cache.match(key)), 'valid');
+});
+
+test('runtime storage denial and quota leave the network response usable', async () => {
+  for (const failure of ['open', 'write']) {
+    const h = makeHarness({ optionalRuntimeAssets: ['/engine/runtime.js'] });
+    if (failure === 'open') h.setFailOpen(true);
+    else h.setFailWrite(true);
+    h.setFetch(
+      async () => new Response('usable', { headers: { 'Content-Type': 'text/javascript' } })
+    );
+    assert.equal(await body(await h.request('/engine/runtime.js')), 'usable');
+  }
+});
+
+test('runtime declarations never cache query variants, foreign scopes or dictionary archives', async () => {
+  const h = makeHarness({
+    scope: url('/reader/'),
+    optionalRuntimeAssets: [
+      '/reader/engine/runtime.js',
+      '/reader/engine/query.js?version=1',
+      '/reader/dictionaries/data.bin',
+      '/reader/dictionary-archives/default.zip',
+      '/reader/engine/book.epub',
+      '/other/runtime.js',
+      'https://other.example/runtime.js'
+    ]
+  });
+  for (const key of [
+    '/reader/engine/runtime.js?version=1',
+    '/reader/engine/query.js?version=1',
+    '/reader/dictionaries/data.bin',
+    '/reader/dictionary-archives/default.zip',
+    '/reader/engine/book.epub',
+    '/other/runtime.js',
+    'https://other.example/runtime.js'
+  ]) {
+    assert.equal(h.request(key), undefined, key);
+  }
+  assert.equal(h.caches.has(h.runtime), false);
+});
+
+test("activation retires only this scope's obsolete optional runtime generations", async () => {
+  const h = makeHarness({ scope: url('/reader/') });
+  const obsolete = `${h.prefix}optional-runtime:old`;
+  const foreign = `manabi-reader:${encodeURIComponent(url('/other/'))}:optional-runtime:old`;
+  for (const key of [h.runtime, obsolete, foreign, 'manabi-flashcards:cache'])
+    await h.storage.open(key);
+  await h.event('activate');
+  assert.deepEqual(h.removed, [obsolete]);
+  assert.ok(h.caches.has(foreign));
+  assert.ok(h.caches.has('manabi-flashcards:cache'));
+  assert.ok(h.caches.has(h.runtime));
 });
 
 test('install only accepts same-origin assets within the registration scope', async () => {
@@ -385,13 +500,7 @@ test('font classification excludes imported fonts, dictionary assets and unknown
     'https://cdn.example/font.woff2'
   ])
     assert.equal(h.request(p), undefined);
-  for (const p of [
-    '/userfonts/a.woff2',
-    '/manabitan/a.ttf',
-    '/dictionaries/a.otf',
-    '/font.woff2?x=1',
-    '/%ff.woff2'
-  ])
+  for (const p of ['/userfonts/a.woff2', '/dictionaries/a.otf', '/font.woff2?x=1', '/%ff.woff2'])
     assert.equal(isPackagedFont(new URL(url(p))), false);
   assert.equal(isPackagedFont(new URL(url('/_app/immutable/assets/Klee.ABC.woff2'))), true);
 });

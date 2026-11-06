@@ -1,6 +1,6 @@
 # Contribute
 
-Manabi Reader for Web is free and open source. We intend to maintain and grow it as a standalone reader alongside the native Manabi Reader apps.
+Manabitan Reader is free and open source. We intend to maintain and grow it as a standalone reader alongside the native Manabi Reader apps.
 
 Use [GitHub Issues](https://github.com/ManabiIO/manabi-reader-web/issues) to report a bug or propose a change. Include the browser, steps to reproduce, and a small sample book only if you have permission to share it. Do not post private books or account data.
 

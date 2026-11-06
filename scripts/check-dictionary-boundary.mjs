@@ -30,7 +30,9 @@ const providerSpecific = new Set([
   'apps/web/src/lib/search/dictionary-providers/manabitan/version.json'
 ]);
 const providerInteropSpecific = new Set([
-  'apps/web/src/lib/integrations/external-dictionary-interop.ts'
+  'apps/web/src/lib/integrations/external-dictionary-interop.ts',
+  // Product names and storage identity contain branding, never provider code.
+  'apps/web/src/runtime/edition.ts'
 ]);
 const buildProviderSpecific = new Set([
   'scripts/dictionary-provider-selection.mjs',
@@ -120,7 +122,8 @@ for (const file of [
   '.github/pull_request_template.md',
   '.github/workflows/contribution-license.yml'
 ]) {
-  if (!tracked.includes(file)) throw new Error(`Missing dictionary provenance policy file: ${file}`);
+  if (!tracked.includes(file))
+    throw new Error(`Missing dictionary provenance policy file: ${file}`);
 }
 if (gplSources.length) {
   throw new Error(

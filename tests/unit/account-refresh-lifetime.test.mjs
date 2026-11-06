@@ -157,7 +157,7 @@ test('account revocation fences old responses and queued force', async () => {
   const old = h.api.refreshAccount(true);
   const oldQueued = h.api.refreshAccount(true);
   // Exercise the real cross-tab revocation boundary, not a direct store change.
-  h.listeners.get('storage')({ key: 'manabi-reader-local-profile-v1' });
+  h.listeners.get('storage')({ key: 'manabitan-reader-v1:manabi-reader-local-profile-v1' });
   assert.equal(h.api.currentUser(), null);
   assert.equal(h.calls.length, 3, 'revocation starts a fresh authority probe');
   const current = h.api.refreshAccount();

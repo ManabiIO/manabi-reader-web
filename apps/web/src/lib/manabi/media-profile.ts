@@ -4,10 +4,11 @@
  * All rights reserved.
  */
 
+import { storageName } from '../../runtime/edition';
 import { account, currentUser } from './client';
 import { MediaStore } from '$lib/media/store';
 
-const store = new MediaStore();
+const store = new MediaStore(undefined, storageName('manabi-media-v1'));
 const profileKind = 'media-offline-profile';
 
 /** Device-local display identity only. This is never authentication authority. */

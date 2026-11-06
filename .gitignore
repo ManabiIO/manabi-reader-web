@@ -21,5 +21,6 @@ __pycache__/
 /apps/web/build/
 /apps/web/expo-env.d.ts
 /apps/web/public/
+/apps/web/.reader-public-*/
 /apps/web/src/app.generated.css
 /apps/web/src/runtime/font-assets.ts

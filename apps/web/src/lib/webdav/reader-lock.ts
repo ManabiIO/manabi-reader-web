@@ -4,10 +4,12 @@
  * All rights reserved.
  */
 
+import { storageName } from '../../runtime/edition';
+
 /** Readers hold shared ownership while mounted. A receive/apply must not run
  * behind another tab's live autosave state. Locks are origin-local, not a
  * replacement for server ETags between different devices. */
-const name = 'manabi-webdav-reader-lifetime-v1';
+const name = storageName('manabi-webdav-reader-lifetime-v1');
 export function acquireReaderLease(signal: AbortSignal): Promise<void> {
   if (!navigator.locks) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {

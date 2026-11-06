@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { readerName } from '../runtime/edition';
+
 import React from 'react';
 import { RouteBack } from '../shared-ui/RouteBack.web';
 import { useReaderController } from '../reader-react/controller';
@@ -66,7 +68,7 @@ export function SharedLibraryScreen(
           <AppNav></AppNav>
         </Dom>
         <Head>
-          <Dom as="title">{'Shared Ttu Ebook Reader libraries · Manabi Reader'}</Dom>
+          <Dom as="title">{`Shared Ttu Ebook Reader libraries · ${readerName}`}</Dom>
         </Head>
         <Dom as="main">
           <Dom as="h1">{'Shared Ttu Ebook Reader libraries'}</Dom>

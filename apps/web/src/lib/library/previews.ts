@@ -4,6 +4,8 @@
  * All rights reserved.
  */
 
+import { storageName } from '../../runtime/edition';
+
 import { openDB, type DBSchema } from 'idb';
 import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { writable } from '$lib/state/store';
@@ -41,7 +43,7 @@ interface SavedPreview extends Omit<Preview, 'imagePath'> {
 let database: ReturnType<typeof openDB<PreviewDB>> | undefined;
 const metadataVersion = 2;
 function previewDB() {
-  return (database ??= openDB<PreviewDB>('manabi-library-previews', 1, {
+  return (database ??= openDB<PreviewDB>(storageName('manabi-library-previews'), 1, {
     upgrade(db) {
       db.createObjectStore('previews', { keyPath: 'key' }).createIndex('scannedAt', 'scannedAt');
     }
