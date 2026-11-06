@@ -8,6 +8,7 @@ import os
 import threading
 import socket
 import unittest
+from dictionary_management import exercise_dictionary_management
 from playwright.sync_api import sync_playwright, expect
 from browser_launch import launch_options
 from reader_edition_output import reader_edition_output
@@ -172,6 +173,9 @@ class ReaderEditionBrowser(unittest.TestCase):
                                     'name': 'edition-dictionary.zip', 'mimeType': 'application/zip',
                                     'buffer': dictionary_archive()})
                                 expect(page.get_by_text('Installed Unified search fixture.', exact=True)).to_be_visible(timeout=60000)
+                                exercise_dictionary_management(page, 'Unified search fixture', {
+                                    'name': 'edition-dictionary.zip', 'mimeType': 'application/zip',
+                                    'buffer': dictionary_archive()})
                                 expect(page.locator('.full-dictionary .headword')).to_contain_text('猫')
                                 expect(page.locator('.full-dictionary script, .full-dictionary iframe')).to_have_count(0)
                                 page.goto(base + '/manage')
