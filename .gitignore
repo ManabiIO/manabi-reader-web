@@ -7,6 +7,7 @@ __pycache__/
 # Generated, pinned Manabitan runtime and explicit-install dictionary archive
 /.cache/dictionary-build/
 /apps/web/static/manabitan/
+/apps/web/static/language-provider/
 /apps/web/static/dictionary-archives/
 # Obsolete path used while developing the provider-neutral boundary.
 /apps/web/static/dictionary-runtime/
