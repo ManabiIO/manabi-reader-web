@@ -161,6 +161,7 @@ export abstract class BaseStorageHandler {
   protected currentContext: ReplicationContext = { title: '' };
 
   protected cancelSignal: AbortSignal | undefined;
+  private contextVersion = 0;
 
   protected currentLastProgressValue = 0;
 
@@ -218,11 +219,17 @@ export abstract class BaseStorageHandler {
   }
 
   startContext(context: ReplicationContext, cancelSignal?: AbortSignal) {
+    const version = ++this.contextVersion;
     this.currentContext = context;
     this.cancelSignal = cancelSignal;
     this.currentLastProgressValue = 0;
     this.currentProgressBase = 0;
     this.sanitizedTitle = BaseStorageHandler.sanitizeForFilename(this.currentContext.title);
+    // Handlers are reused outside replication too. A finished operation must
+    // release its signal without clearing a context started by a newer owner.
+    return () => {
+      if (this.contextVersion === version) this.cancelSignal = undefined;
+    };
   }
 
   static getStatisticsMetadata(filename: string) {

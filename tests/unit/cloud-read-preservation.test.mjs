@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import pLimit from 'p-limit';
+import { getEventListeners } from 'node:events';
 import { loadOfflineModule } from './fixtures/offline-module.mjs';
 
 const rootName = 'ttu-reader-data';
@@ -71,7 +72,7 @@ function fixture(provider, initial = [unrelated]) {
     'p-limit': pLimit
   };
   const file = provider === 'google' ? 'gdrive-handler' : 'onedrive-handler';
-  const { api } = loadOfflineModule(`apps/web/src/lib/data/storage/handler/${file}.ts`, {
+  const { api, context } = loadOfflineModule(`apps/web/src/lib/data/storage/handler/${file}.ts`, {
     modules,
     globals: { URLSearchParams, FormData, File }
   });
@@ -133,7 +134,7 @@ function fixture(provider, initial = [unrelated]) {
     uploads.push(args);
     return { id: 'explicit-upload' };
   };
-  return { handler, cloud, calls, uploads, snapshot: () => JSON.stringify(cloud) };
+  return { handler, context, cloud, calls, uploads, snapshot: () => JSON.stringify(cloud) };
 }
 
 const reads = [
@@ -358,3 +359,251 @@ for (const provider of ['google', 'onedrive']) {
     );
   });
 }
+
+for (const provider of ['google', 'onedrive']) {
+  for (const malformed of [null, {}, { files: null, value: null }])
+    test(`${provider}: malformed discovery cannot authorize export`, async () => {
+      const f = fixture(provider);
+      const original = f.handler.request;
+      f.handler.request = async (href, options) =>
+        !options?.method || options.method === 'GET' ? malformed : original(href, options);
+      f.handler.readingGoalsMergeMode = 'replace';
+      await assert.rejects(f.handler.saveReadingGoals([], 123), /malformed/i);
+      assert.deepEqual(
+        f.calls.filter((call) => call.mutation),
+        []
+      );
+      assert.equal(f.uploads.length, 0);
+    });
+  test(`${provider}: cancellation during discovery cannot authorize folder creation`, async () => {
+    const f = fixture(provider),
+      cancel = new AbortController();
+    f.handler.cancelSignal = cancel.signal;
+    f.handler.request = async () => {
+      cancel.abort();
+      return provider === 'google' ? { files: [] } : { value: [] };
+    };
+    f.handler.readingGoalsMergeMode = 'replace';
+    await assert.rejects(f.handler.saveReadingGoals([], 123), { name: 'AbortError' });
+    assert.equal(f.uploads.length, 0);
+  });
+}
+
+test('google: direct file discovery requests and follows continuation fields', async () => {
+  const f = fixture('google', [folder('library', rootName), folder('book', 'Book', 'library')]);
+  const request = f.handler.request;
+  f.handler.request = async (href, ...args) => {
+    const url = new URL(href);
+    if (!url.searchParams.get('q')?.includes("'book' in parents")) return request(href, ...args);
+    assert.ok(url.searchParams.get('fields').includes('nextPageToken'));
+    return url.searchParams.has('pageToken')
+      ? { files: [{ id: 'progress', name: 'progress_1_8_2_3.json', parents: ['book'] }] }
+      : { files: [], nextPageToken: 'second' };
+  };
+  assert.equal((await f.handler.getExternalFile('progress_')).file.id, 'progress');
+});
+
+for (const failure of ['missing', 'duplicate', 'body', 'status'])
+  test(`onedrive: invalid ${failure} batch response leaves discovery retryable`, async () => {
+    const f = fixture('onedrive', [folder('library', rootName), folder('book', 'Book', 'library')]);
+    const request = f.handler.request;
+    f.handler.request = async (href, ...args) => {
+      const response = await request(href, ...args);
+      if (!href.endsWith('/$batch')) return response;
+      if (failure === 'missing') response.responses = [];
+      if (failure === 'duplicate') response.responses.push(response.responses[0]);
+      if (failure === 'body') response.responses[0].body = {};
+      if (failure === 'status') response.responses[0].status = undefined;
+      return response;
+    };
+    await assert.rejects(f.handler.getBookList(), /batch|malformed/i);
+    assert.equal(f.handler.dataListFetched, false);
+    assert.equal(f.handler.titleToFiles.size, 0);
+  });
+
+test('onedrive: batch child pagination preserves projected file rows', async () => {
+  const f = fixture('onedrive', [folder('library', rootName), folder('book', 'Book', 'library')]);
+  const request = f.handler.request;
+  f.handler.request = async (href, ...args) => {
+    if (href === 'https://graph.microsoft.com/next')
+      return { value: [{ id: 'progress', name: 'progress_1_8_2_3.json' }] };
+    const response = await request(href, ...args);
+    if (href.endsWith('/$batch'))
+      response.responses[0].body = {
+        value: [{ id: 'book-data', name: 'bookdata_1_8_10_20_0.zip' }],
+        '@odata.nextLink': 'https://graph.microsoft.com/next'
+      };
+    return response;
+  };
+  f.handler.cacheStorageData = true;
+  await f.handler.getBookList();
+  assert.equal((await f.handler.getExternalFile('progress_')).file.id, 'progress');
+});
+
+function xhrFixture() {
+  const f = fixture('google'),
+    requests = [],
+    started = Promise.withResolvers();
+  class Request extends EventTarget {
+    readyState = 0;
+    upload = {};
+    aborts = 0;
+    open(method, url) {
+      this.method = method;
+      this.url = url;
+      this.readyState = 1;
+    }
+    setRequestHeader() {}
+    send(body) {
+      this.body = body;
+      requests.push(this);
+      started.resolve(this);
+    }
+    abort() {
+      this.aborts++;
+    } // UNSENT/quiet transports need not emit abort.
+    complete(response, status = 200) {
+      this.response = response;
+      this.status = status;
+      this.readyState = 4;
+      this.dispatchEvent(new Event('readystatechange'));
+    }
+  }
+  f.context.XMLHttpRequest = Request;
+  f.handler.authManager = { getToken: async () => 'token' };
+  f.handler.request = Object.getPrototypeOf(Object.getPrototypeOf(f.handler)).request;
+  return { ...f, requests, started: started.promise };
+}
+
+async function startRequest(f, options) {
+  const request = f.handler.request('https://www.googleapis.com/drive/v3/files', options);
+  // Wait for dispatch across the actual VM/authentication promise boundary.
+  await Promise.race([
+    f.started,
+    request.then(() => {
+      throw new Error('Request finished before dispatch');
+    })
+  ]);
+  assert.equal(f.requests.length, 1);
+  return { request, xhr: f.requests[0] };
+}
+
+test('cloud transport: cancellation during authentication cannot start an obsolete request', async () => {
+  const f = xhrFixture(),
+    old = new AbortController(),
+    next = new AbortController();
+  let authenticated;
+  f.handler.authManager = {
+    getToken: () =>
+      new Promise((resolve) => {
+        authenticated = resolve;
+      })
+  };
+  f.handler.cancelSignal = old.signal;
+  const pending = f.handler.request('https://www.googleapis.com/drive/v3/files');
+  f.handler.cancelSignal = next.signal;
+  old.abort();
+  authenticated('token');
+  await assert.rejects(pending, { name: 'AbortError' });
+  assert.equal(f.requests.length, 0);
+});
+
+for (const options of [{}, { trackDownload: true }, { trackUpload: true }])
+  test(`cloud transport: cancellation stops ${Object.keys(options)[0] ?? 'metadata'} requests without progress events`, async () => {
+    const f = xhrFixture(),
+      old = new AbortController(),
+      next = new AbortController();
+    f.handler.cancelSignal = old.signal;
+    const { request, xhr } = await startRequest(f, options);
+    f.handler.cancelSignal = next.signal;
+    old.abort();
+    assert.equal(xhr.aborts, 1);
+    await assert.rejects(request, { name: 'AbortError' });
+    assert.equal(getEventListeners(old.signal, 'abort').length, 0);
+    assert.equal(next.signal.aborted, false);
+  });
+
+test('cloud transport: success removes the abort listener and later cancellation leaves completed I/O alone', async () => {
+  const f = xhrFixture(),
+    cancel = new AbortController();
+  f.handler.cancelSignal = cancel.signal;
+  const { request, xhr } = await startRequest(f);
+  xhr.complete({ files: [] });
+  assert.deepEqual(await request, { files: [] });
+  assert.equal(getEventListeners(cancel.signal, 'abort').length, 0);
+  cancel.abort();
+  assert.equal(xhr.aborts, 0);
+});
+
+test('cloud context: releasing a finished canceled operation allows a later library read', async () => {
+  const f = fixture('google'),
+    cancel = new AbortController();
+  const release = f.handler.startContext({ title: 'Book' }, cancel.signal);
+  cancel.abort();
+  await assert.rejects(f.handler.getBookList(), { name: 'AbortError' });
+  release();
+  assert.deepEqual(Array.from(await f.handler.getBookList()), []);
+  assert.deepEqual(
+    f.calls.filter((call) => call.mutation),
+    []
+  );
+});
+
+test('cloud context: obsolete cleanup cannot release a newer context with the same signal', () => {
+  const f = fixture('google'),
+    cancel = new AbortController();
+  const old = f.handler.startContext({ title: 'Old' }, cancel.signal);
+  const next = f.handler.startContext({ title: 'New' }, cancel.signal);
+  old();
+  assert.equal(f.handler.cancelSignal, cancel.signal);
+  next();
+  assert.equal(f.handler.cancelSignal, undefined);
+});
+
+test('google: goals discovery includes later pages before choosing the existing file', async () => {
+  const f = fixture('google', [folder('library', rootName)]),
+    request = f.handler.request;
+  f.handler.request = async (href, ...args) => {
+    const url = new URL(href);
+    if (!url.searchParams.get('q')?.includes("mimeType!='application/vnd.google-apps.folder'"))
+      return request(href, ...args);
+    assert.ok(url.searchParams.get('fields').includes('nextPageToken'));
+    return url.searchParams.has('pageToken')
+      ? { files: [{ id: 'existing-goals', name: 'ttu-user-goals_1_8_123.json' }] }
+      : { files: [], nextPageToken: 'goals-page-2' };
+  };
+  assert.equal((await f.handler.getRootFile('ttu-user-goals_')).file.id, 'existing-goals');
+  assert.equal(f.uploads.length, 0);
+});
+
+for (const provider of ['google', 'onedrive'])
+  test(`${provider}: a repeated continuation cannot complete or authorize export`, async () => {
+    const f = fixture(provider);
+    let calls = 0;
+    f.handler.request = async () => {
+      calls++;
+      assert.ok(calls < 5, 'Continuation cycles must be bounded');
+      return provider === 'google'
+        ? { files: [], nextPageToken: 'same' }
+        : { value: [], '@odata.nextLink': 'https://graph.microsoft.com/next' };
+    };
+    f.handler.readingGoalsMergeMode = 'replace';
+    await assert.rejects(f.handler.saveReadingGoals([], 123), /repeated/i);
+    assert.equal(f.uploads.length, 0);
+  });
+
+test('cloud transport: an already-cancelled context never asks for credentials', async () => {
+  const f = xhrFixture(),
+    cancel = new AbortController();
+  f.handler.authManager = {
+    getToken: () => {
+      assert.fail('Canceled work must not request authentication');
+    }
+  };
+  f.handler.cancelSignal = cancel.signal;
+  cancel.abort();
+  await assert.rejects(f.handler.request('https://www.googleapis.com/drive/v3/files'), {
+    name: 'AbortError'
+  });
+  assert.equal(f.requests.length, 0);
+});

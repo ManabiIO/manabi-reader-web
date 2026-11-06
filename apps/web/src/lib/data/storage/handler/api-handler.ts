@@ -574,56 +574,61 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
 
   async deleteBookData(booksToDelete: string[], cancelSignal: AbortSignal) {
     throwIfAborted(cancelSignal);
-    const root = await this.ensureTitle(undefined, undefined, true);
-    throwIfAborted(cancelSignal);
-    if (!root) return { error: '', deleted: [] };
+    const releaseContext = this.startContext(this.currentContext, cancelSignal);
+    try {
+      const root = await this.ensureTitle(undefined, undefined, true);
+      throwIfAborted(cancelSignal);
+      if (!root) return { error: '', deleted: [] };
 
-    let error = '';
+      let error = '';
 
-    const deleted: number[] = [];
-    const deletionLimiter = pLimit(1);
-    const deleteTasks: Promise<void>[] = [];
+      const deleted: number[] = [];
+      const deletionLimiter = pLimit(1);
+      const deleteTasks: Promise<void>[] = [];
 
-    replicationProgress$.next({ progressBase: 1, maxProgress: booksToDelete.length });
+      replicationProgress$.next({ progressBase: 1, maxProgress: booksToDelete.length });
 
-    booksToDelete.forEach((bookToDelete) =>
-      deleteTasks.push(
-        deletionLimiter(async () => {
-          try {
-            throwIfAborted(cancelSignal);
+      booksToDelete.forEach((bookToDelete) =>
+        deleteTasks.push(
+          deletionLimiter(async () => {
+            try {
+              throwIfAborted(cancelSignal);
 
-            const externalId = this.titleToId.get(bookToDelete);
+              const externalId = this.titleToId.get(bookToDelete);
 
-            if (externalId) {
-              await this.executeDelete(externalId);
+              if (externalId) {
+                await this.executeDelete(externalId);
+              }
+
+              this.titleToFiles.delete(bookToDelete);
+
+              const deletedBookCard = this.titleToBookCard.get(bookToDelete);
+
+              if (deletedBookCard) {
+                deleted.push(deletedBookCard.id);
+              }
+
+              this.titleToId.delete(bookToDelete);
+              this.titleToBookCard.delete(bookToDelete);
+
+              database.dataListChanged$.next(this);
+
+              BaseStorageHandler.reportProgress();
+            } catch (err) {
+              error = handleErrorDuringReplication(err, `Error deleting ${bookToDelete}: `, [
+                deletionLimiter
+              ]);
             }
+          })
+        )
+      );
 
-            this.titleToFiles.delete(bookToDelete);
+      await Promise.all(deleteTasks).catch(() => {});
 
-            const deletedBookCard = this.titleToBookCard.get(bookToDelete);
-
-            if (deletedBookCard) {
-              deleted.push(deletedBookCard.id);
-            }
-
-            this.titleToId.delete(bookToDelete);
-            this.titleToBookCard.delete(bookToDelete);
-
-            database.dataListChanged$.next(this);
-
-            BaseStorageHandler.reportProgress();
-          } catch (err) {
-            error = handleErrorDuringReplication(err, `Error deleting ${bookToDelete}: `, [
-              deletionLimiter
-            ]);
-          }
-        })
-      )
-    );
-
-    await Promise.all(deleteTasks).catch(() => {});
-
-    return { error, deleted };
+      return { error, deleted };
+    } finally {
+      releaseContext();
+    }
   }
 
   protected async request(
@@ -632,11 +637,15 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
     type: XMLHttpRequestResponseType = 'json',
     progressBase = 1
   ): Promise<any> {
+    const cancelSignal = this.cancelSignal;
+    throwIfAborted(cancelSignal);
     const token = await (options.skipAuth
       ? Promise.resolve('')
       : this.authManager.getToken(this.window, this.storageSourceName, this.askForStorageUnlock));
+    throwIfAborted(cancelSignal);
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
+    let abortRequest: (() => void) | undefined;
 
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -644,15 +653,25 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
       xhr.responseType = type;
 
       xhr.addEventListener('abort', () => {
-        reject(new AbortError());
+        reject(cancelSignal?.reason ?? new AbortError());
       });
+      abortRequest = () => {
+        // An UNSENT request need not dispatch abort. Settle even when abort()
+        // emits no event, and stop metadata requests without progress events.
+        try {
+          xhr.abort();
+        } finally {
+          reject(cancelSignal?.reason ?? new AbortError());
+        }
+      };
+      cancelSignal?.addEventListener('abort', abortRequest, { once: true });
 
       if (options.trackDownload) {
         this.currentLastProgressValue = 0;
         this.currentProgressBase = progressBase;
 
         xhr.onprogress = (event: ProgressEvent) => {
-          if (self.cancelSignal?.aborted) {
+          if (cancelSignal?.aborted) {
             xhr.abort();
             return;
           }
@@ -668,7 +687,7 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
         this.currentProgressBase = progressBase;
 
         xhr.upload.onprogress = (event: ProgressEvent) => {
-          if (self.cancelSignal?.aborted) {
+          if (cancelSignal?.aborted) {
             xhr.abort();
             return;
           }
@@ -682,19 +701,25 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
       xhr.addEventListener(
         'readystatechange',
         async function stateHandler() {
-          if (this.readyState === 4) {
-            if (this.status >= 200 && this.status < 400) {
-              resolve(this.response);
-            } else {
-              const errorMessage = await convertAuthErrorResponse(this);
-
-              if (this.status === 404) {
-                logger.error(errorMessage);
-                reject(new Error('Resource not found. Refresh your current tab and try again'));
+          try {
+            if (this.readyState === 4) {
+              throwIfAborted(cancelSignal);
+              if (this.status >= 200 && this.status < 400) {
+                resolve(this.response);
               } else {
-                reject(new Error(errorMessage));
+                const errorMessage = await convertAuthErrorResponse(this);
+                throwIfAborted(cancelSignal);
+
+                if (this.status === 404) {
+                  logger.error(errorMessage);
+                  reject(new Error('Resource not found. Refresh your current tab and try again'));
+                } else {
+                  reject(new Error(errorMessage));
+                }
               }
             }
+          } catch (error) {
+            reject(error);
           }
         },
         false
@@ -716,7 +741,10 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
         xhr.setRequestHeader('Authorization', `Bearer ${token}`);
       }
 
+      throwIfAborted(cancelSignal);
       xhr.send(options.body || null);
+    }).finally(() => {
+      if (abortRequest) cancelSignal?.removeEventListener('abort', abortRequest);
     });
   }
 
@@ -726,15 +754,19 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
     progressBase = 1,
     readOnly = true
   ) {
+    const cancelSignal = this.cancelSignal;
+    throwIfAborted(cancelSignal);
     const progressPerStep = progressBase / 5;
 
     const root = await this.ensureTitle(undefined, undefined, readOnly);
+    throwIfAborted(cancelSignal);
 
     if (!root) return { titleId: '', file: undefined, files: [], data: undefined };
 
     BaseStorageHandler.reportProgress(progressPerStep);
 
     const titleId = await this.ensureTitle(this.currentContext.title, this.rootId, readOnly);
+    throwIfAborted(cancelSignal);
 
     BaseStorageHandler.reportProgress(progressPerStep);
 
@@ -743,6 +775,7 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
     }
 
     const files = await this.getExternalFiles(titleId);
+    throwIfAborted(cancelSignal);
     const file = selectTtuFile(files, fileIdentifier);
 
     BaseStorageHandler.reportProgress(progressPerStep);
@@ -755,6 +788,7 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
 
     if (typeToRetrieve) {
       data = await this.retrieve(file, typeToRetrieve, progressPerStep * 2);
+      throwIfAborted(cancelSignal);
     }
 
     return { titleId, file, files, data };
@@ -766,15 +800,19 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
     progressBase = 1,
     readOnly = true
   ) {
+    const cancelSignal = this.cancelSignal;
+    throwIfAborted(cancelSignal);
     const progressPerStep = progressBase / 3;
 
     const root = await this.ensureTitle(undefined, undefined, readOnly);
+    throwIfAborted(cancelSignal);
 
     if (!root) return { file: undefined, data: undefined };
 
     BaseStorageHandler.reportProgress(progressPerStep);
 
     await this.setRootFiles();
+    throwIfAborted(cancelSignal);
 
     const file = this.rootFiles.get(fileIdentifier);
 
@@ -788,6 +826,7 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
 
     if (typeToRetrieve) {
       data = await this.retrieve(file, typeToRetrieve, progressPerStep);
+      throwIfAborted(cancelSignal);
     }
 
     return { file, data };

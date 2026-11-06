@@ -34,6 +34,11 @@ book titles require review instead of selecting an arbitrary folder. Stateful
 transport fixtures exercise the actual provider/API/base modules and compare all
 cloud bytes, names, parents, IDs and metadata, including unrelated files. They
 also prove an explicit export can still create a library after an empty listing.
+All file pages must complete before a listing is accepted; malformed responses,
+repeated continuation tokens and incomplete OneDrive batches remain errors rather
+than absence or permission to create a replacement. Cancellation stops metadata
+requests as well as transfers. Import, replication, deletion and external-book
+opening release their own context when finished, preserving any newer context.
 This qualifies the mocked read contract, not live OAuth or conditional write-back.
 
 ### Automatic incoming changes

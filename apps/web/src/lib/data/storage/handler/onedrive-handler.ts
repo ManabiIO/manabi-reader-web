@@ -11,6 +11,7 @@ import { BaseStorageHandler, type ExternalFile } from '$lib/data/storage/handler
 import { StorageKey } from '$lib/data/storage/storage-types';
 import { database, oneDriveStorageSource$ } from '$lib/data/store';
 import pLimit from 'p-limit';
+import { throwIfAborted } from '$lib/functions/replication/replication-error';
 
 interface OneDriveFile extends ExternalFile {
   thumbnails?: ExternalThumbnail[];
@@ -24,17 +25,6 @@ interface BatchRequest {
   url: string;
   body?: string;
   headers?: string;
-}
-
-interface BatchResponse {
-  id: string;
-  status: number;
-  headers?: Record<string, string>;
-  body: BatchResponseBody;
-}
-
-interface BatchResponseBody {
-  value: OneDriveFile[];
 }
 
 interface ExternalThumbnail {
@@ -68,6 +58,8 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
   }
 
   async getBookList() {
+    const cancelSignal = this.cancelSignal;
+    throwIfAborted(cancelSignal);
     if (!this.dataListFetched) {
       database.listLoading$.next(true);
 
@@ -80,6 +72,7 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
 
         const remoteFolders = await this.list(this.rootId);
         const batchRequests: BatchRequest[][] = [];
+        const completedTitles = new Map<string, OneDriveFile[]>();
         const batchIdToTitle = new Map<string, string>();
         const titleIdToName = new Map<string, string>();
         const names = new Set<string>();
@@ -136,30 +129,33 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
                   }
                 );
 
-                const responseWithError = responses.find(
-                  (response: BatchResponse) => response.status < 200 || response.status > 299
-                );
-
-                if (responseWithError) {
-                  const { body } = responseWithError;
-
-                  throw new Error(
-                    body.error_description ||
-                      body.error?.message ||
-                      body.error ||
-                      'Received error on data retrival'
-                  );
-                }
-
-                for (let index = 0, { length } = responses; index < length; index += 1) {
-                  const response = responses[index];
-                  const remoteFiles = response.body?.value || [];
-                  const externalId = batchIdToTitle.get(response.id) || '';
-                  const title = titleIdToName.get(externalId);
-
-                  if (title && externalId) {
-                    this.setTitleData(title, remoteFiles);
+                throwIfAborted(cancelSignal);
+                if (!Array.isArray(responses) || responses.length !== requests.length)
+                  throw new Error('Incomplete OneDrive batch listing');
+                const expectedIds = new Set(requests.map((request) => request.id));
+                for (const response of responses) {
+                  if (
+                    !response ||
+                    !expectedIds.delete(response.id) ||
+                    !Number.isInteger(response.status) ||
+                    response.status < 200 ||
+                    response.status > 299
+                  )
+                    throw new Error('Invalid OneDrive batch listing response');
+                  const remoteFiles = this.validateListing(response.body);
+                  if (response.body['@odata.nextLink']) {
+                    await this.list(
+                      'root',
+                      false,
+                      true,
+                      remoteFiles,
+                      response.body['@odata.nextLink'],
+                      new Set<string>(),
+                      true
+                    );
                   }
+                  const externalId = batchIdToTitle.get(response.id)!;
+                  completedTitles.set(titleIdToName.get(externalId)!, remoteFiles);
                 }
               })
             )
@@ -171,6 +167,8 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
           });
         }
 
+        throwIfAborted(cancelSignal);
+        for (const [title, files] of completedTitles) this.setTitleData(title, files);
         this.dataListFetched = true;
       } catch (error) {
         this.clearData();
@@ -186,6 +184,8 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
     parent = 'root',
     readOnly = false
   ) {
+    const cancelSignal = this.cancelSignal;
+    throwIfAborted(cancelSignal);
     const isRoot = name === BaseStorageHandler.rootName && parent === 'root';
     if (isRoot && this.rootId) {
       return this.rootId;
@@ -206,11 +206,28 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
     let titleId = '';
 
     if (isRoot) {
-      titleId = (await this.request(`${this.baseEndpoint}/${parent}/children?${params.toString()}`))
-        ?.value?.[0]?.id;
+      const response = await this.request(
+        `${this.baseEndpoint}/${parent}/children?${params.toString()}`
+      );
+      throwIfAborted(cancelSignal);
+      const matches = this.validateListing(response);
+      if (response['@odata.nextLink'])
+        await this.list(
+          parent,
+          false,
+          false,
+          matches,
+          response['@odata.nextLink'],
+          new Set<string>(),
+          true
+        );
+      throwIfAborted(cancelSignal);
+      if (matches.length > 1) throw new Error('Multiple matching cloud folders require review');
+      titleId = matches[0]?.id || '';
     } else if (this.rootId) {
       // One Drive Bug (?) - with non latin characters it will return no filter result so we need to refetch all folders
       const remoteFolders = await this.list(this.rootId);
+      throwIfAborted(cancelSignal);
 
       for (let index = 0, { length } = remoteFolders; index < length; index += 1) {
         const remoteFolder = remoteFolders[index];
@@ -228,9 +245,11 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
       throw new Error('RootId required for search');
     }
 
+    throwIfAborted(cancelSignal);
     if (!titleId && !readOnly) {
       params.delete('filter');
 
+      throwIfAborted(cancelSignal);
       const response = await this.request(
         `${this.baseEndpoint}/${parent}/children?${params.toString()}`,
         {
@@ -313,6 +332,8 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
     rootFilePrefix?: string,
     progressBase = 0.8
   ) {
+    const cancelSignal = this.cancelSignal;
+    throwIfAborted(cancelSignal);
     const params = new URLSearchParams();
     params.append('select', `id,name`);
 
@@ -332,6 +353,7 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
         }
       );
 
+      throwIfAborted(cancelSignal);
       const url = new URL(uploadUrlResponse);
       const searchParams = [...url.searchParams];
       const uploadUrl = `${url.origin}${url.pathname}`;
@@ -352,6 +374,7 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
 
       try {
         const byteSize = body instanceof Blob ? body.size : new Blob([body]).size;
+        throwIfAborted(cancelSignal);
         const response = await this.request(
           `${uploadUrl}?${params.toString()}`,
           {
@@ -365,7 +388,9 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
           progressBase
         );
 
+        throwIfAborted(cancelSignal);
         if (remoteFile && name !== remoteFile.name) {
+          throwIfAborted(cancelSignal);
           const renameResponse = await this.rename(name, files, remoteFile, params, rootFilePrefix);
 
           return renameResponse;
@@ -395,6 +420,7 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
       throw new Error('Renaming requires a remote id');
     }
 
+    throwIfAborted(cancelSignal);
     const renameResponse = await this.rename(name, files, remoteFile, params, rootFilePrefix);
 
     return renameResponse;
@@ -409,8 +435,12 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
     withThumbnail = false,
     listFiles = false,
     files: OneDriveFile[] = [],
-    nextLink = ''
+    nextLink = '',
+    seenNextLinks = new Set<string>(),
+    preserveProjectedRows = false
   ) {
+    const cancelSignal = this.cancelSignal;
+    throwIfAborted(cancelSignal);
     let response;
 
     if (nextLink) {
@@ -431,22 +461,49 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
       response = await this.request(`${this.baseEndpoint}/${parent}/children?${params.toString()}`);
     }
 
-    if (response) {
-      files.push(
-        ...(response.value || []).filter(
-          (item: OneDriveFile) => (listFiles && !!item.file) || (!listFiles && !!item.folder)
-        )
+    throwIfAborted(cancelSignal);
+    const rows = this.validateListing(response);
+    files.push(
+      ...rows.filter(
+        (item: OneDriveFile) =>
+          preserveProjectedRows || (listFiles && !!item.file) || (!listFiles && !!item.folder)
+      )
+    );
+    if (response['@odata.nextLink']) {
+      const link = response['@odata.nextLink'];
+      if (seenNextLinks.has(link)) throw new Error('Repeated OneDrive continuation link');
+      seenNextLinks.add(link);
+      await this.list(
+        parent,
+        withThumbnail,
+        listFiles,
+        files,
+        link,
+        seenNextLinks,
+        preserveProjectedRows
       );
-
-      if (response['@odata.nextLink']) {
-        await this.list(parent, withThumbnail, listFiles, files, response?.['@odata.nextLink']);
-      }
+      throwIfAborted(cancelSignal);
     }
 
     return files;
   }
 
-  private async setTitleData(title: string, files: OneDriveFile[]) {
+  private validateListing(response: any): OneDriveFile[] {
+    if (
+      !response ||
+      !Array.isArray(response.value) ||
+      response.value.some(
+        (file: OneDriveFile) =>
+          !file || typeof file.id !== 'string' || !file.id || typeof file.name !== 'string'
+      ) ||
+      (response['@odata.nextLink'] !== undefined &&
+        (typeof response['@odata.nextLink'] !== 'string' || !response['@odata.nextLink']))
+    )
+      throw new Error('Malformed OneDrive file listing');
+    return [...response.value];
+  }
+
+  private setTitleData(title: string, files: OneDriveFile[]) {
     if (!files.length) {
       return;
     }

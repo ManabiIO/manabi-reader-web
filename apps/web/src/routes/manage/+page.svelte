@@ -345,7 +345,7 @@
           handler.clearData(false);
         }
 
-        handler.startContext(
+        const releaseContext = handler.startContext(
           {
             id: isForBrowser ? bookItem.id : 0,
             title: bookItem.title,
@@ -354,7 +354,11 @@
           signal
         );
 
-        idToOpen = await handler.prepareBookForReading();
+        try {
+          idToOpen = await handler.prepareBookForReading();
+        } finally {
+          releaseContext?.();
+        }
         if (!current()) return;
 
         if (!$hideExternalReadHint$ && handler instanceof ApiStorageHandler) {

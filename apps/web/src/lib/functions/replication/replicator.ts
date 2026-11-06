@@ -50,6 +50,7 @@ export async function importData(
 
   for (const file of files) {
     let currentTitle = file.name;
+    let releaseContext: (() => void) | undefined;
 
     if (fileCountData && Object.prototype.hasOwnProperty.call(fileCountData, currentTitle)) {
       checkCancelAndProgress(cancelSignal, true, true);
@@ -108,7 +109,7 @@ export async function importData(
       bookContent.contentHash = contentHash!;
       throwIfAborted(cancelSignal);
 
-      targetHandler.startContext(
+      releaseContext = targetHandler.startContext(
         { title: bookContent.title, imagePath: bookContent.coverImage || '' },
         cancelSignal
       );
@@ -128,6 +129,8 @@ export async function importData(
     } catch (error: any) {
       if (cancelSignal.aborted || error?.name === 'AbortError') break;
       errorMessage = handleErrorDuringReplication(error, `Error importing ${currentTitle}: `);
+    } finally {
+      releaseContext?.();
     }
   }
 
@@ -218,13 +221,15 @@ export async function replicateData(
 
   contexts.forEach((context) =>
     replicationTasks.push(async () => {
+      let releaseSource: (() => void) | undefined;
+      let releaseTarget: (() => void) | undefined;
       try {
         throwIfAborted(cancelSignal);
 
         let dataProcessed = false;
 
-        sourceHandler.startContext(context, cancelSignal);
-        targetHandler.startContext(context, cancelSignal);
+        releaseSource = sourceHandler.startContext(context, cancelSignal);
+        releaseTarget = targetHandler.startContext(context, cancelSignal);
 
         if (processBookData) {
           if (
@@ -245,7 +250,11 @@ export async function replicateData(
               // A verified backup may create a second copy with the same title.
               // Subsequent progress must target the ID actually written, not
               // whichever title match IndexedDB returns first.
-              if (savedId) targetHandler.startContext({ ...context, id: savedId }, cancelSignal);
+              if (savedId)
+                releaseTarget = targetHandler.startContext(
+                  { ...context, id: savedId },
+                  cancelSignal
+                );
               dataProcessed = true;
             }
 
@@ -374,13 +383,21 @@ export async function replicateData(
           undefined,
           progressBaseForBookOperations
         );
+      } finally {
+        releaseSource?.();
+        releaseTarget?.();
       }
     })
   );
 
   if (processReadingGoals) {
     replicationTasks.push(async () => {
+      let releaseSource: (() => void) | undefined;
+      let releaseTarget: (() => void) | undefined;
       try {
+        throwIfAborted(cancelSignal);
+        releaseSource = sourceHandler.startContext({ title: '' }, cancelSignal);
+        releaseTarget = targetHandler.startContext({ title: '' }, cancelSignal);
         if (
           await targetHandler.areReadingGoalsPresentAndUpToDate(
             await sourceHandler.getFilenameForRecentCheck(BaseStorageHandler.readingGoalsFilePrefix)
@@ -408,6 +425,9 @@ export async function replicateData(
           undefined,
           progressBaseForOtherOperations
         );
+      } finally {
+        releaseSource?.();
+        releaseTarget?.();
       }
     });
   }

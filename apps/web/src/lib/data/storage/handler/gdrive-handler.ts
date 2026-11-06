@@ -11,6 +11,7 @@ import { BaseStorageHandler, type ExternalFile } from '$lib/data/storage/handler
 import { StorageKey } from '$lib/data/storage/storage-types';
 import { database, gDriveStorageSource$ } from '$lib/data/store';
 import pLimit from 'p-limit';
+import { throwIfAborted } from '$lib/functions/replication/replication-error';
 
 interface GDriveFile extends ExternalFile {
   thumbnailLink?: string;
@@ -37,6 +38,8 @@ export class GDriveStorageHandler extends ApiStorageHandler {
   }
 
   async getBookList() {
+    const cancelSignal = this.cancelSignal;
+    throwIfAborted(cancelSignal);
     if (!this.dataListFetched) {
       database.listLoading$.next(true);
 
@@ -114,6 +117,8 @@ export class GDriveStorageHandler extends ApiStorageHandler {
     parent = 'root',
     readOnly = false
   ) {
+    const cancelSignal = this.cancelSignal;
+    throwIfAborted(cancelSignal);
     const isRoot = name === BaseStorageHandler.rootName && parent === 'root';
     if (isRoot && this.rootId) {
       return this.rootId;
@@ -134,9 +139,11 @@ export class GDriveStorageHandler extends ApiStorageHandler {
         `trashed=false and '${parent}' in parents and mimeType='application/vnd.google-apps.folder'`,
         'files(id,name),nextPageToken'
       );
+      throwIfAborted(cancelSignal);
       const matches = folders.filter(
         (folder) => BaseStorageHandler.desanitizeFilename(folder.name) === name
       );
+      throwIfAborted(cancelSignal);
       if (matches.length > 1)
         throw new Error(
           'Multiple matching cloud folders require review before this library can be used.'
@@ -151,6 +158,7 @@ export class GDriveStorageHandler extends ApiStorageHandler {
         `trashed=false and '${parent}' in parents and mimeType = 'application/vnd.google-apps.folder' and name = "${sanitizedName}"`,
         'files(id),nextPageToken'
       );
+      throwIfAborted(cancelSignal);
       if (matches.length > 1)
         throw new Error(
           'Multiple matching cloud folders require review before this library can be used.'
@@ -158,6 +166,7 @@ export class GDriveStorageHandler extends ApiStorageHandler {
       titleId = matches[0]?.id || '';
     }
 
+    throwIfAborted(cancelSignal);
     if (!titleId && !readOnly) {
       const body = JSON.stringify({
         mimeType: 'application/vnd.google-apps.folder',
@@ -165,6 +174,7 @@ export class GDriveStorageHandler extends ApiStorageHandler {
         parents: [parent]
       });
 
+      throwIfAborted(cancelSignal);
       const response = await this.request(this.baseFileApiUrl, {
         method: 'POST',
         body,
@@ -253,6 +263,8 @@ export class GDriveStorageHandler extends ApiStorageHandler {
     rootFilePrefix?: string,
     progressBase = 0.8
   ): Promise<GDriveFile> {
+    const cancelSignal = this.cancelSignal;
+    throwIfAborted(cancelSignal);
     const form = new FormData();
     const params = new URLSearchParams();
 
@@ -281,6 +293,7 @@ export class GDriveStorageHandler extends ApiStorageHandler {
 
     params.append('uploadType', 'multipart');
 
+    throwIfAborted(cancelSignal);
     const response = await this.request(
       `${this.baseUploadApiUrl}${externalFile ? `/${externalFile.id}` : ''}?${params.toString()}`,
       { method: externalFile ? 'PATCH' : 'POST', body: form, trackUpload: true },
@@ -288,6 +301,7 @@ export class GDriveStorageHandler extends ApiStorageHandler {
       progressBase
     );
 
+    throwIfAborted(cancelSignal);
     this.updateAfterUpload(
       response.id,
       response.name,
@@ -310,12 +324,15 @@ export class GDriveStorageHandler extends ApiStorageHandler {
     query: string,
     fields: string,
     files: GDriveFile[] = [],
-    pageToken = ''
+    pageToken = '',
+    seenPageTokens = new Set<string>()
   ): Promise<GDriveFile[]> {
+    const cancelSignal = this.cancelSignal;
+    throwIfAborted(cancelSignal);
     const params = new URLSearchParams();
     params.append('corpora', 'user');
     params.append('spaces', 'drive');
-    params.append('fields', fields);
+    params.append('fields', fields.includes('nextPageToken') ? fields : `${fields},nextPageToken`);
     params.append('q', query);
 
     if (pageToken) {
@@ -324,12 +341,29 @@ export class GDriveStorageHandler extends ApiStorageHandler {
 
     const response = await this.request(`${this.baseFileApiUrl}?${params.toString()}`);
 
-    if (response) {
-      files.push(...(response.files || []));
+    throwIfAborted(cancelSignal);
+    if (
+      !response ||
+      !Array.isArray(response.files) ||
+      response.files.some(
+        (file: GDriveFile) =>
+          !file ||
+          typeof file.id !== 'string' ||
+          !file.id ||
+          (fields.includes('name') && typeof file.name !== 'string')
+      ) ||
+      (response.nextPageToken !== undefined &&
+        (typeof response.nextPageToken !== 'string' || !response.nextPageToken))
+    )
+      throw new Error('Malformed Google Drive file listing');
 
-      if (response.nextPageToken) {
-        await this.list(query, fields, files, response.nextPageToken);
-      }
+    files.push(...response.files);
+    if (response.nextPageToken) {
+      if (seenPageTokens.has(response.nextPageToken))
+        throw new Error('Repeated Google Drive continuation token');
+      seenPageTokens.add(response.nextPageToken);
+      await this.list(query, fields, files, response.nextPageToken, seenPageTokens);
+      throwIfAborted(cancelSignal);
     }
 
     return files;

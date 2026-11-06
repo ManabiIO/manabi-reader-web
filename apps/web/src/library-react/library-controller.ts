@@ -329,7 +329,7 @@ export class LibraryController extends ObservableController {
         if (!readStore(cacheStorageData$)) {
           handler.clearData(false);
         }
-        handler.startContext(
+        const releaseContext = handler.startContext(
           {
             id: isForBrowser ? bookItem.id : 0,
             title: bookItem.title,
@@ -337,7 +337,11 @@ export class LibraryController extends ObservableController {
           },
           signal
         );
-        idToOpen = await handler.prepareBookForReading();
+        try {
+          idToOpen = await handler.prepareBookForReading();
+        } finally {
+          releaseContext?.();
+        }
         if (!current()) return;
         if (!readStore(hideExternalReadHint$) && handler instanceof ApiStorageHandler) {
           const nextAction = await new Promise<string>((resolver) => {

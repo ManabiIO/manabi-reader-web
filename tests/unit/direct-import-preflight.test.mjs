@@ -334,3 +334,82 @@ test('book replication with no selected contexts does not request persistent sto
   assert.equal(await h.replicateData(source, h.handler, false, [], ['data'], h.signal), '');
   assert.equal(h.persistCalls(), 0);
 });
+
+for (const canceled of [false, true])
+  test(`direct import releases its context after ${canceled ? 'cancellation' : 'success'}`, async () => {
+    const h = loadFixture(),
+      cancel = new AbortController();
+    let released = 0;
+    const start = h.handler.startContext;
+    h.handler.startContext = (...args) => {
+      start(...args);
+      return () => {
+        released++;
+      };
+    };
+    if (canceled)
+      h.handler.saveBook = async () => {
+        cancel.abort();
+        throw cancel.signal.reason;
+      };
+    await h.importData(h.document, h.handler, [h.file], cancel.signal);
+    assert.equal(released, 1);
+  });
+
+for (const canceled of [false, true])
+  test(`replication releases both contexts after ${canceled ? 'cancellation' : 'success'}`, async () => {
+    const h = loadFixture(),
+      cancel = new AbortController(),
+      released = [];
+    const source = {
+      storageType: 'backup',
+      isCacheDisabled: () => false,
+      startContext(_context, signal) {
+        assert.equal(signal, cancel.signal);
+        return () => released.push('source');
+      },
+      getFilenameForRecentCheck: async () => undefined,
+      getBook: async () => {
+        throw cancel.signal.reason;
+      }
+    };
+    const target = {
+      storageType: 'browser',
+      isCacheDisabled: () => false,
+      startContext(_context, signal) {
+        assert.equal(signal, cancel.signal);
+        return () => released.push('target');
+      },
+      isBookPresentAndUpToDate: async () => {
+        cancel.abort();
+        return false;
+      }
+    };
+    await h.replicateData(
+      source,
+      target,
+      false,
+      [{ title: 'Book' }],
+      canceled ? ['data'] : [],
+      cancel.signal
+    );
+    assert.deepEqual(released, ['source', 'target']);
+  });
+
+test('reading-goals-only replication acquires and releases its own fresh contexts', async () => {
+  const h = loadFixture(),
+    trace = [];
+  const handler = (name) => ({
+    storageType: name,
+    isCacheDisabled: () => false,
+    startContext(_context, signal) {
+      assert.equal(signal, h.signal);
+      trace.push(name);
+      return () => trace.push('release ' + name);
+    },
+    getFilenameForRecentCheck: async () => undefined,
+    areReadingGoalsPresentAndUpToDate: async () => true
+  });
+  await h.replicateData(handler('source'), handler('target'), false, [], ['goals'], h.signal);
+  assert.deepEqual(trace, ['source', 'target', 'release source', 'release target']);
+});
