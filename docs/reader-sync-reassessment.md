@@ -208,6 +208,15 @@ verified sync and pending changes in Accounts and libraries. Distinguish
 Drive" and "Review changes". Online does not mean synced. Keep routine updates
 quiet; do not introduce repeated toasts or alarming offline banners.
 
+Settings exposes **Storage on this device** as browser observations rather than an
+opt-in to local saving. It checks protection before reporting a result, distinguishes
+unavailable APIs, and lets the reader refresh the estimate or explicitly request
+protection. Estimates cover the entire site origin (potentially multiple apps),
+not this edition alone or device free space. Protection reduces automatic eviction;
+it neither backs up nor syncs data, and clearing site data can still remove it.
+The shared controls retain keyboard focus while requests settle. These operations
+never clear caches, rewrite books, or change a cloud source.
+
 ### Identity, format and reconciliation contract
 
 Keep Drive transport separate from versioned TTU/Yatsu adapters. Bind every book

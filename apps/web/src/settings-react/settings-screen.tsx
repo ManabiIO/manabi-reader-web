@@ -58,7 +58,6 @@ export function SettingsScreen(
           <SettingsWorkspace>
             <SettingsContent
               activeSettings={c.activeSettings}
-              storageQuota={c.storageQuota}
               selectedTheme={c.$theme$}
               fontFamilyGroupOne={c.$fontFamilyGroupOne$}
               fontFamilyGroupTwo={c.$fontFamilyGroupTwo$}
@@ -97,8 +96,6 @@ export function SettingsScreen(
               selectionToBookmarkEnabled={c.$selectionToBookmarkEnabled$}
               enableTapEdgeToFlip={c.$enableTapEdgeToFlip$}
               pageColumns={c.$pageColumns$}
-              persistentStorage={c.$persistentStorage$}
-              requestPersistentStorage={c.requestPersistentStorage}
               hideExternalReadHint={c.$hideExternalReadHint$}
               confirmClose={c.$confirmClose$}
               manualBookmark={c.$manualBookmark$}

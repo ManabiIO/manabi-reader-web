@@ -73,13 +73,6 @@ import {
 } from '$lib/data/store';
 import { mergeEntries } from '$lib/components/merged-header-icon/merged-entries';
 import { pagePath } from '$lib/data/env';
-import { storage } from '$lib/data/window/navigator/storage';
-import {
-  persistentStorageStatus,
-  retryPersistentStorage
-} from '$lib/data/window/navigator/persistent-storage';
-
-import { writableSubject } from '$lib/functions/svelte/store';
 import { ReaderController, writeStore, type StoreValue } from '../reader-react/controller';
 import { type SettingsContextValue } from './context';
 
@@ -162,7 +155,6 @@ export function createSettingsScreen(
   let $enableTapEdgeToFlip$: StoreValue<typeof enableTapEdgeToFlip$> =
     __readerController.read(enableTapEdgeToFlip$);
   let $pageColumns$: StoreValue<typeof pageColumns$> = __readerController.read(pageColumns$);
-  let $persistentStorage$: StoreValue<typeof persistentStorage$> = undefined as never;
   let $hideExternalReadHint$: StoreValue<typeof hideExternalReadHint$> =
     __readerController.read(hideExternalReadHint$);
   let $confirmClose$: StoreValue<typeof confirmClose$> = __readerController.read(confirmClose$);
@@ -215,11 +207,6 @@ export function createSettingsScreen(
     __readerController.read(trackerPopupDetection$);
   let $adjustStatisticsAfterIdleTime$: StoreValue<typeof adjustStatisticsAfterIdleTime$> =
     __readerController.read(adjustStatisticsAfterIdleTime$);
-  const persistentStorage$ = writableSubject(false);
-  __readerController.onMount(() => {
-    persistentStorageStatus().then(setPersistentStorage);
-    setStorageQuota();
-  });
   const fallbackPage = `${pagePath}${mergeEntries.MANAGE.routeId}`;
   const prevPage = (() => {
     if (!props.previousPage) return fallbackPage;
@@ -240,30 +227,6 @@ export function createSettingsScreen(
     }
   })();
   const activeSettings = 'All';
-  let storageQuota = '';
-  function setPersistentStorage(value: boolean) {
-    persistentStorage$.next(value);
-  }
-  async function requestPersistentStorage() {
-    setPersistentStorage(await retryPersistentStorage());
-    setStorageQuota();
-  }
-  function setStorageQuota() {
-    storage
-      .estimate()
-      .then((storageData) => {
-        const { usage, quota } = storageData;
-        if (usage === undefined || quota === undefined) {
-          return;
-        }
-        __readerController.changed(
-          (storageQuota = `${Math.round(((usage / quota) * 100 + Number.EPSILON) * 100) / 100} % used`)
-        );
-      })
-      .catch(() => {
-        // no-op
-      });
-  }
   __readerController.observeSource(
     () => theme$,
     (value) => {
@@ -492,13 +455,6 @@ export function createSettingsScreen(
       $pageColumns$ = value;
     }
   );
-  $persistentStorage$ = __readerController.read(persistentStorage$);
-  __readerController.observeSource(
-    () => persistentStorage$,
-    (value) => {
-      $persistentStorage$ = value;
-    }
-  );
   __readerController.observeSource(
     () => hideExternalReadHint$,
     (value) => {
@@ -663,25 +619,11 @@ export function createSettingsScreen(
   );
   const api = {
     controller: __readerController,
-    setPersistentStorage,
-    requestPersistentStorage,
-    setStorageQuota,
-    get persistentStorage$() {
-      return persistentStorage$;
-    },
     get prevPage() {
       return prevPage;
     },
     get activeSettings() {
       return activeSettings;
-    },
-    get storageQuota() {
-      return storageQuota;
-    },
-    set storageQuota(nextValue: typeof storageQuota) {
-      if (Object.is(storageQuota, nextValue)) return;
-      storageQuota = nextValue;
-      __readerController.invalidate();
     },
     get $theme$() {
       return $theme$;
@@ -910,12 +852,6 @@ export function createSettingsScreen(
     },
     set $pageColumns$(nextValue: typeof $pageColumns$) {
       writeStore(pageColumns$, nextValue);
-    },
-    get $persistentStorage$() {
-      return $persistentStorage$;
-    },
-    set $persistentStorage$(nextValue: typeof $persistentStorage$) {
-      writeStore(persistentStorage$, nextValue);
     },
     get $hideExternalReadHint$() {
       return $hideExternalReadHint$;

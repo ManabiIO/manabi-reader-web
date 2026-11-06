@@ -88,9 +88,6 @@ export interface SettingsContentProps {
   selectionToBookmarkEnabled: boolean;
   enableTapEdgeToFlip: boolean;
   pageColumns: number;
-  storageQuota: string;
-  persistentStorage: boolean;
-  requestPersistentStorage: () => Promise<void>;
   hideExternalReadHint: boolean;
   confirmClose: boolean;
   manualBookmark: boolean;
@@ -136,7 +133,6 @@ export function createSettingsContent(
   let verticalMode: any;
   let fontCacheSupported: any;
   let avoidPageBreakTooltip: any;
-  let persistentStorageTooltip: any;
   let cacheStorageDataTooltip: any;
   let replicationSaveBehaviorTooltip: any;
   let showExternalPlaceholderToolTip: any;
@@ -234,9 +230,6 @@ export function createSettingsContent(
   let selectionToBookmarkEnabled: boolean = props.selectionToBookmarkEnabled;
   let enableTapEdgeToFlip: boolean = props.enableTapEdgeToFlip;
   let pageColumns: number = props.pageColumns;
-  let storageQuota: string = props.storageQuota;
-  let persistentStorage: boolean = props.persistentStorage;
-  let requestPersistentStorage: () => Promise<void> = props.requestPersistentStorage;
   let hideExternalReadHint: boolean = props.hideExternalReadHint;
   let confirmClose: boolean = props.confirmClose;
   let manualBookmark: boolean = props.manualBookmark;
@@ -543,16 +536,6 @@ export function createSettingsContent(
         (avoidPageBreakTooltip = avoidPageBreak
           ? 'Avoids breaking words/sentences into different pages'
           : 'Allow words/sentences to break into different pages')
-      );
-    }
-  );
-  __readerController.effect(
-    () => [persistentStorage],
-    () => {
-      __readerController.changed(
-        (persistentStorageTooltip = persistentStorage
-          ? 'Browser storage is protected from automatic eviction. The user can still clear site data.'
-          : 'Reader requests browser storage protection automatically when saving books locally. Until granted, local data remains best-effort and may be evicted under storage pressure.')
       );
     }
   );
@@ -1072,30 +1055,6 @@ export function createSettingsContent(
       pageColumns = nextValue;
       __readerController.invalidate();
     },
-    get storageQuota() {
-      return storageQuota;
-    },
-    set storageQuota(nextValue: typeof storageQuota) {
-      if (Object.is(storageQuota, nextValue)) return;
-      storageQuota = nextValue;
-      __readerController.invalidate();
-    },
-    get persistentStorage() {
-      return persistentStorage;
-    },
-    set persistentStorage(nextValue: typeof persistentStorage) {
-      if (Object.is(persistentStorage, nextValue)) return;
-      persistentStorage = nextValue;
-      __readerController.invalidate();
-    },
-    get requestPersistentStorage() {
-      return requestPersistentStorage;
-    },
-    set requestPersistentStorage(nextValue: typeof requestPersistentStorage) {
-      if (Object.is(requestPersistentStorage, nextValue)) return;
-      requestPersistentStorage = nextValue;
-      __readerController.invalidate();
-    },
     get hideExternalReadHint() {
       return hideExternalReadHint;
     },
@@ -1471,14 +1430,6 @@ export function createSettingsContent(
       avoidPageBreakTooltip = nextValue;
       __readerController.invalidate();
     },
-    get persistentStorageTooltip() {
-      return persistentStorageTooltip;
-    },
-    set persistentStorageTooltip(nextValue: typeof persistentStorageTooltip) {
-      if (Object.is(persistentStorageTooltip, nextValue)) return;
-      persistentStorageTooltip = nextValue;
-      __readerController.invalidate();
-    },
     get cacheStorageDataTooltip() {
       return cacheStorageDataTooltip;
     },
@@ -1623,12 +1574,6 @@ export function createSettingsContent(
       if ('enableTapEdgeToFlip' in next)
         api.enableTapEdgeToFlip = next.enableTapEdgeToFlip as typeof enableTapEdgeToFlip;
       if ('pageColumns' in next) api.pageColumns = next.pageColumns as typeof pageColumns;
-      if ('storageQuota' in next) api.storageQuota = next.storageQuota as typeof storageQuota;
-      if ('persistentStorage' in next)
-        api.persistentStorage = next.persistentStorage as typeof persistentStorage;
-      if ('requestPersistentStorage' in next)
-        api.requestPersistentStorage =
-          next.requestPersistentStorage as typeof requestPersistentStorage;
       if ('hideExternalReadHint' in next)
         api.hideExternalReadHint = next.hideExternalReadHint as typeof hideExternalReadHint;
       if ('confirmClose' in next) api.confirmClose = next.confirmClose as typeof confirmClose;

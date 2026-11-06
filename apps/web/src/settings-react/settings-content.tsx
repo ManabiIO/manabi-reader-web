@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { SettingsBrowserStorage } from './settings-browser-storage';
 import { EXTERNAL_DICTIONARY_POPUP_DETECTION_TOOLTIP } from '$lib/integrations/external-dictionary-interop';
 import { useReaderController } from '../reader-react/controller';
 import {
@@ -1091,45 +1092,7 @@ export function SettingsContent(
           ) : null}
           {c.activeSettings === 'Data' || c.activeSettings === 'All' ? (
             <>
-              <SettingsItemGroup
-                settingId={'persistent-storage'}
-                category={'library'}
-                keywords={'persistentStorage'}
-                title={'Persistent storage'}
-                tooltip={c.persistentStorageTooltip}
-              >
-                <Dom
-                  as="div"
-                  className={['flex flex-wrap items-center gap-3'].filter(Boolean).join(' ')}
-                >
-                  <Dom as="span" role={'status'} className={['text-sm'].filter(Boolean).join(' ')}>
-                    {c.persistentStorage
-                      ? 'Protected from automatic browser eviction'
-                      : 'Using best-effort browser storage'}
-                  </Dom>
-                  {!c.persistentStorage ? (
-                    <>
-                      <Button
-                        variant={'secondary'}
-                        size={'sm'}
-                        onClick={() => void c.requestPersistentStorage()}
-                      >
-                        {' Retry protection '}
-                      </Button>
-                    </>
-                  ) : null}
-                  {c.storageQuota ? (
-                    <>
-                      <Dom
-                        as="span"
-                        className={['text-sm text-muted-foreground'].filter(Boolean).join(' ')}
-                      >
-                        {c.storageQuota}
-                      </Dom>
-                    </>
-                  ) : null}
-                </Dom>
-              </SettingsItemGroup>
+              <SettingsBrowserStorage />
               <SettingsItemGroup
                 settingId={'hide-external-read-hint'}
                 category={'library'}

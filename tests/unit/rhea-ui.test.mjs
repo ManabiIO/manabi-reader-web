@@ -18,7 +18,12 @@ test('all 65 pre-modernization setting groups retain their exact value bindings'
     read('apps/web/src/settings-react/settings-content.tsx'),
     'settings-content.tsx'
   );
-  const groups = jsxElements(content, 'SettingsItemGroup');
+  const storage = parseTsx(read('apps/web/src/settings-react/settings-browser-storage.tsx'));
+  assert.equal(jsxElements(content, 'SettingsBrowserStorage').length, 1);
+  const groups = [
+    ...jsxElements(content, 'SettingsItemGroup'),
+    ...jsxElements(storage, 'SettingsItemGroup')
+  ];
   assert.equal(manifest.length, 65);
   assert.equal(new Set(manifest.map((field) => field.id)).size, 65);
   for (const field of manifest) {
@@ -231,18 +236,21 @@ test('outside dismissal uses original pointer ownership, never retargeted clicks
   }
 });
 
-test('persistent storage is automatic infrastructure with status-only settings', () => {
+test('persistent storage is automatic infrastructure with observational settings', () => {
   const content = read('apps/web/src/settings-react/settings-content.tsx');
   const route = read('apps/web/src/settings-react/settings-screen.tsx');
   const replicator = read('apps/web/src/lib/functions/replication/replicator.ts');
-  assert.ok(content.includes('Protected from automatic browser eviction'));
-  assert.ok(content.includes('Using best-effort browser storage'));
+  const storage = read('apps/web/src/settings-react/settings-browser-storage.tsx');
+  assert.ok(storage.includes('Protected from automatic browser cleanup'));
+  assert.ok(storage.includes('Storage protection isn’t confirmed'));
+  assert.ok(storage.includes('Refresh storage details'));
   assert.equal(
     content.includes('selectedOptionId={c.persistentStorage}'),
     false,
     'persistent storage must not look like an offline opt-in toggle'
   );
-  assert.ok(route.includes('requestPersistentStorage={c.requestPersistentStorage}'));
+  assert.equal(route.includes('requestPersistentStorage={c.requestPersistentStorage}'), false);
+  assert.ok(content.includes('<SettingsBrowserStorage />'));
   assert.equal(route.includes('setPersistentStorage$'), false);
   assert.equal(replicator.includes('requestPersistentStorage$.getValue()'), false);
 });

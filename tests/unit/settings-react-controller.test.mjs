@@ -4,7 +4,6 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { compileFunction } from 'node:vm';
 import test from 'node:test';
-import { deferred } from './fixtures/offline-module.mjs';
 const require = createRequire(import.meta.url);
 const ts = require('typescript');
 function load(relative, imports = {}) {
@@ -371,12 +370,7 @@ test('Expo importer forwards once-decoded route-local source before browser loca
   assert.equal(new URL(ImportRoute().props.routeUrl).searchParams.get('source'), 'ttu');
 });
 
-test('React Settings consumes one persistence status and preserves manual retry', async () => {
-  const status = deferred();
-  const grant = deferred();
-  let statusCalls = 0;
-  let legacyProbeCalls = 0;
-  let retryCalls = 0;
+test('React Settings controller leaves browser storage inspection to its mounted field', () => {
   const stores = new Map();
   const dataStores = new Proxy(
     {},
@@ -393,45 +387,13 @@ test('React Settings consumes one persistence status and preserves manual retry'
       mergeEntries: { MANAGE: { routeId: '/manage' }, SETTINGS: { routeId: '/settings' } }
     },
     '$lib/data/env': { pagePath: '/reader-web' },
-    '$lib/data/window/navigator/storage': {
-      storage: {
-        persisted: async () => {
-          legacyProbeCalls += 1;
-          return false;
-        },
-        estimate: async () => ({})
-      }
-    },
-    '$lib/data/window/navigator/persistent-storage': {
-      persistentStorageStatus: () => {
-        statusCalls += 1;
-        return status.promise;
-      },
-      currentPersistentStorageRequest: () => grant.promise,
-      retryPersistentStorage: () => {
-        retryCalls += 1;
-        return grant.promise;
-      }
-    },
-    '$lib/functions/svelte/store': { writableSubject: store },
     '../reader-react/controller': runtime
   });
   const c = createSettingsScreen({}, undefined, settingsContext());
   c.controller.prepare();
-  assert.equal(statusCalls, 0, 'render preparation must not inspect persistence');
   c.controller.start();
-  assert.equal(statusCalls, 1);
-  assert.equal(legacyProbeCalls, 0, 'Settings must not launch a second stale browser probe');
-  assert.equal(c.$persistentStorage$, false);
-  grant.resolve(true);
-  await drain();
-  assert.equal(c.$persistentStorage$, false, 'Settings must await the serialized status result');
-  status.resolve(true);
-  await drain();
-  assert.equal(c.$persistentStorage$, true);
-  await c.requestPersistentStorage();
-  assert.equal(retryCalls, 1);
-  assert.equal(c.$persistentStorage$, true);
+  assert.equal(c.persistentStorage$, undefined);
+  assert.equal(c.requestPersistentStorage, undefined);
   c.controller.destroy();
   for (const saved of stores.values()) assert.equal(saved.count(), 0);
 });
