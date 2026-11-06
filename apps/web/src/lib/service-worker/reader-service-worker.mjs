@@ -11,7 +11,10 @@ import {
   isUsableShellResponse,
   OFFLINE_STATUS_REQUEST
 } from './offline-status.mjs';
-import { verifiedRuntimeCacheName } from './verified-runtime-assets.mjs';
+import {
+  verifiedRuntimeCacheName,
+  VERIFIED_RUNTIME_RELOAD_HEADER
+} from './verified-runtime-assets.mjs';
 
 /**
  * Register Reader's static application-shell worker. Cache ownership includes
@@ -256,7 +259,9 @@ export function registerReaderServiceWorker(worker, config) {
 
   async function readOptionalRuntime(request, key) {
     let cache;
-    const reload = request.cache === 'reload';
+    // Browsers (and disabled HTTP caches) can mark ordinary loads as reload.
+    // Only the descriptor-verifying host may request this explicit repair path.
+    const reload = request.headers.get(VERIFIED_RUNTIME_RELOAD_HEADER) === '1';
     // Prefer the host-verified copy: an older optional fetch may contain a
     // different, MIME-valid response. SRI module execution must see the same
     // verified bytes that the host just admitted, including during offline Retry.

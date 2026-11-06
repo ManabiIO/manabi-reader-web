@@ -37,7 +37,9 @@ has an upstream local-resource failure. This is cache-protocol qualification,
 not language-engine or dictionary semantic parity.
 
 A verifier cache miss or damaged copy uses an explicit `cache: reload` request.
-The shell worker honors that request by bypassing both optional runtime caches,
+An explicit `X-Reader-Runtime-Reload: 1` marker distinguishes this verifier repair
+from ordinary browser reloads (including disabled HTTP caches). The shell worker
+honors that marker by bypassing both optional runtime caches,
 then refreshes only the requested tool URL. Failed validation never publishes a
 verified copy. This repair does not clear databases, user dictionaries, books,
 foreign caches, or the application shell. Offline verified cache hits remain

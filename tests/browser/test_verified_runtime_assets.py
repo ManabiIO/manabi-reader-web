@@ -80,7 +80,11 @@ class FirstPageRuntimeCache(unittest.TestCase):
                         Handler.reads=0;Handler.damaged=False
                         browser=getattr(playwright,engine).launch(**launch_options(engine));context=None
                         try:
-                            context=browser.new_context();page=context.new_page();page.goto(origin+'/reader/')
+                            context=browser.new_context()
+                            # Routing disables HTTP caching, so normal browser
+                            # requests may carry reload without requesting repair.
+                            context.route('**/*',lambda route: route.continue_())
+                            page=context.new_page();page.goto(origin+'/reader/')
                             page.evaluate("async()=>{await navigator.serviceWorker.register('./sw.js',{type:'module'});await navigator.serviceWorker.ready;}")
                             page.reload();page.wait_for_function('navigator.serviceWorker.controller!==null')
                             expected={'bytes':len(ASSET),'sha256':hashlib.sha256(ASSET).hexdigest()}

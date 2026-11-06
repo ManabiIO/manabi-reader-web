@@ -842,3 +842,17 @@ test('host-verified runtime bytes outrank an older MIME-valid optional copy', as
   assert.equal(await body(await h.request(asset)), 'verified host copy');
   assert.equal(h.fetched.length, 0);
 });
+
+test('ordinary browser reload flags still reopen verified tools offline', async () => {
+  const scope = url('/reader/'),
+    asset = url('/reader/engine/runtime.js');
+  const h = makeHarness({ scope, optionalRuntimeAssets: [asset] });
+  await (
+    await h.storage.open(verifiedRuntimeCacheName(scope))
+  ).put(asset, new Response('saved tool', { headers: { 'Content-Type': 'text/javascript' } }));
+  h.setFetch(async () => {
+    throw new Error('offline');
+  });
+  assert.equal(await body(await h.request(asset, { cache: 'reload' })), 'saved tool');
+  assert.equal(h.fetched.length, 0);
+});
