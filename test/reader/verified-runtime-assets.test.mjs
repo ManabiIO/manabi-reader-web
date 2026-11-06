@@ -192,3 +192,78 @@ test('cache denial does not discard verified online resources', async () => {
   );
   assert.equal(new TextDecoder().decode(result), value);
 });
+
+test('owner cancellation retires a blocked resource body and never publishes partial bytes', async () => {
+  for (const cached of [false, true]) {
+    const controller = new AbortController();
+    let started,
+      release,
+      cancelled = false,
+      writes = 0,
+      network = 0;
+    const reading = new Promise((resolve) => {
+      started = resolve;
+    });
+    const response = new Response(
+      new ReadableStream(
+        {
+          start(stream) {
+            release = () => stream.close();
+          },
+          pull() {
+            started();
+          },
+          cancel() {
+            cancelled = true;
+          }
+        },
+        { highWaterMark: 0 }
+      )
+    );
+    const pending = loadVerifiedRuntimeAsset(
+      scope,
+      url,
+      { sha256: sha('good'), bytes: 4 },
+      {
+        signal: controller.signal,
+        storage: {
+          open: async () => ({
+            match: async () => (cached ? response : undefined),
+            put: async () => {
+              writes++;
+            }
+          })
+        },
+        fetch: async () => {
+          network++;
+          return response;
+        }
+      }
+    );
+    const settled = pending.then(
+      () => 'unexpected success',
+      (error) => error.name
+    );
+    let timer;
+    try {
+      await reading;
+      controller.abort();
+      assert.equal(
+        await Promise.race([
+          settled,
+          new Promise((resolve) => {
+            timer = setTimeout(() => resolve('still blocked after abort'), 100);
+          })
+        ]),
+        'AbortError'
+      );
+      assert.equal(cancelled, true);
+      assert.equal(writes, 0);
+      assert.equal(network, cached ? 0 : 1);
+    } finally {
+      clearTimeout(timer);
+      if (!cancelled) release();
+      await settled;
+    }
+  }
+});

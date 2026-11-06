@@ -82,7 +82,7 @@ export async function loadVerifiedRuntimeAsset(
     try {
       for (;;) {
         check();
-        const next = await reader.read();
+        const next = await wait(reader.read());
         if (next.done) break;
         length += next.value.byteLength;
         if (length > limit || (expected.bytes !== undefined && length > expected.bytes))
