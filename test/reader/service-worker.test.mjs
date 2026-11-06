@@ -824,3 +824,21 @@ test('verified reload bypasses both optional copies and repairs without removing
   assert.equal(await body(await user.match(url('/book'))), 'preserved');
   assert.deepEqual(h.removed, []);
 });
+
+test('host-verified runtime bytes outrank an older MIME-valid optional copy', async () => {
+  const scope = url('/reader/'),
+    asset = url('/reader/engine/runtime.js');
+  const h = makeHarness({ scope, optionalRuntimeAssets: [asset] });
+  const headers = { 'Content-Type': 'text/javascript' };
+  await (
+    await h.storage.open(h.runtime)
+  ).put(asset, new Response('unverified optional', { headers }));
+  await (
+    await h.storage.open(verifiedRuntimeCacheName(scope))
+  ).put(asset, new Response('verified host copy', { headers }));
+  h.setFetch(async () => {
+    throw new Error('offline');
+  });
+  assert.equal(await body(await h.request(asset)), 'verified host copy');
+  assert.equal(h.fetched.length, 0);
+});

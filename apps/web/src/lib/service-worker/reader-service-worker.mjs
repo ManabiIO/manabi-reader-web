@@ -257,15 +257,10 @@ export function registerReaderServiceWorker(worker, config) {
   async function readOptionalRuntime(request, key) {
     let cache;
     const reload = request.cache === 'reload';
-    try {
-      cache = await storage.open(runtimeName);
-      const saved = !reload && (await cache.match(key));
-      if (isUsableRuntimeResponse(saved, key)) return saved;
-    } catch {
-      /* Online use can continue when optional storage is unavailable. */
-    }
-    // A user may have loaded verified tools before this worker controlled the
-    // first document. Read only that registration's explicitly persisted assets.
+    // Prefer the host-verified copy: an older optional fetch may contain a
+    // different, MIME-valid response. SRI module execution must see the same
+    // verified bytes that the host just admitted, including during offline Retry.
+    // Read only this registration's explicitly persisted assets.
     try {
       const name = verifiedRuntimeCacheName(scope);
       if (!reload && (await storage.keys()).includes(name)) {
@@ -274,6 +269,13 @@ export function registerReaderServiceWorker(worker, config) {
       }
     } catch {
       /* An optional cache failure still permits a network retry. */
+    }
+    try {
+      cache = await storage.open(runtimeName);
+      const saved = !reload && (await cache.match(key));
+      if (isUsableRuntimeResponse(saved, key)) return saved;
+    } catch {
+      /* Online use can continue when optional storage is unavailable. */
     }
     let response;
     try {
