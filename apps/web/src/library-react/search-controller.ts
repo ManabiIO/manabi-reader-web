@@ -130,7 +130,7 @@ export class SearchController extends ObservableController {
     if (!videoLearningEnabled) throw new Error('Video learning is disabled.');
     if (!this.mediaRuntimePromise) {
       const pending = Promise.all([
-        import('$lib/media/reader-store'),
+        import('../runtime/reader-media-store'),
         import('$lib/media/video-search')
       ]).then(([store, search]) => ({ store: store.createReaderMediaStore(), search }));
       this.mediaRuntimePromise = pending;

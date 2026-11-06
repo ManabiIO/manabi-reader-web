@@ -5,7 +5,7 @@
  */
 
 import { account, currentUser } from './client';
-import { createReaderMediaStore } from '$lib/media/reader-store';
+import { createReaderMediaStore } from '../../runtime/reader-media-store';
 
 const store = createReaderMediaStore();
 const profileKind = 'media-offline-profile';

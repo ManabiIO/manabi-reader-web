@@ -138,9 +138,9 @@ test('edition identity and resource names are fixed at build time', async () => 
 test('Reader media, profile and search consumers share only their edition database', async () => {
   const idb = new IDBFactory();
   const { MediaStore } = await load('apps/web/src/lib/media/store.ts', 'manabitan');
-  const publicFactory = (await load('apps/web/src/lib/media/reader-store.ts', 'manabitan'))
+  const publicFactory = (await load('apps/web/src/runtime/reader-media-store.ts', 'manabitan'))
     .createReaderMediaStore;
-  const privateFactory = (await load('apps/web/src/lib/media/reader-store.ts', 'manabi'))
+  const privateFactory = (await load('apps/web/src/runtime/reader-media-store.ts', 'manabi'))
     .createReaderMediaStore;
   const legacy = new MediaStore(idb, 'manabi-media-v1');
   const publicMedia = publicFactory(idb),

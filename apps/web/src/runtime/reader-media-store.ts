@@ -4,8 +4,8 @@
  * All rights reserved.
  */
 
-import { storageName } from '../../runtime/edition';
-import { MediaStore } from './store';
+import { storageName } from './edition';
+import { MediaStore } from '../lib/media/store';
 
 /** All Reader UI/profile/search consumers share the selected edition's store. */
 export function createReaderMediaStore(factory?: IDBFactory): MediaStore {
