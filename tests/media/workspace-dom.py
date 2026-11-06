@@ -5,10 +5,12 @@ Uses explicit transaction, decoder/metadata and recognition doubles, not Svelte,
 IndexedDB, cloud transport or real MOSS. getRandomValues supplies the UUID shim for
 this opaque in-memory test document; no browser security policy is changed.
 """
-import argparse, base64, functools, json, os, pathlib, re, traceback
-from playwright.sync_api import sync_playwright
+import argparse, base64, functools, json, os, pathlib, re, sys, traceback
+from playwright.sync_api import sync_playwright, expect
 from browser_poll import wait_for_async
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'tests/browser'))
+from browser_launch import launch_options
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
@@ -24,7 +26,7 @@ def main():
     def data(path):return base64.b64encode(path.read_bytes()).decode()
     results=[]
     with sync_playwright() as p:
-        browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM','/usr/bin/chromium'),headless=True,args=['--no-sandbox'])
+        browser=p.chromium.launch(**launch_options(executable_path=os.environ.get('CHROMIUM'),headless=True,args=['--no-sandbox']))
         page=browser.new_page(viewport={'width':1280,'height':900});page.set_default_timeout(6000)
         page.set_content('<!doctype html><meta charset="utf-8"><style>body{margin:0;background:#f5f8f8}'+(build/'media.css').read_text()+'</style><div id="host"></div>')
         page.evaluate('''async args=>{
@@ -1032,10 +1034,13 @@ def main():
             page.wait_for_function('document.querySelectorAll(".video-card").length===1')
             select_visible.focus();select_visible.press('Enter')
             assert status.inner_text()=='1 video selected'
-            assert select_visible.is_disabled() and clear.is_focused()
+            expect(select_visible).to_be_disabled()
+            expect(clear).to_be_focused()
             clear.press('Enter')
             assert status.inner_text()=='No videos selected'
-            assert clear.is_disabled() and generate.is_disabled() and select_visible.is_focused()
+            expect(clear).to_be_disabled()
+            expect(generate).to_be_disabled()
+            expect(select_visible).to_be_focused()
             assert not page.get_by_label('Select Finished',exact=True).is_checked()
             page.get_by_label('Search videos',exact=True).fill('')
             page.wait_for_function('document.querySelectorAll(".video-card").length===3')

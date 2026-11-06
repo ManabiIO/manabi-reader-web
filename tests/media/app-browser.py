@@ -12,6 +12,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tests/browser'))
 from test_static_reader import StaticHandler, ThreadingHTTPServer
 from browser_launch import launch_options
+from reader_fixture import reader_fixture
 
 
 PERSISTED_SELECTION = """
@@ -129,11 +130,11 @@ def main():
     try:
         browser = p.chromium.launch(**launch_options(executable_path=os.environ.get('CHROMIUM')))
         context = browser.new_context(locale='en-CA', viewport={'width':1280,'height':900})
-        context.add_init_script("localStorage.setItem('manabi-reader-dictionary-setup-v1','skip')")
+        context.add_init_script(reader_fixture("localStorage.setItem('manabi-reader-dictionary-setup-v1','skip')"))
         page = context.new_page()
         page.on('pageerror', lambda error: errors.append(str(error)))
         page.set_default_timeout(20000)
-        page.goto(origin + '/reader-web/videos')
+        page.goto(origin + reader_fixture('/reader-web/videos'))
         expect(page.get_by_role('heading', name='Videos', exact=True)).to_be_visible()
         books_link = page.get_by_role('link', name='Books', exact=True)
         assert books_link.bounding_box()['height'] >= 43.5
@@ -218,12 +219,12 @@ def main():
         sheet.get_by_role('button', name='Increase text size', exact=True).click()
         expect(sheet.get_by_role('group', name='Text size').locator('output')).to_have_text(f'{int(before+1)} px')
         page.wait_for_function('(size)=>parseFloat(getComputedStyle(document.querySelector(".transcript-text")).fontSize)===size',arg=before+1)
-        assert float(page.evaluate('localStorage.getItem("fontSize")')) == before+1
+        assert float(page.evaluate(reader_fixture('localStorage.getItem("fontSize")'))) == before+1
         sheet.get_by_label('Reading font', exact=True).select_option('Serif')
         sheet.get_by_label('Reading line spacing', exact=True).select_option('1.9')
         page.wait_for_function('getComputedStyle(document.querySelector(".transcript-text")).fontFamily.toLowerCase().startsWith("serif")')
-        assert page.evaluate('localStorage.getItem("fontFamilyGroupOne")') == 'Serif'
-        assert float(page.evaluate('localStorage.getItem("lineHeight")')) == 1.9
+        assert page.evaluate(reader_fixture('localStorage.getItem("fontFamilyGroupOne")')) == 'Serif'
+        assert float(page.evaluate(reader_fixture('localStorage.getItem("lineHeight")'))) == 1.9
         page.wait_for_function('() => { const s=getComputedStyle(document.querySelector(".transcript-text")); return Math.abs(parseFloat(s.lineHeight)/parseFloat(s.fontSize)-1.9)<.03; }')
         # Finish the opening animation only. Theme switches are then audited on
         # their first rendered frames; independent foreground/background fades
@@ -263,7 +264,7 @@ def main():
         expect(page.locator('.transcript-pane')).to_be_visible()
         # A rendered row is not a durable write acknowledgement. Establish the
         # actual committed IDB state before testing reload, without sleep timers.
-        wait_for_async(page, PERSISTED_SELECTION, arg={
+        wait_for_async(page, reader_fixture(PERSISTED_SELECTION), arg={
             'label':'ja · video.ja.srt', 'language':'ja',
             'cues':[
                 {'start':0,'end':4,'text':'こんにちは。何かお探しですか。'},
@@ -286,7 +287,7 @@ def main():
         # Wait for the exact rendered typography, not only for cue-row existence.
         # Keep the persistent store assertions: this cannot pass on a temporary
         # style whose saved preference was actually lost.
-        page.wait_for_function("""expected => {
+        page.wait_for_function(reader_fixture("""expected => {
             const node=document.querySelector('.transcript-text');
             if (!node) return false;
             const style=getComputedStyle(node);
@@ -296,9 +297,9 @@ def main():
                 parseFloat(style.fontSize)===expected &&
                 style.fontFamily.toLowerCase().startsWith('serif') &&
                 Math.abs(parseFloat(style.lineHeight)/parseFloat(style.fontSize)-1.9)<.03;
-        }""",arg=before+1)
+        }"""),arg=before+1)
         (args.output/'restored-typography.json').write_text(json.dumps(page.locator(
-            '.transcript-text').first.evaluate("""node => {
+            '.transcript-text').first.evaluate(reader_fixture("""node => {
                 const style=getComputedStyle(node);
                 return {
                     fontSize:style.fontSize,fontFamily:style.fontFamily,lineHeight:style.lineHeight,
@@ -306,7 +307,7 @@ def main():
                     savedFont:localStorage.getItem('fontFamilyGroupOne'),
                     savedLineHeight:localStorage.getItem('lineHeight')
                 };
-            }"""),indent=2))
+            }""")),indent=2))
         results.append('real IndexedDB primary selection and shared reading settings survive reload/reselect')
         page.locator('.video-player-heading').click()
         page.screenshot(path=str(args.output/'app-desktop.png'))
@@ -442,7 +443,7 @@ def main():
         expect(options_button).to_be_focused()
         results.append('real video player and transcript chrome reflow at 320px / 200% text')
 
-        page.goto(origin + '/reader-web/manage')
+        page.goto(origin + reader_fixture('/reader-web/manage'))
         library_sections = page.get_by_role('navigation', name='Library sections', exact=True)
         expect(library_sections).to_be_visible()
         videos_link = library_sections.get_by_role('link', name='Videos', exact=True)
@@ -501,14 +502,14 @@ def main():
     except Exception:
         try:
             page.screenshot(path=str(args.output/"failure.png"))
-            state=page.evaluate("""async()=>{
+            state=page.evaluate(reader_fixture("""async()=>{
                 const r=indexedDB.open('manabi-media-v1');
                 const db=await new Promise((yes,no)=>{r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error)});
                 const tx=db.transaction(['local','records'],'readonly');
                 const read=n=>new Promise(yes=>{const q=tx.objectStore(n).getAll();q.onsuccess=()=>yes(q.result)});
                 const data=await Promise.all([read('local'),read('records')]);db.close();
                 return {data,primary:document.querySelector('[aria-label="Transcript track"]')?.value,secondary:document.querySelector('[aria-label="Translation track"]')?.value};
-            }""")
+            }"""))
             (args.output/'storage-diagnostics.json').write_text(json.dumps(state,ensure_ascii=False))
             (args.output/"failure.html").write_text(page.content())
         except Exception:
