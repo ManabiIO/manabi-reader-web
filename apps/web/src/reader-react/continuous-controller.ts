@@ -120,6 +120,7 @@ export function createContinuous(
   let languageGeneration = 0;
   let openingLanguage = false;
   let layoutTask: Promise<void> | undefined;
+  let layoutSignal: AbortSignal | undefined;
   let fullLengthDimension: 'height' | 'width';
   let modifyingDimension: 'width' | 'height';
   let boundSide: readonly ['left', 'right'] | readonly ['top', 'bottom'];
@@ -263,8 +264,9 @@ export function createContinuous(
     () => {
       if (calculator && width && height && !loadingState) {
         const c = calculator;
+        const signal = layoutSignal;
         requestAnimationFrame(() => {
-          onContentDisplayChange(c);
+          onContentDisplayChange(c, signal);
         });
       }
     }
@@ -464,7 +466,7 @@ export function createContinuous(
       takeUntil(destroy$)
     )
     .subscribe(() => {
-      if (!pageManagerConcrete) return;
+      if (layoutSignal?.aborted || !pageManagerConcrete) return;
       const scrollPos = layoutScrollPosition();
       if (scrollPos === undefined) return;
       const currentScroll = verticalMode ? window.scrollX : window.scrollY;
@@ -518,9 +520,13 @@ export function createContinuous(
       (customReadingPointScrollOffset = customReadingPointTop - firstDimensionMarginValue)
     );
   }
-  function onContentDisplayChange(_calculator: CharacterStatsCalculator): Promise<void> {
+  function onContentDisplayChange(
+    _calculator: CharacterStatsCalculator,
+    signal = layoutSignal
+  ): Promise<void> {
+    if (signal?.aborted) return Promise.resolve();
     if (languageBook && layoutTask) return layoutTask;
-    const task = finishContentDisplay(_calculator);
+    const task = finishContentDisplay(_calculator, signal);
     if (languageBook) {
       layoutTask = task;
       void task
@@ -531,9 +537,9 @@ export function createContinuous(
     }
     return task;
   }
-  async function finishContentDisplay(_calculator: CharacterStatsCalculator) {
+  async function finishContentDisplay(_calculator: CharacterStatsCalculator, signal?: AbortSignal) {
     const generation = languageGeneration;
-    if (__readerController.disposed || _calculator !== calculator) return;
+    if (signal?.aborted || __readerController.disposed || _calculator !== calculator) return;
     _calculator.updateParagraphPos();
     updateCustomReadingPointPosition();
     __readerController.changed(
@@ -544,6 +550,7 @@ export function createContinuous(
       await bookmarkData
         .then((data) => {
           if (
+            signal?.aborted ||
             __readerController.disposed ||
             generation !== languageGeneration ||
             _calculator !== calculator ||
@@ -557,6 +564,7 @@ export function createContinuous(
         })
         .finally(() => {
           if (
+            signal?.aborted ||
             __readerController.disposed ||
             generation !== languageGeneration ||
             _calculator !== calculator
@@ -564,16 +572,21 @@ export function createContinuous(
             return;
           if (autoBookmark) {
             fromEvent(window, 'scroll')
-              .pipe(skip(1), debounceTime(autoBookmarkTime * 1000), takeUntil(destroy$))
+              .pipe(
+                skip(1),
+                debounceTime(autoBookmarkTime * 1000),
+                takeUntil(destroy$),
+                takeUntil(signal ? fromEvent(signal, 'abort') : EMPTY)
+              )
               .subscribe(() => {
-                dispatch('bookmark');
+                if (!signal?.aborted) dispatch('bookmark');
               });
           }
           sectionList$
             .pipe(
               take(1),
               switchMap((sections) => {
-                if (!sections.length) {
+                if (signal?.aborted || !sections.length) {
                   return EMPTY;
                 }
                 sections.forEach((section) => {
@@ -601,12 +614,16 @@ export function createContinuous(
                 return EMPTY;
               }),
               debounce(() => timer(willNavigate ? 100 : 500)),
-              takeUntil(destroy$)
+              takeUntil(destroy$),
+              takeUntil(signal ? fromEvent(signal, 'abort') : EMPTY)
             )
-            .subscribe(updateSectionProgress);
+            .subscribe(() => {
+              if (!signal?.aborted) updateSectionProgress();
+            });
         });
     }
     if (
+      signal?.aborted ||
       __readerController.disposed ||
       generation !== languageGeneration ||
       _calculator !== calculator
@@ -755,10 +772,11 @@ export function createContinuous(
           await languageBook!.attachSiblings(root, index);
           await waitForChapterLayout(root, signal);
           signal.throwIfAborted();
-          initializeLayout();
+          initializeLayout(signal);
           await readerTick();
           signal.throwIfAborted();
-          if (calculator) await onContentDisplayChange(calculator);
+          if (calculator) await onContentDisplayChange(calculator, signal);
+          signal.throwIfAborted();
           if (anchor) {
             const projected = projectResource(root, {
               href: 'book',
@@ -810,7 +828,8 @@ export function createContinuous(
     window.addEventListener('scroll', checkLanguageChapter, { passive: true });
     return () => window.removeEventListener('scroll', checkLanguageChapter);
   });
-  function initializeLayout() {
+  function initializeLayout(signal?: AbortSignal) {
+    layoutSignal = signal;
     if (!contentEl) return;
     __readerController.changed(
       (calculator = new CharacterStatsCalculator(
@@ -827,7 +846,7 @@ export function createContinuous(
     stopFontLayout?.();
     __readerController.changed(
       (stopFontLayout = observeReaderFontLayout(contentEl, () => {
-        if (!contentEl || !calculator) return;
+        if (signal?.aborted || !contentEl || !calculator) return;
         const currentScroll = verticalMode ? window.scrollX : window.scrollY;
         const previousTarget = previewNavigationActive ? undefined : layoutScrollPosition();
         calculator.updateParagraphPos();

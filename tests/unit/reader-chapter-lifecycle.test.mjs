@@ -35,7 +35,7 @@ const defer = () => {
 const html = '<div id="ttu-a"><p>猫</p></div><div id="ttu-b"><p>犬</p></div>';
 const rect = { left: 0, right: 100, top: 0, bottom: 20, width: 100, height: 20 };
 
-function fixture(mode) {
+function fixture(mode, withLanguage = true) {
   const dom = new JSDOM('<div id="scroll"><div id="content"></div></div>', {
     url: 'https://reader.test/manabitan-reader/',
     pretendToBeVisual: true
@@ -108,12 +108,12 @@ function fixture(mode) {
     }
   });
   const props = {
-    languageBook: language,
+    languageBook: withLanguage ? language : undefined,
     htmlContent: html,
     width: 800,
     height: 600,
     verticalMode: false,
-    bookmarkData: Promise.resolve({ exploredCharCount: 1, bookCharCount: 2 }),
+    bookmarkData: Promise.resolve({ exploredCharCount: withLanguage ? 1 : 0, bookCharCount: 2 }),
     loadingState: false,
     fontFeatureSettings: '',
     verticalTextOrientation: 'mixed',
@@ -218,6 +218,84 @@ for (const mode of ['paginated', 'continuous']) {
       );
     } finally {
       f.gate.resolve();
+      f.close();
+    }
+  });
+}
+
+for (const mode of ['paginated', 'continuous']) {
+  for (const cancel of ['retire', 'invalidate']) {
+    test(`${mode} ${cancel} cancels bookmark layout without changing the calculator`, async () => {
+      const f = fixture(mode);
+      const bookmark = defer();
+      try {
+        if (mode === 'paginated') {
+          await until(() => f.controller.currentSpineIndex === 1 && !!f.controller.displayedHtml);
+          f.root.innerHTML = f.controller.displayedHtml;
+        }
+        f.controller.onHtmlLoad();
+        await f.entered.promise;
+        f.gate.resolve();
+        await until(() => f.controller.allowDisplay);
+        const calculator = f.controller.calculator;
+        const manager = f.controller.bookmarkManager;
+        let scrolls = 0;
+        manager.scrollToBookmark = () => {
+          scrolls++;
+          return true;
+        };
+        f.controller.bookmarkData = bookmark.promise;
+        f.controller.scrollWhenReady = true;
+        const ready = f.controller.contentReadyEvent;
+        const task = f.controller.onContentDisplayChange(calculator);
+        let scrollSubscriptions = 0;
+        const addEventListener = f.dom.window.addEventListener.bind(f.dom.window);
+        f.dom.window.addEventListener = (name, ...args) => {
+          if (name === 'scroll') scrollSubscriptions++;
+          return addEventListener(name, ...args);
+        };
+        const signal = f.language.activeSignal;
+        if (cancel === 'retire') f.language.retire();
+        else f.language.session.invalidate();
+        assert.equal(signal.aborted, true);
+        bookmark.resolve({ exploredCharCount: 1, bookCharCount: 2 });
+        await task;
+        assert.equal(f.controller.calculator, calculator);
+        assert.equal(scrolls, 0, 'a retired opening must not restore its bookmark');
+        if (mode === 'continuous') {
+          assert.equal(f.controller.contentReadyEvent, ready);
+          assert.equal(scrollSubscriptions, 0, 'a retired opening must not subscribe to sections');
+        }
+        await f.controller.onContentDisplayChange(calculator);
+        assert.equal(scrolls, 0, 'queued layout callbacks must stay cancelled');
+      } finally {
+        bookmark.resolve();
+        f.gate.resolve();
+        f.close();
+      }
+    });
+  }
+}
+
+for (const mode of ['paginated', 'continuous']) {
+  test(`${mode} keeps ordinary layouts working without language preprocessing`, async () => {
+    const f = fixture(mode, false);
+    try {
+      if (mode === 'paginated') {
+        await until(() => f.controller.currentSpineIndex === 0 && !!f.controller.displayedHtml);
+        f.root.innerHTML = f.controller.displayedHtml;
+      }
+      f.controller.onHtmlLoad();
+      await until(() => f.controller.allowDisplay);
+      let scrolls = 0;
+      f.controller.bookmarkManager.scrollToBookmark = () => {
+        scrolls++;
+        return true;
+      };
+      f.controller.scrollWhenReady = true;
+      await f.controller.onContentDisplayChange(f.controller.calculator);
+      assert.equal(scrolls, 1);
+    } finally {
       f.close();
     }
   });

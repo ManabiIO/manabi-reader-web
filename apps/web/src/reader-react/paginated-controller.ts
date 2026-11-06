@@ -99,6 +99,7 @@ export function createPaginated(
   const languageBook = props.languageBook;
   let openingError = '';
   let layoutTask: Promise<void> | undefined;
+  let layoutSignal: AbortSignal | undefined;
   let columnCount: number;
   let $selectionToBookmarkEnabled$: StoreValue<typeof selectionToBookmarkEnabled$> =
     __readerController.read(selectionToBookmarkEnabled$);
@@ -198,7 +199,9 @@ export function createPaginated(
   __readerController.effect(
     () => [bookmarkData],
     () => {
+      const signal = layoutSignal;
       bookmarkData.then((data) => {
+        if (signal?.aborted) return;
         __readerController.changed((useExploredCharCount = false));
         updateBookmarkScreen(data);
       });
@@ -298,8 +301,9 @@ export function createPaginated(
       if (calculator && width && height && !loadingState) {
         const c = calculator;
         const generation = renderGeneration;
+        const signal = layoutSignal;
         requestAnimationFrame(() => {
-          if (generation === renderGeneration) onContentDisplayChange(c);
+          if (generation === renderGeneration) onContentDisplayChange(c, signal);
         });
       }
     }
@@ -431,7 +435,7 @@ export function createPaginated(
       takeUntil(destroy$)
     )
     .subscribe(() => {
-      if (!calculator || !concretePageManager) return;
+      if (layoutSignal?.aborted || !calculator || !concretePageManager) return;
       concretePageManager.scrollTo(0, false);
       calculator.updateParagraphPos();
       const scrollPos = calculator.getScrollPosByCharCount(previousIntendedCount);
@@ -440,7 +444,7 @@ export function createPaginated(
       __readerController.changed((isResizing = false));
     });
   pageChange$.pipe(takeUntil(destroy$)).subscribe((isUser) => {
-    if (!calculator) return;
+    if (layoutSignal?.aborted || !calculator) return;
     if (!isResizing) {
       __readerController.changed((showCustomReadingPoint = false));
       pulseElement(customReadingPointRange?.endContainer?.parentElement, 'remove', 1);
@@ -456,7 +460,9 @@ export function createPaginated(
         clearRange(window);
       }
     }
+    const signal = layoutSignal;
     bookmarkData.then((data) => {
+      if (signal?.aborted) return;
       __readerController.changed((useExploredCharCount = isUser || !!customReadingPointRange));
       updateBookmarkScreen(data);
     });
@@ -549,10 +555,11 @@ export function createPaginated(
           signal.throwIfAborted();
           if (generation !== renderGeneration)
             throw new DOMException('Superseded chapter', 'AbortError');
-          initializeLayout();
+          initializeLayout(signal);
           await readerTick();
           signal.throwIfAborted();
-          if (calculator) await onContentDisplayChange(calculator);
+          if (calculator) await onContentDisplayChange(calculator, signal);
+          signal.throwIfAborted();
         },
         commit() {
           if (disposed || generation !== renderGeneration)
@@ -566,7 +573,8 @@ export function createPaginated(
           __readerController.changed((openingError = error.message));
       });
   }
-  function initializeLayout() {
+  function initializeLayout(signal?: AbortSignal) {
+    layoutSignal = signal;
     if (!scrollEl || currentSpineIndex < 0 || !displayedHtml) return;
     __readerController.changed(
       (calculator = new SectionCharacterStatsCalculator(
@@ -590,6 +598,7 @@ export function createPaginated(
     );
   }
   function triggerContentChange() {
+    if (layoutSignal?.aborted) return;
     if (!calculator || !scrollEl || currentSpineIndex !== sectionIndex$.getValue()) return;
     calculator.updateCurrentSection(currentSpineIndex);
     calculator.updateParagraphPos();
@@ -603,9 +612,13 @@ export function createPaginated(
     }
     dispatch('contentChange', scrollEl);
   }
-  function onContentDisplayChange(_calculator: SectionCharacterStatsCalculator): Promise<void> {
+  function onContentDisplayChange(
+    _calculator: SectionCharacterStatsCalculator,
+    signal = layoutSignal
+  ): Promise<void> {
+    if (signal?.aborted) return Promise.resolve();
     if (languageBook && layoutTask) return layoutTask;
-    const task = finishContentDisplay(_calculator);
+    const task = finishContentDisplay(_calculator, signal);
     if (languageBook) {
       layoutTask = task;
       void task
@@ -616,8 +629,12 @@ export function createPaginated(
     }
     return task;
   }
-  async function finishContentDisplay(_calculator: SectionCharacterStatsCalculator) {
+  async function finishContentDisplay(
+    _calculator: SectionCharacterStatsCalculator,
+    signal?: AbortSignal
+  ) {
     if (
+      signal?.aborted ||
       disposed ||
       _calculator !== calculator ||
       currentSpineIndex < 0 ||
@@ -639,7 +656,13 @@ export function createPaginated(
     if (scrollEl) dispatch('contentChange', scrollEl);
     if (scrollWhenReady) {
       const data = await bookmarkData;
-      if (disposed || generation !== renderGeneration || _calculator !== calculator) return;
+      if (
+        signal?.aborted ||
+        disposed ||
+        generation !== renderGeneration ||
+        _calculator !== calculator
+      )
+        return;
       if (!data) __readerController.changed((scrollWhenReady = false));
       else if (concreteBookmarkManager?.scrollToBookmark(data)) {
         __readerController.changed((scrollWhenReady = false));
@@ -648,10 +671,16 @@ export function createPaginated(
       }
     } else {
       const data = await bookmarkData;
-      if (disposed || generation !== renderGeneration || _calculator !== calculator) return;
+      if (
+        signal?.aborted ||
+        disposed ||
+        generation !== renderGeneration ||
+        _calculator !== calculator
+      )
+        return;
       updateBookmarkScreen(data);
     }
-    if (generation !== renderGeneration || _calculator !== calculator) return;
+    if (signal?.aborted || generation !== renderGeneration || _calculator !== calculator) return;
     if (!languageBook) {
       __readerController.changed((allowDisplay = true));
       sectionRenderComplete$.next(currentSpineIndex);
@@ -659,6 +688,7 @@ export function createPaginated(
   }
 
   function updateBookmarkScreen(data: BooksDbBookmarkData | undefined) {
+    if (layoutSignal?.aborted) return;
     const bookmarkCharCount = data?.exploredCharCount;
     if (!calculator || !bookmarkCharCount) return;
     const result = calculator.checkBookmarkOnScreen(bookmarkCharCount);
