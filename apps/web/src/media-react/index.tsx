@@ -68,7 +68,7 @@ export function VideosScreen() {
       import('$lib/media/cloud-browser'),
       import('$lib/media/profile-lifetime'),
       import('$lib/manabi/media-profile'),
-      import('$lib/media/reader-store')
+      import('../runtime/reader-media-store')
     ])
       .then(([workspaceModule, cloudModule, lifetimeModule, profileModule, storeModule]) => {
         if (disposed) return;

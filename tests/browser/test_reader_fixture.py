@@ -1,15 +1,60 @@
 """Fixture identity helpers retain real storage operands and safety fault targets."""
+import importlib.util
 import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 from tempfile import TemporaryDirectory
+from types import ModuleType
 import unittest
 from unittest.mock import patch
 from reader_fixture import reader_fixture, reader_fixture_path, reader_product
 
 
 class ReaderFixtureIdentity(unittest.TestCase):
+    def test_browser_fixture_import_needs_no_default_export_but_reads_still_validate_it(self):
+        with TemporaryDirectory(prefix='reader-fixture-no-export-') as temporary:
+            root = Path(temporary).resolve() / 'checkout'
+            source = Path(__file__).with_name('reader_fixture.py')
+            spec = importlib.util.spec_from_file_location('reader_fixture_no_export', source)
+            fixture = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(fixture)
+            # A module-location fixture models a fresh checkout without copying
+            # source, hiding real files or touching the actual build directory.
+            fixture.__file__ = str(root / 'tests/browser/reader_fixture.py')
+            expected = root / 'apps/web/build'
+            api = ModuleType('playwright.sync_api')
+            def unavailable(*_, **__):
+                raise AssertionError('Import regression must not launch Playwright')
+            api.expect = api.sync_playwright = unavailable
+            static_source = Path(__file__).with_name('test_static_reader.py')
+            def import_static():
+                spec = importlib.util.spec_from_file_location('test_static_reader_no_export', static_source)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                return module
+            with patch.dict(os.environ), patch.dict(sys.modules, {
+                    'reader_fixture': fixture, 'playwright.sync_api': api}):
+                os.environ.pop('READER_EDITION_TEST_OUTPUT', None)
+                self.assertFalse(expected.exists())
+                self.assertEqual(expected, fixture.reader_output_directory())
+                imported = import_static()
+                self.assertEqual(expected, imported.ROOT)
+                self.assertTrue(hasattr(imported, 'ReaderBrowser'))
+                with self.assertRaises(FileNotFoundError):
+                    fixture.reader_product()
+                self.assertFalse(expected.exists())
+                for value in ('', 'relative', str(expected)):
+                    with self.subTest(explicit=value), patch.dict(os.environ, READER_EDITION_TEST_OUTPUT=value):
+                        with self.assertRaises((ValueError, FileNotFoundError)):
+                            import_static()
+                linked = Path(temporary).resolve() / 'linked-export'
+                linked.symlink_to(Path(temporary).resolve(), target_is_directory=True)
+                with patch.dict(os.environ, READER_EDITION_TEST_OUTPUT=str(linked)):
+                    with self.assertRaisesRegex(ValueError, 'non-linked'):
+                        import_static()
+
     def test_metadata_selects_the_actual_output_and_rejects_invalid_identity(self):
         with TemporaryDirectory(prefix='reader-fixture-identity-') as temporary:
             root = Path(temporary).resolve()

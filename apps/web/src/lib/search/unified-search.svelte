@@ -106,7 +106,7 @@
     if (!videoLearningEnabled) throw new Error('Video learning is disabled.');
     if (!mediaRuntimePromise) {
       const pending = Promise.all([
-        import('../media/reader-store'),
+        import('../../runtime/reader-media-store'),
         import('../media/video-search')
       ]).then(([store, search]) => ({ store: store.createReaderMediaStore(), search }));
       mediaRuntimePromise = pending;

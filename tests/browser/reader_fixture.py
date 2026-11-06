@@ -6,6 +6,7 @@ API implementations, object-store names, API endpoints or upstream TTU contexts.
 """
 from functools import lru_cache
 import json
+import os
 from pathlib import Path
 import re
 from reader_edition_output import reader_edition_output
@@ -15,13 +16,19 @@ DATABASES = ('books', 'manabi-reader-integrations', 'manabi-reader-appearance',
 OPERAND = r"(?:'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|[A-Za-z_$][\w$]*)"
 
 
-def reader_output_directory():
-    return reader_edition_output(Path(__file__).resolve().parents[2] / 'apps/web/build')
+def reader_output_directory(*, require_export=False):
+    # Diagnostic unit tests import the browser classes before exporting an app.
+    # Only the implicit default may be computed early. An explicit selection
+    # must never silently fall back to that default or bypass path validation.
+    default = Path(__file__).resolve().parents[2] / 'apps/web/build'
+    if require_export or 'READER_EDITION_TEST_OUTPUT' in os.environ:
+        return reader_edition_output(default)
+    return default
 
 
 @lru_cache(maxsize=1)
 def reader_product():
-    value = json.loads((reader_output_directory() / 'reader-product.json').read_text())
+    value = json.loads((reader_output_directory(require_export=True) / 'reader-product.json').read_text())
     if (value.get('schema') != 1 or value.get('edition') not in ('manabi', 'manabitan')
             or not isinstance(value.get('storageNamespace'), str)
             or not re.fullmatch(r'[a-z][a-z0-9-]*', value['storageNamespace'])
