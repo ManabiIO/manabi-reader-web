@@ -611,48 +611,41 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
   }
 
   async deleteBookData(booksToDelete: string[], cancelSignal: AbortSignal) {
+    throwIfAborted(cancelSignal);
     const rootDirectory = await this.ensureRoot();
+    throwIfAborted(cancelSignal);
     const deleted: number[] = [];
-    const deletionLimiter = pLimit(1);
-    const deleteTasks: Promise<void>[] = [];
 
     let error = '';
 
     replicationProgress$.next({ progressBase: 1, maxProgress: booksToDelete.length });
 
-    booksToDelete.forEach((bookToDelete) =>
-      deleteTasks.push(
-        deletionLimiter(async () => {
-          try {
-            throwIfAborted(cancelSignal);
+    for (const bookToDelete of booksToDelete) {
+      try {
+        throwIfAborted(cancelSignal);
 
-            await rootDirectory.removeEntry(BaseStorageHandler.sanitizeForFilename(bookToDelete), {
-              recursive: true
-            });
+        await rootDirectory.removeEntry(BaseStorageHandler.sanitizeForFilename(bookToDelete), {
+          recursive: true
+        });
 
-            const deletedId = this.titleToBookCard.get(bookToDelete)?.id;
+        const deletedId = this.titleToBookCard.get(bookToDelete)?.id;
 
-            if (deletedId) {
-              deleted.push(deletedId);
-            }
+        if (deletedId) {
+          deleted.push(deletedId);
+        }
 
-            this.titleToDirectory.delete(bookToDelete);
-            this.titleToFiles.delete(bookToDelete);
-            this.titleToBookCard.delete(bookToDelete);
+        this.titleToDirectory.delete(bookToDelete);
+        this.titleToFiles.delete(bookToDelete);
+        this.titleToBookCard.delete(bookToDelete);
 
-            database.dataListChanged$.next(this);
+        database.dataListChanged$.next(this);
 
-            BaseStorageHandler.reportProgress();
-          } catch (err) {
-            error = handleErrorDuringReplication(err, `Error deleting ${bookToDelete}: `, [
-              deletionLimiter
-            ]);
-          }
-        })
-      )
-    );
-
-    await Promise.all(deleteTasks).catch(() => {});
+        BaseStorageHandler.reportProgress();
+      } catch (err) {
+        if (cancelSignal.aborted || (err as Error).name === 'AbortError') break;
+        error = handleErrorDuringReplication(err, `Error deleting ${bookToDelete}: `);
+      }
+    }
 
     return { error, deleted };
   }

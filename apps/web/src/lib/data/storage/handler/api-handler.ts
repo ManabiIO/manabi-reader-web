@@ -32,7 +32,6 @@ import { AbortError, throwIfAborted } from '$lib/functions/replication/replicati
 import { ReplicationSaveBehavior } from '$lib/functions/replication/replication-options';
 import { replicationProgress$ } from '$lib/functions/replication/replication-progress';
 import { mergeStatistics, updateStatisticToStore } from '$lib/functions/statistic-util';
-import pLimit from 'p-limit';
 import { selectTtuFile } from '$lib/manabi/ttu-folder-contract';
 import { getExternalBookData } from '$lib/manabi/external-book-data';
 
@@ -583,47 +582,30 @@ export abstract class ApiStorageHandler extends BaseStorageHandler {
       let error = '';
 
       const deleted: number[] = [];
-      const deletionLimiter = pLimit(1);
-      const deleteTasks: Promise<void>[] = [];
-
       replicationProgress$.next({ progressBase: 1, maxProgress: booksToDelete.length });
 
-      booksToDelete.forEach((bookToDelete) =>
-        deleteTasks.push(
-          deletionLimiter(async () => {
-            try {
-              throwIfAborted(cancelSignal);
+      // Admit one delete at a time. Clearing a p-limit queue leaves its pending
+      // promises unresolved, and Promise.all can finish before admitted work.
+      for (const bookToDelete of booksToDelete) {
+        try {
+          throwIfAborted(cancelSignal);
+          const externalId = this.titleToId.get(bookToDelete);
+          if (externalId) await this.executeDelete(externalId);
 
-              const externalId = this.titleToId.get(bookToDelete);
-
-              if (externalId) {
-                await this.executeDelete(externalId);
-              }
-
-              this.titleToFiles.delete(bookToDelete);
-
-              const deletedBookCard = this.titleToBookCard.get(bookToDelete);
-
-              if (deletedBookCard) {
-                deleted.push(deletedBookCard.id);
-              }
-
-              this.titleToId.delete(bookToDelete);
-              this.titleToBookCard.delete(bookToDelete);
-
-              database.dataListChanged$.next(this);
-
-              BaseStorageHandler.reportProgress();
-            } catch (err) {
-              error = handleErrorDuringReplication(err, `Error deleting ${bookToDelete}: `, [
-                deletionLimiter
-              ]);
-            }
-          })
-        )
-      );
-
-      await Promise.all(deleteTasks).catch(() => {});
+          this.titleToFiles.delete(bookToDelete);
+          const deletedBookCard = this.titleToBookCard.get(bookToDelete);
+          if (deletedBookCard) deleted.push(deletedBookCard.id);
+          this.titleToId.delete(bookToDelete);
+          this.titleToBookCard.delete(bookToDelete);
+          database.dataListChanged$.next(this);
+          BaseStorageHandler.reportProgress();
+        } catch (err) {
+          // Cancellation returns the completed deletions for selection updates.
+          // Nothing else is admitted after cancellation, even with a custom reason.
+          if (cancelSignal.aborted || (err as Error).name === 'AbortError') break;
+          error = handleErrorDuringReplication(err, `Error deleting ${bookToDelete}: `);
+        }
+      }
 
       return { error, deleted };
     } finally {

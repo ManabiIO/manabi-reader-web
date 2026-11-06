@@ -1,9 +1,10 @@
 /** @license BSD-3-Clause */
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate } from 'node:timers/promises';
 import pLimit from 'p-limit';
 import { getEventListeners } from 'node:events';
-import { loadOfflineModule } from './fixtures/offline-module.mjs';
+import { deferred, loadOfflineModule } from './fixtures/offline-module.mjs';
 
 const rootName = 'ttu-reader-data';
 const folder = (id, name, parent = 'root') => ({
@@ -54,11 +55,6 @@ function fixture(provider, initial = [unrelated]) {
       }
     },
     '$lib/data/storage/storage-oauth-manager': { StorageOAuthManager: class {} },
-    '$lib/functions/replication/error-handler': {
-      handleErrorDuringReplication(error) {
-        throw error;
-      }
-    },
     '$lib/functions/replication/replicator': { exporterVersion: 1 },
     '$lib/functions/replication/replication-progress': { replicationProgress$: observer },
     '$lib/functions/statistic-util': {},
@@ -607,3 +603,116 @@ test('cloud transport: an already-cancelled context never asks for credentials',
   });
   assert.equal(f.requests.length, 0);
 });
+
+for (const provider of ['google', 'onedrive']) {
+  for (const customReason of [false, true])
+    test(
+      `${provider}: cancellation settles admitted deletion before releasing context (${customReason})`,
+      { timeout: 2000 },
+      async () => {
+        const f = fixture(provider),
+          cancel = new AbortController();
+        const entered = deferred(),
+          finish = deferred(),
+          calls = [];
+        f.handler.ensureTitle = async () => 'library';
+        for (const [index, title] of ['First', 'Second', 'Third'].entries()) {
+          f.handler.titleToId.set(title, title);
+          f.handler.titleToBookCard.set(title, { id: index + 1 });
+        }
+        f.handler.executeDelete = async (id) => {
+          calls.push(id);
+          entered.resolve();
+          await finish.promise;
+          assert.equal(f.handler.cancelSignal, cancel.signal);
+        };
+        let settled = false;
+        const operation = f.handler.deleteBookData(['First', 'Second', 'Third'], cancel.signal);
+        operation.finally(() => {
+          settled = true;
+        });
+        await entered.promise;
+        cancel.abort(customReason ? new Error('stop now') : undefined);
+        await Promise.resolve();
+        assert.equal(settled, false);
+        assert.equal(f.handler.cancelSignal, cancel.signal);
+        finish.resolve();
+        const result = await operation;
+        assert.equal(result.error, '');
+        assert.deepEqual(Array.from(result.deleted), [1]);
+        assert.deepEqual(calls, ['First']);
+        assert.equal(f.handler.cancelSignal, undefined);
+        assert.equal(f.handler.titleToBookCard.has('First'), false);
+        assert.equal(f.handler.titleToBookCard.has('Second'), true);
+        assert.equal(f.handler.titleToBookCard.has('Third'), true);
+        assert.deepEqual(f.cloud, [unrelated]);
+      }
+    );
+
+  test(`${provider}: a failed deletion preserves exact successful results and unrelated data`, async () => {
+    const f = fixture(provider),
+      calls = [];
+    f.handler.ensureTitle = async () => 'library';
+    for (const [index, title] of ['First', 'Failed', 'Last'].entries()) {
+      f.handler.titleToId.set(title, title);
+      f.handler.titleToFiles.set(title, [{ id: title }]);
+      f.handler.titleToBookCard.set(title, { id: index + 1 });
+    }
+    f.handler.executeDelete = async (id) => {
+      calls.push(id);
+      if (id === 'Failed') throw new Error('denied');
+    };
+    const result = await f.handler.deleteBookData(
+      ['First', 'Failed', 'Last'],
+      new AbortController().signal
+    );
+    assert.equal(result.error, 'Error deleting Failed: denied');
+    assert.deepEqual(Array.from(result.deleted), [1, 3]);
+    assert.deepEqual(calls, ['First', 'Failed', 'Last']);
+    assert.equal(f.handler.titleToId.get('Failed'), 'Failed');
+    assert.equal(f.handler.titleToFiles.has('Failed'), true);
+    assert.equal(f.handler.titleToBookCard.has('Failed'), true);
+    assert.equal(f.handler.cancelSignal, undefined);
+    assert.deepEqual(f.cloud, [unrelated]);
+  });
+}
+
+for (const provider of ['google', 'onedrive'])
+  for (const canceled of [false, true])
+    test(`${provider}: ${canceled ? 'canceled' : 'failed'} first listing batch never admits later batches`, async () => {
+      const f = fixture(provider, [
+        unrelated,
+        folder('library', rootName),
+        ...Array.from({ length: 101 }, (_, i) => folder(`book-${i}`, `Book ${i}`, 'library'))
+      ]);
+      const request = f.handler.request,
+        failure = new Error('first batch failed');
+      const cancel = new AbortController();
+      f.handler.cancelSignal = cancel.signal;
+      let batches = 0;
+      f.handler.request = async (href, ...args) => {
+        const url = new URL(href);
+        const isBatch =
+          provider === 'google'
+            ? url.searchParams.get('q')?.includes("'book-0' in parents") ||
+              url.searchParams.get('q')?.includes("'book-50' in parents") ||
+              url.searchParams.get('q')?.includes("'book-100' in parents")
+            : url.pathname.endsWith('/$batch');
+        if (!isBatch) return request(href, ...args);
+        batches++;
+        if (canceled) {
+          cancel.abort();
+          throw cancel.signal.reason;
+        }
+        throw failure;
+      };
+      await assert.rejects(f.handler.getBookList(), (error) =>
+        canceled ? error.name === 'AbortError' : error === failure
+      );
+      await setImmediate();
+      assert.equal(batches, 1);
+      assert.equal(f.handler.dataListFetched, false);
+      assert.equal(f.handler.titleToBookCard.size, 0);
+      assert.equal(f.cloud.length, 103);
+      assert.deepEqual(f.cloud[0], unrelated);
+    });

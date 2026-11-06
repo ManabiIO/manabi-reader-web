@@ -39,6 +39,10 @@ repeated continuation tokens and incomplete OneDrive batches remain errors rathe
 than absence or permission to create a replacement. Cancellation stops metadata
 requests as well as transfers. Import, replication, deletion and external-book
 opening release their own context when finished, preserving any newer context.
+Cloud listing batches run sequentially, so failure cannot admit another batch or
+publish late results. Cloud and local-folder deletions finish their active call
+before returning the exact completed IDs; cancellation admits no further book.
+An already-cancelled local-folder deletion does not request library access.
 This qualifies the mocked read contract, not live OAuth or conditional write-back.
 
 ### Automatic incoming changes

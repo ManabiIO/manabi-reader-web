@@ -10,7 +10,6 @@ import { ApiStorageHandler } from '$lib/data/storage/handler/api-handler';
 import { BaseStorageHandler, type ExternalFile } from '$lib/data/storage/handler/base-handler';
 import { StorageKey } from '$lib/data/storage/storage-types';
 import { database, oneDriveStorageSource$ } from '$lib/data/store';
-import pLimit from 'p-limit';
 import { throwIfAborted } from '$lib/functions/replication/replication-error';
 
 interface OneDriveFile extends ExternalFile {
@@ -112,59 +111,45 @@ export class OneDriveStorageHandler extends ApiStorageHandler {
         }
 
         if (batchRequests.length) {
-          const listLimiter = pLimit(1);
-          const listTasks: Promise<void>[] = [];
-
-          batchRequests.forEach((requests: BatchRequest[]) =>
-            listTasks.push(
-              listLimiter(async () => {
-                const { responses } = await this.request(
-                  'https://graph.microsoft.com/v1.0/$batch',
-                  {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      requests
-                    })
-                  }
-                );
-
-                throwIfAborted(cancelSignal);
-                if (!Array.isArray(responses) || responses.length !== requests.length)
-                  throw new Error('Incomplete OneDrive batch listing');
-                const expectedIds = new Set(requests.map((request) => request.id));
-                for (const response of responses) {
-                  if (
-                    !response ||
-                    !expectedIds.delete(response.id) ||
-                    !Number.isInteger(response.status) ||
-                    response.status < 200 ||
-                    response.status > 299
-                  )
-                    throw new Error('Invalid OneDrive batch listing response');
-                  const remoteFiles = this.validateListing(response.body);
-                  if (response.body['@odata.nextLink']) {
-                    await this.list(
-                      'root',
-                      false,
-                      true,
-                      remoteFiles,
-                      response.body['@odata.nextLink'],
-                      new Set<string>(),
-                      true
-                    );
-                  }
-                  const externalId = batchIdToTitle.get(response.id)!;
-                  completedTitles.set(titleIdToName.get(externalId)!, remoteFiles);
-                }
+          for (const requests of batchRequests) {
+            throwIfAborted(cancelSignal);
+            const { responses } = await this.request('https://graph.microsoft.com/v1.0/$batch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                requests
               })
-            )
-          );
+            });
 
-          await Promise.all(listTasks).catch((error) => {
-            listLimiter.clearQueue();
-            throw error;
-          });
+            throwIfAborted(cancelSignal);
+            if (!Array.isArray(responses) || responses.length !== requests.length)
+              throw new Error('Incomplete OneDrive batch listing');
+            const expectedIds = new Set(requests.map((request) => request.id));
+            for (const response of responses) {
+              if (
+                !response ||
+                !expectedIds.delete(response.id) ||
+                !Number.isInteger(response.status) ||
+                response.status < 200 ||
+                response.status > 299
+              )
+                throw new Error('Invalid OneDrive batch listing response');
+              const remoteFiles = this.validateListing(response.body);
+              if (response.body['@odata.nextLink']) {
+                await this.list(
+                  'root',
+                  false,
+                  true,
+                  remoteFiles,
+                  response.body['@odata.nextLink'],
+                  new Set<string>(),
+                  true
+                );
+              }
+              const externalId = batchIdToTitle.get(response.id)!;
+              completedTitles.set(titleIdToName.get(externalId)!, remoteFiles);
+            }
+          }
         }
 
         throwIfAborted(cancelSignal);

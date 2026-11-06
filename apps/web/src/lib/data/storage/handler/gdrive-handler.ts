@@ -10,7 +10,6 @@ import { ApiStorageHandler } from '$lib/data/storage/handler/api-handler';
 import { BaseStorageHandler, type ExternalFile } from '$lib/data/storage/handler/base-handler';
 import { StorageKey } from '$lib/data/storage/storage-types';
 import { database, gDriveStorageSource$ } from '$lib/data/store';
-import pLimit from 'p-limit';
 import { throwIfAborted } from '$lib/functions/replication/replication-error';
 
 interface GDriveFile extends ExternalFile {
@@ -77,29 +76,18 @@ export class GDriveStorageHandler extends ApiStorageHandler {
             titleIdChunks.push(titles.slice(index, index + 50).map((title) => title.id));
           }
 
-          const listLimiter = pLimit(1);
-          const listTasks: Promise<void>[] = [];
-
-          titleIdChunks.forEach((titleIdChunk) =>
-            listTasks.push(
-              listLimiter(async () => {
-                this.setTitleData(
-                  this.groupExternalFiles(
-                    await this.list(
-                      `trashed=false and ('${titleIdChunk.join(`' in parents or '`)}' in parents)`,
-                      'files(id,name,thumbnailLink,parents),nextPageToken'
-                    ),
-                    titleIdToName
-                  )
-                );
-              })
-            )
-          );
-
-          await Promise.all(listTasks).catch((error) => {
-            listLimiter.clearQueue();
-            throw error;
-          });
+          for (const titleIdChunk of titleIdChunks) {
+            throwIfAborted(cancelSignal);
+            this.setTitleData(
+              this.groupExternalFiles(
+                await this.list(
+                  `trashed=false and ('${titleIdChunk.join(`' in parents or '`)}' in parents)`,
+                  'files(id,name,thumbnailLink,parents),nextPageToken'
+                ),
+                titleIdToName
+              )
+            );
+          }
         }
 
         this.dataListFetched = true;
