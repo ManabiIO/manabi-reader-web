@@ -5,6 +5,7 @@ No service-worker/client claiming or storage substitute is installed.
 """
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import base64
 import hashlib
 import json
 import threading
@@ -63,6 +64,43 @@ class FirstPageRuntimeCache(unittest.TestCase):
                             imported=page.evaluate('''async()=>({online:navigator.onLine,value:(await import('./engine/tool.js')).verifiedRuntime})''')
                             self.assertEqual('original verified bytes',imported['value']);self.assertFalse(imported['online'])
                             self.assertEqual(1,Handler.reads);self.assertEqual([],errors)
+                        finally:
+                            if context:context.close()
+                            browser.close()
+        finally:server.shutdown();server.server_close();thread.join()
+
+    def test_verified_copy_wins_over_divergent_demand_cache_for_sri_module(self):
+        server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
+        thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        origin=f'http://127.0.0.1:{server.server_port}'
+        try:
+            with sync_playwright() as playwright:
+                for engine in ['chromium','webkit']:
+                    with self.subTest(engine=engine):
+                        Handler.reads=0;Handler.damaged=False
+                        browser=getattr(playwright,engine).launch(**launch_options(engine));context=None
+                        try:
+                            context=browser.new_context();page=context.new_page();page.goto(origin+'/reader/')
+                            page.evaluate("async()=>{await navigator.serviceWorker.register('./sw.js',{type:'module'});await navigator.serviceWorker.ready;}")
+                            page.reload();page.wait_for_function('navigator.serviceWorker.controller!==null')
+                            expected={'bytes':len(ASSET),'sha256':hashlib.sha256(ASSET).hexdigest()}
+                            page.evaluate("""async expected=>{
+                              const {loadVerifiedRuntimeAsset}=await import('./verified-runtime-assets.mjs');
+                              await loadVerifiedRuntimeAsset(location.href,new URL('engine/tool.js',location.href),expected);
+                              const name=(await caches.keys()).find(name=>name.includes(':optional-runtime:'));
+                              await(await caches.open(name)).put('./engine/tool.js',new Response('export const verifiedRuntime="damaged";', {headers:{'Content-Type':'text/javascript'}}));
+                            }""",expected)
+                            context.set_offline(True)
+                            value=page.evaluate("""async integrity=>{
+                              const url=new URL('engine/tool.js#verified-copy',location.href).href;
+                              const script=document.createElement('script');script.type='module';script.integrity=integrity;script.crossOrigin='anonymous';script.src=url;
+                              try {
+                                await new Promise((resolve,reject)=>{script.onload=resolve;script.onerror=()=>reject(new Error('SRI module failed'));document.head.append(script);});
+                                return (await import(url)).verifiedRuntime;
+                              } finally {script.remove();}
+                            }""",'sha256-'+base64.b64encode(hashlib.sha256(ASSET).digest()).decode())
+                            self.assertEqual('original verified bytes',value)
+                            self.assertEqual(1,Handler.reads)
                         finally:
                             if context:context.close()
                             browser.close()
