@@ -129,3 +129,41 @@ test('zero bookmark preserves a zero-character cover instead of skipping it', ()
   assert.equal(chapterForResume([0, 10, 0, 20], 10), 3);
   assert.equal(chapterForResume([0, 10, 0, 20], 30), 3);
 });
+
+test('invalidation during provider mount releases bindings without starting stale layout or interaction', async () => {
+  const entered = defer(),
+    gate = defer();
+  const events = [];
+  const { session } = fixture({
+    mount: async () => {
+      entered.resolve();
+      await gate.promise;
+      return () => events.push('unmount');
+    }
+  });
+  const controller = new ChapterOpeningController({
+    session,
+    stage: async () => ({
+      root: {},
+      prepare: () => events.push('layout'),
+      commit: () => events.push('reveal'),
+      rollback: () => events.push('rollback')
+    }),
+    interaction: () => {
+      events.push('interaction');
+      return () => events.push('detach');
+    }
+  });
+  try {
+    const opening = controller.open(0);
+    const rejected = assert.rejects(opening, { name: 'AbortError' });
+    await entered.promise;
+    session.invalidate();
+    gate.resolve();
+    await rejected;
+    assert.deepEqual(events, ['unmount', 'rollback']);
+  } finally {
+    gate.resolve();
+    controller.dispose();
+  }
+});

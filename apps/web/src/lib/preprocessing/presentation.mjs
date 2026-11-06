@@ -24,13 +24,16 @@ export class ChapterOpeningController {
     if (this.disposed) throw new DOMException('Reader closed', 'AbortError');
     const ticket = ++this.ticket;
     let staged = null,
-      unmount = null;
+      unmount = null,
+      openingSignal = null;
     const check = () => {
+      openingSignal?.throwIfAborted();
       if (this.disposed || ticket !== this.ticket)
         throw new DOMException('Superseded', 'AbortError');
     };
     try {
       const { result, revision, signal } = await this.session.open(index);
+      openingSignal = signal;
       check();
       staged = await this.stage(result, { index, revision, signal });
       check();
