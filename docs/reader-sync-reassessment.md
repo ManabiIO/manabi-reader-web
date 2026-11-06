@@ -49,6 +49,10 @@ updates against source or context replacement. Successful stream close remains
 a commit even if cancellation arrives during close. Obsolete cleanup stops;
 previous versions or an interrupted new filename may remain for review. These
 guards do not establish native-client compare-and-swap or continuous write-back.
+Filesystem permission continuation honors Cancel/closure and retries only once
+after an explicit Continue. Cancelled or retired operations cannot request access
+after a pending permission query. Background access with storage unlock disabled
+only queries existing permission; it opens neither native nor continuation prompts.
 This qualifies the mocked read contract, not live OAuth or conditional write-back.
 
 ### Automatic incoming changes

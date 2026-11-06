@@ -90,6 +90,17 @@ test('unlock without a secret requirement publishes the continuation sentinel on
   assert.equal(h.decryptCalls(), 0);
 });
 
+test('filesystem continuation exposes Cancel without requesting a secret or resolving twice', async () => {
+  const h = harness({
+    props: { requiresSecret: false, encryptedData: undefined, showCancel: true }
+  });
+  h.closeDialog();
+  await h.dispose();
+  assert.deepEqual(h.received, [undefined]);
+  assert.deepEqual(h.events, [['close']]);
+  assert.equal(h.decryptCalls(), 0);
+});
+
 test('decrypt failure remains open and a retry can succeed', async () => {
   let attempt = 0;
   const h = harness({

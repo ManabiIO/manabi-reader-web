@@ -86,7 +86,7 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
     if (!this.dataListFetched) {
       database.listLoading$.next(true);
 
-      const rootDirectory = await this.ensureRoot();
+      const rootDirectory = await this.ensureRoot(this.askForStorageUnlock, source.assertCurrent);
       source.assertCurrent();
       const directories = (await FilesystemStorageHandler.list(
         rootDirectory,
@@ -643,8 +643,12 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
 
   async deleteBookData(booksToDelete: string[], cancelSignal: AbortSignal) {
     const source = this.captureFilesystemSource();
-    throwIfAborted(cancelSignal);
-    const rootDirectory = await this.ensureRoot();
+    const assertActive = () => {
+      throwIfAborted(cancelSignal);
+      source.assertCurrent();
+    };
+    assertActive();
+    const rootDirectory = await this.ensureRoot(this.askForStorageUnlock, assertActive);
     throwIfAborted(cancelSignal);
     source.assertCurrent();
     const deleted: number[] = [];
@@ -685,22 +689,25 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
   }
 
   private async ensureRoot(
-    askForStorageUnlock = this.askForStorageUnlock
+    askForStorageUnlock = this.askForStorageUnlock,
+    assertOwner?: () => void,
+    allowNativePrompt = this.askForStorageUnlock
   ): Promise<FileSystemDirectoryHandle> {
-    const source = this.captureFilesystemSource();
+    const assertActive = assertOwner ?? this.captureFilesystemContext().assertActive;
+    assertActive();
     try {
       if (this.rootDirectory) {
         const root = this.rootDirectory;
-        await FilesystemStorageHandler.verifyPermission(root);
-        source.assertCurrent();
+        await FilesystemStorageHandler.verifyPermission(root, assertActive, allowNativePrompt);
+        assertActive();
 
         return root;
       }
 
       const db = await database.db;
-      source.assertCurrent();
+      assertActive();
       const storageSource = await db.get('storageSource', this.storageSourceName);
-      source.assertCurrent();
+      assertActive();
 
       if (!storageSource) {
         throw new Error(`No storage source with name ${this.storageSourceName} found`);
@@ -716,17 +723,18 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
         throw new Error('Filesystem handle not found');
       }
 
-      await FilesystemStorageHandler.verifyPermission(handleData.directoryHandle);
-      source.assertCurrent();
+      await FilesystemStorageHandler.verifyPermission(
+        handleData.directoryHandle,
+        assertActive,
+        allowNativePrompt
+      );
+      assertActive();
 
       this.rootDirectory = handleData.directoryHandle;
     } catch (error: any) {
-      source.assertCurrent();
-      if (
-        error.message.includes('activation is required') &&
-        (!this.rootDirectory || askForStorageUnlock)
-      ) {
-        await new Promise<StorageUnlockAction | undefined>((resolver) => {
+      assertActive();
+      if (error.message.includes('activation is required') && askForStorageUnlock) {
+        const result = await new Promise<StorageUnlockAction | undefined>((resolver) => {
           dialogManager.dialogs$.next([
             {
               component: StorageUnlock,
@@ -734,15 +742,17 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
                 description: 'You are trying to access data on your filesystem',
                 action: 'Please grant permissions in the next dialog',
                 requiresSecret: false,
+                showCancel: true,
                 resolver
               },
               disableCloseOnClick: true
             }
           ]);
         });
-        source.assertCurrent();
+        assertActive();
 
-        return this.ensureRoot(false);
+        if (!result) throw new AbortError('Filesystem permission request was cancelled');
+        return this.ensureRoot(false, assertActive, allowNativePrompt);
       }
 
       throw error;
@@ -1066,14 +1076,24 @@ export class FilesystemStorageHandler extends BaseStorageHandler {
     });
   }
 
-  private static async verifyPermission(handle: FileSystemDirectoryHandle) {
+  private static async verifyPermission(
+    handle: FileSystemDirectoryHandle,
+    assertActive: () => void,
+    allowNativePrompt: boolean
+  ) {
     const options: FileSystemHandlePermissionDescriptor = { mode: 'readwrite' };
 
-    if ((await handle.queryPermission(options)) === 'granted') {
+    assertActive();
+    const permission = await handle.queryPermission(options);
+    assertActive();
+    if (permission === 'granted') {
       return true;
     }
 
-    if ((await handle.requestPermission(options)) === 'granted') {
+    if (!allowNativePrompt) throw new Error('No permissions granted to access filesystem');
+    const requested = await handle.requestPermission(options);
+    assertActive();
+    if (requested === 'granted') {
       return true;
     }
 
