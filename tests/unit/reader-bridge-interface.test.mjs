@@ -5,6 +5,7 @@ import { build } from 'esbuild';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { writable } from '../../apps/web/src/lib/state/store.ts';
 
 const appRequire = createRequire(new URL('../../apps/web/package.json', import.meta.url));
 
@@ -125,18 +126,21 @@ async function fixture(run, { bridge = {}, importFailure = false } = {}) {
   const downloads = [],
     revoked = [];
   Object.assign(window, { importFailure, bridge, recoveryChanges: new window.EventTarget() });
-  let automatic = { owner: null, records: {}, available: false };
+  // Use Reader's actual queued store delivery. A live Set loop can revisit
+  // listeners that StrictMode replaces during notification, creating an unbounded
+  // loop in this fixture even though the production store does not do that.
+  const automatic = writable({ owner: null, records: {}, available: false });
   const statusListeners = new Set();
   window.automaticStatus = {
     subscribe(listener) {
       statusListeners.add(listener);
-      listener(automatic);
-      return () => statusListeners.delete(listener);
+      const stop = automatic.subscribe(listener);
+      return () => {
+        stop();
+        statusListeners.delete(listener);
+      };
     },
-    set(value) {
-      automatic = value;
-      for (const listener of statusListeners) listener(value);
-    }
+    set: automatic.set
   };
   window.URL.createObjectURL = () => `blob:fixture-${downloads.length}`;
   window.URL.revokeObjectURL = (url) => revoked.push(url);
@@ -440,6 +444,31 @@ test('failed receive consent restores both saved preferences without claiming au
       }
     }
   );
+});
+
+test('automatic status notifications do not revisit a listener replaced during delivery', async () => {
+  await fixture(async ({ window }) => {
+    let notifications = 0;
+    let subscribing = true;
+    let stop;
+    const listener = () => {
+      if (subscribing) return;
+      notifications++;
+      assert.ok(notifications <= 1, 'delivery must not revisit a replaced subscription');
+      stop();
+      subscribing = true;
+      stop = window.automaticStatus.subscribe(listener);
+      subscribing = false;
+    };
+    stop = window.automaticStatus.subscribe(listener);
+    subscribing = false;
+    try {
+      window.automaticStatus.set({ owner: 'owner', records: {}, available: true });
+      assert.equal(notifications, 1);
+    } finally {
+      stop();
+    }
+  });
 });
 
 test('automatic status is quiet, account and revision scoped, and a receive clears an older manual comparison', async () => {
