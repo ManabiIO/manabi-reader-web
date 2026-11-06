@@ -10,10 +10,11 @@ import socket
 import unittest
 from playwright.sync_api import sync_playwright, expect
 from browser_launch import launch_options
+from reader_edition_output import reader_edition_output
 from test_books_library import book
 from test_unified_search import dictionary_archive
 
-ROOT = Path(__file__).resolve().parents[2] / 'apps/web/build'
+ROOT = reader_edition_output(Path(__file__).resolve().parents[2] / 'apps/web/build')
 IDENTITY = json.loads((ROOT / 'reader-product.json').read_text()) if (ROOT / 'reader-product.json').exists() else None
 
 

@@ -31,7 +31,7 @@ Proactive preprocessing and mounted-chapter interaction are separate capabilitie
 
 ## Current qualification
 
-Run `pnpm test:edition`, `pnpm test:expo`, the unit suites, `pnpm --dir apps/web check`, `pnpm check`, and the final export verifiers. `tests/browser/test_reader_editions.py` exercises the actual exported app in Chromium and WebKit, small/large layouts, book import/open/offline reopen, and unrelated-data preservation.
+Run `pnpm test:edition`, `pnpm test:expo`, the unit suites, `pnpm --dir apps/web check`, `pnpm check`, and the final export verifiers. `tests/browser/test_reader_editions.py` exercises the actual exported app in Chromium and WebKit, small/large layouts, book import/open/offline reopen, and unrelated-data preservation. It defaults to `apps/web/build`; private composition sets `READER_EDITION_TEST_OUTPUT` to its exact `dist` directory. An explicit output must be absolute, exist, and contain no symlink components; invalid overrides fail rather than testing a different build. The local receipt inventories that same output before and after browser qualification.
 
 The `reader-editions.yml` workflow is manual on the default branch. It performs qualification without automatic publishing. The backend keeps both new edition descriptors disabled until a real qualified artifact and activation checks exist.
 
