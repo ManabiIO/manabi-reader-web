@@ -5,11 +5,13 @@ const QUIET_PEAK = 10 ** (-35 / 20);
 const QUIET_TARGET_PEAK = 0.5;
 
 export interface SwiftF0TensorLike {
-  data?: ArrayLike<number>;
+  type?: string;
+  data?: ArrayLike<unknown>;
   dispose?(): void;
 }
 
 export interface SwiftF0OutputLike {
+  [name: string]: SwiftF0TensorLike | undefined;
   pitch?: SwiftF0TensorLike;
   confidence?: SwiftF0TensorLike;
 }
@@ -40,7 +42,9 @@ export async function runSwiftF0Inference<TFeed extends SwiftF0TensorLike>(
 
   const gain = swiftF0ModelGain(samples);
   const audio =
-    gain === 1 ? samples : Float32Array.from(samples, (value) => (Number.isFinite(value) ? value * gain : 0));
+    gain === 1
+      ? samples
+      : Float32Array.from(samples, (value) => (Number.isFinite(value) ? value * gain : 0));
   const ownedFeeds: TFeed[] = [];
   let result: SwiftF0OutputLike | undefined;
 
@@ -57,6 +61,9 @@ export async function runSwiftF0Inference<TFeed extends SwiftF0TensorLike>(
       fmax: tensor(Float32Array.of(maximum), [])
     };
     result = await runtime.run(feeds);
+
+    if (result.pitch?.type !== 'float64' || result.confidence?.type !== 'float32')
+      throw new Error('SwiftF0 returned unexpected output tensor types');
 
     const pitchData = result.pitch?.data;
     const confidenceData = result.confidence?.data;
@@ -81,11 +88,11 @@ export async function runSwiftF0Inference<TFeed extends SwiftF0TensorLike>(
     }
     return { pitch, confidence };
   } finally {
-    const disposable = new Set<SwiftF0TensorLike>([
-      result?.pitch,
-      result?.confidence,
-      ...ownedFeeds
-    ].filter((value): value is SwiftF0TensorLike => Boolean(value)));
+    const disposable = new Set<SwiftF0TensorLike>(
+      [...(result ? Object.values(result) : []), ...ownedFeeds].filter(
+        (value): value is SwiftF0TensorLike => Boolean(value)
+      )
+    );
     for (const value of disposable) {
       try {
         value.dispose?.();

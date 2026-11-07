@@ -16,9 +16,7 @@ const { createPitchController } = await import(new URL('browser.mjs', process.en
 const { runSwiftF0Inference, swiftF0ModelGain } = await import(
   new URL('swift-f0-runtime.mjs', process.env.PITCH_COMPILED)
 );
-const { LatestEpochQueue } = await import(
-  new URL('worker-queue.mjs', process.env.PITCH_COMPILED)
-);
+const { LatestEpochQueue } = await import(new URL('worker-queue.mjs', process.env.PITCH_COMPILED));
 
 test('pitch requests a 48 kHz context and falls back when the device rejects it', () => {
   const original = globalThis.AudioContext;
@@ -152,8 +150,18 @@ test('quiet non-silent audio is gained only for model inference', () => {
   assert.equal(swiftF0ModelGain(tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.1)), 1);
 });
 
-function swiftF0RuntimeFixture({ failRun = false, malformed = false, invalid = false } = {}) {
-  const stats = { live: 0, disposed: 0, peak: 0 };
+function swiftF0RuntimeFixture({
+  failRun = false,
+  malformed = false,
+  invalid = false,
+  wrongType = false,
+  extraOutput = false,
+  aliases = false,
+  failAllocation = 0,
+  failDisposal = false
+} = {}) {
+  const stats = { live: 0, disposed: 0, attempts: 0, peak: 0 };
+  let allocations = 0;
   class Tensor {
     constructor(type, data, dims) {
       this.type = type;
@@ -163,31 +171,95 @@ function swiftF0RuntimeFixture({ failRun = false, malformed = false, invalid = f
       stats.live++;
     }
     dispose() {
+      stats.attempts++;
       assert.equal(this.disposed, false, 'each tensor must be disposed exactly once');
       this.disposed = true;
       stats.live--;
       stats.disposed++;
+      if (failDisposal) throw new Error('synthetic disposal failure');
     }
   }
   const runtime = {
     createTensor(type, data, dims) {
+      if (++allocations === failAllocation) throw new Error('synthetic allocation failure');
       return new Tensor(type, data, dims);
     },
     async run(feeds) {
       stats.peak = Math.max(...feeds.audio.data.map((value) => Math.abs(value)));
       if (failRun) throw new Error('synthetic run failure');
       const count = Math.max(1, Math.floor(feeds.audio.data.length / 256));
-      const pitch = new Float64Array(count).fill(220);
+      const pitch = new (wrongType ? Float32Array : Float64Array)(count).fill(220);
       const confidence = new Float32Array(malformed ? Math.max(0, count - 1) : count).fill(0.9);
       if (invalid) pitch[0] = NaN;
-      return {
-        pitch: new Tensor('float64', pitch, [1, count]),
+      const result = {
+        pitch: new Tensor(
+          wrongType ? 'float32' : 'float64',
+          wrongType ? Float32Array.from(pitch) : pitch,
+          [1, count]
+        ),
         confidence: new Tensor('float32', confidence, [1, confidence.length])
       };
+      if (extraOutput) result.extra = new Tensor('float32', Float32Array.of(1), [1]);
+      if (aliases) {
+        result.audioAlias = feeds.audio;
+        result.pitchAlias = result.pitch;
+      }
+      return result;
     }
   };
   return { runtime, stats };
 }
+
+for (const malformed of [false, true]) {
+  test(`SwiftF0 disposes unexpected outputs and aliases after ${malformed ? 'failure' : 'success'}`, async () => {
+    const { runtime, stats } = swiftF0RuntimeFixture({
+      extraOutput: true,
+      aliases: true,
+      malformed
+    });
+    const inference = runSwiftF0Inference(tone(220, 16000), 85, 520, runtime);
+    if (malformed) await assert.rejects(inference, /malformed frame counts/);
+    else await inference;
+    assert.equal(stats.live, 0);
+    assert.equal(stats.disposed, 6);
+    assert.equal(stats.attempts, 6, 'raw output/feed aliases must be disposed once');
+  });
+}
+
+test('SwiftF0 rejects changed output tensor types and releases all raw outputs', async () => {
+  const { runtime, stats } = swiftF0RuntimeFixture({ wrongType: true, extraOutput: true });
+  await assert.rejects(
+    runSwiftF0Inference(tone(220, 16000), 85, 520, runtime),
+    /unexpected output tensor types/
+  );
+  assert.equal(stats.live, 0);
+  assert.equal(stats.disposed, 6);
+  assert.equal(stats.attempts, 6);
+});
+
+test('SwiftF0 releases earlier feeds when allocation fails', async () => {
+  const { runtime, stats } = swiftF0RuntimeFixture({ failAllocation: 3 });
+  await assert.rejects(
+    runSwiftF0Inference(tone(220, 16000), 85, 520, runtime),
+    /synthetic allocation failure/
+  );
+  assert.equal(stats.live, 0);
+  assert.equal(stats.disposed, 2);
+  assert.equal(stats.attempts, 2);
+});
+
+test('SwiftF0 continues raw-output cleanup after disposal throws', async () => {
+  const { runtime, stats } = swiftF0RuntimeFixture({
+    extraOutput: true,
+    aliases: true,
+    failDisposal: true
+  });
+  const result = await runSwiftF0Inference(tone(220, 16000), 85, 520, runtime);
+  assert.equal(result.pitch[0], 220);
+  assert.equal(stats.live, 0);
+  assert.equal(stats.disposed, 6);
+  assert.equal(stats.attempts, 6);
+});
 
 test('SwiftF0 runtime copies outputs and disposes every tensor after success', async () => {
   const { runtime, stats } = swiftF0RuntimeFixture();

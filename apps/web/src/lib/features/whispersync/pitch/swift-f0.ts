@@ -8,7 +8,7 @@ import {
   resampleForSwiftF0,
   type Measurement
 } from './analysis';
-import { runSwiftF0Inference, type SwiftF0TensorLike } from './swift-f0-runtime';
+import { runSwiftF0Inference } from './swift-f0-runtime';
 
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = false;
@@ -38,26 +38,14 @@ export async function analyseSwiftF0Window(
     });
 
   const session = await prepareSwiftF0();
-  const modelOutput = (
-    value: unknown,
-    expectedType: 'float32' | 'float64'
-  ): SwiftF0TensorLike | undefined => {
-    if (!(value instanceof ort.Tensor) || value.type !== expectedType) return undefined;
-    return {
-      data: value.data as ArrayLike<number>,
-      dispose: () => value.dispose()
-    };
-  };
   const { pitch, confidence } = await runSwiftF0Inference(samples, MIN_HZ, MAX_HZ, {
     createTensor: (type, data, dims) => new ort.Tensor(type, data, dims),
     run: async (feeds) => {
       const result = await session.run(feeds);
-      return {
-        // SwiftF0 0.3.0's pinned graph exposes pitch as DOUBLE and
-        // confidence as FLOAT. Fail closed if that model contract changes.
-        pitch: modelOutput(result.pitch, 'float64'),
-        confidence: modelOutput(result.confidence, 'float32')
-      };
+      // Preserve every raw output and its identity for cleanup, including
+      // unexpected outputs and aliases of feeds or other outputs. The runtime
+      // validates SwiftF0's pinned DOUBLE pitch / FLOAT confidence contract.
+      return result as Record<string, ort.Tensor>;
     }
   });
   return measurementFromSwiftF0(samples, pitch, confidence, {
