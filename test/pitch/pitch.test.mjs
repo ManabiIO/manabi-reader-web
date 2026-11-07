@@ -986,7 +986,6 @@ test('transcript cue gate suppresses background-only sampling and breaks the nex
   f.controller.dispose();
 });
 
-
 test('startup timeout distinguishes ready worker from unavailable audio output', async () => {
   const f = fixture({ resume: () => new Promise(() => {}) });
   f.controller.setEnabled(true);
