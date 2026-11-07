@@ -910,6 +910,83 @@ test('native Play waits for suspended output to resume before scheduling analysi
   assert.equal(f.frames.size, 1);
   f.controller.dispose();
 });
+test('transcript cue gate suppresses background-only sampling and breaks the next contour', async () => {
+  const f = await running();
+  f.controller.setSpeechWindow();
+  assert.equal(f.state.speechActive, false);
+  assert.equal(f.frames.size, 0);
+  f.frame(1000);
+  assert.equal(f.workers[0].sent.length, 0);
+
+  f.controller.setSpeechWindow({ start: 1, end: 2 });
+  assert.equal(f.state.speechActive, true);
+  f.frame(1100);
+  assert.equal(f.workers[0].sent.length, 0, 'wait for SwiftF0 future context inside the cue');
+  f.a.currentTime += 0.25;
+  f.frame(1300);
+  assert.equal(f.workers[0].sent.length, 1);
+  assert.ok(
+    f.workers[0].sent[0].samples.slice(0, 12000).every((sample) => sample === 0),
+    'pre-cue samples must be zeroed before SwiftF0 inference'
+  );
+  assert.ok(
+    f.workers[0].sent[0].samples.slice(16000).some((sample) => Math.abs(sample) > 0.01),
+    'the authored cue samples must remain available to SwiftF0'
+  );
+  f.workers[0].onmessage({
+    data: {
+      type: 'result',
+      id: f.workers[0].sent.at(-1).id,
+      results: [
+        {
+          hz: 220,
+          amplitude: 0.5,
+          confidence: 1,
+          rms: 0.5,
+          offsetSeconds: 0.464,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        }
+      ]
+    }
+  });
+  assert.equal(f.state.points.length, 1);
+  assert.equal(f.state.points[0].breakBefore, true);
+
+  f.controller.setSpeechWindow();
+  f.a.currentTime += 0.05;
+  f.frame(1400);
+  assert.equal(f.workers[0].sent.length, 1, 'cue gaps must not enqueue pitch work');
+
+  f.controller.setSpeechWindow({ start: 1.3, end: 2.3 });
+  f.a.currentTime += 0.25;
+  f.frame(1700);
+  assert.equal(f.workers[0].sent.length, 2);
+  f.workers[0].onmessage({
+    data: {
+      type: 'result',
+      id: f.workers[0].sent.at(-1).id,
+      results: [
+        {
+          hz: 220,
+          amplitude: 0.5,
+          confidence: 1,
+          rms: 0.5,
+          offsetSeconds: 0.464,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        }
+      ]
+    }
+  });
+  assert.equal(f.state.points.length, 2);
+  assert.equal(
+    f.state.points[1].breakBefore,
+    true,
+    'new cues must not join across a background gap'
+  );
+  f.controller.dispose();
+});
+
+
 test('startup timeout distinguishes ready worker from unavailable audio output', async () => {
   const f = fixture({ resume: () => new Promise(() => {}) });
   f.controller.setEnabled(true);
