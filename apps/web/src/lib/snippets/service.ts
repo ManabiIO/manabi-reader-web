@@ -198,9 +198,14 @@ export async function refreshSnippets(
         selected.guard();
         const authoritativeAbsentSources = new Set<string>();
         for (const record of known) {
+          // Summaries omit the immutable upload journal, including persisted older summaries.
+          // Read pending saves from the durable record before classifying their source.
+          const pending = record.dirty ? await getRecord(selected.owner, record.id) : undefined;
+          selected.guard();
           const candidates = [
             ...record.locations.map((location) => location.source),
-            ...(record.destination ? [record.destination.source] : [])
+            ...(record.destination ? [record.destination.source] : []),
+            ...(pending?.upload ? [pending.upload.destination.source] : [])
           ];
           for (const candidate of candidates) {
             const key = sourceKey(candidate);
