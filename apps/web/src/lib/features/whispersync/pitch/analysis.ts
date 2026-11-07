@@ -20,6 +20,9 @@ export const SWIFT_F0_LOOKAHEAD_FRAMES = 10;
 export const SWIFT_F0_LEFT_CONTEXT_FRAMES = 11;
 export const SWIFT_F0_FUTURE_CONTEXT_SECONDS =
   (SWIFT_F0_LOOKAHEAD_FRAMES + 1) * SWIFT_F0_FRAME_SECONDS;
+export const SWIFT_F0_MIN_STABLE_SECONDS =
+  (SWIFT_F0_LEFT_CONTEXT_FRAMES + 1 + SWIFT_F0_LOOKAHEAD_FRAMES) * SWIFT_F0_FRAME_SECONDS;
+export const MAX_ANALYSER_SAMPLES = 32768;
 export const ANALYSIS_WINDOW_SECONDS = 0.64;
 export const SAMPLE_INTERVAL_MS = 256;
 export const SWIFT_F0_EMIT_STRIDE = 2;
@@ -32,6 +35,19 @@ const clamp = (value: number, minimum: number, maximum: number) =>
 const sinc = (value: number) =>
   Math.abs(value) < 1e-8 ? 1 : Math.sin(Math.PI * value) / (Math.PI * value);
 
+export function hasStableSwiftF0Context(
+  sampleRate: number,
+  sampleCount = MAX_ANALYSER_SAMPLES
+): boolean {
+  return (
+    Number.isFinite(sampleRate) &&
+    sampleRate > 0 &&
+    Number.isFinite(sampleCount) &&
+    sampleCount > 0 &&
+    sampleCount / sampleRate >= SWIFT_F0_MIN_STABLE_SECONDS
+  );
+}
+
 export function resampleForSwiftF0(input: Float32Array, rate: number): Float32Array {
   if (!Number.isFinite(rate) || rate < 8000 || rate > 192000 || input.length === 0)
     return new Float32Array();
@@ -42,7 +58,8 @@ export function resampleForSwiftF0(input: Float32Array, rate: number): Float32Ar
   const length = Math.max(1, Math.floor(input.length / ratio));
   const output = new Float32Array(length);
   const cutoff = 0.47 * Math.min(1, SWIFT_F0_SAMPLE_RATE / rate);
-  const radius = rate > SWIFT_F0_SAMPLE_RATE ? 16 : 8;
+  const radius =
+    rate > SWIFT_F0_SAMPLE_RATE ? Math.min(64, Math.max(16, Math.ceil((rate / 48000) * 16))) : 8;
   for (let index = 0; index < length; index++) {
     const center = (index + 0.5) * ratio - 0.5;
     const first = Math.max(0, Math.ceil(center - radius));
@@ -64,21 +81,22 @@ export function resampleForSwiftF0(input: Float32Array, rate: number): Float32Ar
 function frameLevel(samples: Float32Array, center: number) {
   const width = Math.round(SWIFT_F0_SAMPLE_RATE * 0.032);
   const half = Math.max(1, Math.floor(width / 2));
-  const first = Math.max(0, Math.floor(center) - half);
-  const last = Math.min(samples.length, Math.floor(center) + half);
-  if (last <= first) return { rms: 0, peak: 0 };
+  const hopStart = Math.max(0, Math.floor(center));
+  const hopEnd = Math.min(samples.length, hopStart + SWIFT_F0_HOP);
+  const first = Math.max(0, hopStart - half);
+  const last = Math.min(samples.length, hopStart + half);
+  if (last <= first) return { rms: 0, peak: 0, currentHopPeak: 0 };
   let square = 0;
   let peak = 0;
-  const hopEnd = Math.min(samples.length, Math.floor(center) + SWIFT_F0_HOP);
+  let currentHopPeak = 0;
   for (let index = first; index < last; index++) {
     const value = finite(samples[index]);
+    const magnitude = Math.abs(value);
     square += value * value;
-    // SwiftF0's silence contract belongs to the current 256-sample hop.
-    // A voiced preceding hop may contribute to the centered RMS envelope but
-    // must not authorize pitch after playback enters digital silence.
-    if (index >= center && index < hopEnd) peak = Math.max(peak, Math.abs(value));
+    peak = Math.max(peak, magnitude);
+    if (index >= hopStart && index < hopEnd) currentHopPeak = Math.max(currentHopPeak, magnitude);
   }
-  return { rms: Math.sqrt(square / (last - first)), peak };
+  return { rms: Math.sqrt(square / (last - first)), peak, currentHopPeak };
 }
 
 export function measurementsFromSwiftF0(
@@ -108,12 +126,13 @@ export function measurementsFromSwiftF0(
   // first eleven frames so every published estimate has the same left context
   // SwiftF0 uses when chunking a longer signal.
   for (let index = SWIFT_F0_LEFT_CONTEXT_FRAMES; index < stableCount; index += step) {
-    const score = clamp(finite(Number(confidence[index])), 0, 1);
     const candidate = Number(pitch[index]);
     const level = frameLevel(samples, index * SWIFT_F0_HOP);
+    const score =
+      level.currentHopPeak >= SILENCE_PEAK ? clamp(finite(Number(confidence[index])), 0, 1) : 0;
     const hz =
       score >= clamp(finite(voicingThreshold, VOICING_THRESHOLD), 0, 1) &&
-      level.peak >= SILENCE_PEAK &&
+      level.currentHopPeak >= SILENCE_PEAK &&
       Number.isFinite(candidate) &&
       candidate >= minHz &&
       candidate <= maxHz

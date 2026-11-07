@@ -66,6 +66,21 @@ scrolls out. Pausing, ending and buffering retire both pending results and their
 watchdogs. A fresh native audio window and available media data are required
 before sampling resumes. Stale callbacks cannot restore retired traces.
 
+Worker model calls are serialized across playback epochs. An already-running
+retired call may finish, but its result cannot update level history or publish;
+queued requests from retired epochs are skipped before inference. Analysis
+errors are matched to the pending request, and results, errors and watchdogs
+retire silently if playback has already paused or begun seeking before the DOM
+event is delivered.
+
+The resampling kernel scales with source rate to preserve its anti-alias response
+at 96/192 kHz. Display amplitude uses the centered level window, while silence
+and confidence use only the current 16 ms hop. The runtime enforces the pinned
+float64 pitch / float32 confidence output types and disposes all raw outputs and
+feeds once by identity, including unexpected outputs, aliases and failure paths.
+The controller also rejects invalid RMS or confidence anywhere in a result batch
+before appending any of it.
+
 **Web Audio routing invariant:** once the media element is captured, its direct
 connection to the destination stays alive while visualization is hidden or off.
 Only the analyser branch is disconnected. Closing or suspending that context on

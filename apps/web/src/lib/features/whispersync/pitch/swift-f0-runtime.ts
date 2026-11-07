@@ -1,6 +1,7 @@
 import { SWIFT_F0_HOP } from './analysis';
 
 export interface SwiftF0TensorLike {
+  type?: string;
   data: ArrayLike<unknown>;
   dispose?: () => void;
 }
@@ -56,7 +57,10 @@ export async function runSwiftF0Inference<TTensor extends SwiftF0TensorLike>(
   if (!Number.isFinite(gain) || gain < 1 || gain > 1000)
     throw new RangeError('SwiftF0 input gain is invalid');
 
-  const audio = gain === 1 ? samples : Float32Array.from(samples, (value) => value * gain);
+  const audio =
+    gain === 1
+      ? samples
+      : Float32Array.from(samples, (value) => (Number.isFinite(value) ? value * gain : 0));
   const feeds: Record<string, TTensor> = {};
   const ownedFeeds: TTensor[] = [];
   let result: Record<string, TTensor> | undefined;
@@ -70,6 +74,8 @@ export async function runSwiftF0Inference<TTensor extends SwiftF0TensorLike>(
     feeds.fmin = tensor('float32', Float32Array.of(minimum), []);
     feeds.fmax = tensor('float32', Float32Array.of(maximum), []);
     result = await session.run(feeds);
+    if (result.pitch?.type !== 'float64' || result.confidence?.type !== 'float32')
+      throw new Error('SwiftF0 returned unexpected output tensor types');
     const rawPitch = result.pitch?.data;
     const rawConfidence = result.confidence?.data;
     const expected = Math.max(1, Math.floor(audio.length / SWIFT_F0_HOP));

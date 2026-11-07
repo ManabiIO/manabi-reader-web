@@ -1,6 +1,8 @@
 import { appendPoint, initialPitchState, type PitchState } from './model';
 import {
   ANALYSIS_WINDOW_SECONDS,
+  MAX_ANALYSER_SAMPLES,
+  hasStableSwiftF0Context,
   SAMPLE_INTERVAL_MS,
   SWIFT_F0_FUTURE_CONTEXT_SECONDS,
   type Measurement
@@ -231,6 +233,21 @@ export class PitchController {
     try {
       // resume() is invoked in the toggle's user gesture, before any download.
       const context = (this.context ??= this.environment.createContext());
+      if (!hasStableSwiftF0Context(context.sampleRate, MAX_ANALYSER_SAMPLES)) {
+        // No MediaElementAudioSourceNode exists yet, so this context is safe
+        // to close. Retry must create a fresh context after the output device
+        // changes instead of reusing the same unsupported sample rate.
+        if (!this.source && this.context === context) {
+          this.context = undefined;
+          void context.close().catch(() => {});
+        }
+        this.fail(
+          `Pitch needs a lower audio output rate. This device is using ${Math.round(
+            context.sampleRate / 1000
+          )} kHz; switch it to 48 kHz and retry.`
+        );
+        return;
+      }
       const resumed = context.resume();
       // Observe rejection even if Worker construction throws synchronously.
       void resumed.catch(() => {});
@@ -274,15 +291,13 @@ export class PitchController {
         } else if (
           event.data?.type === 'result' &&
           this.pending &&
-          event.data.id === this.pending.id &&
-          !audio.paused &&
-          !audio.seeking &&
-          !this.buffering
+          event.data.id === this.pending.id
         ) {
-          const pending = this.pending!;
+          const pending = this.pending;
           this.pending = undefined;
           if (this.replyTimer !== undefined) this.environment.clearTimer(this.replyTimer);
           this.replyTimer = undefined;
+          if (audio.paused || audio.seeking || this.buffering) return;
           const results = (
             Array.isArray(event.data.results) ? event.data.results : [event.data.result]
           ) as Measurement[];
@@ -293,6 +308,11 @@ export class PitchController {
                 !result ||
                 !Number.isFinite(result.amplitude) ||
                 result.amplitude < 0 ||
+                !Number.isFinite(result.rms) ||
+                result.rms < 0 ||
+                !Number.isFinite(result.confidence) ||
+                result.confidence < 0 ||
+                result.confidence > 1 ||
                 !Number.isFinite(result.offsetSeconds) ||
                 !Number.isFinite(result.windowSeconds) ||
                 result.windowSeconds <= 0 ||
@@ -332,6 +352,16 @@ export class PitchController {
           this.publish({ points, time: audio.currentTime });
           if (appended) this.breakBefore = false;
         } else if (event.data?.type === 'error') {
+          if (event.data.phase === 'analysis') {
+            if (!this.pending || event.data.id !== this.pending.id) return;
+            this.pending = undefined;
+            if (this.replyTimer !== undefined) this.environment.clearTimer(this.replyTimer);
+            this.replyTimer = undefined;
+            // paused/seeking can become true before their DOM event callback
+            // runs. A request that just lost playback authority must not turn
+            // that user action into an analysis failure.
+            if (audio.paused || audio.seeking || this.buffering) return;
+          }
           this.fail('Pitch analysis could not load or run. Check your connection and retry.');
         }
       };
@@ -460,8 +490,13 @@ export class PitchController {
             [samples.buffer]
           );
           this.replyTimer = this.environment.setTimer(() => {
-            if (this.pending?.id === id)
-              this.fail('Pitch analysis stopped responding. Retry to restart it.');
+            if (this.pending?.id !== id) return;
+            if (audio.paused || audio.seeking || this.buffering) {
+              this.pending = undefined;
+              this.replyTimer = undefined;
+              return;
+            }
+            this.fail('Pitch analysis stopped responding. Retry to restart it.');
           }, 5000);
         } catch {
           this.fail(
