@@ -511,11 +511,15 @@ class RheaReader(previous.RefinedAppearance):
             self.assertGreaterEqual(bounds['y'], -1)
             self.assertLessEqual(bounds['x'] + bounds['width'], 321)
             self.assertLessEqual(bounds['y'] + bounds['height'], 361)
-            self.assertTrue(control.evaluate('''e => {
-              const r=e.getBoundingClientRect();
-              const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
-              return !!hit && (hit===e || e.contains(hit));
-            }'''), control_name)
+            if control.is_enabled():
+                self.assertTrue(control.evaluate('''e => {
+                  const r=e.getBoundingClientRect();
+                  const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+                  return !!hit && (hit===e || e.contains(hit));
+                }'''), control_name)
+            else:
+                # Disabled chapter navigation intentionally has pointer-events:none.
+                expect(control).to_be_disabled()
 
         self.page.screenshot(path='test-results/contents-enlarged-word-intact.png')
         close.click()
@@ -1272,7 +1276,7 @@ class RheaReader(previous.RefinedAppearance):
         expect(panel).to_have_count(0)
 
     def test_statistics_options_close_stays_reachable_after_enlarged_body_scroll(self):
-        self.page.goto(self.origin + '/reader-web/statistics')
+        self.page.goto(self.origin + reader_fixture('/reader-web/statistics'))
         self.page.set_viewport_size({'width': 320, 'height': 320})
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')
 

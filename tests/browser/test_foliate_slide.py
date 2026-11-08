@@ -144,6 +144,12 @@ class FoliateSlide(ReaderBrowser):
         bounds = self.page.evaluate("window.slideRoot.querySelector('#top .page-indicator').getBoundingClientRect().toJSON()")
         self.page.mouse.click(bounds['x'] + bounds['width']/2, bounds['y'] + bounds['height']/2)
 
+    def set_controls(self, expanded):
+        controls = self.page.locator('.reader-controls')
+        if (controls.get_attribute('aria-expanded') == 'true') != expanded:
+            self.toggle_controls()
+        expect(controls).to_have_attribute('aria-expanded', str(expanded).lower())
+
     def open_numbered_book(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
         title, archive = numbered_epub()
@@ -230,7 +236,9 @@ class FoliateSlide(ReaderBrowser):
     def test_unknown_counts_progress_from_percent_to_current_to_total(self):
         self.open_numbered_book()
         self.page.evaluate(f"async () => await {P}.goTo({{index:2}})")
-        self.toggle_controls()
+        self.page.evaluate('document.activeElement?.blur()')
+        self.page.mouse.move(195, 600)
+        self.set_controls(False)
         self.page.evaluate(f"""() => {{
           window.countGates={{}};
           for (const index of [0,3]) {{
@@ -257,7 +265,7 @@ class FoliateSlide(ReaderBrowser):
         # every chapter is measured, the exact current page is known but the
         # compact indicator intentionally withholds the total until expanded.
         self.assertEqual(self.indicator(), str(1 + sum(counts[:2])))
-        self.toggle_controls()
+        self.set_controls(True)
         self.assertEqual(self.indicator(), f'{1 + sum(counts[:2])} of {sum(counts)}')
         self.screenshot('page-number-total-ready')
 

@@ -309,7 +309,11 @@ try {
   );
   await captureDialog.getByRole('button', { name: 'Keep for later', exact: true }).click();
   await expect(captureDialog).toHaveCount(0);
-  await expect(page.getByRole('status')).toContainText('1 additional selection saved for later.');
+  const retainedCaptureStatus = page
+    .getByRole('status')
+    .filter({ hasText: '1 additional selection saved for later.' });
+  await expect(retainedCaptureStatus).toHaveCount(1);
+  await expect(retainedCaptureStatus).toBeVisible();
   await page.reload();
   await expect.poll(draftCount).toBe(2);
   const capturedDrafts = (await records(page, 'snippetDrafts')).filter((draft) =>
@@ -1009,9 +1013,7 @@ try {
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   let markdownLeave = page.getByRole('dialog', { name: 'Keep this draft?' });
   await expect(markdownLeave).toBeVisible();
-  await markdownLeave
-    .getByRole('button', { name: 'Discard draft and leave', exact: true })
-    .click();
+  await markdownLeave.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Snippets', exact: true })).toBeVisible();
   passed('Markdown import and export round-trip prose plus CommonMark zero-start lists');
 
@@ -1037,9 +1039,7 @@ try {
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   markdownLeave = page.getByRole('dialog', { name: 'Keep this draft?' });
   await expect(markdownLeave).toBeVisible();
-  await markdownLeave
-    .getByRole('button', { name: 'Discard draft and leave', exact: true })
-    .click();
+  await markdownLeave.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
   passed('Markdown import retains the shared HTML sanitization boundary');
 
   await local.ctx.close();

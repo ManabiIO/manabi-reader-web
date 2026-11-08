@@ -226,12 +226,12 @@ class PanelUsabilityBrowser(LibraryBase):
 
     def test_summary_privacy_targets_and_paging_hold_at_200_percent_text(self):
         self.seed_statistics()
-        self.page.evaluate('''() => {
+        self.page.evaluate(reader_fixture('''() => {
           localStorage.setItem('lastStatisticsTab', 'Summary');
           localStorage.setItem('lastStatisticsRangeTemplate', 'This Year');
           localStorage.setItem('lastPrimaryReadingDataAggregationMode', 'None');
           localStorage.setItem('lastBlurredTrackerItems', '["readingTime"]');
-        }''')
+        }'''))
         self.page.set_viewport_size({'width': 320, 'height': 568})
         self.statistics()
         self.page.evaluate('document.documentElement.style.fontSize = "200%"')

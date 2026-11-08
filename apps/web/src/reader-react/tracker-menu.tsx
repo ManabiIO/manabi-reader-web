@@ -587,7 +587,11 @@ export function BookTimerMenu(props: Partial<TrackerMenuProps> & ReaderViewProps
                                   aria-label={'Revert history item'}
                                   title={'Revert Item'}
                                   onClick={() => c.dispatch('revertStatistic', trackingHistoryItem)}
-                                  className={['min-h-11 whitespace-nowrap'].filter(Boolean).join(' ')}
+                                  className={[
+                                    'h-auto min-h-[44px] gap-[6px] px-[12px] py-[4px] whitespace-nowrap pointer-coarse:min-h-[44px] pointer-coarse:min-w-[44px]'
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' ')}
                                 >
                                   <AppIcon icon={faTrash} className="size-[18px]"></AppIcon>
                                   <Dom as="span">{'Revert'}</Dom>
@@ -600,7 +604,10 @@ export function BookTimerMenu(props: Partial<TrackerMenuProps> & ReaderViewProps
                                       : 'Item not saved yet'
                                   }
                                   data-tracker-save-state
-                                  className={['inline-flex min-h-11 items-center gap-1.5 text-sm text-muted-foreground', trackingHistoryItem.saved && 'text-green-500']
+                                  className={[
+                                    'inline-flex min-h-[44px] items-center gap-[6px] text-sm text-muted-foreground',
+                                    trackingHistoryItem.saved && 'text-green-500'
+                                  ]
                                     .filter(Boolean)
                                     .join(' ')}
                                 >
@@ -608,7 +615,9 @@ export function BookTimerMenu(props: Partial<TrackerMenuProps> & ReaderViewProps
                                   <Dom as="span" className="sm:sr-only">
                                     {trackingHistoryItem.saved ? 'Saved' : 'Not saved yet'}
                                   </Dom>
-                                  {trackingHistoryItem.saved ? <span className="sr-only"> to database</span> : null}
+                                  {trackingHistoryItem.saved ? (
+                                    <span className="sr-only"> to database</span>
+                                  ) : null}
                                 </Dom>
                               </Dom>
                             </Dom>
@@ -631,7 +640,12 @@ export function BookTimerMenu(props: Partial<TrackerMenuProps> & ReaderViewProps
                           disabled={c.currentTrackingHistoryIndex === 0}
                           onClick={() => void c.pageHistory(-1)}
                           className="shrink-0"
-                          style={{ inlineSize: 44, blockSize: 44, minInlineSize: 44, minBlockSize: 44 }}
+                          style={{
+                            inlineSize: 44,
+                            blockSize: 44,
+                            minInlineSize: 44,
+                            minBlockSize: 44
+                          }}
                           bindings={{
                             ref: (value) => {
                               c.previousHistoryPage = value;
@@ -644,7 +658,9 @@ export function BookTimerMenu(props: Partial<TrackerMenuProps> & ReaderViewProps
                           as="span"
                           role={'status'}
                           aria-live={'polite'}
-                          className={['min-w-0 flex-1 whitespace-nowrap text-center text-sm text-muted-foreground']
+                          className={[
+                            'min-w-0 flex-1 text-center text-sm whitespace-nowrap text-muted-foreground'
+                          ]
                             .filter(Boolean)
                             .join(' ')}
                         >
@@ -663,7 +679,12 @@ export function BookTimerMenu(props: Partial<TrackerMenuProps> & ReaderViewProps
                           disabled={!c.hasNextPage}
                           onClick={() => void c.pageHistory(1)}
                           className="shrink-0"
-                          style={{ inlineSize: 44, blockSize: 44, minInlineSize: 44, minBlockSize: 44 }}
+                          style={{
+                            inlineSize: 44,
+                            blockSize: 44,
+                            minInlineSize: 44,
+                            minBlockSize: 44
+                          }}
                           bindings={{
                             ref: (value) => {
                               c.nextHistoryPage = value;
