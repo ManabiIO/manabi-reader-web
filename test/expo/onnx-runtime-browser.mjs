@@ -111,6 +111,9 @@ try {
       (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined);
     browser = await chromium.launch({
       headless: true,
+      ...(process.platform === 'darwin'
+        ? { args: ['--disable-features=MacAppCodeSignClone'] }
+        : {}),
       ...(executablePath ? { executablePath } : {})
     });
     server = createServer(async (request, response) => {
