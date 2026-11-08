@@ -239,53 +239,46 @@ class PanelUsabilityBrowser(LibraryBase):
             'button', name='Summary', exact=True)
         expect(summary).to_have_attribute('aria-pressed', 'true')
 
-        page_trigger = self.page.get_by_role('button', name=re.compile(r'^PAGE 1 / 61$'))
-        expect(page_trigger).to_be_visible()
+        summary_root = self.page.get_by_test_id('statistics-summary')
+        page_trigger = self.page.get_by_role('button', name='Choose statistics page', exact=True)
+        expect(page_trigger).to_contain_text('PAGE 1 / 61')
         self.assertGreaterEqual(page_trigger.bounding_box()['height'], 43.99)
-        self.assertLessEqual(
-            self.page.evaluate('document.documentElement.scrollWidth - innerWidth'), 1)
-        summary_scroll = self.page.locator('[data-statistics-summary-scroll]')
-        self.assertLessEqual(
-            summary_scroll.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
-        self.assertLessEqual(
-            self.page.locator('[data-statistics-summary-grid]').evaluate(
-                'e => e.scrollWidth - e.clientWidth'), 1)
+        self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth - innerWidth'), 1)
+        table = self.page.get_by_role('table', name='Reading statistics', exact=True)
+        self.assertLessEqual(summary_root.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
+        self.assertLessEqual(table.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
 
+        title_control = self.page.get_by_role('button', name='Show full title Panel title 000', exact=True)
         for control in (
             self.page.get_by_role('button', name='Delete row Panel title 000', exact=True),
             self.page.get_by_role('button', name='Edit row Panel title 000', exact=True),
-            self.page.get_by_role('button', name='View details for Panel title 000', exact=True),
+            title_control,
             self.page.get_by_role('button', name='Sort by Total Time', exact=True),
         ):
             control.scroll_into_view_if_needed()
             self.assertGreaterEqual(control.bounding_box()['height'], 43.99)
             self.assert_unoccluded(control)
 
-        metric = self.page.locator('[data-summary-metric="readingTime"]').first
+        row = table.get_by_role('row').filter(has=title_control)
+        metric = row.get_by_role('button', name=re.compile(r'^Total Time for Panel title 000,'))
         metric.scroll_into_view_if_needed()
         self.assertGreaterEqual(metric.bounding_box()['height'], 43.99)
         self.assert_unoccluded(metric)
-        expect(metric).to_have_attribute('aria-pressed', 'true')
         hidden_value = metric.locator('[aria-hidden="true"]').first
-        expect(hidden_value).to_be_attached()
-        self.assertEqual('none', metric.evaluate('e => getComputedStyle(e).filter'))
-        self.assertNotEqual('none', hidden_value.evaluate('e => getComputedStyle(e).filter'))
+        expect(hidden_value).to_have_text('••••')
         hidden_label = metric.get_attribute('aria-label')
         self.assertIn('value hidden', hidden_label)
         self.assertNotIn('1 min', hidden_label)
 
         metric.focus()
         metric.press('Enter')
-        expect(metric).to_have_attribute('aria-pressed', 'false')
-        expect(metric).to_have_attribute(
-            'aria-label', re.compile(r'Reading time: 1 min\. Activate for details\.'))
-        expect(self.page.get_by_role('dialog', name='Statistic details')).to_have_count(0)
-
+        expect(metric).to_have_attribute('aria-label', re.compile(r'Total Time for Panel title 000: 1 min\. Activate to view details\.'))
+        expect(self.page.get_by_role('dialog', name='Measurement details', exact=True)).to_have_count(0)
         metric.press('Enter')
-        details = self.page.get_by_role('dialog', name='Statistic details')
+        details = self.page.get_by_role('dialog', name='Measurement details', exact=True)
         expect(details).to_be_visible()
         expect(details).to_contain_text('Time: 1 min')
-        close = details.get_by_role('button', name='Close statistic details', exact=True)
+        close = details.get_by_role('button', name='Close measurement details', exact=True)
         expect(close).to_be_focused()
         self.assertGreaterEqual(close.bounding_box()['height'], 43.99)
         self.assert_unoccluded(close)
@@ -299,33 +292,38 @@ class PanelUsabilityBrowser(LibraryBase):
         expect(next_page).to_be_enabled()
         self.assertGreaterEqual(previous.bounding_box()['height'], 43.99)
         self.assertGreaterEqual(next_page.bounding_box()['height'], 43.99)
-
         next_page.focus()
         next_page.press('Enter')
-        expect(self.page.get_by_role('button', name='PAGE 2 / 61', exact=True)).to_be_visible()
+        expect(page_trigger).to_contain_text('PAGE 2 / 61')
         expect(next_page).to_be_focused()
 
-        self.page.get_by_role('button', name='PAGE 2 / 61', exact=True).click()
-        page_60 = self.page.get_by_role('button', name='60', exact=True)
-        page_60.scroll_into_view_if_needed()
-        self.assertGreaterEqual(page_60.bounding_box()['height'], 43.99)
-        page_60.click()
-        expect(self.page.get_by_role('button', name='PAGE 60 / 61', exact=True)).to_be_visible()
+        def choose_page(number, scroll):
+            page_trigger.click()
+            picker = self.page.get_by_role('dialog', name='Statistics pages', exact=True)
+            expect(picker).to_be_visible()
+            picker.hover()
+            self.page.mouse.wheel(0, scroll)
+            choice = picker.get_by_role('button', name=str(number), exact=True)
+            expect(choice).to_be_visible()
+            choice.scroll_into_view_if_needed()
+            self.assertGreaterEqual(choice.bounding_box()['height'], 43.99)
+            choice.focus()
+            choice.press('Enter')
+            expect(picker).to_have_count(0)
+            expect(page_trigger).to_contain_text(f'PAGE {number} / 61')
+            expect(page_trigger).to_be_focused()
 
+        choose_page(60, 10000)
         next_page.focus()
         next_page.press('Enter')
-        expect(self.page.get_by_role('button', name='PAGE 61 / 61', exact=True)).to_be_visible()
+        expect(page_trigger).to_contain_text('PAGE 61 / 61')
         expect(next_page).to_be_disabled()
         expect(previous).to_be_focused()
-
-        self.page.get_by_role('button', name='PAGE 61 / 61', exact=True).click()
-        page_2 = self.page.get_by_role('button', name='2', exact=True)
-        page_2.scroll_into_view_if_needed()
-        page_2.click()
-        expect(self.page.get_by_role('button', name='PAGE 2 / 61', exact=True)).to_be_visible()
+        expect(summary_root.get_by_role('status')).to_have_text('Page 61 of 61')
+        choose_page(2, -10000)
         previous.focus()
         previous.press('Enter')
-        expect(self.page.get_by_role('button', name='PAGE 1 / 61', exact=True)).to_be_visible()
+        expect(page_trigger).to_contain_text('PAGE 1 / 61')
         expect(previous).to_be_disabled()
         expect(next_page).to_be_focused()
 

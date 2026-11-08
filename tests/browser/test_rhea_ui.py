@@ -1285,7 +1285,9 @@ class RheaReader(previous.RefinedAppearance):
         self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()
         panel = self.page.get_by_role('dialog', name='Statistics options', exact=True)
         expect(panel).to_be_visible()
-        scroll = panel.locator('[data-statistics-options-scroll]')
+        # The shared sheet owns its scrollport and keeps bounded chrome sticky.
+        scroll = panel
+        expect(panel.locator('[data-sticky-header]')).to_have_css('position', 'sticky')
         self.page.wait_for_function('e => e.scrollHeight > e.clientHeight', arg=scroll.element_handle())
         scroll.evaluate('e => e.scrollTop = e.scrollHeight')
         self.page.wait_for_function('e => e.scrollTop > 0', arg=scroll.element_handle())
@@ -1312,7 +1314,7 @@ class RheaReader(previous.RefinedAppearance):
           const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
           return !!hit && (hit === e || e.contains(hit));
         }'''))
-        self.assertEqual('hidden', panel.evaluate('e => getComputedStyle(e).overflowY'))
+        self.assertEqual('auto', panel.evaluate('e => getComputedStyle(e).overflowY'))
 
         Path('test-results').mkdir(exist_ok=True)
         self.page.screenshot(

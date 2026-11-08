@@ -9,7 +9,7 @@ import { AppFrame } from '../../shared-ui/AppFrame';
 import { UiIcon } from '../../shared-ui/UiIcon';
 import { RouteBack } from '../../shared-ui/RouteBack';
 import { UiText as Text } from '../../shared-ui/Typography';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentRef } from 'react';
 import { ActivityIndicator, ScrollView, View, StyleSheet, useWindowDimensions } from 'react-native';
 import {
   ActionButton,
@@ -31,6 +31,7 @@ import { useStatisticsPort } from './ports';
 import { useStatisticsController } from './use-statistics';
 import { StatisticsSettings } from './StatisticsSettings';
 import { StatisticsSummary } from './StatisticsSummary';
+import { usePagerKeyboardFocus } from '../../shared-ui/usePagerKeyboardFocus';
 import { StatisticsHeatmap } from './StatisticsHeatmap';
 import { StatisticsTitleFilter, StatisticsTitleFilterFooter } from './StatisticsTitleFilter';
 import { ShortcutListener } from '../../shared-ui/ShortcutListener';
@@ -93,7 +94,16 @@ export function StatisticsView({
   const { colors } = useUiTheme();
   const { width, height, fontScale } = useWindowDimensions();
   const [optionsOpen, setOptionsOpen] = useState(false);
+  const optionsTrigger = useRef<ComponentRef<typeof View> | null>(null);
   const [newDayBook, setNewDayBook] = useState('');
+  // Page reads temporarily replace Summary with loading UI. Focus ownership
+  // belongs to the retained route, so it survives that loading transition.
+  const previousPage = useRef<ComponentRef<typeof View> | null>(null);
+  const nextPage = useRef<ComponentRef<typeof View> | null>(null);
+  const choosePage = useRef<ComponentRef<typeof View> | null>(null);
+  const pagerControls = { previous: previousPage, next: nextPage, choose: choosePage };
+  const capturePageFocus = usePagerKeyboardFocus(state.query.page, state.busy, pagerControls);
+  const pager = { ...pagerControls, captureFocus: capturePageFocus };
   const pageSize = summaryPageSize(width, height, fontScale);
   useEffect(() => {
     if (state.query.pageSize !== pageSize && !state.busy && !state.editor)
@@ -103,6 +113,8 @@ export function StatisticsView({
   const maxWidth = width >= 1536 ? 1152 : width >= 1024 && width < 1280 ? 896 : undefined;
   const beginSettings = () => {
     setOptionsOpen(false);
+    // The menu item unmounts; retain a connected return target for the sheet.
+    optionsTrigger.current?.focus();
     void dispatch({ type: 'settings', open: true });
   };
   return (
@@ -151,6 +163,7 @@ export function StatisticsView({
               variant="ghost"
               size="icon-lg"
               shape="circle"
+              ref={optionsTrigger}
               accessibilityLabel="Statistics options"
               title="Statistics options"
               aria-haspopup="menu"
@@ -322,7 +335,7 @@ export function StatisticsView({
               <Text style={{ color: colors.foreground }}>Loading statistics…</Text>
             </View>
           ) : state.view === 'summary' ? (
-            <StatisticsSummary {...viewProps} />
+            <StatisticsSummary {...viewProps} pager={pager} />
           ) : (
             <>
               <StatisticsHeatmap {...viewProps} />
@@ -349,6 +362,7 @@ export function StatisticsView({
         visible={state.settingsOpen}
         onClose={() => void dispatch({ type: 'settings', open: false })}
         title="Statistics options"
+        stickyChrome
         description="Choose your date range, measurements, and export format."
         closeLabel="Close statistics options"
         closeDisabled={state.busy}

@@ -7,7 +7,7 @@
 import { AnchoredPopover } from '../../shared-ui/AnchoredPopover';
 import { UiIcon } from '../../shared-ui/UiIcon';
 import { UiText as Text } from '../../shared-ui/Typography';
-import { useState, type ComponentRef } from 'react';
+import { useState, type ComponentRef, type RefObject } from 'react';
 import { FlatList, Pressable, View, StyleSheet, useWindowDimensions } from 'react-native';
 import {
   ActionButton,
@@ -31,7 +31,17 @@ import {
   type StatisticsViewProps
 } from './view-model';
 
-export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
+export type StatisticsSummaryPager = {
+  previous: RefObject<ComponentRef<typeof View> | null>;
+  next: RefObject<ComponentRef<typeof View> | null>;
+  choose: RefObject<ComponentRef<typeof View> | null>;
+  captureFocus(source: unknown, preferred?: 'previous' | 'next' | 'choose'): void;
+};
+export function StatisticsSummary({
+  state,
+  dispatch,
+  pager
+}: StatisticsViewProps & { pager: StatisticsSummaryPager }) {
   const { colors } = useUiTheme();
   const { width } = useWindowDimensions();
   const [details, setDetails] = useState<{
@@ -129,7 +139,7 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
         title="Click to select/sort by this Attribute"
         disabled={!!editor || state.busy}
         onPress={() => sort(column.key)}
-        size="icon-sm"
+        size="icon-lg"
         shape="rounded"
         style={{ paddingHorizontal: 4 }}
       >
@@ -246,7 +256,7 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
     <View style={styles.rowActions}>
       <ActionButton
         variant={editor?.row.id === row.id ? 'ghost' : 'destructive'}
-        size="icon-sm"
+        size="icon-lg"
         shape="circle"
         accessibilityLabel={editor?.row.id === row.id ? 'Cancel edit' : `Delete row ${row.title}`}
         disabled={state.busy || (!!editor && editor.row.id !== row.id)}
@@ -261,7 +271,7 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
       {row.entry && (
         <ActionButton
           variant="ghost"
-          size="icon-sm"
+          size="icon-lg"
           shape="circle"
           accessibilityLabel={editor?.row.id === row.id ? 'Save changes' : `Edit row ${row.title}`}
           disabled={state.busy || (!!editor && editor.row.id !== row.id)}
@@ -370,16 +380,30 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
       )}
       {(data?.pages ?? 0) > 1 && (
         <View accessibilityLabel="Statistics pages" style={styles.pages}>
+          <Text
+            role="status"
+            pointerEvents="none"
+            style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden' }}
+          >
+            Page {q.page} of {data?.pages}
+          </Text>
           <ActionButton
             variant="ghost"
+            ref={pager.previous}
+            size="icon-lg"
             accessibilityLabel="Previous statistics page"
             disabled={state.busy || q.page <= 1}
-            onPress={() => void dispatch({ type: 'query', patch: { page: q.page - 1 } })}
+            onPress={(event) => {
+              pager.captureFocus(event.currentTarget);
+              void dispatch({ type: 'query', patch: { page: q.page - 1 } });
+            }}
           >
             <UiIcon name="previous" />
           </ActionButton>
           <ActionButton
             variant="ghost"
+            ref={pager.choose}
+            style={{ minHeight: 44 }}
             accessibilityLabel="Choose statistics page"
             disabled={state.busy}
             onPress={(event) => {
@@ -391,9 +415,14 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
           </ActionButton>
           <ActionButton
             variant="ghost"
+            ref={pager.next}
+            size="icon-lg"
             accessibilityLabel="Next statistics page"
             disabled={state.busy || q.page >= (data?.pages ?? 1)}
-            onPress={() => void dispatch({ type: 'query', patch: { page: q.page + 1 } })}
+            onPress={(event) => {
+              pager.captureFocus(event.currentTarget);
+              void dispatch({ type: 'query', patch: { page: q.page + 1 } });
+            }}
           >
             <UiIcon name="next" />
           </ActionButton>
@@ -445,9 +474,11 @@ export function StatisticsSummary({ state, dispatch }: StatisticsViewProps) {
             <ActionButton
               variant={page === q.page ? 'secondary' : 'ghost'}
               selected={page === q.page}
+              aria-current={page === q.page ? 'page' : undefined}
               size="sm"
-              style={{ height: 44, minHeight: 44 }}
-              onPress={() => {
+              style={{ height: 44, minHeight: 44, paddingVertical: 0 }}
+              onPress={(event) => {
+                pager.captureFocus(event.currentTarget, 'choose');
                 setPagesOpen(false);
                 void dispatch({ type: 'query', patch: { page } });
               }}

@@ -335,22 +335,57 @@ try {
   );
   const deleteDraftKeys = (keys) =>
     page.evaluate(
-      async (keys) =>
+      ({ keys, databaseName }) =>
         new Promise((resolve, reject) => {
-          const open = indexedDB.open('manabi-reader-integrations');
-          open.onerror = () => reject(open.error);
+          let db,
+            tx,
+            settled = false;
+          const finish = (error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(deadline);
+            db?.close();
+            if (error) reject(error);
+            else resolve();
+          };
+          const deadline = setTimeout(() => {
+            try {
+              tx?.abort();
+            } catch {
+              /* Preserve the fixture timeout. */
+            }
+            finish(new Error('Snippet draft fixture cleanup timed out'));
+          }, 10000);
+          const open = indexedDB.open(databaseName);
+          open.onerror = () => finish(open.error ?? new Error('Snippet fixture database failed'));
+          open.onblocked = () => finish(new Error('Snippet fixture database open was blocked'));
+          open.onupgradeneeded = () => {
+            open.transaction.abort();
+            finish(new Error('Snippet fixture must not create a missing database'));
+          };
           open.onsuccess = () => {
-            const db = open.result;
-            const tx = db.transaction('snippetDrafts', 'readwrite');
-            for (const key of keys) tx.objectStore('snippetDrafts').delete(key);
-            tx.onerror = () => reject(tx.error);
-            tx.oncomplete = () => {
+            db = open.result;
+            if (settled) {
               db.close();
-              resolve();
-            };
+              return;
+            }
+            try {
+              tx = db.transaction('snippetDrafts', 'readwrite');
+              tx.oncomplete = () => finish();
+              tx.onerror = () => finish(tx.error ?? new Error('Snippet draft cleanup failed'));
+              tx.onabort = () => finish(tx.error ?? new Error('Snippet draft cleanup aborted'));
+              for (const key of keys) tx.objectStore('snippetDrafts').delete(key);
+            } catch (error) {
+              try {
+                tx?.abort();
+              } catch {
+                /* Drain via the original failure. */
+              }
+              finish(error);
+            }
           };
         }),
-      keys
+      { keys, databaseName: integrationDatabase }
     );
   await deleteDraftKeys(capturedDrafts.map((draft) => draft.key));
   passed('concurrent captures persist independently before destination UI');
