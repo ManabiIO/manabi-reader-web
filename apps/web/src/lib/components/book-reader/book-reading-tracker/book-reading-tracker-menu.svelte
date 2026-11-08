@@ -445,22 +445,27 @@
                     <Button
                       variant="destructive"
                       size="sm"
-                      class="min-h-11"
+                      class="min-h-11 whitespace-nowrap"
                       aria-label="Revert history item"
                       title="Revert Item"
                       onclick={() => dispatch('revertStatistic', trackingHistoryItem)}
                     >
-                      <AppIcon icon={faTrash} /> <span>Revert Item</span>
+                      <AppIcon icon={faTrash} class="size-[18px]" /> <span>Revert</span>
                     </Button>
                     <span
+                      data-tracker-save-state
                       title={trackingHistoryItem.saved
                         ? 'Item saved to database'
                         : 'Item not saved yet'}
+                      class="inline-flex min-h-11 items-center gap-1.5 text-sm text-muted-foreground"
                       class:text-green-500={trackingHistoryItem.saved}
                     >
-                      <AppIcon icon={faFloppyDisk} />
+                      <AppIcon icon={faFloppyDisk} class="size-[18px]" />
+                      <span class="sm:sr-only"
+                        >{trackingHistoryItem.saved ? 'Saved' : 'Not saved yet'}</span
+                      >
                       <span class="sr-only"
-                        >{trackingHistoryItem.saved ? 'Saved to database' : 'Not saved yet'}</span
+                        >{trackingHistoryItem.saved ? ' to database' : ''}</span
                       >
                     </span>
                   </div>
@@ -473,7 +478,8 @@
                 variant="ghost"
                 size="icon"
                 shape="circle"
-                class="size-11"
+                class="shrink-0"
+                style="inline-size:44px;block-size:44px;min-inline-size:44px;min-block-size:44px"
                 aria-label="Previous history page"
                 title="Previous Page"
                 disabled={currentTrackingHistoryIndex === 0}
@@ -482,7 +488,7 @@
                 <AppIcon icon={faChevronLeft} />
               </Button>
               <span
-                class="text-center text-sm text-muted-foreground"
+                class="min-w-0 flex-1 whitespace-nowrap text-center text-sm text-muted-foreground"
                 role="status"
                 aria-live="polite"
               >
@@ -493,7 +499,8 @@
                 variant="ghost"
                 size="icon"
                 shape="circle"
-                class="size-11"
+                class="shrink-0"
+                style="inline-size:44px;block-size:44px;min-inline-size:44px;min-block-size:44px"
                 aria-label="Next history page"
                 title="Next Page"
                 disabled={!hasNextPage}
@@ -519,3 +526,4 @@
     </div>
   {/if}
 </div>
+
