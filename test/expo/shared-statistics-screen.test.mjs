@@ -893,6 +893,18 @@ test('shared Summary paging retains owned keyboard focus at boundaries and after
   });
   const fixture = await mount(fake.port);
   try {
+    await act(async () => findButton('Next statistics page').focus());
+    await press('Next statistics page');
+    assert.ok(
+      document.activeElement === findButton('Next statistics page'),
+      'middle-page read retains the initiating next control'
+    );
+    await act(async () => findButton('Previous statistics page').focus());
+    await press('Previous statistics page');
+    assert.ok(
+      document.activeElement === findButton('Next statistics page'),
+      'first-page boundary hands focus to enabled next control'
+    );
     await press('Choose statistics page');
     const chooseTwo = findButton('2', dialog('Statistics pages'));
     await act(async () => chooseTwo.focus());

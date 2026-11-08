@@ -15,6 +15,7 @@ export function usePagerKeyboardFocus(page: number, busy: boolean, controls: Pag
         page: number;
         source: HTMLElement;
         preferred?: keyof PagerControls;
+        control?: keyof PagerControls;
         lost: boolean;
         stop(): void;
       }
@@ -40,6 +41,7 @@ export function usePagerKeyboardFocus(page: number, busy: boolean, controls: Pag
       ? [latest.current[request.preferred].current]
       : [
           request.source,
+          ...(request.control ? [latest.current[request.control].current] : []),
           latest.current.previous.current,
           latest.current.next.current,
           latest.current.choose.current
@@ -70,6 +72,9 @@ export function usePagerKeyboardFocus(page: number, busy: boolean, controls: Pag
       page,
       source,
       preferred,
+      control: (Object.keys(latest.current) as (keyof PagerControls)[]).find(
+        (key) => latest.current[key].current === source
+      ),
       lost: false,
       stop: () => doc.removeEventListener('focusin', changed)
     };

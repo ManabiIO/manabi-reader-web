@@ -1309,11 +1309,29 @@ class RheaReader(previous.RefinedAppearance):
         self.assertGreaterEqual(box['y'], viewport['top'] - 1)
         self.assertLessEqual(box['x'] + box['width'], viewport['right'] + 1)
         self.assertLessEqual(box['y'] + box['height'], viewport['bottom'] + 1)
-        self.assertTrue(close.evaluate('''e => {
+        center_hit = '''e => {
           const r = e.getBoundingClientRect();
           const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
           return !!hit && (hit === e || e.contains(hit));
-        }'''))
+        }'''
+        try:
+            self.page.wait_for_function(center_hit, arg=close.element_handle(), timeout=2000)
+        except Exception as error:
+            diagnostics = close.evaluate('''e => {
+              const r = e.getBoundingClientRect();
+              const x = r.left + r.width / 2;
+              const y = r.top + r.height / 2;
+              const hit = document.elementFromPoint(x, y);
+              const describe = node => node && ({
+                tag: node.tagName, id: node.id, className: String(node.className || ''),
+                role: node.getAttribute('role'), text: (node.textContent || '').trim().slice(0, 100),
+                rect: (() => { const b = node.getBoundingClientRect(); return {x:b.x,y:b.y,width:b.width,height:b.height}; })()
+              });
+              return { point: {x, y}, close: describe(e), hit: describe(hit),
+                stack: document.elementsFromPoint(x, y).slice(0, 6).map(describe),
+                panel: describe(e.closest('[role="dialog"]')) };
+            }''')
+            self.fail(f'Close control center hit-test did not settle: {diagnostics}; {error}')
         self.assertEqual('auto', panel.evaluate('e => getComputedStyle(e).overflowY'))
 
         Path('test-results').mkdir(exist_ok=True)

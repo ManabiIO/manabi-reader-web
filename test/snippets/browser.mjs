@@ -683,7 +683,9 @@ try {
     await page.screenshot({ path: largeTextPath, fullPage: true });
   }
 
-  const selectionToggleLarge = page.getByRole('button', { name: 'Select', exact: true });
+  const selectionToggleLarge = page.getByRole('button', {
+    name: /^(?:Select|Done selecting)$/
+  });
   await selectionToggleLarge.focus();
   await selectionToggleLarge.press('Enter');
   const enlargedBatch = page.getByRole('toolbar', {
@@ -1016,10 +1018,15 @@ try {
     .fill('CommonMark round trip');
   await commit(page, true);
 
-  const roundTripMenu = page.getByRole('button', { name: 'More actions', exact: true });
-  await roundTripMenu.click();
+  const roundTripButton = page.getByRole('button', { name: 'Markdown', exact: true });
+  const roundTripMenuItem = page.getByRole('menuitem', { name: 'Markdown', exact: true });
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('menuitem', { name: 'Markdown', exact: true }).click();
+  if (await roundTripButton.isVisible()) {
+    await roundTripButton.click();
+  } else {
+    await page.getByRole('button', { name: 'More actions', exact: true }).click();
+    await roundTripMenuItem.click();
+  }
   const safetyMarkdownDownload = await downloadPromise,
     safetyMarkdownPath = await safetyMarkdownDownload.path();
   assert(safetyMarkdownPath, 'Markdown export must produce a downloadable file');

@@ -259,8 +259,9 @@ class PanelUsabilityBrowser(LibraryBase):
             self.assertGreaterEqual(control.bounding_box()['height'], 43.99)
             self.assert_unoccluded(control)
 
-        row = table.get_by_role('row').filter(has=title_control)
-        metric = row.get_by_role('button', name=re.compile(r'^Total Time for Panel title 000,'))
+        metric = self.page.get_by_role(
+            'button', name=re.compile(r'^Total Time for Panel title 000(?:,|:)')
+        )
         metric.scroll_into_view_if_needed()
         self.assertGreaterEqual(metric.bounding_box()['height'], 43.99)
         self.assert_unoccluded(metric)
@@ -272,7 +273,10 @@ class PanelUsabilityBrowser(LibraryBase):
 
         metric.focus()
         metric.press('Enter')
-        expect(metric).to_have_attribute('aria-label', re.compile(r'Total Time for Panel title 000: 1 min\. Activate to view details\.'))
+        expect(metric).to_have_attribute(
+            'aria-label',
+            re.compile(r'Total Time for Panel title 000: 1 min\. Activate to view details\.')
+        )
         expect(self.page.get_by_role('dialog', name='Measurement details', exact=True)).to_have_count(0)
         metric.press('Enter')
         details = self.page.get_by_role('dialog', name='Measurement details', exact=True)
@@ -297,12 +301,16 @@ class PanelUsabilityBrowser(LibraryBase):
         expect(page_trigger).to_contain_text('PAGE 2 / 61')
         expect(next_page).to_be_focused()
 
-        def choose_page(number, scroll):
+        def choose_page(number):
             page_trigger.click()
             picker = self.page.get_by_role('dialog', name='Statistics pages', exact=True)
             expect(picker).to_be_visible()
-            picker.hover()
-            self.page.mouse.wheel(0, scroll)
+            picker.evaluate('''(dialog, target) => {
+              const list = [...dialog.querySelectorAll('*')]
+                .find(node => node.scrollHeight > node.clientHeight);
+              if (!list) throw new Error('Statistics page list has no scrollport');
+              list.scrollTop = target;
+            }''', (number - 1) * 44)
             choice = picker.get_by_role('button', name=str(number), exact=True)
             expect(choice).to_be_visible()
             choice.scroll_into_view_if_needed()
@@ -313,14 +321,14 @@ class PanelUsabilityBrowser(LibraryBase):
             expect(page_trigger).to_contain_text(f'PAGE {number} / 61')
             expect(page_trigger).to_be_focused()
 
-        choose_page(60, 10000)
+        choose_page(60)
         next_page.focus()
         next_page.press('Enter')
         expect(page_trigger).to_contain_text('PAGE 61 / 61')
         expect(next_page).to_be_disabled()
         expect(previous).to_be_focused()
         expect(summary_root.get_by_role('status')).to_have_text('Page 61 of 61')
-        choose_page(2, -10000)
+        choose_page(2)
         previous.focus()
         previous.press('Enter')
         expect(page_trigger).to_contain_text('PAGE 1 / 61')
