@@ -794,6 +794,8 @@ test('active cue boundary can advance without requiring a subtitle gap', async (
   f.a.currentTime = 4;
   f.controller.setSpeechWindow({ start: 3.5, end: 4.1 });
   f.controller.setSpeechWindow({ start: 4.15, end: 5 });
+  f.frame(700);
+  assert.equal(f.workers[0].sent.length, 0, 'upcoming cue waits without inference');
   f.a.currentTime = 4.2;
   f.frame(900);
   const worker = f.workers[0];
@@ -1575,8 +1577,9 @@ for (const rate of [44100, 48000, 88200]) {
       f.frame();
       f.result();
       assert.equal(f.state.points.length, 1);
-      f.a.currentTime += 0.1;
-      f.frame(800);
+      f.a.currentTime += 0.4;
+      f.frame(1100);
+      assert.equal(f.workers[0].sent.length, 2, 'mismatched reply belongs to a new pending window');
       f.result(undefined, {
         hz: 220,
         amplitude: 0.5,
@@ -1642,7 +1645,14 @@ test('cue entry masks pre-cue sound, projects rate-scaled time and starts a brok
   const boundary = Math.ceil((1.5 - start) * request.rate);
   assert.ok(request.samples.slice(0, boundary).every((value) => value === 0));
   assert.ok(request.samples.slice(boundary).some((value) => value !== 0));
-  f.result();
+  f.result(undefined, {
+    hz: 220,
+    amplitude: 0.5,
+    confidence: 1,
+    rms: 0.5,
+    offsetSeconds: 1.6 - start,
+    windowSeconds: request.samples.length / request.rate
+  });
   assert.equal(f.state.points.length, completed.length + 1);
   assert.ok(f.state.points.at(-1).time >= 1.5);
   assert.equal(f.state.points.at(-1).breakBefore, true);

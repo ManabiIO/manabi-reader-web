@@ -97,7 +97,8 @@ export function cleanHTML(html: string): string {
     ],
     ALLOWED_ATTR: ['href', 'title', 'target', 'rel', 'start', 'type', 'data-id'],
     ALLOW_DATA_ATTR: false,
-    ADD_URI_SAFE_ATTR: ['data-id', 'start', 'type', 'title'],
+    // These are validated link metadata, never URL-bearing attributes.
+    ADD_URI_SAFE_ATTR: ['data-id', 'start', 'type', 'title', 'target', 'rel'],
     FORBID_TAGS: [
       'style',
       'script',
