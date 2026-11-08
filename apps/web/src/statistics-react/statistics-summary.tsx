@@ -291,7 +291,10 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                   as="button"
                                   type={'button'}
                                   title={currentStatisticsSummaryRow.title}
-                                  className={['line-clamp-2 min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring', isDateAggregation && 'hidden']
+                                  className={[
+                                    'line-clamp-2 min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring',
+                                    isDateAggregation && 'hidden'
+                                  ]
                                     .filter(Boolean)
                                     .join(' ')}
                                   events={{
@@ -582,7 +585,10 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
         elementRef={(value: HTMLDivElement | null) => {
           c.statisticsSummaryButtonContainer = value;
         }}
-        className={['my-[24px] flex items-center justify-between gap-[8px]', c.statisticsSummaryMaxPages < 2 && 'invisible']
+        className={[
+          'my-[24px] flex items-center justify-between gap-[8px]',
+          c.statisticsSummaryMaxPages < 2 && 'invisible'
+        ]
           .filter(Boolean)
           .join(' ')}
       >
@@ -590,7 +596,9 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
           as="button"
           type="button"
           aria-label="Previous statistics page"
-          elementRef={(value: HTMLButtonElement | null) => { c.previousSummaryPage = value; }}
+          elementRef={(value: HTMLButtonElement | null) => {
+            c.previousSummaryPage = value;
+          }}
           disabled={c.currentStatisticsSummaryPage === 1}
           className={[
             'flex size-[44px] shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-ring',
@@ -623,7 +631,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
             }
           }}
         >
-          <Dom as="div" className="tabular-nums whitespace-nowrap">
+          <Dom as="div" className="whitespace-nowrap tabular-nums">
             {c.statisticsSummaryPageLabel}
           </Dom>
           <Dom
@@ -649,12 +657,16 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                     .filter(Boolean)
                     .join(' ')}
                   type="button"
-                  aria-current={statisticsSummaryPage === c.currentStatisticsSummaryPage ? 'page' : undefined}
+                  aria-current={
+                    statisticsSummaryPage === c.currentStatisticsSummaryPage ? 'page' : undefined
+                  }
                   events={{
                     click: ({ currentTarget }: MouseEvent) => {
                       c.setRowInEditMode();
                       c.currentStatisticsSummaryPage = statisticsSummaryPage;
-                      currentTarget?.dispatchEvent(new CustomEvent(CLOSE_POPOVER, { bubbles: true }));
+                      currentTarget?.dispatchEvent(
+                        new CustomEvent(CLOSE_POPOVER, { bubbles: true })
+                      );
                     }
                   }}
                 >
@@ -664,12 +676,16 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
             ))}
           </Dom>
         </Popover>
-        <span className="sr-only" role="status" aria-live="polite">{c.statisticsSummaryPageLabel}</span>
+        <span className="sr-only" role="status" aria-live="polite">
+          {c.statisticsSummaryPageLabel}
+        </span>
         <Dom
           as="button"
           type="button"
           aria-label="Next statistics page"
-          elementRef={(value: HTMLButtonElement | null) => { c.nextSummaryPage = value; }}
+          elementRef={(value: HTMLButtonElement | null) => {
+            c.nextSummaryPage = value;
+          }}
           disabled={c.currentStatisticsSummaryPage === c.statisticsSummaryMaxPages}
           className={[
             'flex size-[44px] shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-ring',

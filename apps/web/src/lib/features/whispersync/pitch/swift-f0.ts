@@ -11,7 +11,6 @@ import {
 } from './analysis';
 import { runSwiftF0Inference, swiftF0ModelGain, type SwiftF0SessionLike } from './swift-f0-runtime';
 
-
 let sessionPromise: Promise<ort.InferenceSession> | undefined;
 
 export function prepareSwiftF0(assetBaseURL: string): Promise<ort.InferenceSession> {

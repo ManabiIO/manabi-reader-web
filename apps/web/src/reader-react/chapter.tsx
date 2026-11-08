@@ -34,19 +34,25 @@ export function BookToc(props: Partial<ChapterProps> & ReaderViewProps) {
       <Dom
         as="section"
         aria-label={'Table of contents'}
-        className={['contents-panel flex min-h-0 flex-1 flex-col overflow-hidden'].filter(Boolean).join(' ')}
+        className={['contents-panel flex min-h-0 flex-1 flex-col overflow-hidden']
+          .filter(Boolean)
+          .join(' ')}
       >
         <Dom
           as="header"
-          className={['grid shrink-0 grid-cols-[minmax(0,1fr)_44px] items-start gap-[16px] px-[24px] pt-[24px] pb-[16px]']
+          className={[
+            'grid shrink-0 grid-cols-[minmax(0,1fr)_44px] items-start gap-[16px] px-[24px] pt-[24px] pb-[16px]'
+          ]
             .filter(Boolean)
             .join(' ')}
         >
           <Dom as="div" className={['min-w-0'].filter(Boolean).join(' ')}>
-            <Dom as="h2" className={['whitespace-nowrap text-xl font-semibold'].filter(Boolean).join(' ')}>
+            <Dom
+              as="h2"
+              className={['text-xl font-semibold whitespace-nowrap'].filter(Boolean).join(' ')}
+            >
               {'Contents'}
             </Dom>
-
           </Dom>
           <CloseButton
             aria-label={'Close Table of Contents'}
@@ -55,172 +61,180 @@ export function BookToc(props: Partial<ChapterProps> & ReaderViewProps) {
         </Dom>
         <Dom as="div" data-toc-scroll className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <Dom
-              as="p"
-              data-toc-book-title
-              className={['mx-6 mb-3 text-sm [overflow-wrap:anywhere] text-muted-foreground']
-                .filter(Boolean)
-                .join(' ')}
-            >
-              {c.bookTitle}
-            </Dom>
-        {c.currentChapter ? (
-          <>
-            <Dom
-              as="div"
-              className={['mx-6 mb-3 border-b border-border pb-4'].filter(Boolean).join(' ')}
-            >
+            as="p"
+            data-toc-book-title
+            className={['mx-6 mb-3 text-sm [overflow-wrap:anywhere] text-muted-foreground']
+              .filter(Boolean)
+              .join(' ')}
+          >
+            {c.bookTitle}
+          </Dom>
+          {c.currentChapter ? (
+            <>
               <Dom
-                as="p"
-                className={['text-xs font-medium text-muted-foreground'].filter(Boolean).join(' ')}
+                as="div"
+                className={['mx-6 mb-3 border-b border-border pb-4'].filter(Boolean).join(' ')}
               >
-                {'Current chapter'}
+                <Dom
+                  as="p"
+                  className={['text-xs font-medium text-muted-foreground']
+                    .filter(Boolean)
+                    .join(' ')}
+                >
+                  {'Current chapter'}
+                </Dom>
+                <Dom
+                  as="p"
+                  className={['mt-1 font-medium [overflow-wrap:anywhere]']
+                    .filter(Boolean)
+                    .join(' ')}
+                >
+                  {c.currentChapter.label || `Chapter ${c.currentChapterIndex + 1}`}
+                </Dom>
+                {c.currentChapterProgress !== undefined ? (
+                  <>
+                    <Dom
+                      as="div"
+                      role={'progressbar'}
+                      aria-label={'Chapter progress'}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={c.currentChapterProgress}
+                      className={['mt-3 h-1 overflow-hidden rounded-full bg-foreground/10']
+                        .filter(Boolean)
+                        .join(' ')}
+                    >
+                      <Dom
+                        as="div"
+                        className={['h-full rounded-full bg-foreground/60']
+                          .filter(Boolean)
+                          .join(' ')}
+                        style={{ width: `${c.currentChapterProgress}%` }}
+                      ></Dom>
+                    </Dom>
+                  </>
+                ) : null}
+                <Dom
+                  as="p"
+                  className={['mt-2 text-xs [overflow-wrap:anywhere] text-muted-foreground']
+                    .filter(Boolean)
+                    .join(' ')}
+                >
+                  {c.currentChapterProgress === undefined
+                    ? 'Progress unavailable'
+                    : `${Number(c.currentChapterProgress.toFixed(2))}%`}
+                  {c.characterProgress ? (
+                    <>
+                      {'· '}
+                      {c.characterProgress.read}
+                      {' / '}
+                      {c.characterProgress.total}
+                      {' characters'}
+                    </>
+                  ) : null}
+                </Dom>
               </Dom>
-              <Dom
-                as="p"
-                className={['mt-1 font-medium [overflow-wrap:anywhere]'].filter(Boolean).join(' ')}
-              >
-                {c.currentChapter.label || `Chapter ${c.currentChapterIndex + 1}`}
-              </Dom>
-              {c.currentChapterProgress !== undefined ? (
-                <>
+            </>
+          ) : null}
+          <Dom
+            as="nav"
+            elementRef={(value) => {
+              c.chapterList = value;
+            }}
+            aria-label={'Chapters'}
+            className={['px-3 pb-4'].filter(Boolean).join(' ')}
+          >
+            {(c.chapters ?? []).map((chapter, index) => (
+              <React.Fragment key={chapter.reference}>
+                <Dom
+                  as="button"
+                  type={'button'}
+                  title={`Go to ${chapter.label || `Chapter ${index + 1}`}`}
+                  aria-current={index === c.currentChapterIndex ? 'location' : undefined}
+                  className={[
+                    'chapter-row flex min-h-14 w-full items-center gap-3 rounded-xl px-3 py-3 text-left'
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  events={{ click: () => c.goToChapter(index, true) }}
+                >
                   <Dom
-                    as="div"
-                    role={'progressbar'}
-                    aria-label={'Chapter progress'}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={c.currentChapterProgress}
-                    className={['mt-3 h-1 overflow-hidden rounded-full bg-foreground/10']
+                    as="span"
+                    className={['min-w-0 flex-1 [overflow-wrap:anywhere]']
                       .filter(Boolean)
                       .join(' ')}
                   >
-                    <Dom
-                      as="div"
-                      className={['h-full rounded-full bg-foreground/60'].filter(Boolean).join(' ')}
-                      style={{ width: `${c.currentChapterProgress}%` }}
-                    ></Dom>
+                    {chapter.label || `Chapter ${index + 1}`}
                   </Dom>
-                </>
-              ) : null}
-              <Dom
-                as="p"
-                className={['mt-2 text-xs [overflow-wrap:anywhere] text-muted-foreground']
-                  .filter(Boolean)
-                  .join(' ')}
-              >
-                {c.currentChapterProgress === undefined
-                  ? 'Progress unavailable'
-                  : `${Number(c.currentChapterProgress.toFixed(2))}%`}
-                {c.characterProgress ? (
-                  <>
-                    {'· '}
-                    {c.characterProgress.read}
-                    {' / '}
-                    {c.characterProgress.total}
-                    {' characters'}
-                  </>
-                ) : null}
-              </Dom>
-            </Dom>
-          </>
-        ) : null}
-        <Dom
-          as="nav"
-          elementRef={(value) => {
-            c.chapterList = value;
-          }}
-          aria-label={'Chapters'}
-          className={['px-3 pb-4'].filter(Boolean).join(' ')}
-        >
-          {(c.chapters ?? []).map((chapter, index) => (
-            <React.Fragment key={chapter.reference}>
-              <Dom
-                as="button"
-                type={'button'}
-                title={`Go to ${chapter.label || `Chapter ${index + 1}`}`}
-                aria-current={index === c.currentChapterIndex ? 'location' : undefined}
-                className={[
-                  'chapter-row flex min-h-14 w-full items-center gap-3 rounded-xl px-3 py-3 text-left'
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                events={{ click: () => c.goToChapter(index, true) }}
-              >
-                <Dom
-                  as="span"
-                  className={['min-w-0 flex-1 [overflow-wrap:anywhere]'].filter(Boolean).join(' ')}
-                >
-                  {chapter.label || `Chapter ${index + 1}`}
+                  {chapter.progress === 100 ? (
+                    <>
+                      <Icon
+                        name="Check"
+                        aria-label={'Finished'}
+                        className={['size-4 shrink-0 text-muted-foreground']
+                          .filter(Boolean)
+                          .join(' ')}
+                      ></Icon>
+                    </>
+                  ) : (
+                    <>
+                      {' '}
+                      {index === c.currentChapterIndex ? (
+                        <>
+                          <Dom
+                            as="span"
+                            aria-hidden={'true'}
+                            className={['size-1.5 shrink-0 rounded-full bg-foreground']
+                              .filter(Boolean)
+                              .join(' ')}
+                          ></Dom>
+                        </>
+                      ) : null}
+                    </>
+                  )}
                 </Dom>
-                {chapter.progress === 100 ? (
-                  <>
-                    <Icon
-                      name="Check"
-                      aria-label={'Finished'}
-                      className={['size-4 shrink-0 text-muted-foreground']
-                        .filter(Boolean)
-                        .join(' ')}
-                    ></Icon>
-                  </>
-                ) : (
-                  <>
-                    {' '}
-                    {index === c.currentChapterIndex ? (
-                      <>
-                        <Dom
-                          as="span"
-                          aria-hidden={'true'}
-                          className={['size-1.5 shrink-0 rounded-full bg-foreground']
-                            .filter(Boolean)
-                            .join(' ')}
-                        ></Dom>
-                      </>
-                    ) : null}
-                  </>
-                )}
-              </Dom>
-            </React.Fragment>
-          ))}
-        </Dom>
-        <Dom
-          as="footer"
-          className={['flex flex-wrap justify-between gap-2 border-t border-border p-4']
-            .filter(Boolean)
-            .join(' ')}
-        >
-          <Button
-            variant={'ghost'}
-            disabled={c.previousIndex < 0}
-            title={`${c.verticalMode ? 'Next' : 'Previous'} Chapter`}
-            aria-label={`${c.verticalMode ? 'Next' : 'Previous'} Chapter`}
-            onClick={() => c.goToChapter(c.previousIndex)}
-            className={['min-h-11'].filter(Boolean).join(' ')}
+              </React.Fragment>
+            ))}
+          </Dom>
+          <Dom
+            as="footer"
+            className={['flex flex-wrap justify-between gap-2 border-t border-border p-4']
+              .filter(Boolean)
+              .join(' ')}
           >
-            <Icon name="CaretLeft" aria-hidden={'true'}></Icon>
-            <Dom as="span">
-              {c.verticalMode ? 'Next' : 'Previous'}
-              <Dom as="span" className={['hidden sm:inline'].filter(Boolean).join(' ')}>
-                {' Chapter'}
+            <Button
+              variant={'ghost'}
+              disabled={c.previousIndex < 0}
+              title={`${c.verticalMode ? 'Next' : 'Previous'} Chapter`}
+              aria-label={`${c.verticalMode ? 'Next' : 'Previous'} Chapter`}
+              onClick={() => c.goToChapter(c.previousIndex)}
+              className={['min-h-11'].filter(Boolean).join(' ')}
+            >
+              <Icon name="CaretLeft" aria-hidden={'true'}></Icon>
+              <Dom as="span">
+                {c.verticalMode ? 'Next' : 'Previous'}
+                <Dom as="span" className={['hidden sm:inline'].filter(Boolean).join(' ')}>
+                  {' Chapter'}
+                </Dom>
               </Dom>
-            </Dom>
-          </Button>
-          <Button
-            variant={'ghost'}
-            disabled={c.nextIndex < 0}
-            title={`${c.verticalMode ? 'Previous' : 'Next'} Chapter`}
-            aria-label={`${c.verticalMode ? 'Previous' : 'Next'} Chapter`}
-            onClick={() => c.goToChapter(c.nextIndex)}
-            className={['min-h-11'].filter(Boolean).join(' ')}
-          >
-            <Dom as="span">
-              {c.verticalMode ? 'Previous' : 'Next'}
-              <Dom as="span" className={['hidden sm:inline'].filter(Boolean).join(' ')}>
-                {' Chapter'}
+            </Button>
+            <Button
+              variant={'ghost'}
+              disabled={c.nextIndex < 0}
+              title={`${c.verticalMode ? 'Previous' : 'Next'} Chapter`}
+              aria-label={`${c.verticalMode ? 'Previous' : 'Next'} Chapter`}
+              onClick={() => c.goToChapter(c.nextIndex)}
+              className={['min-h-11'].filter(Boolean).join(' ')}
+            >
+              <Dom as="span">
+                {c.verticalMode ? 'Previous' : 'Next'}
+                <Dom as="span" className={['hidden sm:inline'].filter(Boolean).join(' ')}>
+                  {' Chapter'}
+                </Dom>
               </Dom>
-            </Dom>
-            <Icon name="CaretRight" aria-hidden={'true'}></Icon>
-          </Button>
-        </Dom>
+              <Icon name="CaretRight" aria-hidden={'true'}></Icon>
+            </Button>
+          </Dom>
         </Dom>
       </Dom>
     </ReaderScope>

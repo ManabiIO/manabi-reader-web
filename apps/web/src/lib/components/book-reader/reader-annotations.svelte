@@ -99,7 +99,7 @@
     >
       <div class="annotations-title min-w-0">
         <Sheet.Title class="[overflow-wrap:normal] [word-break:normal]"
-          ><span data-annotations-title-word class="whitespace-nowrap">Bookmarks</span>{' '}<span
+          ><span data-annotations-title-word class="whitespace-nowrap">Bookmarks</span>&#32;<span
             data-annotations-title-word
             class="whitespace-nowrap">& Notes</span
           ></Sheet.Title

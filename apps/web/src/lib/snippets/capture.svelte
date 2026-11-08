@@ -66,8 +66,7 @@
   async function persistCapture(value: CapturePayload): Promise<PersistedCapture> {
     const selected = scope();
     const expectedOwner = value.owner === null ? 'local' : `account:${value.owner}`;
-    if (selected.owner !== expectedOwner)
-      throw new Error('The account changed before capture.');
+    if (selected.owner !== expectedOwner) throw new Error('The account changed before capture.');
 
     const { importContent } = await import('./editor');
     selected.guard();
@@ -142,7 +141,7 @@
       }
       status = status
         ? `${status} The appended selection's saved draft could not be cleaned up and remains recoverable.`
-        : "Added to snippet. The saved capture draft could not be cleaned up and remains recoverable.";
+        : 'Added to snippet. The saved capture draft could not be cleaned up and remains recoverable.';
     }
     open = false;
     void flushSnippets(selected).catch(() => undefined);

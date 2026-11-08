@@ -63,7 +63,9 @@ export function StatisticsSummaryHeader(
               <Dom
                 as="div"
                 slot={'content'}
-                className={['flex w-[min(11.5rem,calc(100vw-32px))] flex-col overflow-auto p-[8px]'].filter(Boolean).join(' ')}
+                className={['flex w-[min(11.5rem,calc(100vw-32px))] flex-col overflow-auto p-[8px]']
+                  .filter(Boolean)
+                  .join(' ')}
               >
                 {(c.options ?? []).map((option, _index0) => (
                   <React.Fragment key={option.key}>
@@ -105,10 +107,13 @@ export function StatisticsSummaryHeader(
             {' '}
             <Dom
               as="button"
-                      type="button"
+              type="button"
               disabled={c.hasRowInEdit}
               title={c.title}
-              className={['flex min-h-[44px] flex-1 items-center rounded-lg px-2 text-left focus-visible:outline-2 focus-visible:outline-ring', c.hasRowInEdit && 'cursor-not-allowed']
+              className={[
+                'flex min-h-[44px] flex-1 items-center rounded-lg px-2 text-left focus-visible:outline-2 focus-visible:outline-ring',
+                c.hasRowInEdit && 'cursor-not-allowed'
+              ]
                 .filter(Boolean)
                 .join(' ')}
               events={{
@@ -126,7 +131,7 @@ export function StatisticsSummaryHeader(
         )}
         <Dom
           as="button"
-                      type="button"
+          type="button"
           title={'Click to select/sort by this Attribute'}
           aria-label={`Sort by ${c.selectedOption.label}`}
           disabled={c.hasRowInEdit}

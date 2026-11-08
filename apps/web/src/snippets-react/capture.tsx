@@ -103,7 +103,9 @@ export function SnippetCapture(props: CaptureProps & ReaderViewProps) {
                 className={['capture-error'].filter(Boolean).join(' ')}
               >
                 <Dom scopeClass="snippet-scope-capture" as="span">
-                  {c.error}{c.error && c.status ? <br /> : null}{c.status}
+                  {c.error}
+                  {c.error && c.status ? <br /> : null}
+                  {c.status}
                 </Dom>
                 <Button variant={'ghost'} size={'sm'} onClick={c.dismissStatus}>
                   {'Dismiss'}

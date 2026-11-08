@@ -33,8 +33,13 @@ const queue = new LatestEpochQueue<AnalysisRequest>(async (data, current) => {
     const peak = Math.max(0, ...levels);
     return result.rms < peak * 10 ** (-35 / 20) ? { ...result, hz: null } : result;
   });
-  scope.postMessage({ type: 'result', id: data.id, epoch: data.epoch,
-    results: gated, result: gated.at(-1) ?? null });
+  scope.postMessage({
+    type: 'result',
+    id: data.id,
+    epoch: data.epoch,
+    results: gated,
+    result: gated.at(-1) ?? null
+  });
 });
 
 function advanceEpoch(next: number) {

@@ -664,9 +664,7 @@
       return;
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    const owned =
-      target === selectionModeButton ||
-      !!target.closest('.batch, .snippet-shelf');
+    const owned = target === selectionModeButton || !!target.closest('.batch, .snippet-shelf');
     if (!owned) return;
     event.preventDefault();
     event.stopPropagation();
@@ -1203,9 +1201,8 @@
       {#if selecting}<div class="batch" role="toolbar" aria-label="Selected snippet actions">
           <strong role="status" aria-live="polite" aria-atomic="true"
             >{selected.size} selected</strong
-          ><Button
-            variant="secondary"
-            onclick={() => (selected = new Set(visibleIds))}>Select all visible</Button
+          ><Button variant="secondary" onclick={() => (selected = new Set(visibleIds))}
+            >Select all visible</Button
           ><Button
             variant="ghost"
             disabled={!selected.size || busy}

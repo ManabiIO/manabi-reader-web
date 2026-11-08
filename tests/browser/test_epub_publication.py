@@ -262,7 +262,7 @@ class EpubPublicationBrowser(ReaderBrowser):
         cls.playwright = sync_playwright().start()
         cls.browser = getattr(cls.playwright, os.environ.get('SLIDE_BROWSER', 'chromium')).launch(**launch_options((getattr(cls.playwright, os.environ.get('SLIDE_BROWSER', 'chromium'))).name))
 
-    def open_resource_book(self, view='paginated', malformed=False, payload=None, foliate=True):
+    def open_resource_book(self, view='paginated', malformed=False, payload=None, foliate=True, ready_selector='#same'):
         settings = {
             'manabi-dev-foliate-epub': 'true' if foliate else 'false',
             'viewMode': view, 'writingMode': 'horizontal-tb',
@@ -277,15 +277,16 @@ class EpubPublicationBrowser(ReaderBrowser):
         })
         self.page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
         if view == 'paginated' and foliate:
-            self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector('#same')")
+            self.page.wait_for_function(f"() => {P}?.getContents?.()[0]?.doc?.querySelector({json.dumps(ready_selector)})")
         elif view == 'paginated':
-            expect(self.page.locator('.book-content-container #same')).to_be_visible(timeout=30000)
+            expect(self.page.locator('.book-content-container').locator(ready_selector)).to_be_visible(timeout=30000)
+            expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false', timeout=30000)
         else:
             expect(self.page.locator('#ttu-epub-0 .text')).to_be_visible(timeout=30000)
 
     def test_foliate_consecutive_illustration_sections_are_single_visible_pages(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
-        self.open_resource_book(payload=illustration_epub())
+        self.open_resource_book(payload=illustration_epub(), ready_selector='#to-image')
         result = self.page.evaluate(f"""async () => {{
           const p={P};
           const check=async(index,id)=>{{
@@ -311,11 +312,12 @@ class EpubPublicationBrowser(ReaderBrowser):
 
     def test_legacy_consecutive_illustration_sections_do_not_create_blank_turns(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
-        self.open_resource_book(payload=illustration_epub(), foliate=False)
+        self.open_resource_book(payload=illustration_epub(), foliate=False, ready_selector='#to-image')
         self.page.locator('.book-content-container #to-image').click()
         self.page.wait_for_function("""() =>
           document.querySelector('.book-content-container')?.dataset.manabiSpineIndex === '1'
-          && document.querySelector('#plate1')?.naturalWidth > 0""")
+          && document.querySelector('#plate1')?.naturalWidth > 0
+          && document.querySelector('.book-content')?.getAttribute('aria-busy') === 'false'""")
         first = self.page.evaluate("""() => {
           const host=document.querySelector('.book-content').getBoundingClientRect();
           const image=document.querySelector('#plate1').getBoundingClientRect();
@@ -330,7 +332,8 @@ class EpubPublicationBrowser(ReaderBrowser):
         self.page.keyboard.press('ArrowRight')
         self.page.wait_for_function("""() =>
           document.querySelector('.book-content-container')?.dataset.manabiSpineIndex === '2'
-          && document.querySelector('#plate2')?.naturalWidth > 0""")
+          && document.querySelector('#plate2')?.naturalWidth > 0
+          && document.querySelector('.book-content')?.getAttribute('aria-busy') === 'false'""")
         second = self.page.evaluate("""() => {
           const host=document.querySelector('.book-content').getBoundingClientRect();
           const image=document.querySelector('#plate2').getBoundingClientRect();
@@ -348,7 +351,15 @@ class EpubPublicationBrowser(ReaderBrowser):
         self.page.locator('.book-content-container #cross').click()
         self.page.wait_for_function("""() => {
           const section=document.querySelector('.book-content-container');
-          return section?.dataset.manabiSpineIndex === '1' && section.querySelector('#same');
+          const host=document.querySelector('.book-content');
+          const target=section?.querySelector('#same');
+          const start=section?.querySelector('#chapter-start');
+          if (section?.dataset.manabiSpineIndex !== '1' ||
+              host?.getAttribute('aria-busy') !== 'false' || !target || !start) return false;
+          const h=host.getBoundingClientRect(), t=target.getBoundingClientRect(),
+            first=start.getBoundingClientRect();
+          const intersects=r=>r.right>h.left && r.left<h.right && r.bottom>h.top && r.top<h.bottom;
+          return intersects(t) && !intersects(first);
         }""")
         visible = self.page.evaluate("""() => {
           const host=document.querySelector('.book-content');

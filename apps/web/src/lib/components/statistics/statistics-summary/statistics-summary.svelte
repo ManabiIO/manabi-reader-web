@@ -87,8 +87,8 @@
 
   $: statisticsSummaryPageLabel = `PAGE ${currentStatisticsSummaryPage} / ${statisticsSummaryMaxPages}`;
 
-  // eslint-disable-next-line prefer-spread
-  $: statisticsSummaryPages = Array.apply(null, Array(statisticsSummaryMaxPages)).map(
+  $: statisticsSummaryPages = Array.from(
+    { length: statisticsSummaryMaxPages },
     (_, index) => index + 1
   );
 
@@ -96,52 +96,49 @@
 
   $: updateFilterAndSort($lastPrimaryReadingDataAggregationMode$);
 
-  $: if (aggregratedStatistics) {
+  $: if (aggregratedStatistics) replaceStatisticsData(aggregratedStatistics);
+
+  function replaceStatisticsData(data: BookStatistic[]) {
     setRowInEditMode();
-    statisticsData = [...aggregratedStatistics];
+    statisticsData = [...data];
     updateRowsPerPage();
   }
 
-  $: if (
-    $lastReadingTimeDataSource$ ||
-    $lastCharactersDataSource$ ||
-    $lastReadingSpeedDataSource$ ||
-    $lastStatisticsSummarySortProperty$
-  ) {
-    let valueToSet: keyof BookStatistic | undefined;
+  // Data-source changes can replace the field currently used for sorting.
+  // Reconcile only when the selected field actually changes.
+  $: reconcileSortProperty(
+    $lastStatisticsSummarySortProperty$,
+    $lastReadingTimeDataSource$,
+    $lastCharactersDataSource$,
+    $lastReadingSpeedDataSource$
+  );
 
-    switch ($lastStatisticsSummarySortProperty$) {
+  function reconcileSortProperty(
+    sortProperty: keyof BookStatistic,
+    readingTime: keyof BookStatistic,
+    characters: keyof BookStatistic,
+    speed: keyof BookStatistic
+  ) {
+    let next = sortProperty;
+    switch (sortProperty) {
       case 'readingTime':
       case 'averageReadingTime':
       case 'averageWeightedReadingTime':
-        if ($lastStatisticsSummarySortProperty$ !== $lastReadingTimeDataSource$) {
-          valueToSet = $lastReadingTimeDataSource$;
-        }
+        next = readingTime;
         break;
       case 'charactersRead':
       case 'averageCharactersRead':
       case 'averageWeightedCharactersRead':
-        if ($lastStatisticsSummarySortProperty$ !== $lastCharactersDataSource$) {
-          valueToSet = $lastCharactersDataSource$;
-        }
+        next = characters;
         break;
       case 'lastReadingSpeed':
       case 'minReadingSpeed':
       case 'altMinReadingSpeed':
       case 'maxReadingSpeed':
-        if ($lastStatisticsSummarySortProperty$ !== $lastReadingSpeedDataSource$) {
-          valueToSet = $lastReadingSpeedDataSource$;
-        }
-        break;
-
-      default:
+        next = speed;
         break;
     }
-
-    if (valueToSet) {
-      $lastStatisticsSummarySortProperty$ = valueToSet;
-    }
-
+    if (next !== sortProperty) lastStatisticsSummarySortProperty$.set(next);
     updateTableData();
   }
 
@@ -159,11 +156,7 @@
     statisticsSummaryDetailsClose?.focus({ preventScroll: true });
   }
 
-  function openMetricDetails(
-    dataKey: string,
-    anchor: HTMLElement,
-    details: string[]
-  ) {
+  function openMetricDetails(dataKey: string, anchor: HTMLElement, details: string[]) {
     if ($lastBlurredTrackerItems$.has(dataKey)) {
       $lastBlurredTrackerItems$.delete(dataKey);
       $lastBlurredTrackerItems$ = new Set([...$lastBlurredTrackerItems$]);
@@ -437,7 +430,7 @@
         selectionKey={$lastReadingTimeDataSource$}
         hasRowInEdit={rowInEdit !== undefined}
         gridRow={renderFullStatisticsSummaryTable ? undefined : 4 - statisticsSummaryGridRowMod}
-        title={'Switch between Reading Time Attributes'}
+        title="Switch between Reading Time Attributes"
         on:propertyChange={(detail) => handlePropertyChange(detail)}
       />
       <StatisticsSummaryHeader
@@ -446,7 +439,7 @@
         selectionKey={$lastCharactersDataSource$}
         hasRowInEdit={rowInEdit !== undefined}
         gridRow={renderFullStatisticsSummaryTable ? undefined : 5 - statisticsSummaryGridRowMod}
-        title={'Switch between Character Attributes'}
+        title="Switch between Character Attributes"
         on:propertyChange={(detail) => handlePropertyChange(detail)}
       />
       <StatisticsSummaryHeader
@@ -455,7 +448,7 @@
         selectionKey={$lastReadingSpeedDataSource$}
         hasRowInEdit={rowInEdit !== undefined}
         gridRow={renderFullStatisticsSummaryTable ? undefined : 6 - statisticsSummaryGridRowMod}
-        title={'Switch between Reading Speed Attributes'}
+        title="Switch between Reading Speed Attributes"
         on:propertyChange={(detail) => handlePropertyChange(detail)}
       />
       {#each currentStatisticsSummaryRows as currentStatisticsSummaryRow (currentStatisticsSummaryRow.id)}
@@ -557,7 +550,10 @@
                 )} min`
               ])}
           >
-            <span class:blur={$lastBlurredTrackerItems$.has('readingTime')} aria-hidden={$lastBlurredTrackerItems$.has('readingTime')}>{readingTimeValue}</span>
+            <span
+              class:blur={$lastBlurredTrackerItems$.has('readingTime')}
+              aria-hidden={$lastBlurredTrackerItems$.has('readingTime')}>{readingTimeValue}</span
+            >
           </button>
         {/if}
         {#if currentRowInEdit}
@@ -588,8 +584,9 @@
                 `Weighted Characters: ${currentStatisticsSummaryRow.averageWeightedCharactersRead}`
               ])}
           >
-            <span class:blur={$lastBlurredTrackerItems$.has('charactersRead')} aria-hidden={$lastBlurredTrackerItems$.has('charactersRead')}
-              >{charactersValue}</span
+            <span
+              class:blur={$lastBlurredTrackerItems$.has('charactersRead')}
+              aria-hidden={$lastBlurredTrackerItems$.has('charactersRead')}>{charactersValue}</span
             >
           </button>
         {/if}
@@ -617,7 +614,10 @@
                 `Max Speed: ${currentStatisticsSummaryRow.maxReadingSpeed}`
               ])}
           >
-            <span class:blur={$lastBlurredTrackerItems$.has('lastReadingSpeed')} aria-hidden={$lastBlurredTrackerItems$.has('lastReadingSpeed')}>{speedValue}</span>
+            <span
+              class:blur={$lastBlurredTrackerItems$.has('lastReadingSpeed')}
+              aria-hidden={$lastBlurredTrackerItems$.has('lastReadingSpeed')}>{speedValue}</span
+            >
           </button>
         {/if}
       {/each}
@@ -673,7 +673,7 @@
   </Button>
   <Popover
     yOffset={5}
-    innerContainerStyles={'min-height:44px;padding-inline:12px;'}
+    innerContainerStyles="min-height:44px;padding-inline:12px;"
     on:open={() => {
       const currentPageElement = statisticsSummaryPageRefs[currentStatisticsSummaryPage];
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getParagraphNodes } from '$lib/components/book-reader/get-paragraph-nodes';
   import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
   import {
     projectResource,
@@ -224,10 +225,18 @@
     return scrollEl?.ownerDocument.defaultView?.getSelection() ?? null;
   }
 
-  $: bookmarkData.then((data) => {
-    useExploredCharCount = false;
-    updateBookmarkScreen(data);
-  });
+  $: observeBookmarkData(bookmarkData);
+
+  // Only a new saved-bookmark promise should reset the explored-count policy.
+  // Keep screen updates outside the reactive dependency scan: they also read
+  // the geometry and count state that they publish after the promise settles.
+  function observeBookmarkData(pending: Promise<BooksDbBookmarkData | undefined>) {
+    void pending.then((data) => {
+      if (disposed || pending !== bookmarkData) return;
+      useExploredCharCount = false;
+      updateBookmarkScreen(data);
+    });
+  }
 
   $: if (width) width$.next(width);
 
@@ -778,10 +787,12 @@
     // Text targets should use the same measured character/page model that owns
     // bookmarks and Return. Viewport rectangles are relative to the currently
     // clipped CSS column and can map a deep target back to page one.
-    if (target.textContent?.trim()) {
+    const firstMeasuredNode = getParagraphNodes(target)[0];
+    if (firstMeasuredNode) {
       const range = target.ownerDocument.createRange();
-      range.selectNodeContents(target);
-      range.collapse(true);
+      // A collapsed range before the first child intersects no measured text.
+      // Select that node so the character projection can locate its page.
+      range.selectNode(firstMeasuredNode);
       const characterCount = calculator.calcExploredCharCount(range);
       const scrollPos = calculator.getScrollPosByCharCount(characterCount);
       if (Number.isFinite(scrollPos) && scrollPos >= 0) {
@@ -809,10 +820,13 @@
     if (nextSectionIndex < 0 || nextSectionIndex >= sections.length || disposed) return;
 
     const fragment = typeof target === 'string' ? undefined : target.fragment;
-    if (sectionIndex$.getValue() !== nextSectionIndex) {
+    const changesSection = sectionIndex$.getValue() !== nextSectionIndex;
+    if (changesSection || !allowDisplay || currentSpineIndex !== nextSectionIndex) {
       const rendered = waitForChapterSection(nextSectionIndex, generation);
-      sectionIndex$.next(nextSectionIndex);
-      concretePageManager?.scrollTo(0, false);
+      if (changesSection) {
+        sectionIndex$.next(nextSectionIndex);
+        concretePageManager?.scrollTo(0, false);
+      }
       if (!(await rendered)) return;
       await tick();
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -835,24 +849,33 @@
 
   /** Reveal a source range after its virtual section has mounted and measured. */
   export async function revealLocator(locator: ReaderLocator, bookKey: string): Promise<boolean> {
+    cancelPendingChapterNavigation();
+    const navigationGeneration = chapterNavigationGeneration;
     const targetIndex = locator.resource.spineIndex;
     if (targetIndex < 0 || targetIndex >= sections.length || disposed) return false;
-    if (sectionIndex$.getValue() !== targetIndex) {
-      const ready = new Promise<void>((resolve) => {
-        sectionReady$.pipe(take(1)).subscribe(() => resolve());
-      });
-      sectionIndex$.next(targetIndex);
-      // The previous resource's virtual page position survives a direct spine
-      // switch. Reset it before measuring the newly mounted resource, or a
-      // return can calculate its page from the search result's scroll offset.
-      concretePageManager?.scrollTo(0, false);
-      await ready;
+    const changesSection = sectionIndex$.getValue() !== targetIndex;
+    if (changesSection || !allowDisplay || currentSpineIndex !== targetIndex) {
+      const ready = waitForChapterSection(targetIndex, navigationGeneration);
+      if (changesSection) {
+        sectionIndex$.next(targetIndex);
+        // Reset the old resource's virtual position before measuring the new one.
+        concretePageManager?.scrollTo(0, false);
+      }
+      if (!(await ready)) return false;
       // Section readiness is published before Svelte applies its display and
       // bookmark-layout updates. Let those settle before accepting the jump.
       await tick();
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     }
-    if (!scrollEl || !contentEl || !concretePageManager || disposed) return false;
+    if (
+      !scrollEl ||
+      !contentEl ||
+      !concretePageManager ||
+      disposed ||
+      navigationGeneration !== chapterNavigationGeneration ||
+      sectionIndex$.getValue() !== targetIndex
+    )
+      return false;
     const generation = renderGeneration;
     const projected = projectResource(contentEl, locator.resource);
     const position = await resolveLocator(locator, projected, bookKey);
@@ -860,6 +883,7 @@
       !position ||
       disposed ||
       generation !== renderGeneration ||
+      navigationGeneration !== chapterNavigationGeneration ||
       sectionIndex$.getValue() !== targetIndex
     )
       return false;
@@ -872,6 +896,7 @@
     return (
       !disposed &&
       generation === renderGeneration &&
+      navigationGeneration === chapterNavigationGeneration &&
       sectionIndex$.getValue() === targetIndex &&
       (!verticalMode || Math.abs(scrollEl.scrollTop - target) <= 2)
     );

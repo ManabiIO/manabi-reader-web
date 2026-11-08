@@ -374,7 +374,6 @@ test('React selection export refuses ambiguous same-title identities and restore
   c.controller.destroy();
 });
 
-
 test('React summary measures fixed pixel gaps at enlarged text sizes', async () => {
   const f = fixture();
   f.mock['$lib/functions/utils'].convertRemToPixels = (_window, value) => value * 32;
@@ -395,27 +394,42 @@ test('React summary measures fixed pixel gaps at enlarged text sizes', async () 
 });
 
 for (const movedFocus of [false, true]) {
-  test('React summary pager ' + (movedFocus ? 'preserves newer focus' : 'moves focus off its disabled end control'), async () => {
-    const document = { activeElement: null, body: {} };
-    const f = fixture({ document });
-    const c = f.start('statistics-summary', {
-      aggregratedStatistics: [f.row('One', '2024-02-28'), f.row('Two', '2024-02-29')],
-      statisticsDateRangeLabel: '2024'
-    });
-    await f.frame();
-    const previous = { isConnected: true, disabled: false, focus() { document.activeElement = this; } };
-    const next = { isConnected: true, get disabled() { return c.currentStatisticsSummaryPage === c.statisticsSummaryMaxPages; } };
-    c.previousSummaryPage = previous;
-    c.nextSummaryPage = next;
-    document.activeElement = next;
-    const pending = c.pageSummary(1);
-    const newer = {};
-    if (movedFocus) document.activeElement = newer;
-    await f.frame();
-    await pending;
-    assert.equal(c.currentStatisticsSummaryPage, 2);
-    assert.equal(document.activeElement, movedFocus ? newer : previous);
-    c.controller.destroy();
-    await f.frame();
-  });
+  test(
+    'React summary pager ' +
+      (movedFocus ? 'preserves newer focus' : 'moves focus off its disabled end control'),
+    async () => {
+      const document = { activeElement: null, body: {} };
+      const f = fixture({ document });
+      const c = f.start('statistics-summary', {
+        aggregratedStatistics: [f.row('One', '2024-02-28'), f.row('Two', '2024-02-29')],
+        statisticsDateRangeLabel: '2024'
+      });
+      await f.frame();
+      const previous = {
+        isConnected: true,
+        disabled: false,
+        focus() {
+          document.activeElement = this;
+        }
+      };
+      const next = {
+        isConnected: true,
+        get disabled() {
+          return c.currentStatisticsSummaryPage === c.statisticsSummaryMaxPages;
+        }
+      };
+      c.previousSummaryPage = previous;
+      c.nextSummaryPage = next;
+      document.activeElement = next;
+      const pending = c.pageSummary(1);
+      const newer = {};
+      if (movedFocus) document.activeElement = newer;
+      await f.frame();
+      await pending;
+      assert.equal(c.currentStatisticsSummaryPage, 2);
+      assert.equal(document.activeElement, movedFocus ? newer : previous);
+      c.controller.destroy();
+      await f.frame();
+    }
+  );
 }

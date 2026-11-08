@@ -293,11 +293,16 @@ export function createStatisticsSummary(
     const origin = delta > 0 ? nextSummaryPage : previousSummaryPage;
     const ownedFocus = !!origin && document.activeElement === origin;
     setRowInEditMode();
-    __readerController.changed((currentStatisticsSummaryPage = limitToRange(
-      1, statisticsSummaryMaxPages, currentStatisticsSummaryPage + delta
-    )));
+    __readerController.changed(
+      (currentStatisticsSummaryPage = limitToRange(
+        1,
+        statisticsSummaryMaxPages,
+        currentStatisticsSummaryPage + delta
+      ))
+    );
     await readerTick();
-    if (__readerController.disposed || !ownedFocus || !origin?.isConnected || !origin.disabled) return;
+    if (__readerController.disposed || !ownedFocus || !origin?.isConnected || !origin.disabled)
+      return;
     if (document.activeElement !== origin && document.activeElement !== document.body) return;
     const target = delta > 0 ? previousSummaryPage : nextSummaryPage;
     if (target?.isConnected && !target.disabled) target.focus({ preventScroll: true });
@@ -524,8 +529,12 @@ export function createStatisticsSummary(
     get statisticsSummaryRowGapPx() {
       return statisticsSummaryRowGapPx;
     },
-    set previousSummaryPage(value: HTMLButtonElement | null) { previousSummaryPage = value; },
-    set nextSummaryPage(value: HTMLButtonElement | null) { nextSummaryPage = value; },
+    set previousSummaryPage(value: HTMLButtonElement | null) {
+      previousSummaryPage = value;
+    },
+    set nextSummaryPage(value: HTMLButtonElement | null) {
+      nextSummaryPage = value;
+    },
     get renderFullStatisticsSummaryTable() {
       return renderFullStatisticsSummaryTable;
     },

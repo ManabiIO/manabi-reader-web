@@ -60,24 +60,29 @@ export function createCapture(
   );
   async function create() {
     if (!captured || !content || !document || busy || __readerController.disposed) return;
-    const selected = captured, captureSession = session, generation = presentationGeneration;
+    const selected = captured,
+      captureSession = session,
+      generation = presentationGeneration;
     __readerController.changed((busy = true));
     try {
       selected.guard();
       __readerController.changed((open = false));
       await goto(resolve(`/snippets?draft=${encodeURIComponent(captureSession)}`));
     } catch (reason) {
-      if (canPresent(selected, generation)) __readerController.changed(
-        (error =
-          reason instanceof Error ? reason.message : 'The capture remains in recovered drafts.')
-      );
+      if (canPresent(selected, generation))
+        __readerController.changed(
+          (error =
+            reason instanceof Error ? reason.message : 'The capture remains in recovered drafts.')
+        );
     } finally {
       if (canPresent(selected, generation)) __readerController.changed((busy = false));
     }
   }
   async function append(id: string) {
     if (!captured || !content || busy || __readerController.disposed) return;
-    const selected = captured, text = content, captureSession = session,
+    const selected = captured,
+      text = content,
+      captureSession = session,
       generation = presentationGeneration;
     const key = recordKey(selected.owner, captureSession);
     __readerController.changed((busy = true));
@@ -86,7 +91,10 @@ export function createCapture(
       await appendToSnippet(id, text, captureSession, selected);
     } catch (reason) {
       if (canPresent(selected, generation)) {
-        __readerController.changed((error = reason instanceof Error ? reason.message : 'The capture is preserved as a draft.'));
+        __readerController.changed(
+          (error =
+            reason instanceof Error ? reason.message : 'The capture is preserved as a draft.')
+        );
         __readerController.changed((busy = false));
       }
       return;
@@ -95,12 +103,17 @@ export function createCapture(
     try {
       await deleteDraft(key, selected.guard);
     } catch {
-      try { selected.guard(); } catch {
+      try {
+        selected.guard();
+      } catch {
         if (canPresent(selected, generation)) __readerController.changed((busy = false));
         return;
       }
-      if (canPresent(selected, generation)) __readerController.changed((status =
-        "Added to snippet. Its saved capture draft could not be cleaned up and remains recoverable."));
+      if (canPresent(selected, generation))
+        __readerController.changed(
+          (status =
+            'Added to snippet. Its saved capture draft could not be cleaned up and remains recoverable.')
+        );
     }
     if (canPresent(selected, generation)) {
       __readerController.changed((open = false));
@@ -112,8 +125,12 @@ export function createCapture(
     const value = (event as CustomEvent<unknown>).detail;
     if (!value || typeof value !== 'object') throw new Error('The captured selection is invalid.');
     const payload = value as { html: unknown; title: unknown; item: unknown; owner: unknown };
-    if (typeof payload.html !== 'string' || typeof payload.title !== 'string' ||
-        typeof payload.item !== 'string' || (payload.owner !== null && typeof payload.owner !== 'string'))
+    if (
+      typeof payload.html !== 'string' ||
+      typeof payload.title !== 'string' ||
+      typeof payload.item !== 'string' ||
+      (payload.owner !== null && typeof payload.owner !== 'string')
+    )
       throw new Error('The captured selection is invalid.');
     if (selected.owner !== (payload.owner === null ? 'local' : 'account:' + payload.owner))
       throw new Error('The account changed before capture.');
@@ -124,12 +141,27 @@ export function createCapture(
     created.source = {
       title: truncateValidText(payload.title, 1000),
       item: truncateValidText(payload.item, 1000),
-      quote: truncateValidText(passages(text).map((passage) => passage.text).join('\n'), 4000)
+      quote: truncateValidText(
+        passages(text)
+          .map((passage) => passage.text)
+          .join('\n'),
+        4000
+      )
     };
     const key = crypto.randomUUID();
-    await saveDraft({ key: recordKey(selected.owner, key), owner: selected.owner,
-      id: created.id, session: key, base: null, document: created,
-      updatedAt: Date.now(), mode: 'new' }, selected.guard);
+    await saveDraft(
+      {
+        key: recordKey(selected.owner, key),
+        owner: selected.owner,
+        id: created.id,
+        session: key,
+        base: null,
+        document: created,
+        updatedAt: Date.now(),
+        mode: 'new'
+      },
+      selected.guard
+    );
     selected.guard();
     return { selected, text, document: created, session: key };
   }
@@ -156,8 +188,13 @@ export function createCapture(
         if (!alive || !canPresent(saved.selected, generation)) return;
         if (deferred) {
           deferredCount++;
-          __readerController.changed((status = deferredCount + ' additional selection' +
-            (deferredCount === 1 ? '' : 's') + ' saved for later.'));
+          __readerController.changed(
+            (status =
+              deferredCount +
+              ' additional selection' +
+              (deferredCount === 1 ? '' : 's') +
+              ' saved for later.')
+          );
           return;
         }
         __readerController.changed((captured = saved.selected));
@@ -166,10 +203,14 @@ export function createCapture(
         __readerController.changed((session = saved.session));
         __readerController.changed((open = true));
       } catch (reason) {
-        if (alive && canPresent(selected, generation)) __readerController.changed((error =
-          reason instanceof Error ? reason.message : 'The selection could not be captured.'));
+        if (alive && canPresent(selected, generation))
+          __readerController.changed(
+            (error =
+              reason instanceof Error ? reason.message : 'The selection could not be captured.')
+          );
       } finally {
-        if (!deferred && alive && canPresent(selected, generation)) __readerController.changed((busy = false));
+        if (!deferred && alive && canPresent(selected, generation))
+          __readerController.changed((busy = false));
       }
     };
     const clearStalePresentation = () => {
@@ -212,7 +253,9 @@ export function createCapture(
     controller: __readerController,
     create,
     append,
-    get status() { return status; },
+    get status() {
+      return status;
+    },
     dismissStatus() {
       __readerController.changed((error = ''));
       __readerController.changed((status = ''));

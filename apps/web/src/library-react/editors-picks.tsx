@@ -191,7 +191,7 @@ export function EditorsPicks({
               ? 'min-h-0 overflow-y-auto overscroll-contain pr-1'
               : embedded
                 ? 'max-h-[min(34rem,55dvh)] overflow-y-auto overscroll-contain pr-1'
-                : 'min-h-0 max-h-[min(34rem,60dvh)] overflow-y-auto overscroll-contain pr-1'
+                : 'max-h-[min(34rem,60dvh)] min-h-0 overflow-y-auto overscroll-contain pr-1'
           }
         >
           <div className="grid gap-3">

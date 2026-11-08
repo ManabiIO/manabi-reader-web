@@ -172,14 +172,19 @@ try {
   assert.equal(batch.id, 1);
   assert.equal(batch.epoch, 1);
   assert.ok(Array.isArray(batch.results) && batch.results.length > 1, JSON.stringify(messages));
-  assert.deepEqual(batch.result, batch.results.at(-1), 'Legacy summary must describe the final frame');
+  assert.deepEqual(
+    batch.result,
+    batch.results.at(-1),
+    'Legacy summary must describe the final frame'
+  );
   assert.ok(
-    batch.results.every((result, index, results) =>
-      Number.isFinite(result.offsetSeconds) &&
-      result.offsetSeconds >= 0.176 &&
-      result.offsetSeconds < 0.48 &&
-      Math.abs(result.windowSeconds - 0.64) < 1e-6 &&
-      (index === 0 || result.offsetSeconds > results[index - 1].offsetSeconds)
+    batch.results.every(
+      (result, index, results) =>
+        Number.isFinite(result.offsetSeconds) &&
+        result.offsetSeconds >= 0.176 &&
+        result.offsetSeconds < 0.48 &&
+        Math.abs(result.windowSeconds - 0.64) < 1e-6 &&
+        (index === 0 || result.offsetSeconds > results[index - 1].offsetSeconds)
     ),
     'Emitted frames must have stable left/future context and increasing offsets'
   );

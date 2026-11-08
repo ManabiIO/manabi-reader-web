@@ -48,20 +48,22 @@
 >
   {#if options.length > 1 && !hasRowInEdit}
     <Popover
-      placement={'bottom-start'}
+      placement="bottom-start"
       fallbackPlacements={['top']}
-      innerContainerStyles={'width:100%;min-height:44px;padding:0 8px;'}
-      containerStyles={'flex: 1;'}
+      innerContainerStyles="width:100%;min-height:44px;padding:0 8px;"
+      containerStyles="flex: 1;"
       bind:this={summaryHeaderPopover}
     >
       <div {title}>{selectedOption.label}</div>
-      <div slot="content" class="flex w-[min(11.5rem,calc(100vw-32px))] flex-col overflow-auto p-[8px]">
+      <div
+        slot="content"
+        class="flex w-[min(11.5rem,calc(100vw-32px))] flex-col overflow-auto p-[8px]"
+      >
         {#each options as option (option.key)}
           <button
             type="button"
             class="my-1 flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
             on:click|stopPropagation={() => {
-              selectedOption = option;
               dispatch('propertyChange', { property: option.key, statisticsSummaryKey });
               summaryHeaderPopover.toggleOpen();
             }}

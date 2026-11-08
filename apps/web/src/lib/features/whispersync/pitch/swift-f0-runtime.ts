@@ -78,9 +78,12 @@ export async function runSwiftF0Inference<TTensor extends SwiftF0TensorLike>(
     if (result.pitch?.type !== 'float64' || result.confidence?.type !== 'float32')
       throw new Error('SwiftF0 returned unexpected output tensor types');
     if (
-      result.pitch.dims.length !== 2 || result.pitch.dims[0] !== 1 ||
-      result.confidence.dims.length !== 2 || result.confidence.dims[0] !== 1
-    ) throw new Error('SwiftF0 returned malformed output tensors');
+      result.pitch.dims.length !== 2 ||
+      result.pitch.dims[0] !== 1 ||
+      result.confidence.dims.length !== 2 ||
+      result.confidence.dims[0] !== 1
+    )
+      throw new Error('SwiftF0 returned malformed output tensors');
     const rawPitch = result.pitch?.data;
     const rawConfidence = result.confidence?.data;
     const expected = Math.max(1, Math.floor(audio.length / SWIFT_F0_HOP));

@@ -11,7 +11,10 @@ const ts = require('typescript');
 const sourceRoot = new URL('../../apps/web/src/', import.meta.url);
 const deferred = () => {
   let resolve, reject;
-  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  const promise = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
   return { promise, resolve, reject };
 };
 const settle = async () => {
@@ -20,9 +23,18 @@ const settle = async () => {
 function store(value) {
   const listeners = new Set();
   return {
-    get value() { return value; },
-    subscribe(fn) { listeners.add(fn); fn(value); return () => listeners.delete(fn); },
-    set(next) { value = next; for (const fn of listeners) fn(value); }
+    get value() {
+      return value;
+    },
+    subscribe(fn) {
+      listeners.add(fn);
+      fn(value);
+      return () => listeners.delete(fn);
+    },
+    set(next) {
+      value = next;
+      for (const fn of listeners) fn(value);
+    }
   };
 }
 function load(relative, imports = {}, window = {}) {
@@ -38,31 +50,50 @@ function load(relative, imports = {}, window = {}) {
     (name) => {
       assert.ok(Object.hasOwn(imports, name), 'Unexpected dependency: ' + name);
       return imports[name];
-    }, module, module.exports, window, { randomUUID }
+    },
+    module,
+    module.exports,
+    window,
+    { randomUUID }
   );
   return module.exports;
 }
 
 function fixture() {
-  let user = { id: 'alice' }, authGeneration = 0;
-  const account = store({ status: 'ready' }), localUser = store(user);
+  let user = { id: 'alice' },
+    authGeneration = 0;
+  const account = store({ status: 'ready' }),
+    localUser = store(user);
   class IntegrationError extends Error {
-    constructor(code) { super(code); this.code = code; }
+    constructor(code) {
+      super(code);
+      this.code = code;
+    }
   }
   const client = {
-    account, localUser, localProfileUser: () => user, currentUser: () => user,
-    accountScope: () => ({ generation: authGeneration }), IntegrationError
+    account,
+    localUser,
+    localProfileUser: () => user,
+    currentUser: () => user,
+    accountScope: () => ({ generation: authGeneration }),
+    IntegrationError
   };
   // Use shipping account-generation admission and document validation, not a no-op guard.
   const admission = load('lib/snippets/scope.ts', {
-    '$lib/state/store': { get: (source) => source.value }, '../manabi/client': client
+    '$lib/state/store': { get: (source) => source.value },
+    '../manabi/client': client
   });
   const document = load('lib/snippets/document.ts');
   const lifecycle = load('reader-react/controller.ts', { react: {} });
-  const listeners = new Map(), drafts = [], appends = [], flushes = [];
+  const listeners = new Map(),
+    drafts = [],
+    appends = [],
+    flushes = [];
   const behavior = {};
   const window = {
-    addEventListener(name, callback) { listeners.set(name, callback); },
+    addEventListener(name, callback) {
+      listeners.set(name, callback);
+    },
     removeEventListener(name, callback) {
       if (listeners.get(name) === callback) listeners.delete(name);
     }
@@ -76,7 +107,10 @@ function fixture() {
       selected.guard();
       appends.push({ id, content, operation, owner: selected.owner });
     },
-    async flushSnippets(selected) { selected.guard(); flushes.push(selected.owner); }
+    async flushSnippets(selected) {
+      selected.guard();
+      flushes.push(selected.owner);
+    }
   };
   const database = {
     recordKey: (owner, session) => owner + ':' + session,
@@ -94,24 +128,38 @@ function fixture() {
       if (index >= 0) drafts.splice(index, 1);
     }
   };
-  const { createCapture } = load('snippets-react/capture-controller.ts', {
-    '../lib/manabi/client': client,
-    '$app/navigation': { goto: async () => behavior.goto?.() },
-    '$app/paths': { resolve: (value) => value },
-    '../lib/snippets/service': service,
-    '../lib/snippets/database': database,
-    '../lib/snippets/document': document,
-    '../lib/snippets/editor': { importContent: (text) => document.plainContent(text) },
-    '../reader-react/controller': lifecycle
-  }, window);
+  const { createCapture } = load(
+    'snippets-react/capture-controller.ts',
+    {
+      '../lib/manabi/client': client,
+      '$app/navigation': { goto: async () => behavior.goto?.() },
+      '$app/paths': { resolve: (value) => value },
+      '../lib/snippets/service': service,
+      '../lib/snippets/database': database,
+      '../lib/snippets/document': document,
+      '../lib/snippets/editor': { importContent: (text) => document.plainContent(text) },
+      '../reader-react/controller': lifecycle
+    },
+    window
+  );
   const c = createCapture({});
   c.controller.start();
   return {
-    c, behavior, drafts, appends, flushes,
+    c,
+    behavior,
+    drafts,
+    appends,
+    flushes,
     capture(text, details = {}) {
-      return listeners.get('manabi-capture-snippet')({ detail: {
-        html: text, title: 'Source', item: 'book', owner: user?.id ?? null, ...details
-      } });
+      return listeners.get('manabi-capture-snippet')({
+        detail: {
+          html: text,
+          title: 'Source',
+          item: 'book',
+          owner: user?.id ?? null,
+          ...details
+        }
+      });
     },
     switchAccount(id) {
       user = id ? { id } : null;
@@ -126,8 +174,9 @@ function fixture() {
 }
 
 test('React old-account capture completion cannot replace a successor account dialog', async () => {
-  const f = fixture(), gate = deferred();
-  f.behavior.save = (record) => record.owner === 'account:alice' ? gate.promise : undefined;
+  const f = fixture(),
+    gate = deferred();
+  f.behavior.save = (record) => (record.owner === 'account:alice' ? gate.promise : undefined);
   const old = f.capture('private Alice text');
   await settle();
   f.switchAccount('bob');
@@ -139,11 +188,15 @@ test('React old-account capture completion cannot replace a successor account di
   assert.equal(f.c.open, true);
   assert.equal(f.c.busy, false);
   assert.equal(f.c.error, '');
-  assert.deepEqual(f.drafts.map((record) => record.owner), ['account:bob']);
+  assert.deepEqual(
+    f.drafts.map((record) => record.owner),
+    ['account:bob']
+  );
   f.c.controller.destroy();
 });
 test('React old-account append rejection cannot publish an error into a new capture', async () => {
-  const f = fixture(), gate = deferred();
+  const f = fixture(),
+    gate = deferred();
   await f.capture('Alice text');
   f.behavior.append = () => gate.promise;
   const old = f.c.append('Alice destination');
@@ -160,9 +213,10 @@ test('React old-account append rejection cannot publish an error into a new capt
 });
 
 test('React transport replacement retires a busy capture even when the local account stays the same', async () => {
-  const f = fixture(), gate = deferred();
+  const f = fixture(),
+    gate = deferred();
   let first = true;
-  f.behavior.save = () => first ? (first = false, gate.promise) : undefined;
+  f.behavior.save = () => (first ? ((first = false), gate.promise) : undefined);
   const old = f.capture('retired transport');
   await settle();
   f.retireTransport();

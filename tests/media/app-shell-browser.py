@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Codec-independent Videos route acceptance in Chromium/WebKit.
 
-Uses the built Svelte app and native browser storage. It deliberately does not
+Uses the actual built Videos route and native browser storage. It deliberately does not
 open media so Linux codec availability cannot turn a route/UI regression into a
 false browser-compatibility failure.
 """
 import argparse
+from contextlib import ExitStack
 import json
 from pathlib import Path
 import sys
@@ -16,20 +17,22 @@ from playwright.sync_api import expect, sync_playwright
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tests/browser'))
 from test_static_reader import StaticHandler, ThreadingHTTPServer
+from browser_launch import launch_options
 
 
-def inside_viewport(locator, width, height):
+def inside_viewport(locator, width, height, *, hit_test=True):
     box = locator.bounding_box()
     assert box, locator
     assert box['width'] >= 43.5 and box['height'] >= 43.5, box
     assert box['x'] >= -1 and box['y'] >= -1, box
     assert box['x'] + box['width'] <= width + 1, box
     assert box['y'] + box['height'] <= height + 1, box
-    assert locator.evaluate("""node => {
-      const r=node.getBoundingClientRect();
-      const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
-      return !!hit && (hit===node || node.contains(hit));
-    }"""), box
+    if hit_test:
+        assert locator.evaluate("""node => {
+          const r=node.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===node || node.contains(hit));
+        }"""), box
 
 
 def main():
@@ -46,9 +49,15 @@ def main():
     errors = []
     checks = []
 
-    with sync_playwright() as playwright:
-        browser = getattr(playwright, args.engine).launch()
+    with ExitStack() as cleanup:
+        cleanup.callback(thread.join)
+        cleanup.callback(server.server_close)
+        cleanup.callback(server.shutdown)
+        playwright = cleanup.enter_context(sync_playwright())
+        browser = getattr(playwright, args.engine).launch(**launch_options(args.engine))
+        cleanup.callback(browser.close)
         context = browser.new_context(locale='en-CA', viewport={'width': 1280, 'height': 900})
+        cleanup.callback(context.close)
         page = context.new_page()
         page.on('pageerror', lambda error: errors.append(str(error)))
         page.set_default_timeout(15000)
@@ -76,9 +85,13 @@ def main():
                 expect(control).to_be_visible()
                 assert control.bounding_box()['height'] >= 43.5
             page.get_by_role('button', name='Add videos', exact=True).click(trial=True)
-            page.get_by_role('button', name='Select visible videos', exact=True).click()
-            expect(page.get_by_role('status')).to_contain_text('0 videos selected')
-            checks.append('empty video library actions are reachable and native-hit-testable')
+            for name in ('Select visible videos', 'Clear selection', 'Generate missing transcripts'):
+                expect(page.get_by_role('button', name=name, exact=True)).to_be_disabled()
+            selection = page.get_by_role('group', name='Video selection actions', exact=True)
+            selection_status = selection.locator('[aria-live=polite]')
+            expect(selection_status).to_have_text('No videos selected')
+            expect(selection_status).to_have_attribute('aria-atomic', 'true')
+            checks.append('empty video library keeps unavailable selection actions disabled and announced')
 
             # Disclosure/settings controls must remain usable even without media.
             summary = page.get_by_text('Transcription and sync', exact=True)
@@ -106,7 +119,7 @@ def main():
             assert media.evaluate('node => node.scrollWidth-node.clientWidth') <= 1
             for control in controls:
                 control.scroll_into_view_if_needed()
-                inside_viewport(control, 320, 568)
+                inside_viewport(control, 320, 568, hit_test=control.is_enabled())
             summary.scroll_into_view_if_needed()
             inside_viewport(summary, 320, 568)
             sync_target.scroll_into_view_if_needed()
@@ -172,7 +185,7 @@ def main():
                         'passed': len(checks),
                         'pageErrors': errors,
                         'boundary': (
-                            'built Svelte app + native browser storage; '
+                            'built Videos route + native browser storage; '
                             'codec/playback/providers/ASR intentionally excluded'
                         ),
                     },
@@ -180,10 +193,7 @@ def main():
                 )
                 + '\n'
             )
-            browser.close()
-    server.shutdown()
-    server.server_close()
-    thread.join()
+
 
 
 if __name__ == '__main__':

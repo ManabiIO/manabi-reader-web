@@ -66,11 +66,14 @@ class ReaderNavigationPanels:
                   const r=e.getBoundingClientRect();
                   return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));
                 }'''))
+            scroll = panel.locator('[data-toc-scroll]')
+            expect(scroll).to_have_count(1)
+            self.assertEqual('auto', scroll.evaluate('e => getComputedStyle(e).overflowY'))
             footer = panel.get_by_role('button', name='Next Chapter', exact=True)
-            panel.evaluate('e => e.scrollTop = e.scrollHeight')
+            footer.scroll_into_view_if_needed()
             self.assert_box_in_viewport(footer)
             close = panel.get_by_role('button', name='Close Table of Contents', exact=True)
-            panel.evaluate('e => e.scrollTop = 0')
+            scroll.evaluate('e => e.scrollTop = 0')
             self.assert_hit_target_in_viewport(close)
             expect(close).to_have_attribute('data-shape', 'circle')
             self.capture(f'contents-refined-{width}-{height}')

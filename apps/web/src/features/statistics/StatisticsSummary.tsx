@@ -403,7 +403,7 @@ export function StatisticsSummary({
           <ActionButton
             variant="ghost"
             ref={pager.choose}
-            style={{ minHeight: 44 }}
+            style={{ minHeight: 44, minWidth: 0, flexShrink: 1 }}
             accessibilityLabel="Choose statistics page"
             disabled={state.busy}
             onPress={(event) => {

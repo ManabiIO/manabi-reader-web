@@ -69,8 +69,12 @@ export function ReaderAnnotations(props: Partial<AnnotationsProps> & ReaderViewP
           >
             <Dom as="div" className="min-w-0 max-[360px]:col-span-2 max-[360px]:row-start-2">
               <Sheet.Title className="[overflow-wrap:normal] [word-break:normal]">
-                <span data-annotations-title-word className="whitespace-nowrap">Bookmarks</span>{' '}
-                <span data-annotations-title-word className="whitespace-nowrap">& Notes</span>
+                <span data-annotations-title-word className="whitespace-nowrap">
+                  Bookmarks
+                </span>{' '}
+                <span data-annotations-title-word className="whitespace-nowrap">
+                  & Notes
+                </span>
               </Sheet.Title>
             </Dom>
             <CloseButton
