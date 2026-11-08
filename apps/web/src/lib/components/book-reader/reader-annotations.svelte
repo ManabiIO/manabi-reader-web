@@ -95,10 +95,15 @@
     class="writing-horizontal-tb overflow-hidden p-[20px] pb-0 data-[side=left]:w-full data-[side=left]:sm:max-w-md"
   >
     <Sheet.Header
-      class="grid shrink-0 grid-cols-[minmax(0,1fr)_44px] items-start gap-3 border-b border-border bg-popover p-0 pb-4"
+      class="annotations-header grid shrink-0 grid-cols-[minmax(0,1fr)_44px] items-start gap-3 border-b border-border bg-popover p-0 pb-4"
     >
-      <div class="min-w-0">
-        <Sheet.Title class="break-words">Bookmarks & Notes</Sheet.Title>
+      <div class="annotations-title min-w-0">
+        <Sheet.Title class="[overflow-wrap:normal] [word-break:normal]"
+          ><span data-annotations-title-word class="whitespace-nowrap">Bookmarks</span>{' '}<span
+            data-annotations-title-word
+            class="whitespace-nowrap">& Notes</span
+          ></Sheet.Title
+        >
       </div>
       <CloseButton
         aria-label="Close bookmarks and notes"
@@ -260,3 +265,15 @@
     </div>
   </Sheet.Content>
 </Sheet.Root>
+
+<style>
+  @media (max-width: 360px) {
+    .annotations-header {
+      grid-template-rows: 44px auto;
+    }
+    .annotations-title {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+  }
+</style>

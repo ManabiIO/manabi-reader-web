@@ -62,17 +62,19 @@ export function ReaderAnnotations(props: Partial<AnnotationsProps> & ReaderViewP
         >
           <Sheet.Header
             className={[
-              'grid shrink-0 grid-cols-[minmax(0,1fr)_44px] items-start gap-3 border-b border-border bg-popover p-0 pb-4'
+              'grid shrink-0 grid-cols-[minmax(0,1fr)_44px] items-start gap-3 border-b border-border bg-popover p-0 pb-4 max-[360px]:grid-rows-[44px_auto]'
             ]
               .filter(Boolean)
               .join(' ')}
           >
-            <Dom as="div" className={['min-w-0'].filter(Boolean).join(' ')}>
-              <Sheet.Title className={['break-words'].filter(Boolean).join(' ')}>
-                {'Bookmarks & Notes'}
+            <Dom as="div" className="min-w-0 max-[360px]:col-span-2 max-[360px]:row-start-2">
+              <Sheet.Title className="[overflow-wrap:normal] [word-break:normal]">
+                <span data-annotations-title-word className="whitespace-nowrap">Bookmarks</span>{' '}
+                <span data-annotations-title-word className="whitespace-nowrap">& Notes</span>
               </Sheet.Title>
             </Dom>
             <CloseButton
+              className="col-start-2 row-start-1"
               aria-label={'Close bookmarks and notes'}
               disabled={c.busy}
               onClick={() => (c.open = false)}
