@@ -11,22 +11,45 @@ permissions:
 
 jobs:
   acknowledgement:
-    if: ${{ github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]' && github.actor != 'github-actions[bot]' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Require BSD contribution grant
+      - name: Check contribution license policy
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
+          PR_REPOSITORY_ID: ${{ github.event.pull_request.base.repo.id }}
+          PR_AUTHOR_ID: ${{ github.event.pull_request.user.id }}
+          PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login }}
+          PR_AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
         run: |
           node <<'NODE'
           const body = process.env.PR_BODY ?? ''
-          const acknowledgement =
-            'I agree that the copyrightable portions of this contribution that I own are licensed under BSD-3-Clause, and I have the right to grant that license.'
-          const checked = body
-            .split(/\r?\n/)
-            .some((line) => /^\s*-\s*\[[xX]\]\s*/.test(line) && line.includes(acknowledgement))
-          if (!checked) {
-            console.error('Check the BSD contribution-license acknowledgement in the pull request body.')
-            process.exit(1)
+          const repository = process.env.PR_REPOSITORY
+          const repositoryId = process.env.PR_REPOSITORY_ID
+          const authorId = process.env.PR_AUTHOR_ID
+          const authorLogin = process.env.PR_AUTHOR_LOGIN
+          const authorType = process.env.PR_AUTHOR_TYPE
+          const isReader = repository === 'ManabiIO/manabi-reader-web' && repositoryId === '1376293400'
+          // Alex's own work is exempt by project-owner policy. Match immutable
+          // GitHub identity, never the event actor, PR body, or branch contents.
+          const isOwner = authorId === '71601' && authorLogin === 'aehlke' && authorType === 'User'
+          const trustedBots = new Map([
+            ['dependabot[bot]', '49699333'],
+            ['renovate[bot]', '29139614'],
+            ['github-actions[bot]', '41898282']
+          ])
+          const isTrustedBot = authorType === 'Bot' && trustedBots.has(authorLogin) && trustedBots.get(authorLogin) === authorId
+          if (isReader && (isOwner || isTrustedBot)) {
+            console.log('Trusted contribution author is exempt from the personal acknowledgement.')
+          } else {
+            const acknowledgement =
+              'I agree that the copyrightable portions of this contribution that I own are licensed under BSD-3-Clause, and I have the right to grant that license.'
+            const checked = body
+              .split(/\r?\n/)
+              .some((line) => /^\s*-\s*\[[xX]\]\s*/.test(line) && line.includes(acknowledgement))
+            if (!checked) {
+              console.error('Check the BSD contribution-license acknowledgement in the pull request body.')
+              process.exitCode = 1
+            }
           }
           NODE

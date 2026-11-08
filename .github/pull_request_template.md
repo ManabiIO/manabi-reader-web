@@ -4,6 +4,8 @@
 
 ## Provenance and licensing
 
+<!-- External human contributors must affirm the first item. Alex's own work is exempt under CONTRIBUTING.md; leave it unchecked when exempt. Other provenance requirements still apply. -->
+
 - [ ] I agree that the copyrightable portions of this contribution that I own are licensed under BSD-3-Clause, and I have the right to grant that license.
 - [ ] I identified any third-party code or assets and retained their required license/attribution.
 - [ ] I did not copy, adapt, translate, transcribe, or mechanically rewrite GPL implementation code from Manabitan, Yomitan, Yomichan, or another GPL project into Reader.
