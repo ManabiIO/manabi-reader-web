@@ -23,6 +23,7 @@ const artifactPrefix = platform === 'apk' ? 'assets/www.bundle/' : '';
 let temporary;
 let server;
 let browser;
+let context;
 const requests = [];
 try {
   let root = output;
@@ -112,8 +113,12 @@ try {
   });
   const origin = `http://127.0.0.1:${server.address().port}`;
   const { chromium } = await import('@playwright/test');
-  browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
+  browser = await chromium.launch({
+    headless: true,
+    args: ['--disable-features=MacAppCodeSignClone']
+  });
+  context = await browser.newContext();
+  const page = await context.newPage();
   const errors = [],
     network = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -146,10 +151,10 @@ try {
   await page.evaluate(() => {
     const rate = 16000;
     const samples = Float32Array.from(
-      { length: 8800 },
+      { length: 10240 },
       (_, i) => 0.6 * Math.sin((2 * Math.PI * 220 * i) / rate)
     );
-    window.pitchWorker.postMessage({ type: 'analyze', samples, rate, epoch: 1, id: 1 }, [
+    window.pitchWorker.postMessage({ type: 'analyze', samples, rate, epoch: 1, phrase: 1, id: 1 }, [
       samples.buffer
     ]);
   });
@@ -163,7 +168,22 @@ try {
     messages.map((message) => message.type),
     ['ready', 'result']
   );
-  const hz = messages[1].result.hz;
+  const batch = messages[1];
+  assert.equal(batch.id, 1);
+  assert.equal(batch.epoch, 1);
+  assert.ok(Array.isArray(batch.results) && batch.results.length > 1, JSON.stringify(messages));
+  assert.deepEqual(batch.result, batch.results.at(-1), 'Legacy summary must describe the final frame');
+  assert.ok(
+    batch.results.every((result, index, results) =>
+      Number.isFinite(result.offsetSeconds) &&
+      result.offsetSeconds >= 0.176 &&
+      result.offsetSeconds < 0.48 &&
+      Math.abs(result.windowSeconds - 0.64) < 1e-6 &&
+      (index === 0 || result.offsetSeconds > results[index - 1].offsetSeconds)
+    ),
+    'Emitted frames must have stable left/future context and increasing offsets'
+  );
+  const hz = batch.results.find((result) => result.hz > 210 && result.hz < 230)?.hz;
   assert.ok(hz > 210 && hz < 230, JSON.stringify(messages));
   for (const paths of assets)
     assert.ok(
@@ -186,7 +206,17 @@ try {
     await writeFile(value('--report'), JSON.stringify(evidence, null, 2) + '\n');
   console.log(JSON.stringify(evidence));
 } finally {
-  await browser?.close();
-  if (server) await new Promise((resolve) => server.close(resolve));
-  if (temporary) await rm(temporary, { recursive: true, force: true });
+  try {
+    await context?.close();
+  } finally {
+    try {
+      await browser?.close();
+    } finally {
+      try {
+        if (server) await new Promise((resolve) => server.close(resolve));
+      } finally {
+        if (temporary) await rm(temporary, { recursive: true, force: true });
+      }
+    }
+  }
 }

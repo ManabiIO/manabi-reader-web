@@ -49,7 +49,7 @@ export function StatisticsSummaryHeader(
             <Popover
               placement={'bottom-start'}
               fallbackPlacements={['top']}
-              innerContainerStyles={'width: 100%'}
+              innerContainerStyles={'width:100%;min-height:44px;padding:0 8px;'}
               containerStyles={'flex: 1;'}
               bindings={{
                 this: (value) => {
@@ -63,14 +63,15 @@ export function StatisticsSummaryHeader(
               <Dom
                 as="div"
                 slot={'content'}
-                className={['flex w-46 flex-col overflow-auto p-2'].filter(Boolean).join(' ')}
+                className={['flex w-[min(11.5rem,calc(100vw-32px))] flex-col overflow-auto p-[8px]'].filter(Boolean).join(' ')}
               >
                 {(c.options ?? []).map((option, _index0) => (
                   <React.Fragment key={option.key}>
                     <Dom
                       as="button"
+                      type="button"
                       className={[
-                        'my-2 flex flex-1 hover:bg-accent hover:text-foreground hover:opacity-50'
+                        'my-1 flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring'
                       ]
                         .filter(Boolean)
                         .join(' ')}
@@ -104,9 +105,10 @@ export function StatisticsSummaryHeader(
             {' '}
             <Dom
               as="button"
+                      type="button"
               disabled={c.hasRowInEdit}
               title={c.title}
-              className={['flex flex-1 text-left', c.hasRowInEdit && 'cursor-not-allowed']
+              className={['flex min-h-[44px] flex-1 items-center rounded-lg px-2 text-left focus-visible:outline-2 focus-visible:outline-ring', c.hasRowInEdit && 'cursor-not-allowed']
                 .filter(Boolean)
                 .join(' ')}
               events={{
@@ -124,11 +126,12 @@ export function StatisticsSummaryHeader(
         )}
         <Dom
           as="button"
+                      type="button"
           title={'Click to select/sort by this Attribute'}
           aria-label={`Sort by ${c.selectedOption.label}`}
           disabled={c.hasRowInEdit}
           className={[
-            'ml-4',
+            'ml-[4px] flex size-[44px] shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-ring',
             !c.optionKeys.has(c.$lastStatisticsSummarySortProperty$) && 'opacity-20',
             c.hasRowInEdit && 'cursor-not-allowed'
           ]

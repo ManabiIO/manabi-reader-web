@@ -20,6 +20,15 @@ export interface PitchEnvironment {
 /** Lives with the player, NOT the dismissible transcript sheet.
  * Once captured, a media element must keep its direct destination connection,
  * including while visualization is off. Only the analyser branch is optional. */
+interface SpeechAnalysisWindow {
+  phrase: number;
+  start: number;
+  end: number;
+  observed: boolean;
+  breakBefore: boolean;
+  complete: boolean;
+}
+
 export class PitchController {
   private environment: PitchEnvironment;
   private changed: (state: PitchState) => void;
@@ -43,6 +52,8 @@ export class PitchController {
     windowStart: number;
     windowSeconds: number;
     playbackRate: number;
+    speechWindow: SpeechAnalysisWindow;
+    finalWindow: boolean;
   };
   private generation = 0;
   private sequence = 0;
@@ -54,9 +65,10 @@ export class PitchController {
   private buffering = false;
   private sampleAfter = 0;
   private freshAudioAfter = 0;
-  private breakBefore = true;
   private speechWindow?: { start: number; end: number };
   private speechOwner?: object;
+  private phrase = 0;
+  private analysisWindows: SpeechAnalysisWindow[] = [];
 
   constructor(environment: PitchEnvironment, changed: (state: PitchState) => void) {
     this.environment = environment;
@@ -199,10 +211,20 @@ export class PitchController {
       this.schedule();
       return;
     }
+    const outgoing = this.analysisWindows.at(-1) ?? this.pending?.speechWindow;
+    const previous = this.speechWindow ?? outgoing;
+    const rate = this.audio?.playbackRate ?? 1;
+    const forwardBoundary =
+      !!previous && !!outgoing?.observed &&
+      time >= previous.end &&
+      time < previous.end + ANALYSIS_WINDOW_SECONDS * rate &&
+      (!next || next.start >= previous.end);
     this.speechWindow = next;
     this.speechOwner = next ? owner : undefined;
-    this.invalidateSamples(false);
+    if (!forwardBoundary) this.invalidateSamples(false);
     this.cancelFrame();
+    if (next && forwardBoundary) this.analysisWindows.push({ ...next, phrase: ++this.phrase,
+      observed: time >= next.start && time < next.end, breakBefore: true, complete: false });
     this.publish({ time });
     this.schedule();
   }
@@ -214,7 +236,9 @@ export class PitchController {
       time < this.speechWindow.end
     );
   }
-  private ownsPlayback(playbackRate: number): boolean {
+  private ownsPlayback(
+    playbackRate: number, finalWindow = false, speechWindow = this.speechWindow
+  ): boolean {
     const audio = this.audio;
     return (
       !!audio &&
@@ -227,13 +251,17 @@ export class PitchController {
       Number.isFinite(playbackRate) &&
       playbackRate > 0 &&
       audio.playbackRate === playbackRate &&
-      this.containsSpeechTime(audio.currentTime)
+      (finalWindow || (!!speechWindow &&
+        audio.currentTime >= speechWindow.start && audio.currentTime < speechWindow.end))
     );
   }
   // Retire both the reply and its watchdog at every playback discontinuity.
   // Keep the paused trace, but never draw a line through the resume boundary.
   private invalidateSamples(waitForFreshAudio = true) {
     this.epoch++;
+    this.analysisWindows = this.speechWindow ? [{ ...this.speechWindow, phrase: ++this.phrase,
+      observed: this.containsSpeechTime(this.audio?.currentTime ?? 0),
+      breakBefore: true, complete: false }] : [];
     this.pending = undefined;
     if (this.replyTimer !== undefined) this.environment.clearTimer(this.replyTimer);
     this.replyTimer = undefined;
@@ -241,7 +269,6 @@ export class PitchController {
     const now = this.context?.currentTime ?? 0;
     if (waitForFreshAudio) this.freshAudioAfter = now + ANALYSIS_WINDOW_SECONDS;
     this.sampleAfter = Math.max(this.freshAudioAfter, now + SWIFT_F0_FUTURE_CONTEXT_SECONDS);
-    this.breakBefore = true;
     try {
       this.worker?.postMessage({ type: 'retire', epoch: this.epoch });
     } catch {
@@ -251,7 +278,11 @@ export class PitchController {
   private reset() {
     this.invalidateSamples();
     this.lastAudioTime = -Infinity;
-    this.publish({ points: [], time: this.audio?.currentTime ?? 0 });
+    this.publish({
+      points: [],
+      speechActive: !!this.speechWindow,
+      time: this.audio?.currentTime ?? 0
+    });
   }
   private start() {
     if (this.disposed || !this.state.enabled || !this.visible || this.worker) return;
@@ -332,48 +363,62 @@ export class PitchController {
           this.pending = undefined;
           if (this.replyTimer !== undefined) this.environment.clearTimer(this.replyTimer);
           this.replyTimer = undefined;
-          if (!this.ownsPlayback(pending.playbackRate)) return;
-          const result = event.data.result as Measurement;
+          if (!this.ownsPlayback(pending.playbackRate, pending.finalWindow, pending.speechWindow)) return;
+          const results = (
+            Array.isArray(event.data.results) ? event.data.results : [event.data.result]
+          ) as Measurement[];
           if (
-            !result ||
-            !Number.isFinite(result.amplitude) ||
-            result.amplitude < 0 ||
-            !Number.isFinite(result.rms) ||
-            result.rms < 0 ||
-            !Number.isFinite(result.confidence) ||
-            result.confidence < 0 ||
-            result.confidence > 1 ||
-            !Number.isFinite(result.offsetSeconds) ||
-            !Number.isFinite(result.windowSeconds) ||
-            result.windowSeconds <= 0 ||
-            Math.abs(result.windowSeconds - pending.windowSeconds) > 1e-6 ||
-            result.offsetSeconds < 0 ||
-            result.offsetSeconds > result.windowSeconds ||
-            (result.hz !== null &&
-              (!Number.isFinite(result.hz) || result.hz < 85 || result.hz > 520))
+            !results.length ||
+            results.some(
+              (result) =>
+                !result ||
+                !Number.isFinite(result.amplitude) ||
+                result.amplitude < 0 ||
+                !Number.isFinite(result.rms) ||
+                result.rms < 0 ||
+                !Number.isFinite(result.confidence) ||
+                result.confidence < 0 ||
+                result.confidence > 1 ||
+                !Number.isFinite(result.offsetSeconds) ||
+                !Number.isFinite(result.windowSeconds) ||
+                result.windowSeconds <= 0 ||
+                Math.abs(result.windowSeconds - pending.windowSeconds) > 1e-6 ||
+                result.offsetSeconds < 0 ||
+                result.offsetSeconds > result.windowSeconds ||
+                (result.hz !== null &&
+                  (!Number.isFinite(result.hz) || result.hz < 85 || result.hz > 520))
+            )
           ) {
             this.fail('Pitch analysis returned invalid data. Retry to reload it.');
             return;
           }
-          const time = pending.windowStart + result.offsetSeconds * pending.playbackRate;
-          if (
-            !this.containsSpeechTime(time) ||
-            time <= (this.state.points.at(-1)?.time ?? -Infinity)
-          ) {
-            this.breakBefore = true;
-            this.publish({ time: audio.currentTime });
-            return;
-          }
-          this.publish({
-            points: appendPoint(this.state.points, {
+          let points = this.state.points;
+          let appended = false;
+          for (const result of results) {
+            const time = pending.windowStart + result.offsetSeconds * pending.playbackRate;
+            const previousTime = points.at(-1)?.time ?? -Infinity;
+            // Consecutive analysis windows overlap by design. Keep only newly
+            // stable frames; never reset history because an overlap repeated
+            // a timestamp already published by the previous batch.
+            const speechWindow = pending.speechWindow;
+            if (
+              !speechWindow ||
+              time < speechWindow.start ||
+              time >= speechWindow.end ||
+              time <= previousTime + 0.004
+            )
+              continue;
+            points = appendPoint(points, {
               time,
               hz: result.hz,
               amplitude: result.amplitude,
-              breakBefore: this.breakBefore
-            }),
-            time: audio.currentTime
-          });
-          this.breakBefore = false;
+              breakBefore: pending.speechWindow.breakBefore && !appended
+            });
+            appended = true;
+          }
+          this.publish({ points, time: audio.currentTime });
+          if (appended) pending.speechWindow.breakBefore = false;
+          this.schedule();
         } else if (event.data?.type === 'error') {
           if (event.data.phase === 'analysis') {
             if (
@@ -389,7 +434,7 @@ export class PitchController {
             // paused/seeking can become true before their DOM event callback
             // runs. A request that just lost playback authority must not turn
             // that user action into an analysis failure.
-            if (!this.ownsPlayback(pending.playbackRate)) return;
+            if (!this.ownsPlayback(pending.playbackRate, pending.finalWindow, pending.speechWindow)) return;
           }
           this.fail('Pitch analysis could not load or run. Check your connection and retry.');
         }
@@ -422,8 +467,13 @@ export class PitchController {
         .catch(() => {
           if (current()) this.fail('Press Retry to allow audio analysis in this browser.');
         });
-    } catch {
-      this.fail('Voice pitch requires browser Web Audio and worker support.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      this.fail(
+        message.startsWith('Voice pitch needs an audio context')
+          ? message
+          : 'Voice pitch requires browser Web Audio and worker support.'
+      );
     }
   }
   private schedule() {
@@ -436,7 +486,8 @@ export class PitchController {
       !this.analyser ||
       !this.worker ||
       !this.audio ||
-      !this.containsSpeechTime(this.audio.currentTime) ||
+      !this.analysisWindows.some((window) => !window.complete &&
+        (window.observed || (this.audio!.currentTime >= window.start && this.audio!.currentTime < window.end))) ||
       this.audio.paused ||
       this.audio.ended ||
       this.audio.seeking ||
@@ -459,8 +510,7 @@ export class PitchController {
         audio.paused ||
         audio.ended ||
         audio.seeking ||
-        this.buffering ||
-        !this.containsSpeechTime(audio.currentTime)
+        this.buffering
       )
         return;
       if (context.state !== 'running') {
@@ -468,13 +518,27 @@ export class PitchController {
         return;
       }
       if (!Number.isFinite(audio.playbackRate) || audio.playbackRate <= 0) return;
+      // Once a cue has left the analyser buffer it cannot be reconstructed.
+      this.analysisWindows = this.analysisWindows.filter((window) =>
+        !window.complete && audio.currentTime < window.end + ANALYSIS_WINDOW_SECONDS * audio.playbackRate);
+      const speechWindow = this.analysisWindows.find((window) => !window.complete &&
+        (window.observed || (audio.currentTime >= window.start && audio.currentTime < window.end)));
+      if (!speechWindow) return;
+      if (audio.currentTime >= speechWindow.start && audio.currentTime < speechWindow.end)
+        speechWindow.observed = true;
+      const finalWindow = audio.currentTime >= speechWindow.end;
+      // A cue's last frames need real future analyser context. Keep its own
+      // masked final window alive through a gap or the following cue, without
+      // admitting any of that later audio as dialogue from the outgoing cue.
+      const finalReady = audio.currentTime >=
+        speechWindow.end + SWIFT_F0_FUTURE_CONTEXT_SECONDS * audio.playbackRate;
       if (
         !audio.paused &&
         !audio.seeking &&
         !this.pending &&
         context.currentTime >= this.sampleAfter &&
         audio.readyState >= 2 &&
-        now - this.lastSample >= SAMPLE_INTERVAL_MS &&
+        (finalWindow ? finalReady : now - this.lastSample >= SAMPLE_INTERVAL_MS) &&
         audio.currentTime !== this.lastAudioTime
       ) {
         this.lastSample = now;
@@ -491,7 +555,6 @@ export class PitchController {
           // playback is less than one rolling window into the media.
           const mediaStep = audio.playbackRate / context.sampleRate;
           const windowStart = audio.currentTime - samples.length * mediaStep;
-          const speechWindow = this.speechWindow!;
           const cueStart = Math.min(
             samples.length,
             Math.max(0, Math.ceil((speechWindow.start - windowStart) / mediaStep))
@@ -504,14 +567,18 @@ export class PitchController {
           samples.fill(0, cueEnd);
           const id = ++this.sequence;
           const playbackRate = audio.playbackRate;
-          this.pending = { id, epoch: this.epoch, windowStart, windowSeconds, playbackRate };
+          this.pending = { id, epoch: this.epoch, windowStart, windowSeconds, playbackRate,
+            speechWindow, finalWindow };
+          if (finalWindow) speechWindow.complete = true;
+          this.analysisWindows = this.analysisWindows.filter((window) => !window.complete);
           this.worker!.postMessage(
-            { type: 'analyze', samples, rate: context.sampleRate, id, epoch: this.epoch },
+            { type: 'analyze', samples, rate: context.sampleRate, id, epoch: this.epoch,
+              phrase: speechWindow.phrase },
             [samples.buffer]
           );
           this.replyTimer = this.environment.setTimer(() => {
             if (this.pending?.id !== id) return;
-            if (!this.ownsPlayback(playbackRate)) {
+            if (!this.ownsPlayback(playbackRate, finalWindow, speechWindow)) {
               this.pending = undefined;
               this.replyTimer = undefined;
               return;

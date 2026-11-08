@@ -396,7 +396,13 @@ export async function appendToSnippet(
     );
     return { ...current, document, dirty: !!current.destination, issue: undefined };
   });
-  await reloadSnippets(selected);
+  // The mutation and its capture receipt are already durable. A failed
+  // summary refresh must not invite a duplicate append retry.
+  try {
+    await reloadSnippets(selected);
+  } catch {
+    /* A later refresh republishes the committed record. */
+  }
 }
 export async function duplicateSnippet(id: string, selected = scope()) {
   const record = await getRecord(selected.owner, id);

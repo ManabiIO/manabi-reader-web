@@ -7,6 +7,7 @@ import argparse
 import functools
 import http.server
 import json
+import sys
 from pathlib import Path
 import threading
 from playwright.sync_api import sync_playwright
@@ -48,7 +49,7 @@ window.AudioContext = class extends Original {
   }
   close() { window.contextCloses++; return super.close(); }
 };
-const rate = 48000, seconds = 12, count = rate * seconds;
+const rate = 48000, seconds = 15, count = rate * seconds;
 const buffer = new ArrayBuffer(44 + count * 2), view = new DataView(buffer);
 const text = (at, s) => [...s].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
 text(0, 'RIFF'); view.setUint32(4, buffer.byteLength - 8, true); text(8, 'WAVE'); text(12, 'fmt ');
@@ -60,8 +61,12 @@ for (let i = 0; i < count; i++) {
   const clean = Math.sin(2 * Math.PI * 220 * i / rate) * 19000;
   noiseState = (Math.imul(1664525, noiseState) + 1013904223) >>> 0;
   const broadband = ((noiseState / 0xffffffff) * 2 - 1) * 9000;
-  const noisy = i >= rate * 6 ? clean + broadband : clean;
-  view.setInt16(44 + i * 2, Math.max(-32767, Math.min(32767, Math.round(noisy))), true);
+  const sample = i >= rate * 12
+    ? clean * .008
+    : i >= rate * 6
+      ? clean + broadband
+      : clean;
+  view.setInt16(44 + i * 2, Math.max(-32767, Math.min(32767, Math.round(sample))), true);
 }
 const audio = document.querySelector('audio'); audio.src = URL.createObjectURL(new Blob([buffer], {type:'audio/wav'}));
 window.audio = audio;
@@ -83,89 +88,114 @@ thread = threading.Thread(target=server.serve_forever, daemon=True)
 thread.start()
 try:
     with sync_playwright() as p:
-        browser = getattr(p, args.browser).launch(headless=True)
-        page = browser.new_page()
-        page.set_default_timeout(20000)
-        page.on("console", lambda message: print("console:", message.type, message.text, flush=True))
-        errors, requests = [], []
-        page.on('pageerror', lambda error: (errors.append(str(error)), print('pageerror:', str(error), flush=True)))
-        page.on('request', lambda request: requests.append(request.url))
-        page.goto(f'http://127.0.0.1:{server.server_port}/')
-        page.wait_for_function('window.ready && audio.readyState >= 2')
-        assert not any(
-            token in url
-            for url in requests
-            for token in ('voice-pitch.worker', 'swift-f0-0.3.0', 'ort-wasm-simd-threaded')
-        ), 'pitch runtime fetched while disabled'
-        page.click('#show')
-        page.wait_for_function("['ready','error'].includes(window.state?.status)")
-        diagnostics = page.evaluate('''() => ({state, workerReady, workersCreated, detector, audioEvents, contextOptions,
-            contexts: contexts.map(context => ({state: context.state, time: context.currentTime,
-                sampleRate: context.sampleRate})), userActivation: navigator.userActivation?.hasBeenActive})''')
-        (root / 'startup.json').write_text(json.dumps(diagnostics, indent=2))
-        assert page.evaluate("state.status === 'ready'"), json.dumps(diagnostics)
-        assert diagnostics['contextOptions'] == [{'sampleRate': 48000}], diagnostics
-        assert diagnostics['contexts'][0]['sampleRate'] == 48000, diagnostics
-        assert page.evaluate('workersCreated === 1')
-        assert any('voice-pitch.worker' in url for url in requests), 'worker was not loaded on demand'
-        assert any('swift-f0-0.3.0' in url for url in requests), 'SwiftF0 model was not loaded on demand'
-        assert any('ort-wasm-simd-threaded' in url and '.wasm' in url for url in requests), 'ORT WASM was not loaded on demand'
-        assert page.evaluate("detector === 'swift-f0-0.3.0'")
-        assert 'loading' in page.evaluate('window.states')
-        page.click('#play')
+        launch = {'headless': True}
+        if sys.platform == 'darwin' and args.browser == 'chromium':
+            launch['args'] = ['--disable-features=MacAppCodeSignClone']
+        browser = getattr(p, args.browser).launch(**launch)
+        context = None
         try:
-            page.wait_for_function('state.points.filter(p => p.hz > 210 && p.hz < 230).length >= 8')
-        except Exception:
-            sampling = page.evaluate('''() => {
-              const analyser = controller.analyser;
-              const samples = analyser && new Float32Array(analyser.fftSize);
-              if (samples) analyser.getFloatTimeDomainData(samples);
-              return {
-                state, states, audioEvents, audio: {time: audio.currentTime, paused: audio.paused,
-                  ended: audio.ended, readyState: audio.readyState, error: audio.error?.message},
-                context: contexts.map(context => ({state: context.state, time: context.currentTime})),
-                controller: {pending: controller.pending, lastAudioTime: controller.lastAudioTime,
-                  lastSample: controller.lastSample, frame: controller.frame},
-                waveform: samples && {min: Math.min(...samples), max: Math.max(...samples)}
-              };
-            }''')
-            (root / 'sampling.json').write_text(json.dumps(sampling, indent=2))
-            print('sampling:', json.dumps(sampling), flush=True)
-            raise
-        assert 'L' in page.evaluate('paths.pitch')
-        before = page.evaluate('audio.currentTime')
-        page.evaluate('controller.setEnabled(false)')
-        page.wait_for_function('(before) => audio.currentTime > before + .15', arg=before)
-        assert page.evaluate('captured.length === 1 && routes[0].size === 1 && contextCloses === 0')
-        page.click('#show')
-        page.wait_for_function("state.status === 'ready' && state.points.length > 3")
-        assert page.evaluate('captured.length === 1'), 'same element captured twice'
-        page.evaluate('controller.setVisible(false)')
-        assert page.evaluate('routes[0].size === 1 && contextCloses === 0')
-        page.evaluate('controller.setVisible(true)')
-        page.wait_for_function("state.status === 'ready' && state.points.length > 2")
-        page.evaluate('audio.currentTime = 7')
-        page.wait_for_function('state.points.length > 2 && state.points.every(p => p.time > 6.8)')
-        page.wait_for_function(
-            'state.points.filter(p => p.time > 6.8 && p.hz > 205 && p.hz < 235).length >= 3'
-        )
-        noisy = page.evaluate('''() => ({
-          total: state.points.filter(p => p.time > 6.8).length,
-          voiced: state.points.filter(p => p.time > 6.8 && p.hz !== null).length,
-          nearTarget: state.points.filter(p => p.time > 6.8 && p.hz > 205 && p.hz < 235).length,
-          frequencies: state.points.filter(p => p.time > 6.8 && p.hz !== null).map(p => p.hz)
-        })''')
-        (root / 'noisy.json').write_text(json.dumps(noisy, indent=2))
-        assert noisy['nearTarget'] >= 3, noisy
-        page.evaluate('audio.pause()')
-        page.wait_for_timeout(120)
-        count_before = page.evaluate('state.points.length')
-        page.wait_for_timeout(120)
-        assert page.evaluate('state.points.length') == count_before, 'analysis continued while paused'
-        page.evaluate('controller.dispose()')
-        assert page.evaluate('contextCloses === 1 && routes[0].size === 0')
-        assert not errors, errors
-        print(json.dumps({'browser': args.browser, 'transport': 'HTTP modules', 'passed': ['no eager worker', 'worker handshake/loading', 'real SwiftF0 220Hz contour', 'off keeps playback', 'reuse audio capture', 'hide keeps route', 'seek drops stale trace', 'broadband-noise 220Hz contour', 'pause stops samples', 'dispose closes context'], 'pageErrors': errors}))
-        browser.close()
+            context = browser.new_context()
+            page = context.new_page()
+            page.set_default_timeout(20000)
+            page.on("console", lambda message: print("console:", message.type, message.text, flush=True))
+            errors, requests = [], []
+            page.on('pageerror', lambda error: (errors.append(str(error)), print('pageerror:', str(error), flush=True)))
+            page.on('request', lambda request: requests.append(request.url))
+            page.goto(f'http://127.0.0.1:{server.server_port}/')
+            page.wait_for_function('window.ready && audio.readyState >= 2')
+            assert not any(
+                token in url
+                for url in requests
+                for token in ('voice-pitch.worker', 'swift-f0-0.3.0', 'ort-wasm-simd-threaded')
+            ), 'pitch runtime fetched while disabled'
+            page.click('#show')
+            page.wait_for_function("['ready','error'].includes(window.state?.status)")
+            diagnostics = page.evaluate('''() => ({state, workerReady, workersCreated, detector, audioEvents, contextOptions,
+                contexts: contexts.map(context => ({state: context.state, time: context.currentTime,
+                    sampleRate: context.sampleRate})), userActivation: navigator.userActivation?.hasBeenActive})''')
+            (root / 'startup.json').write_text(json.dumps(diagnostics, indent=2))
+            assert page.evaluate("state.status === 'ready'"), json.dumps(diagnostics)
+            assert diagnostics['contextOptions'] == [{'sampleRate': 48000}], diagnostics
+            assert diagnostics['contexts'][0]['sampleRate'] == 48000, diagnostics
+            assert page.evaluate('workersCreated === 1')
+            assert any('voice-pitch.worker' in url for url in requests), 'worker was not loaded on demand'
+            assert any('swift-f0-0.3.0' in url for url in requests), 'SwiftF0 model was not loaded on demand'
+            assert any('ort-wasm-simd-threaded' in url and '.wasm' in url for url in requests), 'ORT WASM was not loaded on demand'
+            assert page.evaluate("detector === 'swift-f0-0.3.0'")
+            assert 'loading' in page.evaluate('window.states')
+            page.click('#play')
+            try:
+                page.wait_for_function('state.points.filter(p => p.hz > 210 && p.hz < 230).length >= 8')
+            except Exception:
+                sampling = page.evaluate('''() => {
+                  const analyser = controller.analyser;
+                  const samples = analyser && new Float32Array(analyser.fftSize);
+                  if (samples) analyser.getFloatTimeDomainData(samples);
+                  return {
+                    state, states, audioEvents, audio: {time: audio.currentTime, paused: audio.paused,
+                      ended: audio.ended, readyState: audio.readyState, error: audio.error?.message},
+                    context: contexts.map(context => ({state: context.state, time: context.currentTime})),
+                    controller: {pending: controller.pending, lastAudioTime: controller.lastAudioTime,
+                      lastSample: controller.lastSample, frame: controller.frame},
+                    waveform: samples && {min: Math.min(...samples), max: Math.max(...samples)}
+                  };
+                }''')
+                (root / 'sampling.json').write_text(json.dumps(sampling, indent=2))
+                print('sampling:', json.dumps(sampling), flush=True)
+                raise
+            assert 'L' in page.evaluate('paths.pitch')
+            before = page.evaluate('audio.currentTime')
+            page.evaluate('controller.setEnabled(false)')
+            page.wait_for_function('(before) => audio.currentTime > before + .15', arg=before)
+            assert page.evaluate('captured.length === 1 && routes[0].size === 1 && contextCloses === 0')
+            page.click('#show')
+            page.wait_for_function("state.status === 'ready' && state.points.length > 3")
+            assert page.evaluate('captured.length === 1'), 'same element captured twice'
+            page.evaluate('controller.setVisible(false)')
+            assert page.evaluate('routes[0].size === 1 && contextCloses === 0')
+            page.evaluate('controller.setVisible(true)')
+            page.wait_for_function("state.status === 'ready' && state.points.length > 2")
+            page.evaluate('audio.currentTime = 7')
+            page.wait_for_function('state.points.length > 2 && state.points.every(p => p.time > 6.8)')
+            page.wait_for_function(
+                'state.points.filter(p => p.time > 6.8 && p.hz > 205 && p.hz < 235).length >= 3'
+            )
+            noisy = page.evaluate('''() => ({
+              total: state.points.filter(p => p.time > 6.8).length,
+              voiced: state.points.filter(p => p.time > 6.8 && p.hz !== null).length,
+              nearTarget: state.points.filter(p => p.time > 6.8 && p.hz > 205 && p.hz < 235).length,
+              frequencies: state.points.filter(p => p.time > 6.8 && p.hz !== null).map(p => p.hz)
+            })''')
+            (root / 'noisy.json').write_text(json.dumps(noisy, indent=2))
+            assert noisy['nearTarget'] >= 3, noisy
+            page.evaluate('audio.currentTime = 12.2')
+            page.wait_for_function('state.points.length > 2 && state.points.every(p => p.time > 12)')
+            page.wait_for_function(
+                'state.points.filter(p => p.time > 12 && p.hz > 205 && p.hz < 235).length >= 3'
+            )
+            quiet = page.evaluate('''() => ({
+              total: state.points.filter(p => p.time > 12).length,
+              voiced: state.points.filter(p => p.time > 12 && p.hz !== null).length,
+              nearTarget: state.points.filter(p => p.time > 12 && p.hz > 205 && p.hz < 235).length,
+              frequencies: state.points.filter(p => p.time > 12 && p.hz !== null).map(p => p.hz)
+            })''')
+            (root / 'quiet.json').write_text(json.dumps(quiet, indent=2))
+            assert quiet['nearTarget'] >= 3, quiet
+            page.evaluate('audio.pause()')
+            page.wait_for_timeout(120)
+            count_before = page.evaluate('state.points.length')
+            page.wait_for_timeout(120)
+            assert page.evaluate('state.points.length') == count_before, 'analysis continued while paused'
+            page.evaluate('controller.dispose()')
+            assert page.evaluate('contextCloses === 1 && routes[0].size === 0')
+            assert not errors, errors
+            print(json.dumps({'browser': args.browser, 'transport': 'HTTP modules', 'passed': ['no eager worker', 'worker handshake/loading', 'real SwiftF0 220Hz contour', 'off keeps playback', 'reuse audio capture', 'hide keeps route', 'seek drops stale trace', 'broadband-noise 220Hz contour', 'quiet 220Hz contour', 'pause stops samples', 'dispose closes context'], 'pageErrors': errors}))
+        finally:
+            try:
+                if context is not None:
+                    context.close()
+            finally:
+                browser.close()
 finally:
     server.shutdown()
+    server.server_close()

@@ -11,7 +11,7 @@ import { CaretLeft } from '@phosphor-icons/react';
 import { handleRouteBack } from '../shared-ui/route-back-click.web';
 import { navigationReturnPath } from '../shared-ui/navigation-context';
 import { readNavigationArrival } from '../runtime/navigation';
-import { useReaderController } from '../reader-react/controller';
+import { readerTick, useReaderController } from '../reader-react/controller';
 import {
   Dom,
   Head,
@@ -55,6 +55,7 @@ export function Workspace(props: WorkspaceProps & ReaderViewProps) {
     );
     return navigationReturnPath(current, readNavigationArrival(current)?.from, base);
   });
+  const selectionModeButton = React.useRef<HTMLButtonElement | null>(null);
   const latest = useLatest(props);
   const c = useReaderController(
     () =>
@@ -65,6 +66,28 @@ export function Workspace(props: WorkspaceProps & ReaderViewProps) {
   );
   useReaderBindings(c, props);
   if (!c) return null;
+  async function exitSelectionMode() {
+    const focusAtExit = document.activeElement;
+    c.selecting = false;
+    c.selected = new Set();
+    await readerTick();
+    const button = selectionModeButton.current;
+    if (c.controller.disposed || c.selecting || !button?.isConnected || button.disabled) return;
+    if (document.activeElement !== focusAtExit && document.activeElement !== document.body &&
+        document.activeElement !== button) return;
+    button.focus({ preventScroll: true });
+    button.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+  function selectionEscape(event: KeyboardEvent) {
+    if (!c.selecting || event.key !== 'Escape' || event.isComposing || event.shiftKey || event.altKey ||
+        event.ctrlKey || event.metaKey || event.defaultPrevented) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement) ||
+        (target !== selectionModeButton.current && !target.closest('.batch, .snippet-shelf'))) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void exitSelectionMode();
+  }
   return (
     <ReaderScope name="react-snippets-workspace">
       <Head>
@@ -77,6 +100,7 @@ export function Workspace(props: WorkspaceProps & ReaderViewProps) {
         scopeClass="snippet-scope-workspace"
         as="div"
         className={['snippet-workspace'].filter(Boolean).join(' ')}
+        events={{ keydown: selectionEscape }}
       >
         <Dom
           scopeClass="snippet-scope-workspace"
@@ -1014,8 +1038,10 @@ export function Workspace(props: WorkspaceProps & ReaderViewProps) {
                     <Button
                       variant={'ghost'}
                       disabled={c.busy}
+                      bindings={{ ref: (value: HTMLButtonElement | null) => { selectionModeButton.current = value; } }}
                       onClick={() => {
-                        c.selecting = !c.selecting;
+                        if (c.selecting) { void exitSelectionMode(); return; }
+                        c.selecting = true;
                         c.selected = new Set();
                       }}
                     >
@@ -1074,7 +1100,7 @@ export function Workspace(props: WorkspaceProps & ReaderViewProps) {
                         aria-label={'Selected snippet actions'}
                         className={['batch'].filter(Boolean).join(' ')}
                       >
-                        <Dom scopeClass="snippet-scope-workspace" as="strong">
+                        <Dom scopeClass="snippet-scope-workspace" as="strong" role="status" aria-live="polite" aria-atomic="true">
                           {c.selected.size}
                           {' selected'}
                         </Dom>

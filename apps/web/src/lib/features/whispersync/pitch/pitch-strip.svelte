@@ -17,7 +17,9 @@
       : state.status === 'error'
         ? 'Visualization unavailable'
         : state.activity === 'playing'
-          ? 'Live · last 8 seconds'
+          ? state.speechActive
+            ? 'Live · last 8 seconds'
+            : 'Waiting for dialogue'
           : state.activity === 'buffering'
             ? 'Waiting for audio'
             : state.activity === 'ended'
@@ -91,7 +93,9 @@
                 {!available
                   ? 'Choose an audio file to see pitch'
                   : state.activity === 'playing'
-                    ? 'Listening for the voice…'
+                    ? state.speechActive
+                      ? 'Listening for the voice…'
+                      : 'Waiting for dialogue…'
                     : state.activity === 'buffering'
                       ? 'Waiting for audio…'
                       : 'Press Play to follow the voice'}
@@ -106,10 +110,12 @@
       <details>
         <summary>About this view</summary>
         <p>
-          Yellow follows the voice’s estimated pitch; the shaded waveform shows its volume. Pausing
-          holds the trace. Seeking starts a new one. Gaps can mean silence, unvoiced speech, or a
-          pitch outside 85–520 Hz. This is a listening aid, not a pitch-accent score. Audio stays on
-          your device.
+          Yellow follows the dialogue’s estimated pitch; the shaded waveform shows the mixed audio
+          level. Pausing holds the trace. Seeking starts a new one. Gaps can mean silence, unvoiced
+          speech, or a pitch outside 85–520 Hz. Analysis pauses between timed subtitle cues so
+          background sound is less likely to be mistaken for dialogue. Simultaneous music or another
+          speaker can still affect the estimate. This is a listening aid, not a pitch-accent score.
+          Audio stays on your device.
         </p>
       </details>
     {/if}

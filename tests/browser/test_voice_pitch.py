@@ -60,7 +60,11 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
     @classmethod
     def setUpClass(cls):
         OUTPUT.mkdir(parents=True, exist_ok=True)
+        cls.browser = None
+        cls.playwright = None
+        cls.thread = None
         cls.server = ThreadingHTTPServer(('127.0.0.1', 0), PitchHandler)
+        cls.addClassCleanup(cls._close_resources)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.origin = f'http://127.0.0.1:{cls.server.server_port}'
@@ -70,6 +74,27 @@ class VoicePitchBrowser(existing.WhispersyncBrowser):
             launch['executable_path'] = existing.BROWSER_OPTIONS.executable
         cls.browser = getattr(cls.playwright, existing.BROWSER_OPTIONS.browser).launch(**launch_options((getattr(cls.playwright, existing.BROWSER_OPTIONS.browser)).name, **launch))
         cls.wav = voice_fixture()
+
+    @classmethod
+    def _close_resources(cls):
+        try:
+            if cls.browser is not None:
+                cls.browser.close()
+        finally:
+            try:
+                if cls.playwright is not None:
+                    cls.playwright.stop()
+            finally:
+                if cls.thread is not None and cls.thread.is_alive():
+                    cls.server.shutdown()
+                cls.server.server_close()
+                if cls.thread is not None:
+                    cls.thread.join()
+
+    @classmethod
+    def tearDownClass(cls):
+        # unittest runs registered class cleanups after success or setup failure.
+        pass
 
     def setUp(self):
         super().setUp()
