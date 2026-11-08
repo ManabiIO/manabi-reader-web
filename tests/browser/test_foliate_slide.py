@@ -448,6 +448,39 @@ class FoliateSlide(ReaderBrowser):
         }}""")
         self.assertEqual(result, {'navigated': False, 'invalid': [False, False], 'unchanged': True, 'recovered': True, 'errors': 1})
 
+    def test_page_progression_direction_restores_authored_styles_after_layout_changes(self):
+        self.open_numbered_book()
+        result = self.page.evaluate("""() => {
+          const p = """ + P + """, doc = p.getContents()[0].doc;
+          p.bookDir = 'ltr';
+          p.render();
+          doc.documentElement.style.setProperty('direction', 'ltr', 'important');
+          doc.body.style.setProperty('direction', 'ltr');
+          const styles = () => [doc.documentElement, doc.body].map(element => ({
+            value: element.style.getPropertyValue('direction'),
+            priority: element.style.getPropertyPriority('direction')
+          }));
+          const authored = styles();
+          p.bookDir = 'rtl';
+          p.render();
+          const separated = styles();
+          p.setAttribute('flow', 'scrolled');
+          p.render();
+          const scrolled = styles();
+          p.removeAttribute('flow');
+          p.render();
+          p.bookDir = 'ltr';
+          p.render();
+          return { authored, separated, scrolled, aligned: styles(),
+            sameDocument: p.getContents()[0].doc === doc };
+        }""")
+        self.assertTrue(result['sameDocument'])
+        self.assertEqual(result['separated'][0], {'value': 'rtl', 'priority': 'important'})
+        self.assertEqual(result['separated'][1], {'value': 'ltr', 'priority': 'important'})
+        self.assertEqual(result['scrolled'], result['authored'])
+        self.assertEqual(result['aligned'], result['authored'])
+        self.assertEqual([], self.errors)
+
     def test_missing_section_source_fails_without_moving_visible_reader(self):
         self.open_numbered_book()
         result = self.page.evaluate(f"""async () => {{
