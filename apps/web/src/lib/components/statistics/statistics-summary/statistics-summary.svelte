@@ -256,8 +256,8 @@
             Math.ceil(
               (getFullHeight(window, statisticsSummaryTableContainerElm) -
                 getFullHeight(window, statisticsSummaryButtonContainer, true)) /
-                convertRemToPixels(window, statisticsSummaryBaseRowRem + 0.4) +
-                statisticsSummaryRowGapPx
+                (convertRemToPixels(window, statisticsSummaryBaseRowRem + 0.4) +
+                  statisticsSummaryRowGapPx)
             )
           )
         : 1;
