@@ -2,6 +2,7 @@
 // See LICENSE.foliate-js.txt in this directory.
 import { slideGeometry } from './slide-geometry.ts'
 import { PageCountCache, pageNumber, pageNumberLabel } from './page-counts.ts'
+import { paginatedPageRtl } from './page-direction.ts'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -192,10 +193,19 @@ const setSelectionTo = (target, collapse) => {
 
 const getDirection = doc => {
     const { defaultView } = doc
-    const { writingMode, direction } = defaultView.getComputedStyle(doc.body)
+    const bodyStyle = defaultView.getComputedStyle(doc.body)
+    const { writingMode } = bodyStyle
     const vertical = writingMode === 'vertical-rl'
         || writingMode === 'vertical-lr'
-    const rtl = doc.body.dir === 'rtl'
+    // The reader owns the writing axis on the synthetic iframe body, while
+    // publisher html/body direction is scoped to the preserved EPUB wrappers.
+    // Read horizontal bidi semantics from that content root so pagination can
+    // keep text direction separate from explicit page progression.
+    const contentRoot = !vertical
+        ? doc.querySelector('.ttu-book-body-wrapper') ?? doc.body
+        : doc.body
+    const direction = defaultView.getComputedStyle(contentRoot).direction
+    const rtl = contentRoot.getAttribute?.('dir')?.trim?.().toLowerCase?.() === 'rtl'
         || direction === 'rtl'
         || doc.documentElement.dir === 'rtl'
     return { vertical, rtl }
@@ -797,12 +807,12 @@ export class Paginator extends HTMLElement {
         cancelAnimationFrame(this.#resizeFrame)
         this.#resizeFrame = 0
         const flow = this.getAttribute('flow')
-        const pageRtl =
-            flow !== 'scrolled' && !vertical && this.bookDir === 'rtl'
-                ? true
-                : flow !== 'scrolled' && !vertical && this.bookDir === 'ltr'
-                  ? false
-                  : rtl
+        const pageRtl = paginatedPageRtl({
+            flow,
+            vertical,
+            bookDirection: this.bookDir,
+            contentRtl: rtl,
+        })
         this.#vertical = vertical
         this.#contentRtl = rtl
         this.#rtl = pageRtl
