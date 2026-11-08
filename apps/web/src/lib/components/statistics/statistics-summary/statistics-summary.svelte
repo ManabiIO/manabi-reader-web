@@ -53,12 +53,15 @@
   }>();
 
   const statisticsSummaryBaseRowRem = 3;
-  const statisticsSummaryBaseRowGap = 1.5;
+  const statisticsSummaryRowGapPx = 24;
 
   let renderFullStatisticsSummaryTable = window && window.matchMedia('(min-width: 768px)').matches;
   let statisticsSummaryTableContainerElm: HTMLElement;
   let statisticsSummaryPopover: Popover;
+  let statisticsSummaryDetailsClose: HTMLButtonElement | null = null;
   let statisticsSummaryButtonContainer: HTMLElement;
+  let previousSummaryPage: HTMLButtonElement | null = null;
+  let nextSummaryPage: HTMLButtonElement | null = null;
   let statisticsData: BookStatistic[] = [];
   let currentStatisticsSummaryRows: BookStatistic[] = [];
   let statisticsSummaryGridRowMod = 0;
@@ -142,6 +145,49 @@
     updateTableData();
   }
 
+  function metricAccessibleLabel(dataKey: string, label: string, value: string) {
+    return $lastBlurredTrackerItems$.has(dataKey)
+      ? `${label}: value hidden. Activate to show.`
+      : `${label}: ${value}. Activate for details.`;
+  }
+
+  async function openDetails(anchor: HTMLElement, details: string[]) {
+    statisticsSummaryPopoverDetails = details;
+    await tick();
+    statisticsSummaryPopover?.openAt(anchor);
+    await tick();
+    statisticsSummaryDetailsClose?.focus({ preventScroll: true });
+  }
+
+  function openMetricDetails(
+    dataKey: string,
+    anchor: HTMLElement,
+    details: string[]
+  ) {
+    if ($lastBlurredTrackerItems$.has(dataKey)) {
+      $lastBlurredTrackerItems$.delete(dataKey);
+      $lastBlurredTrackerItems$ = new Set([...$lastBlurredTrackerItems$]);
+      return;
+    }
+    void openDetails(anchor, details);
+  }
+
+  async function pageSummary(delta: -1 | 1) {
+    setRowInEditMode();
+    currentStatisticsSummaryPage = limitToRange(
+      1,
+      statisticsSummaryMaxPages,
+      currentStatisticsSummaryPage + delta
+    );
+    await tick();
+
+    if (delta > 0 && nextSummaryPage?.disabled) {
+      previousSummaryPage?.focus({ preventScroll: true });
+    } else if (delta < 0 && previousSummaryPage?.disabled) {
+      nextSummaryPage?.focus({ preventScroll: true });
+    }
+  }
+
   function dispatchDeleteRequest(row: BookStatistic) {
     const request: StatisticsDeleteRequest = {
       startDate: '',
@@ -210,10 +256,8 @@
             Math.ceil(
               (getFullHeight(window, statisticsSummaryTableContainerElm) -
                 getFullHeight(window, statisticsSummaryButtonContainer, true)) /
-                convertRemToPixels(
-                  window,
-                  statisticsSummaryBaseRowRem + statisticsSummaryBaseRowGap + 0.4
-                )
+                convertRemToPixels(window, statisticsSummaryBaseRowRem + 0.4) +
+                statisticsSummaryRowGapPx
             )
           )
         : 1;
@@ -337,7 +381,8 @@
   Data for {statisticsDateRangeLabel}
 </div>
 <div
-  class="grow p-2 overflow-auto"
+  data-statistics-summary-scroll
+  class="grow overflow-auto p-[8px]"
   class:flex={!statisticsData.length}
   class:justify-center={!statisticsData.length}
   class:items-center={!statisticsData.length}
@@ -352,7 +397,8 @@
     {@const isTitleAggregation =
       $lastPrimaryReadingDataAggregationMode$ === StatisticsReadingDataAggregationMode.TITLE}
     <div
-      class="grid grid-cols-[0.75fr_1fr] gap-x-8 items-center"
+      data-statistics-summary-grid
+      class="grid grid-cols-[0.75fr_1fr] gap-x-[32px] items-center"
       class:md:grid-cols-[0.31fr_0.6fr_0.77fr_0.74fr_0.6fr_0.57fr]={isNoneAggregation}
       class:lg:grid-cols-[0.14fr_0.26fr_0.85fr_repeat(2,_0.59fr)_0.45fr]={isNoneAggregation}
       class:md:grid-cols-[0.1fr_0.6fr_1fr_1.1fr_0.85fr]={isDateAggregation}
@@ -360,7 +406,7 @@
       class:md:grid-cols-[0.1fr_1fr_repeat(3,_0.45fr)]={isTitleAggregation}
       class:lg:grid-cols-[0.1fr_0.93fr_0.35fr_0.42fr_0.3fr]={isTitleAggregation}
       style:grid-auto-rows={`${statisticsSummaryBaseRowRem}rem`}
-      style:row-gap={`${statisticsSummaryBaseRowGap}rem`}
+      style:row-gap={`${statisticsSummaryRowGapPx}px`}
     >
       {#if renderFullStatisticsSummaryTable}
         <div></div>
@@ -418,8 +464,9 @@
         <div class="col-span-2 md:col-span-1">
           <Button
             variant={currentRowInEdit ? 'ghost' : 'destructive'}
-            size="icon-sm"
+            size="icon"
             shape="circle"
+            class="size-[44px]"
             aria-label={currentRowInEdit
               ? 'Cancel edit'
               : `Delete row ${currentStatisticsSummaryRow.title}`}
@@ -438,9 +485,9 @@
           {#if isNoneAggregation}
             <Button
               variant={currentRowInEdit ? 'secondary' : 'ghost'}
-              size="icon-sm"
+              size="icon"
               shape="circle"
-              class="ml-1"
+              class="ml-1 size-[44px]"
               aria-label={currentRowInEdit
                 ? 'Save changes'
                 : `Edit row ${currentStatisticsSummaryRow.title}`}
@@ -471,24 +518,18 @@
         </div>
         <button
           type="button"
-          class="line-clamp-2"
+          class="line-clamp-2 min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
           class:hidden={isDateAggregation}
+          aria-label={`View details for ${currentStatisticsSummaryRow.title}`}
           title={currentStatisticsSummaryRow.title}
-          on:click={(event) => {
-            statisticsSummaryPopoverDetails = [currentStatisticsSummaryRow.title];
-
-            tick().then(() => {
-              if (event.target instanceof HTMLElement) {
-                statisticsSummaryPopover.toggleOpen(event.target);
-              }
-            });
-          }}
+          on:click={(event) =>
+            void openDetails(event.currentTarget, [currentStatisticsSummaryRow.title])}
         >
           {currentStatisticsSummaryRow.title}
         </button>
         {#if currentRowInEdit}
           <input
-            class="w-full"
+            class="min-h-[44px] w-full rounded-lg border border-input bg-background px-2"
             type="number"
             bind:value={rowInEditTime}
             on:change={() => {
@@ -498,35 +539,30 @@
             }}
           />
         {:else}
+          {@const readingTimeValue = `${secondsToMinutes(
+            getNumberFromObject(currentStatisticsSummaryRow, $lastReadingTimeDataSource$)
+          )} min`}
           <button
-            class="text-left"
-            class:blur={$lastBlurredTrackerItems$.has('readingTime')}
-            on:click={(event) => {
-              statisticsSummaryPopoverDetails = [
+            type="button"
+            data-summary-metric="readingTime"
+            class="min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
+            aria-pressed={$lastBlurredTrackerItems$.has('readingTime')}
+            aria-label={metricAccessibleLabel('readingTime', 'Reading time', readingTimeValue)}
+            on:click={(event) =>
+              openMetricDetails('readingTime', event.currentTarget, [
                 `Time: ${secondsToMinutes(currentStatisticsSummaryRow.readingTime)} min`,
-                `Average Time: ${secondsToMinutes(
-                  currentStatisticsSummaryRow.averageReadingTime
-                )} min`,
+                `Average Time: ${secondsToMinutes(currentStatisticsSummaryRow.averageReadingTime)} min`,
                 `Weighted Time: ${secondsToMinutes(
                   currentStatisticsSummaryRow.averageWeightedReadingTime
                 )} min`
-              ];
-
-              tick().then(() => {
-                if (event.target instanceof HTMLElement) {
-                  statisticsSummaryPopover.toggleOpen(event.target);
-                }
-              });
-            }}
+              ])}
           >
-            {secondsToMinutes(
-              getNumberFromObject(currentStatisticsSummaryRow, $lastReadingTimeDataSource$)
-            )} min
+            <span class:blur={$lastBlurredTrackerItems$.has('readingTime')} aria-hidden={$lastBlurredTrackerItems$.has('readingTime')}>{readingTimeValue}</span>
           </button>
         {/if}
         {#if currentRowInEdit}
           <input
-            class="w-full"
+            class="min-h-[44px] w-full rounded-lg border border-input bg-background px-2"
             type="number"
             bind:value={rowInEditCharacters}
             on:change={() => {
@@ -536,51 +572,52 @@
             }}
           />
         {:else}
+          {@const charactersValue = String(
+            getNumberFromObject(currentStatisticsSummaryRow, $lastCharactersDataSource$)
+          )}
           <button
-            class="text-left"
-            class:blur={$lastBlurredTrackerItems$.has('charactersRead')}
-            on:click={(event) => {
-              statisticsSummaryPopoverDetails = [
+            type="button"
+            data-summary-metric="charactersRead"
+            class="min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
+            aria-pressed={$lastBlurredTrackerItems$.has('charactersRead')}
+            aria-label={metricAccessibleLabel('charactersRead', 'Characters', charactersValue)}
+            on:click={(event) =>
+              openMetricDetails('charactersRead', event.currentTarget, [
                 `Characters: ${currentStatisticsSummaryRow.charactersRead}`,
                 `Average Characters: ${currentStatisticsSummaryRow.averageCharactersRead}`,
                 `Weighted Characters: ${currentStatisticsSummaryRow.averageWeightedCharactersRead}`
-              ];
-
-              tick().then(() => {
-                if (event.target instanceof HTMLElement) {
-                  statisticsSummaryPopover.toggleOpen(event.target);
-                }
-              });
-            }}
+              ])}
           >
-            {getNumberFromObject(currentStatisticsSummaryRow, $lastCharactersDataSource$)}
+            <span class:blur={$lastBlurredTrackerItems$.has('charactersRead')} aria-hidden={$lastBlurredTrackerItems$.has('charactersRead')}
+              >{charactersValue}</span
+            >
           </button>
         {/if}
         {#if currentRowInEdit}
-          <div class="flex items-center">
-            <input id="reset-min-max" type="checkbox" bind:checked={rowInEditResetMinMaxValues} />
-            <label for="reset-min-max" class="ml-1">Reset Min/Max</label>
-          </div>
+          <label class="flex min-h-[44px] items-center gap-2 rounded-lg px-2">
+            <input class="size-5" type="checkbox" bind:checked={rowInEditResetMinMaxValues} />
+            <span>Reset Min/Max</span>
+          </label>
         {:else}
+          {@const speedValue = `${getNumberFromObject(
+            currentStatisticsSummaryRow,
+            $lastReadingSpeedDataSource$
+          )} / h`}
           <button
-            class="text-left"
-            class:blur={$lastBlurredTrackerItems$.has('lastReadingSpeed')}
-            on:click={(event) => {
-              statisticsSummaryPopoverDetails = [
+            type="button"
+            data-summary-metric="lastReadingSpeed"
+            class="min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
+            aria-pressed={$lastBlurredTrackerItems$.has('lastReadingSpeed')}
+            aria-label={metricAccessibleLabel('lastReadingSpeed', 'Reading speed', speedValue)}
+            on:click={(event) =>
+              openMetricDetails('lastReadingSpeed', event.currentTarget, [
                 `Speed: ${currentStatisticsSummaryRow.lastReadingSpeed}`,
                 `Min Speed: ${currentStatisticsSummaryRow.minReadingSpeed}`,
                 `Alt Min Speed: ${currentStatisticsSummaryRow.altMinReadingSpeed}`,
                 `Max Speed: ${currentStatisticsSummaryRow.maxReadingSpeed}`
-              ];
-
-              tick().then(() => {
-                if (event.target instanceof HTMLElement) {
-                  statisticsSummaryPopover.toggleOpen(event.target);
-                }
-              });
-            }}
+              ])}
           >
-            {getNumberFromObject(currentStatisticsSummaryRow, $lastReadingSpeedDataSource$)} / h
+            <span class:blur={$lastBlurredTrackerItems$.has('lastReadingSpeed')} aria-hidden={$lastBlurredTrackerItems$.has('lastReadingSpeed')}>{speedValue}</span>
           </button>
         {/if}
       {/each}
@@ -591,14 +628,22 @@
         yOffset={5}
         containerStyles={`align-self:flex-start;display:${isDateAggregation ? 'none' : 'flex'}`}
         bind:this={statisticsSummaryPopover}
+        dialog
+        label="Statistic details"
+        restoreAnchorFocus
       >
-        <div slot="content" class="p-4">
-          <button
-            class="flex w-full justify-end absolute top-1 right-2"
-            on:click={() => (statisticsSummaryPopoverDetails = [])}
+        <div slot="content" class="relative min-w-48 p-4 pr-14">
+          <Button
+            bind:ref={statisticsSummaryDetailsClose}
+            variant="ghost"
+            size="icon"
+            shape="circle"
+            class="absolute top-2 right-2 size-[44px]"
+            aria-label="Close statistic details"
+            onclick={() => statisticsSummaryPopover.close(true)}
           >
             <AppIcon icon={faClose} />
-          </button>
+          </Button>
           {#each statisticsSummaryPopoverDetails as popoverDetail (popoverDetail)}
             <div class="mb-2 last:mb-0">{popoverDetail}</div>
           {/each}
@@ -610,23 +655,25 @@
   {/if}
 </div>
 <div
-  class="my-6 flex justify-between"
+  class="my-[24px] flex items-center justify-between gap-[8px]"
   class:invisible={statisticsSummaryMaxPages < 2}
   bind:this={statisticsSummaryButtonContainer}
 >
-  <button
+  <Button
+    bind:ref={previousSummaryPage}
+    variant="ghost"
+    size="icon"
+    shape="circle"
+    class="size-[44px]"
+    aria-label="Previous statistics page"
     disabled={currentStatisticsSummaryPage === 1}
-    class:opacity-25={currentStatisticsSummaryPage === 1}
-    class:cursor-not-allowed={currentStatisticsSummaryPage === 1}
-    on:click={() => {
-      setRowInEditMode();
-      currentStatisticsSummaryPage -= 1;
-    }}
+    onclick={() => void pageSummary(-1)}
   >
     <AppIcon icon={faChevronLeft} />
-  </button>
+  </Button>
   <Popover
     yOffset={5}
+    innerContainerStyles={'min-height:44px;padding-inline:12px;'}
     on:open={() => {
       const currentPageElement = statisticsSummaryPageRefs[currentStatisticsSummaryPage];
 
@@ -640,23 +687,23 @@
       statisticsSummaryPagesContainer.scrollTo(0, middle);
     }}
   >
-    <div class="mx-6">{statisticsSummaryPageLabel}</div>
+    <span class="tabular-nums">{statisticsSummaryPageLabel}</span>
     <div
       slot="content"
-      class="max-h-32 w-32 p-2 flex flex-col overflow-auto"
+      class="flex max-h-48 w-32 flex-col overflow-auto p-2"
       bind:this={statisticsSummaryPagesContainer}
     >
       {#each statisticsSummaryPages as statisticsSummaryPage, pageIndex (statisticsSummaryPage)}
         <button
-          class="hover:opacity-50 hover:bg-accent hover:text-foreground"
+          class="min-h-[44px] rounded-lg px-3 py-2 text-center hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
           class:bg-accent={statisticsSummaryPage === currentStatisticsSummaryPage}
           class:text-foreground={statisticsSummaryPage === currentStatisticsSummaryPage}
+          aria-current={statisticsSummaryPage === currentStatisticsSummaryPage ? 'page' : undefined}
           bind:this={statisticsSummaryPageRefs[pageIndex + 1]}
-          on:click={({ target }) => {
+          on:click={({ currentTarget }) => {
             setRowInEditMode();
-
             currentStatisticsSummaryPage = statisticsSummaryPage;
-            target?.dispatchEvent(new CustomEvent(CLOSE_POPOVER, { bubbles: true }));
+            currentTarget.dispatchEvent(new CustomEvent(CLOSE_POPOVER, { bubbles: true }));
           }}
         >
           {statisticsSummaryPage}
@@ -664,15 +711,17 @@
       {/each}
     </div>
   </Popover>
-  <button
+  <span class="sr-only" role="status" aria-live="polite">{statisticsSummaryPageLabel}</span>
+  <Button
+    bind:ref={nextSummaryPage}
+    variant="ghost"
+    size="icon"
+    shape="circle"
+    class="size-[44px]"
+    aria-label="Next statistics page"
     disabled={currentStatisticsSummaryPage === statisticsSummaryMaxPages}
-    class:opacity-25={currentStatisticsSummaryPage === statisticsSummaryMaxPages}
-    class:cursor-not-allowed={currentStatisticsSummaryPage === statisticsSummaryMaxPages}
-    on:click={() => {
-      setRowInEditMode();
-      currentStatisticsSummaryPage += 1;
-    }}
+    onclick={() => void pageSummary(1)}
   >
     <AppIcon icon={faChevronRight} />
-  </button>
+  </Button>
 </div>

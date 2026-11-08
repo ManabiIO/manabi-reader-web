@@ -2,6 +2,7 @@
   import faArrowDownWideShort from '@lucide/svelte/icons/arrow-down-wide-narrow';
   import faArrowUpShortWide from '@lucide/svelte/icons/arrow-up-narrow-wide';
   import Popover from '$lib/components/popover/popover.svelte';
+  import { Button } from '$lib/components/ui/button';
   import type {
     StatisticsDataSourceChange,
     StatisticsSummaryKey
@@ -31,7 +32,7 @@
   }>();
 
   const tableHeaderClasses =
-    'flex items-center py-2.5 px-0 text-sm w-full bg-transparent border-0 md:border-b-2 border-border appearance-none focus:outline-none focus:ring-0 focus:border-border peer lg:text-base';
+    'flex items-center py-0 px-0 text-sm w-full bg-transparent border-0 md:border-b-2 border-border appearance-none focus:outline-none focus:ring-0 focus:border-border peer lg:text-base';
 
   let summaryHeaderPopover: Popover;
 
@@ -49,15 +50,16 @@
     <Popover
       placement={'bottom-start'}
       fallbackPlacements={['top']}
-      innerContainerStyles={'width: 100%'}
+      innerContainerStyles={'width:100%;min-height:44px;padding:0 8px;'}
       containerStyles={'flex: 1;'}
       bind:this={summaryHeaderPopover}
     >
       <div {title}>{selectedOption.label}</div>
-      <div slot="content" class="flex flex-col overflow-auto w-46 p-2">
+      <div slot="content" class="flex w-[min(11.5rem,calc(100vw-32px))] flex-col overflow-auto p-[8px]">
         {#each options as option (option.key)}
           <button
-            class="flex flex-1 my-2 hover:opacity-50 hover:bg-accent hover:text-foreground"
+            type="button"
+            class="my-1 flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
             on:click|stopPropagation={() => {
               selectedOption = option;
               dispatch('propertyChange', { property: option.key, statisticsSummaryKey });
@@ -71,7 +73,8 @@
     </Popover>
   {:else}
     <button
-      class="flex flex-1 text-left"
+      type="button"
+      class="flex min-h-[44px] flex-1 items-center rounded-lg px-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
       class:cursor-not-allowed={hasRowInEdit}
       disabled={hasRowInEdit}
       {title}
@@ -82,14 +85,17 @@
       {selectedOption.label}
     </button>
   {/if}
-  <button
-    title="Click to select/sort by this Attribute"
+  <Button
+    variant="ghost"
+    size="icon"
+    shape="circle"
+    class={`ml-[4px] size-[44px] ${
+      !optionKeys.has($lastStatisticsSummarySortProperty$) ? 'opacity-20' : ''
+    }`}
     aria-label={`Sort by ${selectedOption.label}`}
-    class="ml-4"
-    class:opacity-20={!optionKeys.has($lastStatisticsSummarySortProperty$)}
-    class:cursor-not-allowed={hasRowInEdit}
+    title="Sort by this attribute"
     disabled={hasRowInEdit}
-    on:click={() =>
+    onclick={() =>
       dispatch('propertyChange', { property: selectedOption.key, statisticsSummaryKey })}
   >
     {#if $lastStatisticsSummarySortDirection$ === SortDirection.ASC}
@@ -97,5 +103,5 @@
     {:else}
       <AppIcon icon={faArrowDownWideShort} />
     {/if}
-  </button>
+  </Button>
 </div>
