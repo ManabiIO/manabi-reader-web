@@ -124,7 +124,7 @@ async function workerFixture({ fail = false, deferred = false } = {}) {
         export function prepareSwiftF0(base) { globalThis.prepares.push(base); return ${fail ? 'Promise.reject(new Error("model load failed"))' : 'Promise.resolve({})'}; }
         export async function analyseSwiftF0Window() {
           globalThis.analyses++;
-          ${deferred ? 'return new Promise((resolve, reject) => globalThis.pending.push({ resolve, reject }));' : 'return { hz: 220, rms: 1 };'}
+          ${deferred ? 'return new Promise((resolve, reject) => globalThis.pending.push({ resolve, reject }));' : 'return [{ hz: 220, rms: 1 }];'}
         }
       `
           }));
@@ -147,7 +147,14 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 test('pitch worker waits for init, ignores duplicate init and only analyses after readiness', async () => {
   const worker = await workerFixture();
-  const analyse = { type: 'analyze', samples: new Float32Array([1]), rate: 16000, epoch: 1, id: 7 };
+  const analyse = {
+    type: 'analyze',
+    samples: new Float32Array([1]),
+    rate: 16000,
+    epoch: 1,
+    phrase: 1,
+    id: 7
+  };
   worker.send(analyse);
   await flush();
   assert.equal(worker.context.prepares.length, 0);
@@ -165,6 +172,8 @@ test('pitch worker waits for init, ignores duplicate init and only analyses afte
   assert.equal(worker.context.analyses, 1);
   assert.equal(worker.messages[1].type, 'result');
   assert.equal(worker.messages[1].id, 7);
+  assert.equal(worker.messages[1].results.length, 1);
+  assert.equal(worker.messages[1].results[0].hz, 220);
 });
 
 // Authored only: execute with the later authorized Expo qualification batch.
@@ -177,6 +186,7 @@ test('the actual worker serializes epochs and retirement suppresses late success
       type: 'analyze',
       id,
       epoch,
+      phrase: epoch,
       rate: 16000,
       samples: new Float32Array(8800)
     });
@@ -189,18 +199,22 @@ test('the actual worker serializes epochs and retirement suppresses late success
     worker.send({ type: 'retire', epoch: 0 });
     const first = worker.context.pending.shift();
     if (reject) first.reject(new Error('retired run failed'));
-    else first.resolve({ hz: 220, rms: 1 });
+    else first.resolve([{ hz: 220, rms: 1 }]);
     await flush();
     assert.equal(worker.messages.length, 1, 'only the initial readiness can be published');
     assert.equal(worker.context.analyses, 1, 'queued retired epoch must not run');
     worker.send(request(3, 3));
     await flush();
     assert.equal(worker.context.analyses, 2);
-    worker.context.pending.shift().resolve({ hz: 220, rms: 0.001 });
+    worker.context.pending.shift().resolve([{ hz: 220, rms: 0.001 }]);
     await flush();
     assert.equal(worker.messages.at(-1).id, 3);
     assert.equal(worker.messages.at(-1).epoch, 3);
-    assert.equal(worker.messages.at(-1).result.hz, 220, 'retired loudness cannot mute a new epoch');
+    assert.equal(
+      worker.messages.at(-1).results[0].hz,
+      220,
+      'retired loudness cannot mute a new epoch'
+    );
   }
 });
 

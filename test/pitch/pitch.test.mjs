@@ -1558,6 +1558,16 @@ test('retirement without a replacement request suppresses running and queued wor
 });
 
 test('SwiftF0 worker queue never re-admits an older epoch', async () => {
+  const started = [];
+  const queue = new LatestEpochQueue(async (request) => {
+    started.push(request.id);
+  });
+  await queue.submit({ id: 1, epoch: 4 });
+  await queue.submit({ id: 2, epoch: 3 });
+  await queue.submit({ id: 3, epoch: 4 });
+  assert.deepEqual(started, [1, 3]);
+});
+
 for (const rate of [44100, 48000, 88200]) {
   test(`worker duration follows captured samples at ${rate} Hz and mismatched replies still fail`, async () => {
     const f = await running(fixture({ sampleRates: [rate] }));
@@ -1751,8 +1761,14 @@ for (const followingCue of [false, true]) {
       assert.ok(request.samples.slice(last).every((value) => value === 0));
       assert.ok(request.samples.slice(first, last).some((value) => value !== 0));
       const offsetSeconds = 1.08 - origin;
-      f.result(undefined, { hz: 220, amplitude: 0.3, rms: 0.2, confidence: 1,
-        offsetSeconds, windowSeconds: request.samples.length / request.rate });
+      f.result(undefined, {
+        hz: 220,
+        amplitude: 0.3,
+        rms: 0.2,
+        confidence: 1,
+        offsetSeconds,
+        windowSeconds: request.samples.length / request.rate
+      });
       assert.equal(f.state.points.length, 1);
       assert.ok(Math.abs(f.state.points[0].time - 1.08) < 1e-9);
       assert.equal(f.state.points[0].breakBefore, true);
@@ -1761,6 +1777,8 @@ for (const followingCue of [false, true]) {
         f.frame(1200);
         assert.equal(f.workers[0].sent.length, before + 1);
       }
-    } finally { f.controller.dispose(); }
+    } finally {
+      f.controller.dispose();
+    }
   });
 }

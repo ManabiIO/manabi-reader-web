@@ -265,7 +265,7 @@ function annotationHarness(transactionFactory, databaseExtras = {}) {
           })
         }
       },
-      'svelte/store': { get: () => ({ status: 'available' }) },
+      '$lib/state/store': { get: () => ({ status: 'available' }) },
       '$lib/manabi/client': {
         account: {},
         localProfileUser: () => null

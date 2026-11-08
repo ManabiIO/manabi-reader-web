@@ -1,13 +1,24 @@
 /** @license BSD-3-Clause */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import test from 'node:test';
-import {
-  exportMarkdown,
-  importContent,
-  markdownHTML,
-  requiresHTMLMarkdown
-} from '../../apps/web/src/lib/snippets/editor.ts';
+import test, { after } from 'node:test';
+import { JSDOM } from 'jsdom';
+const dom = new JSDOM('<!doctype html><html><body></body></html>');
+const globals = new Map(
+  ['window', 'document'].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)])
+);
+Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
+Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
+after(() => {
+  dom.window.close();
+  for (const [name, descriptor] of globals) {
+    if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+    else delete globalThis[name];
+  }
+});
+const { exportMarkdown, importContent, markdownHTML, requiresHTMLMarkdown } = await import(
+  '../../apps/web/src/lib/snippets/editor.ts'
+);
 import { validateContent } from '../../apps/web/src/lib/snippets/document.ts';
 
 function text(html) {

@@ -66,28 +66,44 @@ export function Workspace(props: WorkspaceProps & ReaderViewProps) {
   );
   useReaderBindings(c, props);
   if (!c) return null;
-  async function exitSelectionMode() {
+  const exitSelectionMode = async () => {
     const focusAtExit = document.activeElement;
     c.selecting = false;
     c.selected = new Set();
     await readerTick();
     const button = selectionModeButton.current;
     if (c.controller.disposed || c.selecting || !button?.isConnected || button.disabled) return;
-    if (document.activeElement !== focusAtExit && document.activeElement !== document.body &&
-        document.activeElement !== button) return;
+    if (
+      document.activeElement !== focusAtExit &&
+      document.activeElement !== document.body &&
+      document.activeElement !== button
+    )
+      return;
     button.focus({ preventScroll: true });
     button.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }
-  function selectionEscape(event: KeyboardEvent) {
-    if (!c.selecting || event.key !== 'Escape' || event.isComposing || event.shiftKey || event.altKey ||
-        event.ctrlKey || event.metaKey || event.defaultPrevented) return;
+  };
+  const selectionEscape = (event: KeyboardEvent) => {
+    if (
+      !c.selecting ||
+      event.key !== 'Escape' ||
+      event.isComposing ||
+      event.shiftKey ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.defaultPrevented
+    )
+      return;
     const target = event.target;
-    if (!(target instanceof HTMLElement) ||
-        (target !== selectionModeButton.current && !target.closest('.batch, .snippet-shelf'))) return;
+    if (
+      !(target instanceof HTMLElement) ||
+      (target !== selectionModeButton.current && !target.closest('.batch, .snippet-shelf'))
+    )
+      return;
     event.preventDefault();
     event.stopPropagation();
     void exitSelectionMode();
-  }
+  };
   return (
     <ReaderScope name="react-snippets-workspace">
       <Head>
@@ -1038,9 +1054,16 @@ export function Workspace(props: WorkspaceProps & ReaderViewProps) {
                     <Button
                       variant={'ghost'}
                       disabled={c.busy}
-                      bindings={{ ref: (value: HTMLButtonElement | null) => { selectionModeButton.current = value; } }}
+                      bindings={{
+                        ref: (value: HTMLButtonElement | null) => {
+                          selectionModeButton.current = value;
+                        }
+                      }}
                       onClick={() => {
-                        if (c.selecting) { void exitSelectionMode(); return; }
+                        if (c.selecting) {
+                          void exitSelectionMode();
+                          return;
+                        }
                         c.selecting = true;
                         c.selected = new Set();
                       }}
@@ -1100,7 +1123,13 @@ export function Workspace(props: WorkspaceProps & ReaderViewProps) {
                         aria-label={'Selected snippet actions'}
                         className={['batch'].filter(Boolean).join(' ')}
                       >
-                        <Dom scopeClass="snippet-scope-workspace" as="strong" role="status" aria-live="polite" aria-atomic="true">
+                        <Dom
+                          scopeClass="snippet-scope-workspace"
+                          as="strong"
+                          role="status"
+                          aria-live="polite"
+                          aria-atomic="true"
+                        >
                           {c.selected.size}
                           {' selected'}
                         </Dom>
