@@ -19,9 +19,15 @@ export function truncateValidText(value: string, maximum: number): string {
   if (!Number.isSafeInteger(maximum) || maximum < 0) throw new Error('Invalid text limit.');
   if (value.length <= maximum) return value;
   let end = maximum;
-  if (end > 0 && end < value.length && value.charCodeAt(end - 1) >= 0xd800 &&
-      value.charCodeAt(end - 1) <= 0xdbff && value.charCodeAt(end) >= 0xdc00 &&
-      value.charCodeAt(end) <= 0xdfff) end--;
+  if (
+    end > 0 &&
+    end < value.length &&
+    value.charCodeAt(end - 1) >= 0xd800 &&
+    value.charCodeAt(end - 1) <= 0xdbff &&
+    value.charCodeAt(end) >= 0xdc00 &&
+    value.charCodeAt(end) <= 0xdfff
+  )
+    end--;
   return value.slice(0, end);
 }
 export const isUUID = (value: unknown): value is string =>
