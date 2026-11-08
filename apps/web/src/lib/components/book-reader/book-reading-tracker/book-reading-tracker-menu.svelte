@@ -464,9 +464,7 @@
                       <span class="sm:sr-only"
                         >{trackingHistoryItem.saved ? 'Saved' : 'Not saved yet'}</span
                       >
-                      <span class="sr-only"
-                        >{trackingHistoryItem.saved ? ' to database' : ''}</span
-                      >
+                      <span class="sr-only">{trackingHistoryItem.saved ? ' to database' : ''}</span>
                     </span>
                   </div>
                 </div>
@@ -526,4 +524,3 @@
     </div>
   {/if}
 </div>
-

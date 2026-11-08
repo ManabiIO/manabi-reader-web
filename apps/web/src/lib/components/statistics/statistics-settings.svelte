@@ -82,137 +82,169 @@
     <Sheet.Description>Choose your date range, measurements, and export format.</Sheet.Description>
   </div>
   <div class="statistics-options-scroll" data-statistics-options-scroll>
-  <fieldset disabled={$statisticsActionInProgress$} class="options-group">
-    <legend>Date range</legend>
-    <div class="fields">
-      <div class="option-field">
-        <label for="datesTemplate">Template</label>
-        <select id="datesTemplate" bind:value={$lastStatisticsRangeTemplate$}>
-          {#each statisticsRangeTemplates as template (template)}
-            <option value={template}>{template}</option>
-          {/each}
-        </select>
+    <fieldset disabled={$statisticsActionInProgress$} class="options-group">
+      <legend>Date range</legend>
+      <div class="fields">
+        <div class="option-field">
+          <label for="datesTemplate">Template</label>
+          <select id="datesTemplate" bind:value={$lastStatisticsRangeTemplate$}>
+            {#each statisticsRangeTemplates as template (template)}
+              <option value={template}>{template}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="option-field">
+          <label for="weekDay">Start of Week</label>
+          <select id="weekDay" bind:value={$lastStartDayOfWeek$}>
+            {#each weekDays as weekDay (weekDay.day)}
+              <option value={weekDay.index}>{weekDay.day}</option>
+            {/each}
+          </select>
+        </div>
+        <div class="option-field">
+          <label for="fromDate">From</label>
+          <input
+            id="fromDate"
+            type="date"
+            value={selectedStatisticsStartDate}
+            on:change={(event) =>
+              dispatch('statisticsDateChange', {
+                isStartDate: true,
+                dateString: event.currentTarget.value
+              })}
+          />
+        </div>
+        <div class="option-field">
+          <label for="toDate">To</label>
+          <input
+            id="toDate"
+            type="date"
+            value={selectedStatisticsEndDate}
+            on:change={(event) =>
+              dispatch('statisticsDateChange', {
+                isStartDate: false,
+                dateString: event.currentTarget.value
+              })}
+          />
+        </div>
       </div>
-      <div class="option-field">
-        <label for="weekDay">Start of Week</label>
-        <select id="weekDay" bind:value={$lastStartDayOfWeek$}>
-          {#each weekDays as weekDay (weekDay.day)}
-            <option value={weekDay.index}>{weekDay.day}</option>
-          {/each}
-        </select>
-      </div>
-      <div class="option-field">
-        <label for="fromDate">From</label>
-        <input
-          id="fromDate"
-          type="date"
-          value={selectedStatisticsStartDate}
-          on:change={(event) =>
-            dispatch('statisticsDateChange', {
-              isStartDate: true,
-              dateString: event.currentTarget.value
-            })}
-        />
-      </div>
-      <div class="option-field">
-        <label for="toDate">To</label>
-        <input
-          id="toDate"
-          type="date"
-          value={selectedStatisticsEndDate}
-          on:change={(event) =>
+      <div class="actions">
+        <Button
+          variant="ghost"
+          aria-label="Set end date to start date"
+          onclick={() =>
             dispatch('statisticsDateChange', {
               isStartDate: false,
-              dateString: event.currentTarget.value
-            })}
+              dateString: selectedStatisticsStartDate
+            })}><AppIcon icon={faRightLong} />Use start date for both</Button
+        >
+        <Button
+          variant="ghost"
+          aria-label="Set start date to end date"
+          onclick={() =>
+            dispatch('statisticsDateChange', {
+              isStartDate: true,
+              dateString: selectedStatisticsEndDate
+            })}><AppIcon icon={faLeftLong} />Use end date for both</Button
+        >
+        <Button variant="ghost" shape="rounded" onclick={() => setStatisticsDatesToAllTime$.next()}
+          >Use all available dates for selected books</Button
+        >
+      </div>
+    </fieldset>
+    <fieldset disabled={$statisticsActionInProgress$} class="options-group">
+      <legend>Measurements</legend>
+      <p id="statistics-measurement-help" class="text-sm text-muted-foreground">
+        Choose which values appear in the summary and how the reading data is grouped.
+      </p>
+      <div class="fields">
+        <div class="option-field">
+          <label for="timeDataSource">Time Data Source</label>
+          <select
+            id="timeDataSource"
+            aria-describedby="statistics-measurement-help"
+            bind:value={$lastReadingTimeDataSource$}
+          >
+            {#each readingTimeDataSources as source (source.key)}<option value={source.key}
+                >{source.label}</option
+              >{/each}
+          </select>
+        </div>
+        <div class="option-field">
+          <label for="charactersSource">Characters Data Source</label>
+          <select
+            id="charactersSource"
+            aria-describedby="statistics-measurement-help"
+            bind:value={$lastCharactersDataSource$}
+          >
+            {#each charactersDataSources as source (source.key)}<option value={source.key}
+                >{source.label}</option
+              >{/each}
+          </select>
+        </div>
+        <div class="option-field">
+          <label for="speedSource">Speed Data Source</label>
+          <select
+            id="speedSource"
+            aria-describedby="statistics-measurement-help"
+            bind:value={$lastReadingSpeedDataSource$}
+          >
+            {#each readingSpeedDataSources as source (source.key)}<option value={source.key}
+                >{source.label}</option
+              >{/each}
+          </select>
+        </div>
+        <div class="option-field">
+          <label for="primaryAggregration">Primary Aggregation</label>
+          <select
+            id="primaryAggregration"
+            aria-describedby="statistics-measurement-help"
+            bind:value={$lastPrimaryReadingDataAggregationMode$}
+          >
+            {#each statisticsDataAggregrationModes as mode (mode)}<option value={mode}
+                >{mode}</option
+              >{/each}
+          </select>
+        </div>
+      </div>
+    </fieldset>
+    <fieldset disabled={$statisticsActionInProgress$} class="options-group">
+      <legend>Export history</legend>
+      <p class="text-sm text-muted-foreground">
+        Raw history preserves book identities, unresolved legacy days, and migration receipts for
+        recovery; it is not a TTU import file. The TTU ZIP exports use titles and cannot preserve
+        book identities.
+      </p>
+      <div class="actions">
+        <Button
+          variant="secondary"
+          onclick={() => {
+            $statisticsActionInProgress$ = true;
+            exportRawStatistics$.next();
+          }}>Download raw history (JSON)</Button
+        >
+        <Button variant="outline" onclick={() => exportStatisticsData(false)}
+          >Export Selection</Button
+        >
+        <Button variant="outline" onclick={() => exportStatisticsData()}>Export All</Button>
+      </div>
+    </fieldset>
+    <fieldset disabled={$statisticsActionInProgress$} class="options-group">
+      <legend>Manage history</legend>
+      <SettingsItemGroup title="Confirm Statistics Deletion" applyHeaderClasses={false}>
+        <ButtonToggleGroup
+          invertColors
+          options={optionsForToggle}
+          bind:selectedOptionId={$confirmStatisticsDeletion$}
         />
+      </SettingsItemGroup>
+      <div class="actions">
+        <Button variant="destructive" onclick={() => deleteStatisticsData(false)}
+          >Delete Selection</Button
+        >
+        <Button variant="destructive" onclick={() => deleteStatisticsData()}>Delete All</Button>
       </div>
-    </div>
-    <div class="actions">
-      <Button
-        variant="ghost"
-        aria-label="Set end date to start date"
-        onclick={() => dispatch('statisticsDateChange', {
-          isStartDate: false, dateString: selectedStatisticsStartDate
-        })}
-      ><AppIcon icon={faRightLong} />Use start date for both</Button>
-      <Button
-        variant="ghost"
-        aria-label="Set start date to end date"
-        onclick={() => dispatch('statisticsDateChange', {
-          isStartDate: true, dateString: selectedStatisticsEndDate
-        })}
-      ><AppIcon icon={faLeftLong} />Use end date for both</Button>
-      <Button
-        variant="ghost"
-        shape="rounded"
-        onclick={() => setStatisticsDatesToAllTime$.next()}
-        >Use all available dates for selected books</Button
-      >
-    </div>
-  </fieldset>
-  <fieldset disabled={$statisticsActionInProgress$} class="options-group">
-    <legend>Measurements</legend>
-    <p id="statistics-measurement-help" class="text-sm text-muted-foreground">
-      Choose which values appear in the summary and how the reading data is grouped.
-    </p>
-    <div class="fields">
-      <div class="option-field">
-        <label for="timeDataSource">Time Data Source</label>
-        <select id="timeDataSource" aria-describedby="statistics-measurement-help" bind:value={$lastReadingTimeDataSource$}>
-          {#each readingTimeDataSources as source (source.key)}<option value={source.key}>{source.label}</option>{/each}
-        </select>
-      </div>
-      <div class="option-field">
-        <label for="charactersSource">Characters Data Source</label>
-        <select id="charactersSource" aria-describedby="statistics-measurement-help" bind:value={$lastCharactersDataSource$}>
-          {#each charactersDataSources as source (source.key)}<option value={source.key}>{source.label}</option>{/each}
-        </select>
-      </div>
-      <div class="option-field">
-        <label for="speedSource">Speed Data Source</label>
-        <select id="speedSource" aria-describedby="statistics-measurement-help" bind:value={$lastReadingSpeedDataSource$}>
-          {#each readingSpeedDataSources as source (source.key)}<option value={source.key}>{source.label}</option>{/each}
-        </select>
-      </div>
-      <div class="option-field">
-        <label for="primaryAggregration">Primary Aggregation</label>
-        <select id="primaryAggregration" aria-describedby="statistics-measurement-help" bind:value={$lastPrimaryReadingDataAggregationMode$}>
-          {#each statisticsDataAggregrationModes as mode (mode)}<option value={mode}>{mode}</option>{/each}
-        </select>
-      </div>
-    </div>
-  </fieldset>
-  <fieldset disabled={$statisticsActionInProgress$} class="options-group">
-    <legend>Export history</legend>
-    <p class="text-sm text-muted-foreground">
-      Raw history preserves book identities, unresolved legacy days, and migration receipts for
-      recovery; it is not a TTU import file. The TTU ZIP exports use titles and cannot preserve
-      book identities.
-    </p>
-    <div class="actions">
-      <Button variant="secondary" onclick={() => {
-        $statisticsActionInProgress$ = true;
-        exportRawStatistics$.next();
-      }}>Download raw history (JSON)</Button>
-      <Button variant="outline" onclick={() => exportStatisticsData(false)}>Export Selection</Button>
-      <Button variant="outline" onclick={() => exportStatisticsData()}>Export All</Button>
-    </div>
-  </fieldset>
-  <fieldset disabled={$statisticsActionInProgress$} class="options-group">
-    <legend>Manage history</legend>
-    <SettingsItemGroup title="Confirm Statistics Deletion" applyHeaderClasses={false}>
-      <ButtonToggleGroup
-        invertColors
-        options={optionsForToggle}
-        bind:selectedOptionId={$confirmStatisticsDeletion$}
-      />
-    </SettingsItemGroup>
-    <div class="actions">
-      <Button variant="destructive" onclick={() => deleteStatisticsData(false)}>Delete Selection</Button>
-      <Button variant="destructive" onclick={() => deleteStatisticsData()}>Delete All</Button>
-    </div>
-  </fieldset>
+    </fieldset>
   </div>
 </div>
 

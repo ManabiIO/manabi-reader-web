@@ -6,10 +6,6 @@
   import { beforeNavigate, goto } from '$app/navigation';
   import BookCardList from '$lib/components/book-card/book-card-list.svelte';
   import LibraryWorkspace from '$lib/library/library-workspace.svelte';
-  import {
-    reconcileSelectionEligibility,
-    type LibrarySelectionEligibility
-  } from '$lib/library/selection';
   import type { BookCardProps } from '$lib/components/book-card/book-card-props';
   import {
     reconcileSelectionEligibility,
