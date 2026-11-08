@@ -587,7 +587,7 @@ export function ReaderScreen(props: Partial<SessionProps> & ReaderViewProps) {
               .querySelector<HTMLButtonElement>('[aria-label="Show reading controls"]')
               ?.focus();
           }}
-          className={['writing-horizontal-tb data-[side=left]:w-full data-[side=left]:sm:max-w-md']
+          className={['writing-horizontal-tb overflow-hidden data-[side=left]:w-full data-[side=left]:sm:max-w-md']
             .filter(Boolean)
             .join(' ')}
         >

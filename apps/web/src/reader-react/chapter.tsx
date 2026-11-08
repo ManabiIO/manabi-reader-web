@@ -34,32 +34,35 @@ export function BookToc(props: Partial<ChapterProps> & ReaderViewProps) {
       <Dom
         as="section"
         aria-label={'Table of contents'}
-        className={['contents-panel flex min-h-full shrink-0 flex-col'].filter(Boolean).join(' ')}
+        className={['contents-panel flex min-h-0 flex-1 flex-col overflow-hidden'].filter(Boolean).join(' ')}
       >
         <Dom
           as="header"
-          className={['grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 px-6 pt-6 pb-4']
+          className={['grid shrink-0 grid-cols-[minmax(0,1fr)_44px] items-start gap-[16px] px-[24px] pt-[24px] pb-[16px]']
             .filter(Boolean)
             .join(' ')}
         >
           <Dom as="div" className={['min-w-0'].filter(Boolean).join(' ')}>
-            <Dom as="h2" className={['text-xl font-semibold'].filter(Boolean).join(' ')}>
+            <Dom as="h2" className={['whitespace-nowrap text-xl font-semibold'].filter(Boolean).join(' ')}>
               {'Contents'}
             </Dom>
-            <Dom
-              as="p"
-              className={['mt-1 text-sm [overflow-wrap:anywhere] text-muted-foreground']
-                .filter(Boolean)
-                .join(' ')}
-            >
-              {c.bookTitle}
-            </Dom>
+
           </Dom>
           <CloseButton
             aria-label={'Close Table of Contents'}
             onClick={c.closeTocMenu}
           ></CloseButton>
         </Dom>
+        <Dom as="div" data-toc-scroll className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <Dom
+              as="p"
+              data-toc-book-title
+              className={['mx-6 mb-3 text-sm [overflow-wrap:anywhere] text-muted-foreground']
+                .filter(Boolean)
+                .join(' ')}
+            >
+              {c.bookTitle}
+            </Dom>
         {c.currentChapter ? (
           <>
             <Dom
@@ -127,7 +130,7 @@ export function BookToc(props: Partial<ChapterProps> & ReaderViewProps) {
             c.chapterList = value;
           }}
           aria-label={'Chapters'}
-          className={['flex-1 px-3 pb-4'].filter(Boolean).join(' ')}
+          className={['px-3 pb-4'].filter(Boolean).join(' ')}
         >
           {(c.chapters ?? []).map((chapter, index) => (
             <React.Fragment key={chapter.reference}>
@@ -217,6 +220,7 @@ export function BookToc(props: Partial<ChapterProps> & ReaderViewProps) {
             </Dom>
             <Icon name="CaretRight" aria-hidden={'true'}></Icon>
           </Button>
+        </Dom>
         </Dom>
       </Dom>
     </ReaderScope>

@@ -34,9 +34,9 @@ const contentLayout: BookExportContentLayout = {
     </div>
   ),
   Choice: ({ value, label, checked, disabled, onChange }) => (
-    <label className="flex min-h-11 min-w-0 items-center gap-3 rounded-xl px-2">
+    <label className="flex min-h-11 min-w-0 items-center gap-[12px] rounded-xl px-[8px]">
       <input
-        className="shrink-0"
+        className="size-[20px] shrink-0 accent-primary"
         type="checkbox"
         name={value}
         value={value}
@@ -44,7 +44,7 @@ const contentLayout: BookExportContentLayout = {
         disabled={disabled}
         onChange={(event) => onChange(event.currentTarget.checked)}
       />
-      <span className="min-w-0 break-words">{label}</span>
+      <span className="min-w-0 break-normal [overflow-wrap:normal]">{label}</span>
     </label>
   )
 };
