@@ -35,7 +35,13 @@ export interface Catalog {
   warnings: string[];
   scannedAt: number;
 }
-export async function sourceDescriptors(): Promise<SourceDescriptor[]> {
+export interface SourceSnapshot {
+  sources: SourceDescriptor[];
+  /** True only when the signed-in connection endpoint supplied this cloud set.
+   * Local/WebDAV absence is always authoritative because those rows are local. */
+  cloudAuthoritative: boolean;
+}
+export async function sourceSnapshot(): Promise<SourceSnapshot> {
   const db = await integrationDB();
   const local = (await db.getAll('localLibraries')).map((l) => ({
     id: l.id,
@@ -54,21 +60,27 @@ export async function sourceDescriptors(): Promise<SourceDescriptor[]> {
     }))
   );
   const owner = localProfileUser()?.id;
-  if (!owner) return local;
+  if (!owner) return { sources: local, cloudAuthoritative: true };
   const cloudKey = `library-sources:${owner}`;
   let cloud = (await metadata<SourceDescriptor[]>(cloudKey)) ?? [];
-  if (currentUser()?.id !== owner) return [...local, ...cloud];
+  if (currentUser()?.id !== owner)
+    return { sources: [...local, ...cloud], cloudAuthoritative: false };
   try {
     const result = await request<{ items: CloudConnection[] }>('connections/', { userId: owner });
     cloud = result.items.flatMap((c) =>
       c.roots.map((root) => ({ id: c.id, owner, root, name: root, provider: c.provider }))
     );
-    if (currentUser()?.id !== owner) return local;
+    if (currentUser()?.id !== owner) return { sources: local, cloudAuthoritative: false };
     await setMetadata(cloudKey, cloud);
+    return { sources: [...local, ...cloud], cloudAuthoritative: true };
   } catch {
-    /* Keep an offline catalog; the explicit Refresh action surfaces access errors. */
+    // Keep an offline catalog, but callers must not treat absent cached cloud
+    // connections as proof that a provider/source was disconnected.
+    return { sources: [...local, ...cloud], cloudAuthoritative: false };
   }
-  return [...local, ...cloud];
+}
+export async function sourceDescriptors(): Promise<SourceDescriptor[]> {
+  return (await sourceSnapshot()).sources;
 }
 export async function librarySource(source: SourceDescriptor): Promise<LibrarySource> {
   if (source.owner !== null) {

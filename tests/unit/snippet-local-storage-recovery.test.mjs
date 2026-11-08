@@ -50,6 +50,22 @@ globalThis[Symbol.for(fixtureKey)] = {
           ? new Uint8Array(value)
           : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
     return createHash('sha256').update(bytes).digest('hex');
+  },
+  withLocalLibraryConnection: async (admitted, write, work) => {
+    await fixture.beforeConnect?.();
+    const current = await fixture.db.get('localLibraries', admitted.id);
+    if (
+      !current ||
+      !(current.handle === admitted.handle || (await current.handle.isSameEntry(admitted.handle)))
+    )
+      throw new globalThis[Symbol.for(fixtureKey)].classIntegrationError('not_found');
+    if (
+      (write && !current.writable) ||
+      (await current.handle.queryPermission({ mode: write ? 'readwrite' : 'read' })) !== 'granted'
+    )
+      throw new globalThis[Symbol.for(fixtureKey)].classIntegrationError('permission_required');
+    fixture.authorityCalls.push({ id: admitted.id, write });
+    return work(current);
   }
 };
 
@@ -61,7 +77,10 @@ const mock = {
   },
   '../manabi/persistence': { integrationDB: 'integrationDB', exclusive: 'exclusive' },
   '../library/file-operations': { openDirectory: 'openDirectory', safePath: 'safePath' },
-  '../manabi/sources': { sha256: 'sha256' },
+  '../manabi/sources': {
+    sha256: 'sha256',
+    withLocalLibraryConnection: 'withLocalLibraryConnection'
+  },
   '../library/catalog': { librarySource: 'unused' },
   '../webdav/source': { davSource: 'unused', withDavSourceLock: 'unused' },
   '../webdav/client': {
@@ -108,7 +127,7 @@ const bundled = await build({
     }
   ]
 });
-const { writeDocument } = await import(
+const { capability, makeFolder, readDocument, removeDocument, writeDocument } = await import(
   `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString('base64')}`
 );
 
@@ -120,7 +139,9 @@ async function setup() {
     src = source();
   fixture = {
     fs,
-    db: integrationDatabase({ id: src.id, name: src.name, handle: fs.root, writable: true })
+    db: integrationDatabase({ id: src.id, name: src.name, handle: fs.root, writable: true }),
+    authorityCalls: [],
+    beforeConnect: undefined
   };
   return { fs, src };
 }
@@ -186,4 +207,125 @@ test('successful retry writes the exact portable document bytes', async () => {
   await fs.handle(name, true);
   await writeDocument({ source: src, parent: '', name }, doc, undefined, guard);
   assert.equal(await fs.read(name), encodeSnippet(doc));
+});
+
+test('local snippet writes reject a replaced source before touching the stale handle', async () => {
+  const { fs, src } = await setup(),
+    doc = createSnippet(plainContent('replacement must not retarget writes')),
+    replacement = filesystem();
+  fixture.beforeConnect = async () => {
+    const current = fixture.db.tables.get('localLibraries').get(src.id);
+    current.handle = replacement.root;
+    fixture.beforeConnect = undefined;
+  };
+  await assert.rejects(
+    () => writeDocument({ source: src, parent: '' }, doc, undefined, guard),
+    (error) => error?.code === 'not_found'
+  );
+  assert.deepEqual(fs.events, []);
+  assert.deepEqual(replacement.events, []);
+  assert.deepEqual(fixture.authorityCalls, []);
+});
+
+test('local snippet writes reject disconnect before physical admission', async () => {
+  const { fs, src } = await setup(),
+    doc = createSnippet(plainContent('disconnect must fence writes'));
+  fixture.beforeConnect = async () => {
+    fixture.db.tables.get('localLibraries').delete(src.id);
+    fixture.beforeConnect = undefined;
+  };
+  await assert.rejects(
+    () => writeDocument({ source: src, parent: '' }, doc, undefined, guard),
+    (error) => error?.code === 'not_found'
+  );
+  assert.deepEqual(fs.events, []);
+  assert.deepEqual(fixture.authorityCalls, []);
+});
+
+test('local snippet writes require durable write consent from the current source row', async () => {
+  const { fs, src } = await setup(),
+    doc = createSnippet(plainContent('consent must be current'));
+  fixture.beforeConnect = async () => {
+    fixture.db.tables.get('localLibraries').get(src.id).writable = false;
+    fixture.beforeConnect = undefined;
+  };
+  await assert.rejects(
+    () => writeDocument({ source: src, parent: '' }, doc, undefined, guard),
+    (error) => error?.code === 'permission_required'
+  );
+  assert.deepEqual(fs.events, []);
+  assert.deepEqual(fixture.authorityCalls, []);
+});
+
+test('normal local snippet create enters shared source authority as a write operation', async () => {
+  const { src } = await setup(),
+    doc = createSnippet(plainContent('shared source authority'));
+  await writeDocument({ source: src, parent: '' }, doc, undefined, guard);
+  assert.deepEqual(fixture.authorityCalls, [{ id: src.id, write: true }]);
+});
+
+test('local read, capability, folder creation and remove all enter shared source authority', async () => {
+  const { fs, src } = await setup(),
+    doc = createSnippet(plainContent('all local operations are fenced')),
+    location = await writeDocument({ source: src, parent: '' }, doc, undefined, guard);
+  fixture.authorityCalls.length = 0;
+
+  const loaded = await readDocument(src, location.fileId, guard);
+  assert.equal(canonical(loaded.document), canonical(doc));
+  assert.deepEqual(fixture.authorityCalls, [{ id: src.id, write: false }]);
+
+  fixture.authorityCalls.length = 0;
+  assert.deepEqual(await capability(src, guard), { write: true });
+  assert.deepEqual(fixture.authorityCalls, [{ id: src.id, write: false }]);
+
+  fixture.authorityCalls.length = 0;
+  assert.equal(await makeFolder({ source: src, parent: '' }, 'Child', guard), 'Child');
+  assert.deepEqual(fixture.authorityCalls, [{ id: src.id, write: true }]);
+
+  fixture.authorityCalls.length = 0;
+  await removeDocument(location, doc, guard);
+  assert.deepEqual(fixture.authorityCalls, [{ id: src.id, write: true }]);
+  await assert.rejects(fs.read(location.fileId), { name: 'NotFoundError' });
+});
+
+test('write permission revoked before commit aborts without publishing new bytes', async () => {
+  const { fs, src } = await setup(),
+    original = createSnippet(plainContent('original')),
+    first = await writeDocument({ source: src, parent: '' }, original, undefined, guard),
+    edited = {
+      ...original,
+      revision: globalThis.crypto.randomUUID(),
+      parents: [original.revision],
+      modifiedAt: original.modifiedAt + 1,
+      content: plainContent('new bytes must not commit')
+    };
+  fs.hooks.write = async () => {
+    fs.root.queryPermission = async () => 'denied';
+  };
+  await assert.rejects(
+    () =>
+      writeDocument({ source: src, parent: first.parent, name: first.name }, edited, first, guard),
+    (error) => error?.code === 'permission_required'
+  );
+  fs.hooks.write = undefined;
+  fs.root.queryPermission = async () => 'granted';
+  assert.equal(canonical(parseSnippet(await fs.read(first.fileId))), canonical(original));
+});
+
+test('remove permission revoked before physical deletion preserves the document', async () => {
+  const { fs, src } = await setup(),
+    doc = createSnippet(plainContent('keep when permission disappears')),
+    location = await writeDocument({ source: src, parent: '' }, doc, undefined, guard);
+  let calls = 0;
+  fs.root.queryPermission = async ({ mode } = {}) => {
+    calls++;
+    // Shared authority admission succeeds; the explicit pre-delete check fails.
+    return mode === 'readwrite' && calls > 1 ? 'denied' : 'granted';
+  };
+  await assert.rejects(
+    () => removeDocument(location, doc, guard),
+    (error) => error?.code === 'permission_required'
+  );
+  fs.root.queryPermission = async () => 'granted';
+  assert.equal(canonical(parseSnippet(await fs.read(location.fileId))), canonical(doc));
 });
