@@ -65,18 +65,23 @@
 </script>
 
 <div class="statistics-options">
-  <!-- Wrap the dismiss control above the title when enlarged text no longer
-       leaves room for both. Keep words intact without shrinking the font. -->
-  <div class="flex flex-wrap-reverse items-start justify-between gap-3">
-    <Sheet.Title class="min-w-min flex-auto break-normal text-xl font-semibold">Statistics options</Sheet.Title>
-    <CloseButton
-      class="ms-auto"
-      aria-label="Close statistics options"
-      disabled={$statisticsActionInProgress$}
-      onclick={() => dispatch('close')}
-    />
+  <div class="statistics-options-header">
+    <!-- Wrap dismissal above the title when enlarged text no longer leaves
+         room for both. The header itself never participates in body scrolling. -->
+    <div class="flex flex-wrap-reverse items-start justify-between gap-3">
+      <Sheet.Title class="min-w-min flex-auto break-normal text-xl font-semibold"
+        >Statistics options</Sheet.Title
+      >
+      <CloseButton
+        class="ms-auto"
+        aria-label="Close statistics options"
+        disabled={$statisticsActionInProgress$}
+        onclick={() => dispatch('close')}
+      />
+    </div>
+    <Sheet.Description>Choose your date range, measurements, and export format.</Sheet.Description>
   </div>
-  <Sheet.Description>Choose your date range, measurements, and export format.</Sheet.Description>
+  <div class="statistics-options-scroll" data-statistics-options-scroll>
   <fieldset disabled={$statisticsActionInProgress$} class="options-group">
     <legend>Date range</legend>
     <div class="fields">
@@ -208,14 +213,33 @@
       <Button variant="destructive" onclick={() => deleteStatisticsData()}>Delete All</Button>
     </div>
   </fieldset>
+  </div>
 </div>
 
 <style>
   .statistics-options {
-    display: grid;
-    flex-shrink: 0;
+    display: flex;
     min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+  }
+  .statistics-options-header {
+    display: grid;
+    flex: 0 0 auto;
+    gap: 12px;
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--popover);
+  }
+  .statistics-options-scroll {
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
     gap: 16px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 20px;
     padding-bottom: max(20px, env(safe-area-inset-bottom));
   }

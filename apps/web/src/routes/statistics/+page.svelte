@@ -137,7 +137,7 @@
   <Sheet.Content
     side="right"
     showCloseButton={false}
-    class="data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
+    class="overflow-hidden data-[side=right]:w-full data-[side=right]:sm:max-w-xl"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
       document.querySelector<HTMLButtonElement>('[aria-label="Statistics options"]')?.focus();
