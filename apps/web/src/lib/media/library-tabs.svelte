@@ -32,7 +32,8 @@
     min-width: 0;
     min-height: 44px;
     padding: 10px clamp(10px, 3vw, 22px);
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
     text-align: center;
     border-radius: 20px;
     color: var(--foreground);
