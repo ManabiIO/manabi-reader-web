@@ -10,7 +10,8 @@ import {
   generateJSON,
   getSchema,
   type Extensions,
-  type JSONContent
+  type JSONContent,
+  type Mark
 } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import RubyText from '@tiptap/extension-ruby-text';
@@ -18,6 +19,7 @@ import UniqueID from '@tiptap/extension-unique-id';
 import { Markdown, MarkdownManager } from '@tiptap/markdown';
 import { Marked, marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { snippetLinkPresentation } from './presentation.ts';
 import {
   identifyBlocks,
   MAX_SNIPPET_BYTES,
@@ -33,9 +35,31 @@ function isolatedMarked(): typeof marked {
   return new Marked() as unknown as typeof marked;
 }
 
+// Keep the canonical mark attributes in the editor model. Only their DOM
+// projection is hardened, including marks introduced after editor creation.
+const DisplaySafeStarterKit = StarterKit.extend({
+  addExtensions() {
+    return (this.parent?.() ?? []).map((extension) =>
+      extension.name === 'link'
+        ? (extension as Mark).extend({
+            renderHTML(properties) {
+              if (!this.parent) throw new Error('Snippet link renderer is unavailable.');
+              const { HTMLAttributes } = properties;
+              // Preserve the upstream renderer's URI checks and configured attrs.
+              return this.parent({
+                ...properties,
+                HTMLAttributes: { ...HTMLAttributes, ...snippetLinkPresentation(HTMLAttributes) }
+              });
+            }
+          })
+        : extension
+    );
+  }
+});
+
 export function extensions(): Extensions {
   return [
-    StarterKit.configure({
+    DisplaySafeStarterKit.configure({
       link: {
         openOnClick: false,
         autolink: false,
@@ -63,7 +87,7 @@ export function extensions(): Extensions {
 export function cleanHTML(html: string): string {
   if (new TextEncoder().encode(html).length > MAX_SNIPPET_BYTES)
     throw new Error('Pasted content exceeds the 2 MiB limit.');
-  return DOMPurify.sanitize(html, {
+  const sanitized = DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
       'p',
       'div',
@@ -113,6 +137,19 @@ export function cleanHTML(html: string): string {
     ],
     ALLOWED_URI_REGEXP: /^(?:https?:|mailto:)/i
   });
+  // This fragment is detached and already sanitized. Avoid process-global
+  // DOMPurify hooks; paste and HTML export get the same safe DOM attributes.
+  const fragment = document.createElement('template');
+  fragment.innerHTML = sanitized;
+  for (const anchor of fragment.content.querySelectorAll('a')) {
+    const link = snippetLinkPresentation({
+      target: anchor.getAttribute('target'),
+      rel: anchor.getAttribute('rel')
+    });
+    anchor.setAttribute('target', link.target);
+    anchor.setAttribute('rel', link.rel);
+  }
+  return fragment.innerHTML;
 }
 export function markdownHTML(value: string): string {
   // TipTap 3.31.x registers an experimental ordered-list tokenizer which treats
@@ -134,7 +171,7 @@ export function importContent(value: string, format: 'text' | 'html' | 'markdown
 }
 export function renderContent(content: TextNode): string {
   validateContent(content);
-  return cleanHTML(generateHTML(content as JSONContent, extensions()));
+  return cleanHTML(generateHTML(structuredClone(content) as JSONContent, extensions()));
 }
 export function requiresHTMLMarkdown(content: TextNode): boolean {
   // CommonMark/GFM has no lossless syntax for ruby or underline. It also cannot
@@ -186,7 +223,8 @@ export function createEditor(
   return new Editor({
     element,
     extensions: configured,
-    content: content as JSONContent,
+    // TipTap owns this working copy; read/render must not mutate saved JSON.
+    content: structuredClone(content) as JSONContent,
     editorProps: {
       attributes: {
         class: 'snippet-editable',

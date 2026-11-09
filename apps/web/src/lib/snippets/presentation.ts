@@ -4,7 +4,13 @@
  * All rights reserved.
  */
 
-import { safeLink, validateContent, type TextNode, type SnippetLocator, isUUID } from './document';
+import {
+  safeLink,
+  validateContent,
+  type TextNode,
+  type SnippetLocator,
+  isUUID
+} from './document.ts';
 import type { SnippetRecord } from './database';
 import type { SnippetSummary } from './summary';
 
@@ -13,6 +19,26 @@ const escape = (text: unknown) =>
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!
   );
+/** Display attributes never become a migration of the portable document.
+ * Keep inert authored relationships, but a new tab must never retain an opener. */
+export function snippetLinkPresentation(attrs: Record<string, unknown> | undefined) {
+  const target = attrs?.target === '_self' ? '_self' : '_blank';
+  const rel = typeof attrs?.rel === 'string' ? attrs.rel : target === '_blank' ? 'nofollow' : '';
+  const tokens = rel.split(/\s+/).filter((token) => token && token.toLowerCase() !== 'opener');
+  if (target === '_blank') {
+    const safe = ['noopener', 'noreferrer'];
+    for (const token of tokens) {
+      if (['noopener', 'noreferrer'].includes(token.toLowerCase())) continue;
+      // Keep exported HTML re-importable within v1's metadata bound. Whole
+      // optional tokens may be omitted from this display projection only;
+      // the canonical document and editor model retain their original rel.
+      if ([...safe, token].join(' ').length <= 120) safe.push(token);
+    }
+    return { target, rel: safe.join(' ') };
+  }
+  return { target, rel: tokens.join(' ') };
+}
+
 /** Closed-schema rendering does not load the editor, accept arbitrary HTML, or save reader decorations. */
 export function readerHTML(content: TextNode): string {
   validateContent(content);
@@ -29,8 +55,10 @@ export function readerHTML(content: TextNode): string {
         if (tag) html = `<${tag}>${html}</${tag}>`;
         else if (mark.type === 'rubyText')
           html = `<ruby>${html}<rt>${escape(mark.attrs?.rt)}</rt></ruby>`;
-        else if (mark.type === 'link' && safeLink(mark.attrs?.href))
-          html = `<a href="${escape(mark.attrs!.href)}" target="_blank" rel="noopener noreferrer nofollow">${html}</a>`;
+        else if (mark.type === 'link' && safeLink(mark.attrs?.href)) {
+          const link = snippetLinkPresentation(mark.attrs);
+          html = `<a href="${escape(mark.attrs!.href)}" target="${link.target}" rel="${escape(link.rel)}">${html}</a>`;
+        }
       }
       return html;
     }

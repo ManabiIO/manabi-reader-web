@@ -3,12 +3,27 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test, { after } from 'node:test';
 import { JSDOM } from 'jsdom';
-const dom = new JSDOM('<!doctype html><html><body></body></html>');
+const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
+const browserGlobals = {
+  window: dom.window,
+  document: dom.window.document,
+  navigator: dom.window.navigator,
+  Element: dom.window.Element,
+  HTMLElement: dom.window.HTMLElement,
+  Node: dom.window.Node,
+  MutationObserver: dom.window.MutationObserver,
+  getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window)
+};
 const globals = new Map(
-  ['window', 'document'].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)])
+  Object.keys(browserGlobals).map((name) => [
+    name,
+    Object.getOwnPropertyDescriptor(globalThis, name)
+  ])
 );
-Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
-Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
+for (const [name, value] of Object.entries(browserGlobals))
+  Object.defineProperty(globalThis, name, { configurable: true, value });
 after(() => {
   dom.window.close();
   for (const [name, descriptor] of globals) {
@@ -16,10 +31,23 @@ after(() => {
     else delete globalThis[name];
   }
 });
-const { exportMarkdown, importContent, markdownHTML, requiresHTMLMarkdown } = await import(
-  '../../apps/web/src/lib/snippets/editor.ts'
-);
-import { validateContent } from '../../apps/web/src/lib/snippets/document.ts';
+const {
+  createEditor,
+  exportMarkdown,
+  importContent,
+  markdownHTML,
+  renderContent,
+  requiresHTMLMarkdown
+} = await import('../../apps/web/src/lib/snippets/editor.ts');
+import {
+  canonical,
+  editSnippet,
+  encodeSnippet,
+  parseSnippet,
+  validateContent
+} from '../../apps/web/src/lib/snippets/document.ts';
+import { readerHTML } from '../../apps/web/src/lib/snippets/presentation.ts';
+import { legacySnippetLinks } from './fixtures/legacy-snippet-links.mjs';
 
 function text(html) {
   return html
@@ -253,37 +281,92 @@ test('lossless HTML Markdown preserves safe non-default link semantics', () => {
   assert.equal(link.attrs.title, 'Example');
 });
 
-test('snippet schema rejects unsafe link rel tokens and opener semantics', () => {
-  const unsafe = {
-    type: 'doc',
-    content: [
-      {
-        type: 'paragraph',
-        attrs: { id: randomUUID() },
-        content: [
-          {
-            type: 'text',
-            text: 'unsafe',
-            marks: [
-              {
-                type: 'link',
-                attrs: {
-                  href: 'https://example.com/',
-                  target: '_blank',
-                  rel: 'opener',
-                  class: null,
-                  title: null
-                }
-              }
-            ]
-          }
-        ]
-      }
-    ]
-  };
-  assert.throws(() => validateContent(unsafe));
-  unsafe.content[0].content[0].marks[0].attrs.rel = 'noopener noreferrer';
-  assert.doesNotThrow(() => validateContent(unsafe));
+function assertLegacyLinkDOM(container) {
+  const links = [...container.querySelectorAll('a')];
+  assert.equal(links.length, 7);
+  assert.equal(links[0].getAttribute('target'), '_self');
+  assert.equal(links[0].getAttribute('rel'), 'external');
+  assert.equal(links[1].getAttribute('target'), '_self');
+  assert.equal(links[1].getAttribute('rel'), '');
+  for (const link of links.slice(2)) {
+    const rel = link.getAttribute('rel').toLowerCase().split(/\s+/);
+    assert.equal(link.getAttribute('target'), '_blank');
+    assert.ok(rel.includes('noopener'));
+    assert.ok(rel.includes('noreferrer'));
+    assert.ok(!rel.includes('opener'));
+  }
+}
+
+test('legacy v1 links remain byte-stable while reader, HTML and Markdown displays are safe', () => {
+  const legacy = legacySnippetLinks();
+  const bytes = canonical(legacy) + '\n';
+  const saved = parseSnippet(bytes);
+  for (const render of [readerHTML, renderContent, exportMarkdown]) {
+    const container = globalThis.document.createElement('div');
+    container.innerHTML = render(saved.content);
+    assertLegacyLinkDOM(container);
+    assert.equal(encodeSnippet(saved), bytes);
+    assert.deepEqual(saved, legacy);
+  }
+  const roundTrip = importContent(exportMarkdown(saved.content), 'markdown');
+  const selfLinks = roundTrip.content.slice(0, 2).map((block) => block.content[0].marks[0].attrs);
+  assert.equal(selfLinks[0].target, '_self');
+  assert.equal(selfLinks[0].rel, 'external');
+  assert.equal(selfLinks[1].target, '_self');
+  assert.equal(selfLinks[1].rel, '');
+});
+
+test('editor DOM hardens legacy and later link marks without mutating the saved revision', () => {
+  const saved = legacySnippetLinks();
+  const bytes = canonical(saved) + '\n';
+  const host = globalThis.document.createElement('div');
+  globalThis.document.body.append(host);
+  const updates = [];
+  const editor = createEditor(host, saved.content, (content) => updates.push(content));
+  try {
+    assertLegacyLinkDOM(host);
+    assert.equal(updates.length, 0, 'opening an editor cannot manufacture a save');
+    assert.deepEqual(
+      editor.getJSON().content.map((block) => block.content[0].marks[0].attrs.rel),
+      saved.content.content.map((block) => block.content[0].marks[0].attrs.rel),
+      'DOM safety must not rewrite the working model metadata'
+    );
+    // Exercise the actual link renderer again after creation, rather than only
+    // proving that the initial content was pre-sanitized.
+    editor.commands.setContent(saved.content, { emitUpdate: false });
+    assertLegacyLinkDOM(host);
+    const edited = structuredClone(saved.content);
+    edited.content[0].content[0].text += ' edited';
+    editor.commands.setContent(edited, { emitUpdate: true });
+    assert.ok(updates.length > 0);
+    const next = editSnippet(saved, updates.at(-1), saved.title.text);
+    assert.equal(next.id, saved.id);
+    assert.notEqual(next.revision, saved.revision);
+    assert.ok(next.parents.includes(saved.revision));
+    assert.equal(encodeSnippet(saved), bytes);
+    assertLegacyLinkDOM(host);
+  } finally {
+    editor.destroy();
+    host.remove();
+  }
+});
+
+test('v1 rel remains bounded metadata and URL, class and schema guards still reject invalid content', () => {
+  const legacy = legacySnippetLinks();
+  assert.doesNotThrow(() => validateContent(legacy.content));
+  for (const attrs of [
+    { rel: 'x'.repeat(121) },
+    { rel: 12 },
+    { rel: '\u0000' },
+    { href: 'javascript:alert(1)' },
+    { class: 'foreign-class' },
+    { target: '_top' },
+    { unknownAttribute: 'unexpected' }
+  ]) {
+    const invalid = structuredClone(legacy.content);
+    Object.assign(invalid.content[0].content[0].marks[0].attrs, attrs);
+    assert.throws(() => validateContent(invalid), JSON.stringify(attrs));
+  }
 });
 
 test('fenced code containing list-like prose is not treated as a list', () => {
