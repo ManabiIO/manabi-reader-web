@@ -121,6 +121,13 @@ export class SectionCharacterStatsCalculator {
     return formatPos(screenPos, this.calculator.direction);
   }
 
+  /** Return the page containing the first measured paragraph at a source range. */
+  getScrollPosToPoint(point: Range) {
+    if (!this.calculator) return -1;
+    const charCount = this.getSectionStartCount() + this.calculator.getCharCountToPoint(point);
+    return this.getScrollPosByCharCount(charCount);
+  }
+
   checkBookmarkOnScreen(charCount: number) {
     const scrollPos = this.getScrollPosByCharCount(charCount);
     const virtualPos = this.virtualScrollPos$.getValue();

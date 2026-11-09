@@ -13,6 +13,7 @@ import {
   librarySource,
   scanCatalog,
   sourceDescriptors,
+  sourceSnapshot,
   type Catalog,
   type SourceDescriptor
 } from '../library/catalog';
@@ -191,8 +192,32 @@ export async function refreshSnippets(
         budget = 16 * 1024 * 1024,
         processed = 0;
       try {
-        const sources = await sourceDescriptors();
+        const snapshot = await sourceSnapshot();
         selected.guard();
+        const sources = snapshot.sources;
+        const activeSources = new Set(sources.map(sourceKey));
+        const known = await summaries(selected.owner);
+        selected.guard();
+        const authoritativeAbsentSources = new Set<string>();
+        for (const record of known) {
+          // Summaries omit the immutable upload journal, including persisted older summaries.
+          // Read pending saves from the durable record before classifying their source.
+          const pending = record.dirty ? await getRecord(selected.owner, record.id) : undefined;
+          selected.guard();
+          const candidates = [
+            ...record.locations.map((location) => location.source),
+            ...(record.destination ? [record.destination.source] : []),
+            ...(pending?.upload ? [pending.upload.destination.source] : [])
+          ];
+          for (const candidate of candidates) {
+            const key = sourceKey(candidate);
+            if (
+              !activeSources.has(key) &&
+              (candidate.owner === null || snapshot.cloudAuthoritative)
+            )
+              authoritativeAbsentSources.add(key);
+          }
+        }
         const db = await integrationDB();
         for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex++) {
           const source = sources[sourceIndex];
@@ -279,7 +304,9 @@ export async function refreshSnippets(
                   selected.owner,
                   remote.document,
                   remote.location,
-                  selected.guard
+                  selected.guard,
+                  activeSources,
+                  authoritativeAbsentSources
                 );
               } catch (error) {
                 selected.guard();
@@ -369,7 +396,15 @@ export async function appendToSnippet(
     );
     return { ...current, document, dirty: !!current.destination, issue: undefined };
   });
-  await reloadSnippets(selected);
+
+  // The IndexedDB mutation above is authoritative and records the capture
+  // receipt atomically. A presentation refresh failure after that point must
+  // not report the append as failed and invite a duplicate retry.
+  try {
+    await reloadSnippets(selected);
+  } catch {
+    /* The committed mutation already broadcast its change. A later refresh can republish summaries. */
+  }
 }
 export async function duplicateSnippet(id: string, selected = scope()) {
   const record = await getRecord(selected.owner, id);

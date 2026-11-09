@@ -658,6 +658,7 @@
       width={$contentViewportWidth$ ?? 0}
       height={$contentViewportHeight$ ?? 0}
       {verticalMode}
+      {pageDirection}
       {fontFeatureSettings}
       {verticalTextOrientation}
       {prioritizeReaderStyles}

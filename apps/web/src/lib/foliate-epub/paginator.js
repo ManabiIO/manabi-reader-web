@@ -2,6 +2,7 @@
 // See LICENSE.foliate-js.txt in this directory.
 import { slideGeometry } from './slide-geometry.ts'
 import { PageCountCache, pageNumber, pageNumberLabel } from './page-counts.ts'
+import { paginatedPageRtl } from './page-direction.ts'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -192,10 +193,19 @@ const setSelectionTo = (target, collapse) => {
 
 const getDirection = doc => {
     const { defaultView } = doc
-    const { writingMode, direction } = defaultView.getComputedStyle(doc.body)
+    const bodyStyle = defaultView.getComputedStyle(doc.body)
+    const { writingMode } = bodyStyle
     const vertical = writingMode === 'vertical-rl'
         || writingMode === 'vertical-lr'
-    const rtl = doc.body.dir === 'rtl'
+    // The reader owns the writing axis on the synthetic iframe body, while
+    // publisher html/body direction is scoped to the preserved EPUB wrappers.
+    // Read horizontal bidi semantics from that content root so pagination can
+    // keep text direction separate from explicit page progression.
+    const contentRoot = !vertical
+        ? doc.querySelector('.ttu-book-body-wrapper') ?? doc.body
+        : doc.body
+    const direction = defaultView.getComputedStyle(contentRoot).direction
+    const rtl = contentRoot.getAttribute?.('dir')?.trim?.().toLowerCase?.() === 'rtl'
         || direction === 'rtl'
         || doc.documentElement.dir === 'rtl'
     return { vertical, rtl }
@@ -223,6 +233,7 @@ const setStylesImportant = (el, styles) => {
 }
 
 class View {
+    #pageDirectionStyles = new WeakMap()
     #resizeTimer = 0
     #observer = new ResizeObserver(() => {
         // An iframe and its parent have separate rendering cycles. Schedule a
@@ -337,6 +348,7 @@ class View {
     }
     render(layout) {
         if (!layout || this.#disposed || !this.document?.body) return
+        this.#restorePageDirectionStyles()
         const { vertical, rtl: contentRtl } = getDirection(this.document)
         this.#vertical = vertical
         this.#rtl = !vertical && typeof layout.pageRtl === 'boolean' ? layout.pageRtl : contentRtl
@@ -344,6 +356,27 @@ class View {
         this.#layout = layout
         if (this.#column) this.columnize(layout, contentRtl)
         else this.scrolled(layout)
+    }
+    #restorePageDirectionStyles() {
+        const doc = this.document
+        const saved = this.#pageDirectionStyles.get(doc)
+        if (!saved) return
+        for (const [element, value, priority] of saved) {
+            if (value) element.style.setProperty('direction', value, priority)
+            else element.style.removeProperty('direction')
+        }
+        this.#pageDirectionStyles.delete(doc)
+    }
+    #setPageProgressionDirection(pageRtl, contentRtl) {
+        const doc = this.document
+        // This override belongs only to the current paginated layout. Preserve
+        // authored inline values/priorities before separating page progression
+        // from paragraph direction, then restore them before any later layout.
+        this.#pageDirectionStyles.set(doc, [doc.documentElement, doc.body].map(element => [
+            element, element.style.getPropertyValue('direction'), element.style.getPropertyPriority('direction'),
+        ]))
+        setStylesImportant(doc.documentElement, { direction: pageRtl ? 'rtl' : 'ltr' })
+        setStylesImportant(doc.body, { direction: contentRtl ? 'rtl' : 'ltr' })
     }
     scrolled({ gap, columnWidth }) {
         const vertical = this.#vertical
@@ -387,18 +420,13 @@ class View {
             'min-height': 'none', 'min-width': 'none',
             // fix glyph clipping in WebKit
             '-webkit-line-box-contain': 'block glyphs replaced',
-            ...(separatesPageProgression
-                ? { 'direction': pageRtl ? 'rtl' : 'ltr' }
-                : {}),
         })
         setStylesImportant(doc.body, {
             'max-height': 'none',
             'max-width': 'none',
             'margin': '0',
-            ...(separatesPageProgression
-                ? { 'direction': contentRtl ? 'rtl' : 'ltr' }
-                : {}),
         })
+        if (separatesPageProgression) this.#setPageProgressionDirection(pageRtl, contentRtl)
         this.setImageSize()
         this.expand()
     }
@@ -797,12 +825,12 @@ export class Paginator extends HTMLElement {
         cancelAnimationFrame(this.#resizeFrame)
         this.#resizeFrame = 0
         const flow = this.getAttribute('flow')
-        const pageRtl =
-            flow !== 'scrolled' && !vertical && this.bookDir === 'rtl'
-                ? true
-                : flow !== 'scrolled' && !vertical && this.bookDir === 'ltr'
-                  ? false
-                  : rtl
+        const pageRtl = paginatedPageRtl({
+            flow,
+            vertical,
+            bookDirection: this.bookDir,
+            contentRtl: rtl,
+        })
         this.#vertical = vertical
         this.#contentRtl = rtl
         this.#rtl = pageRtl
@@ -1221,6 +1249,13 @@ export class Paginator extends HTMLElement {
             } catch (error) {
                 if (!this.#destroyed && generation === this.#navigationGeneration)
                     this.dispatchEvent(new CustomEvent('navigationerror', { detail: error }))
+                return false
+            }
+            if (src == null || src === '') {
+                if (!this.#destroyed && generation === this.#navigationGeneration)
+                    this.dispatchEvent(new CustomEvent('navigationerror', {
+                        detail: new Error('EPUB section did not provide a renderable source'),
+                    }))
                 return false
             }
             await this.#display({ index, src, anchor, onLoad, select }, generation)

@@ -21,10 +21,11 @@ let generation=0;
 export const changeUser=(id)=>{generation++;account.set({status:'available',session:id?{user:{id,username:id}}:null});};
 export const accountScope=()=>({userId:currentUser()?.id,generation});
 export class IntegrationError extends Error {constructor(code,status=0){super(code);this.code=code;this.status=status;}}
-export const memory={files:new Map(),writes:[],states:new Map(),sources:[],dropReply:false,beforeWrite:null,beforeStateWrite:null,failRemove:false,readCount:0,scanCount:0,beforeScan:null};
+export const memory={files:new Map(),writes:[],states:new Map(),sources:[],cloudAuthoritative:true,dropReply:false,beforeWrite:null,beforeStateWrite:null,failRemove:false,readCount:0,scanCount:0,beforeScan:null};
 export function sameSource(a,b){return a.id===b.id&&a.owner===b.owner&&a.root===b.root;}
 export const capability=async()=>({write:true});
 export const sourceDescriptors=async()=>memory.sources;
+export const sourceSnapshot=async()=>({sources:memory.sources,cloudAuthoritative:memory.cloudAuthoritative});
 export const scanCatalog=async(_adapter,source,signal)=>{memory.scanCount++;const entries=[...memory.files].filter(([,x])=>sameSource(x.location.source,source)).map(([id,x])=>({id,name:x.location.name,kind:'file'}));if(memory.beforeScan)await memory.beforeScan();signal?.throwIfAborted();return {source,entries,names:{},warnings:[],scannedAt:Date.now()};};
 export const librarySource=async(source)=>({source,state:async(key)=>memory.states.get(source.id+key)??{value:null,revision:'0'},write:async(key,value,revision)=>{if(memory.beforeStateWrite)await memory.beforeStateWrite(source,key,value);const name=source.id+key,current=memory.states.get(name)??{revision:'0'};if(current.revision!==revision)throw new IntegrationError('conflict');const result={value:structuredClone(value),revision:String(Number(revision)+1)};memory.states.set(name,result);return result;}});
 export const prepareDestination=async(dest,doc)=>({...dest,name:doc.id+'.manabi-snippet.json',createId:dest.createId??crypto.randomUUID()});

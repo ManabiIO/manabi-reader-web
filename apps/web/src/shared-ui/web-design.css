@@ -123,6 +123,13 @@
     min-width: 44px;
     min-height: 44px;
   }
+  :root .library-react .library-toolbar-actions {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    min-width: 0;
+    max-width: 100%;
+  }
 }
 @media (forced-colors: active) {
   [data-slot='button']:focus-visible {
@@ -192,6 +199,8 @@
     flex: 1 1 100%;
     flex-wrap: wrap;
     justify-content: flex-start;
+    min-width: 0;
+    max-width: 100%;
   }
   :root .library-react .library-toolbar-actions label:has(input[type='search']) {
     flex: 1 1 100%;

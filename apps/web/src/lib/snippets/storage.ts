@@ -5,10 +5,10 @@
  */
 
 import { currentUser, IntegrationError, request } from '../manabi/client';
-import { integrationDB, exclusive } from '../manabi/persistence';
+import { integrationDB, exclusive, type LocalLibrary } from '../manabi/persistence';
 import { librarySource, type SourceDescriptor } from '../library/catalog';
 import { openDirectory, safePath } from '../library/file-operations';
-import { sha256, type LibraryEntry } from '../manabi/sources';
+import { sha256, withLocalLibraryConnection, type LibraryEntry } from '../manabi/sources';
 import { davSource, withDavSourceLock } from '../webdav/source';
 import { davChild, davRoot, strongEtag, decodeDavText } from '../webdav/client';
 import type { Destination, Guard, Location } from './database';
@@ -85,20 +85,28 @@ function reply(value: DocumentReply, source: SourceDescriptor, expected?: string
   const document = parseSnippet(canonical(value.document));
   return { document, location: { ...value.location, source } as Location };
 }
-async function local(source: SourceDescriptor, guard: Guard, write = false) {
+async function localSnapshot(source: SourceDescriptor, guard: Guard) {
   sourceGuard(source, guard);
   if (source.provider !== 'local' || source.owner !== null || source.root !== '')
     throw new Error('Invalid local folder source.');
   const item = await (await integrationDB()).get('localLibraries', source.id);
   guard();
   if (!item) throw new Error('This folder is no longer connected.');
-  if (
-    (write && !item.writable) ||
-    (await item.handle.queryPermission({ mode: write ? 'readwrite' : 'read' })) !== 'granted'
-  )
-    throw new IntegrationError('permission_required');
-  guard();
   return item;
+}
+async function withLocal<T>(
+  source: SourceDescriptor,
+  guard: Guard,
+  write: boolean,
+  work: (library: LocalLibrary) => Promise<T>
+): Promise<T> {
+  const admitted = await localSnapshot(source, guard);
+  return withLocalLibraryConnection(admitted, write, async (current) => {
+    guard();
+    const result = await work(current);
+    guard();
+    return result;
+  });
 }
 function childName(name: string, folder = false) {
   // Keep all providers within one portable filename contract.
@@ -132,9 +140,13 @@ async function optionalFile(directory: FileSystemDirectoryHandle, name: string) 
     throw error;
   }
 }
-async function localRead(source: SourceDescriptor, fileId: string, guard: Guard) {
-  const origin = await local(source, guard),
-    { parent, name } = parts(fileId);
+async function localReadConnected(
+  source: SourceDescriptor,
+  origin: LocalLibrary,
+  fileId: string,
+  guard: Guard
+) {
+  const { parent, name } = parts(fileId);
   const handle = await (await openDirectory(origin.handle, parent)).getFileHandle(name),
     file = await handle.getFile();
   guard();
@@ -145,6 +157,11 @@ async function localRead(source: SourceDescriptor, fileId: string, guard: Guard)
   const token = await sha256(bytes);
   guard();
   return { document, location: { source, fileId, parent, name, token } as Location };
+}
+async function localRead(source: SourceDescriptor, fileId: string, guard: Guard) {
+  return withLocal(source, guard, false, (origin) =>
+    localReadConnected(source, origin, fileId, guard)
+  );
 }
 async function davRead(source: SourceDescriptor, fileId: string, guard: Guard) {
   const adapter = await davSource(source.id);
@@ -191,11 +208,10 @@ export async function capability(
         : 'Enable write-back in WebDAV connection settings to save snippet documents here.'
     };
   }
-  const entry = await local(source, guard);
-  return {
+  return withLocal(source, guard, false, async (entry) => ({
     write:
       entry.writable && (await entry.handle.queryPermission({ mode: 'readwrite' })) === 'granted'
-  };
+  }));
 }
 export async function folders(source: SourceDescriptor, parent: string, guard: Guard) {
   sourceGuard(source, guard);
@@ -272,12 +288,13 @@ export async function makeFolder(
       guard();
       return id;
     });
-  const entry = await local(source, guard, true),
-    directory = await openDirectory(entry.handle, parent);
-  guard();
-  await directory.getDirectoryHandle(name, { create: true });
-  guard();
-  return join(parent, name);
+  return withLocal(source, guard, true, async (entry) => {
+    const directory = await openDirectory(entry.handle, parent);
+    guard();
+    await directory.getDirectoryHandle(name, { create: true });
+    guard();
+    return join(parent, name);
+  });
 }
 export async function readDocument(
   source: SourceDescriptor,
@@ -370,54 +387,57 @@ export async function writeDocument(
         throw new IntegrationError('conflict');
       return confirmed.location;
     });
-  return exclusive(`snippet-file:${source.id}:${join(parent, name)}`, async () => {
-    const entry = await local(source, guard, true),
-      directory = await openDirectory(entry.handle, parent);
-    let handle = await optionalFile(directory, name);
-    guard();
-    let before: Awaited<ReturnType<typeof localRead>> | undefined;
-    const id = join(parent, name);
-    if (handle) {
-      const existing = await handle.getFile();
+  return withLocal(source, guard, true, (entry) =>
+    exclusive(`snippet-file:${source.id}:${join(parent, name)}`, async () => {
+      const directory = await openDirectory(entry.handle, parent);
+      let handle = await optionalFile(directory, name);
       guard();
-      // File System Access creates the directory entry before a writable stream
-      // is committed. A crash/abort during a first create can therefore leave a
-      // zero-byte placeholder. Only reclaim the deterministic filename for this
-      // exact logical document; corrupt/non-empty external files remain conflicts.
-      const recoverablePlaceholder =
-        !expected && existing.size === 0 && name === filename(document);
-      if (!recoverablePlaceholder) {
-        before = await localRead(source, id, guard);
-        if (!permitUpdate(before.document, document, expected, before.location))
-          return before.location;
+      let before: Awaited<ReturnType<typeof localReadConnected>> | undefined;
+      const id = join(parent, name);
+      if (handle) {
+        const existing = await handle.getFile();
+        guard();
+        // File System Access creates the directory entry before a writable stream
+        // is committed. A crash/abort during a first create can therefore leave a
+        // zero-byte placeholder. Only reclaim the deterministic filename for this
+        // exact logical document; corrupt/non-empty external files remain conflicts.
+        const recoverablePlaceholder =
+          !expected && existing.size === 0 && name === filename(document);
+        if (!recoverablePlaceholder) {
+          before = await localReadConnected(source, entry, id, guard);
+          if (!permitUpdate(before.document, document, expected, before.location))
+            return before.location;
+        }
+      } else if (expected) throw new IntegrationError('not_found', 404);
+      handle ??= await directory.getFileHandle(name, { create: true });
+      guard();
+      const stream = await handle.createWritable();
+      try {
+        await stream.write(raw);
+        guard();
+        // A browser cannot exclude external editors. Recheck immediately before committing.
+        const latest = await handle.getFile();
+        guard();
+        if (
+          before
+            ? (await sha256(await latest.arrayBuffer())) !== before.location.token
+            : latest.size !== 0
+        )
+          throw new IntegrationError('conflict');
+        if ((await entry.handle.queryPermission({ mode: 'readwrite' })) !== 'granted')
+          throw new IntegrationError('permission_required');
+        guard();
+        await stream.close();
+      } catch (error) {
+        await stream.abort().catch(() => undefined);
+        throw error;
       }
-    } else if (expected) throw new IntegrationError('not_found', 404);
-    handle ??= await directory.getFileHandle(name, { create: true });
-    guard();
-    const stream = await handle.createWritable();
-    try {
-      await stream.write(raw);
-      guard();
-      // A browser cannot exclude external editors. Recheck immediately before committing.
-      const latest = await handle.getFile();
-      guard();
-      if (
-        before
-          ? (await sha256(await latest.arrayBuffer())) !== before.location.token
-          : latest.size !== 0
-      )
+      const confirmed = await localReadConnected(source, entry, id, guard);
+      if (canonical(confirmed.document) !== canonical(document))
         throw new IntegrationError('conflict');
-      await local(source, guard, true);
-      await stream.close();
-    } catch (error) {
-      await stream.abort().catch(() => undefined);
-      throw error;
-    }
-    const confirmed = await localRead(source, id, guard);
-    if (canonical(confirmed.document) !== canonical(document))
-      throw new IntegrationError('conflict');
-    return confirmed.location;
-  });
+      return confirmed.location;
+    })
+  );
 }
 /** Only cloud providers expose a qualified native move here; other sources use the transfer journal. */
 export async function moveWithinSource(
@@ -459,26 +479,30 @@ export async function removeDocument(location: Location, document: SnippetDocume
     if (value.removed !== true) throw new IntegrationError('invalid_response');
     return;
   }
-  const remove = async () => {
-    const current = await readDocument(source, fileId, guard);
-    if (current.location.token !== token || canonical(current.document) !== canonical(document))
-      throw new IntegrationError('conflict');
-    if (source.provider === 'webdav') {
+  if (source.provider === 'webdav')
+    return withDavSourceLock(source.id, async () => {
+      const current = await readDocument(source, fileId, guard);
+      if (current.location.token !== token || canonical(current.document) !== canonical(document))
+        throw new IntegrationError('conflict');
       const adapter = await davSource(source.id);
       guard();
       await (await adapter.documentClient(true)).remove(fileId, token);
       guard();
-    } else {
-      const entry = await local(source, guard, true),
-        { parent, name } = parts(fileId),
+    });
+  return withLocal(source, guard, true, (entry) =>
+    exclusive(`snippet-file:${source.id}:${fileId}`, async () => {
+      const current = await localReadConnected(source, entry, fileId, guard);
+      if (current.location.token !== token || canonical(current.document) !== canonical(document))
+        throw new IntegrationError('conflict');
+      const { parent, name } = parts(fileId),
         directory = await openDirectory(entry.handle, parent);
-      const again = await localRead(source, fileId, guard);
+      const again = await localReadConnected(source, entry, fileId, guard);
       if (again.location.token !== token) throw new IntegrationError('conflict');
+      if ((await entry.handle.queryPermission({ mode: 'readwrite' })) !== 'granted')
+        throw new IntegrationError('permission_required');
+      guard();
       await directory.removeEntry(name);
       guard();
-    }
-  };
-  return source.provider === 'webdav'
-    ? withDavSourceLock(source.id, remove)
-    : exclusive(`snippet-file:${source.id}:${fileId}`, remove);
+    })
+  );
 }

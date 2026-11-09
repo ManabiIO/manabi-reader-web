@@ -13,9 +13,9 @@
     flex-wrap: wrap;
     pointer-events: auto;
     gap: 6px;
-    width: max-content;
-    max-width: calc(100% - 48px);
-    margin: 8px 24px 12px;
+    width: fit-content;
+    max-width: calc(100% - 32px);
+    margin: 8px 16px 12px;
     padding: 4px;
     border-radius: 24px;
     background: var(--muted);
@@ -27,12 +27,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    flex: 1 0 auto;
+    flex: 1 1 auto;
     max-width: 100%;
     min-width: 0;
     min-height: 44px;
-    padding: 10px clamp(10px, 3vw, 22px);
-    overflow-wrap: anywhere;
+    padding: 10px clamp(6px, 2vw, 22px);
+    white-space: nowrap;
     text-align: center;
     border-radius: 20px;
     color: var(--foreground);

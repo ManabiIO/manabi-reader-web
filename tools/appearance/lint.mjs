@@ -66,6 +66,8 @@ const files = [
   'apps/web/src/lib/components/book-reader/reader-appearance.svelte',
   'apps/web/src/lib/components/ui/sheet/sheet-content.svelte',
   'apps/web/src/lib/components/statistics/statistics-header.svelte',
+  'apps/web/src/lib/components/statistics/statistics-summary/statistics-summary.svelte',
+  'apps/web/src/lib/components/statistics/statistics-summary/statistics-summary-header.svelte',
   'apps/web/src/lib/components/popover/popover.svelte',
   'apps/web/src/lib/components/dialog-template.svelte',
   'apps/web/src/lib/components/app-icon.svelte',

@@ -122,6 +122,13 @@ class LibraryParityBrowser(LibraryBase):
             self.assertGreaterEqual(box['height'], 43.99)
             self.assertGreaterEqual(box['x'], -1)
             self.assertLessEqual(box['x'] + box['width'], 321)
+            self.assertGreaterEqual(box['y'], -1)
+            self.assertLessEqual(box['y'] + box['height'], 569)
+            self.assertTrue(control.evaluate('''e => {
+              const r=e.getBoundingClientRect();
+              const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+              return !!hit && (hit===e || e.contains(hit));
+            }'''))
 
         select_all.click()
         expect(toolbar.get_by_role('status')).to_have_text('3 selected')

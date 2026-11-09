@@ -7,6 +7,7 @@ const scope = globalThis as unknown as {
 };
 
 let epoch = -1;
+let levelPhrase = -1;
 let levels: number[] = [];
 let initialized = false;
 let ready = false;
@@ -14,18 +15,31 @@ let ready = false;
 interface AnalysisRequest {
   id: number;
   epoch: number;
+  phrase: number;
   rate: number;
   samples: Float32Array;
 }
 
 const queue = new LatestEpochQueue<AnalysisRequest>(async (data, current) => {
-  const result = await analyseSwiftF0Window(data.samples, data.rate);
+  const results = await analyseSwiftF0Window(data.samples, data.rate);
   if (!current()) return;
-  levels.push(result.rms);
-  if (levels.length > 24) levels.shift();
-  const peak = Math.max(0, ...levels);
-  if (result.rms < peak * 10 ** (-35 / 20)) result.hz = null;
-  scope.postMessage({ type: 'result', id: data.id, epoch: data.epoch, result });
+  if (data.phrase !== levelPhrase) {
+    levels = [];
+    levelPhrase = data.phrase;
+  }
+  const gated = results.map((result) => {
+    levels.push(result.rms);
+    if (levels.length > 64) levels.shift();
+    const peak = Math.max(0, ...levels);
+    return result.rms < peak * 10 ** (-35 / 20) ? { ...result, hz: null } : result;
+  });
+  scope.postMessage({
+    type: 'result',
+    id: data.id,
+    epoch: data.epoch,
+    results: gated,
+    result: gated.at(-1) ?? null
+  });
 });
 
 function advanceEpoch(next: number) {

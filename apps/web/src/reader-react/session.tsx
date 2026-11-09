@@ -273,11 +273,11 @@ export function ReaderScreen(props: Partial<SessionProps> & ReaderViewProps) {
             controlsVisible={c.showHeader}
             previewNavigationActive={c.navigationPreviewing || c.suppressResumeSave}
             htmlContent={c.$bookData$.htmlContent}
+            language={c.$rawBookData$.language ?? ''}
+            pageDirection={c.$rawBookData$.pageDirection?.value ?? 'unknown'}
             epubResources={c.$bookData$.epubResources}
             styleSheet={c.$bookData$.styleSheet}
             publicationManifest={c.$rawBookData$.publicationManifest}
-            language={c.$rawBookData$.language ?? ''}
-            pageDirection={c.$rawBookData$.pageDirection?.value ?? 'unknown'}
             sourceFormat={readerSourceFormat(c.$rawBookData$)}
             width={c.$containerViewportWidth$ ?? 0}
             height={c.$containerViewportHeight$ ?? 0}
@@ -585,7 +585,9 @@ export function ReaderScreen(props: Partial<SessionProps> & ReaderViewProps) {
               .querySelector<HTMLButtonElement>('[aria-label="Show reading controls"]')
               ?.focus();
           }}
-          className={['writing-horizontal-tb data-[side=left]:w-full data-[side=left]:sm:max-w-md']
+          className={[
+            'overflow-hidden writing-horizontal-tb data-[side=left]:w-full data-[side=left]:sm:max-w-md'
+          ]
             .filter(Boolean)
             .join(' ')}
         >

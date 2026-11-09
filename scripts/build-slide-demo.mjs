@@ -14,6 +14,7 @@ import { fileURLToPath, URL } from 'node:url';
 const root = new URL('../', import.meta.url);
 const names = [
   'page-turn-effect.ts',
+  'page-direction.ts',
   'slide-geometry.ts',
   'page-counts.ts',
   'paginator.js',

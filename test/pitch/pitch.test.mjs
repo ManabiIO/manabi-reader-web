@@ -1,12 +1,13 @@
-// The default worker double returns the captured window duration, as SwiftF0 does.
 import process from 'node:process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 const {
   ANALYSIS_WINDOW_SECONDS,
   SWIFT_F0_FRAME_SECONDS,
+  SAMPLE_INTERVAL_MS,
   hasStableSwiftF0Context,
   measurementFromSwiftF0,
+  measurementsFromSwiftF0,
   resampleForSwiftF0
 } = await import(new URL('analysis.mjs', process.env.PITCH_COMPILED));
 const { appendPoint, pitchPaths, initialPitchState } = await import(
@@ -19,20 +20,50 @@ const { runSwiftF0Inference, swiftF0ModelGain } = await import(
 );
 const { LatestEpochQueue } = await import(new URL('worker-queue.mjs', process.env.PITCH_COMPILED));
 
-test('pitch requests a 48 kHz context and falls back when the device rejects it', () => {
+test('pitch accepts an 88.2 kHz native fallback with enough SwiftF0 context', () => {
   const original = globalThis.AudioContext;
   const requested = [];
   globalThis.AudioContext = class {
     constructor(options) {
       requested.push(options?.sampleRate ?? null);
       if (options) throw new DOMException('Unsupported output rate', 'NotSupportedError');
-      this.sampleRate = 96000;
+      this.sampleRate = 88200;
+    }
+    close() {
+      throw new Error('accepted context must not be closed');
     }
   };
   try {
     const context = createPitchController(() => {}).environment.createContext();
-    assert.equal(context.sampleRate, 96000);
-    assert.deepEqual(requested, [48000, null]);
+    assert.equal(context.sampleRate, 88200);
+    assert.deepEqual(requested, [48000, 44100, null]);
+  } finally {
+    globalThis.AudioContext = original;
+  }
+});
+
+test('pitch rejects a native context too fast for the analyser window', () => {
+  const original = globalThis.AudioContext;
+  const requested = [];
+  let closed = 0;
+  globalThis.AudioContext = class {
+    constructor(options) {
+      requested.push(options?.sampleRate ?? null);
+      if (options) throw new DOMException('Unsupported output rate', 'NotSupportedError');
+      this.sampleRate = 96000;
+    }
+    close() {
+      closed++;
+      return Promise.resolve();
+    }
+  };
+  try {
+    assert.throws(
+      () => createPitchController(() => {}).environment.createContext(),
+      /audio context at or below/
+    );
+    assert.deepEqual(requested, [48000, 44100, null]);
+    assert.equal(closed, 1);
   } finally {
     globalThis.AudioContext = original;
   }
@@ -46,13 +77,6 @@ const tone = (hz, rate = 48000, seconds = ANALYSIS_WINDOW_SECONDS, amplitude = 0
     { length: Math.ceil(rate * seconds) },
     (_, i) => amplitude * Math.sin((2 * Math.PI * hz * i) / rate)
   );
-const rms = (samples, trim = 256) => {
-  const first = Math.min(trim, Math.floor(samples.length / 4));
-  const last = Math.max(first + 1, samples.length - first);
-  let square = 0;
-  for (let index = first; index < last; index++) square += samples[index] ** 2;
-  return Math.sqrt(square / (last - first));
-};
 
 for (const rate of [8000, 16000, 44100, 48000, 96000, 192000]) {
   test(`SwiftF0 resampling keeps a finite 16 kHz window from ${rate} Hz`, () => {
@@ -62,22 +86,24 @@ for (const rate of [8000, 16000, 44100, 48000, 96000, 192000]) {
     assert.ok(Math.abs(result.length / 16000 - ANALYSIS_WINDOW_SECONDS) < 0.002);
   });
 }
-test('high-rate resampling preserves speech and suppresses 12 kHz alias energy', () => {
-  for (const rate of [48000, 96000, 192000]) {
-    const speech = resampleForSwiftF0(tone(220, rate, 0.25, 1), rate);
-    const outOfBand = resampleForSwiftF0(tone(12000, rate, 0.25, 1), rate);
-    const speechRatio = rms(speech) / (1 / Math.sqrt(2));
-    const aliasRatio = rms(outOfBand) / (1 / Math.sqrt(2));
-    assert.ok(speechRatio > 0.97 && speechRatio < 1.03, `${rate}: speech gain ${speechRatio}`);
-    assert.ok(aliasRatio < 0.005, `${rate}: alias ratio ${aliasRatio}`);
+test('SwiftF0 batches stable frames at 32 ms spacing while retaining future context', () => {
+  const samples = tone(220, 16000);
+  const frameCount = Math.floor(samples.length / 256);
+  const pitch = new Float64Array(frameCount).fill(220);
+  const confidence = new Float32Array(frameCount).fill(0.9);
+  const results = measurementsFromSwiftF0(samples, pitch, confidence);
+  assert.ok(results.length >= 10);
+  assert.ok(results[0].offsetSeconds >= 11 * SWIFT_F0_FRAME_SECONDS);
+  assert.ok(results.at(-1).offsetSeconds <= ANALYSIS_WINDOW_SECONDS - 0.15);
+  for (let index = 1; index < results.length; index++) {
+    assert.ok(
+      Math.abs(results[index].offsetSeconds - results[index - 1].offsetSeconds - 0.032) < 1e-9
+    );
   }
 });
-
-test('analyser capacity must cover SwiftF0 left and right context', () => {
-  assert.equal(hasStableSwiftF0Context(48000), true);
-  assert.equal(hasStableSwiftF0Context(88200), true);
-  assert.equal(hasStableSwiftF0Context(96000), false);
-  assert.equal(hasStableSwiftF0Context(192000), false);
+test('live inference cadence is aligned to multiple emitted pitch frames', () => {
+  assert.equal(SAMPLE_INTERVAL_MS, 256);
+  assert.equal(SAMPLE_INTERVAL_MS % 32, 0);
 });
 
 test('SwiftF0 frame selection retains its future-context margin and speech bounds', () => {
@@ -91,6 +117,126 @@ test('SwiftF0 frame selection retains its future-context margin and speech bound
   assert.ok(result.offsetSeconds <= result.windowSeconds - 0.15);
   assert.ok(Math.abs((result.offsetSeconds / SWIFT_F0_FRAME_SECONDS) % 1) < 1e-8);
 });
+test('SwiftF0 runtime copies results and disposes every native tensor', async () => {
+  let live = 0;
+  class Tensor {
+    constructor(type, data, dims) {
+      Object.assign(this, { type, data, dims, disposed: false });
+      live++;
+    }
+    dispose() {
+      assert.equal(this.disposed, false);
+      this.disposed = true;
+      live--;
+    }
+  }
+  const samples = tone(220, 16000);
+  const expected = Math.floor(samples.length / 256);
+  const session = {
+    async run() {
+      return {
+        pitch: new Tensor('float64', new Float64Array(expected).fill(220), [1, expected]),
+        confidence: new Tensor('float32', new Float32Array(expected).fill(0.9), [1, expected])
+      };
+    }
+  };
+  const result = await runSwiftF0Inference(
+    session,
+    (type, data, dims) => new Tensor(type, data, dims),
+    samples,
+    85,
+    520
+  );
+  assert.equal(result.pitch.length, expected);
+  assert.equal(result.pitch[0], 220);
+  assert.ok(Math.abs(result.confidence[0] - 0.9) < 1e-6);
+  assert.equal(live, 0, 'all input and output tensors must be disposed after each inference');
+});
+
+test('SwiftF0 runtime releases feeds after failure and rejects malformed model output', async () => {
+  let live = 0;
+  class Tensor {
+    constructor(type, data, dims) {
+      Object.assign(this, { type, data, dims });
+      live++;
+    }
+    dispose() {
+      live--;
+    }
+  }
+  const samples = tone(220, 16000);
+  await assert.rejects(
+    runSwiftF0Inference(
+      {
+        run: async () => {
+          throw new Error('inference failed');
+        }
+      },
+      (type, data, dims) => new Tensor(type, data, dims),
+      samples,
+      85,
+      520
+    ),
+    /inference failed/
+  );
+  assert.equal(live, 0);
+
+  const expected = Math.floor(samples.length / 256);
+  await assert.rejects(
+    runSwiftF0Inference(
+      {
+        run: async () => ({
+          pitch: new Tensor('float64', new Float64Array(expected - 1).fill(220), [1, expected - 1]),
+          confidence: new Tensor('float32', new Float32Array(expected).fill(0.9), [1, expected])
+        })
+      },
+      (type, data, dims) => new Tensor(type, data, dims),
+      samples,
+      85,
+      520
+    ),
+    /malformed frame counts/
+  );
+  assert.equal(live, 0);
+});
+
+test('partial tensor-construction failure releases tensors already created', async () => {
+  let live = 0;
+  let created = 0;
+  class Tensor {
+    constructor(type, data, dims) {
+      Object.assign(this, { type, data, dims });
+      live++;
+    }
+    dispose() {
+      live--;
+    }
+  }
+  await assert.rejects(
+    runSwiftF0Inference(
+      { run: async () => ({}) },
+      (type, data, dims) => {
+        created++;
+        if (created === 2) throw new Error('tensor allocation failed');
+        return new Tensor(type, data, dims);
+      },
+      tone(220, 16000),
+      85,
+      520
+    ),
+    /tensor allocation failed/
+  );
+  assert.equal(live, 0);
+});
+
+test('very quiet non-silent windows are lifted only for model inference', () => {
+  assert.equal(swiftF0ModelGain(new Float32Array(100).fill(0)), 1);
+  assert.equal(swiftF0ModelGain(new Float32Array(100).fill(0.1)), 1);
+  const gain = swiftF0ModelGain(new Float32Array(100).fill(0.005));
+  assert.ok(gain > 1);
+  assert.ok(Math.abs(0.005 * gain - 0.5) < 1e-6);
+});
+
 test('low confidence, silence and out-of-band SwiftF0 frames are unvoiced', () => {
   const samples = tone(220, 16000);
   const pitch = new Float64Array(24).fill(220);
@@ -109,16 +255,17 @@ test('low confidence, silence and out-of-band SwiftF0 frames are unvoiced', () =
   confidence[13] = 1;
   assert.equal(measurementFromSwiftF0(samples, pitch, confidence).hz, null);
 });
-test('under-context model output fails closed instead of publishing an edge frame', () => {
-  const samples = tone(220, 16000, 0.34);
-  const count = Math.floor(samples.length / 256);
-  const result = measurementFromSwiftF0(
-    samples,
-    new Float64Array(count).fill(220),
-    new Float32Array(count).fill(1)
-  );
+test('a preceding voiced hop cannot authorize pitch in a silent current hop', () => {
+  const frameCount = 24;
+  const selected = frameCount - 1 - 10;
+  const samples = new Float32Array(frameCount * 256);
+  samples.fill(0.5, (selected - 1) * 256, selected * 256);
+  const pitch = new Float64Array(frameCount).fill(220);
+  const confidence = new Float32Array(frameCount).fill(1);
+  const result = measurementFromSwiftF0(samples, pitch, confidence);
   assert.equal(result.hz, null);
-  assert.equal(result.confidence, 0);
+  assert.ok(result.rms > 0, 'the centered level window still sees the preceding hop');
+  assert.equal(result.amplitude > 0, true);
 });
 
 test('empty model output and malformed source rates fail closed', () => {
@@ -126,210 +273,6 @@ test('empty model output and malformed source rates fail closed', () => {
   for (const rate of [NaN, Infinity, 0, 7999, 192001])
     assert.equal(resampleForSwiftF0(tone(220), rate).length, 0);
 });
-
-test('current-hop silence is not voiced by energy from the previous hop', () => {
-  const samples = new Float32Array(Math.ceil(16000 * ANALYSIS_WINDOW_SECONDS));
-  const frameCount = Math.floor(samples.length / 256);
-  const selected = frameCount - 1 - 10;
-  const center = selected * 256;
-  for (let index = center - 256; index < center; index++)
-    samples[index] = 0.4 * Math.sin((2 * Math.PI * 220 * index) / 16000);
-  const pitch = new Float64Array(frameCount).fill(220);
-  const confidence = new Float32Array(frameCount).fill(1);
-  const result = measurementFromSwiftF0(samples, pitch, confidence);
-  assert.equal(result.hz, null);
-  assert.equal(result.confidence, 0);
-  assert.ok(result.amplitude > 0, 'centered display level should still see the preceding hop');
-});
-
-test('quiet non-silent audio is gained only for model inference', () => {
-  const quiet = tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.005);
-  const gain = swiftF0ModelGain(quiet);
-  assert.ok(gain > 1);
-  assert.ok(Math.abs(0.005 * gain - 0.5) < 0.002);
-  assert.equal(swiftF0ModelGain(new Float32Array(quiet.length)), 1);
-  assert.equal(swiftF0ModelGain(tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.1)), 1);
-});
-
-function swiftF0RuntimeFixture(options = {}) {
-  const { failRun = false, malformed = false, invalid = false } = options;
-  let allocations = 0;
-  const stats = { live: 0, disposed: 0, peak: 0 };
-  class Tensor {
-    constructor(type, data, dims) {
-      this.type = type;
-      this.data = data;
-      this.dims = dims;
-      this.disposed = false;
-      stats.live++;
-    }
-    dispose() {
-      assert.equal(this.disposed, false, 'each tensor must be disposed exactly once');
-      this.disposed = true;
-      stats.live--;
-      stats.disposed++;
-      this.data.fill(0);
-      if (options.throwDispose) throw new Error('synthetic release failure');
-    }
-  }
-  const runtime = {
-    createTensor(type, data, dims) {
-      if (++allocations === options.failAllocation) throw new Error('synthetic allocation failure');
-      return new Tensor(type, data, dims);
-    },
-    async run(feeds) {
-      stats.peak = Math.max(...feeds.audio.data.map((value) => Math.abs(value)));
-      if (failRun) throw new Error('synthetic run failure');
-      const count = Math.max(1, Math.floor(feeds.audio.data.length / 256));
-      const pitch = new Float64Array(count).fill(220);
-      const confidence = new Float32Array(malformed ? Math.max(0, count - 1) : count).fill(0.9);
-      if (invalid) pitch[0] = NaN;
-      const outputs = {
-        pitch: new Tensor(
-          options.wrongType ? 'float32' : 'float64',
-          pitch,
-          options.wrongShape ? [count] : [1, count]
-        ),
-        confidence: new Tensor('float32', confidence, [1, confidence.length])
-      };
-      if (options.extra) outputs.extra = new Tensor('float32', new Float32Array(1), [1]);
-      if (options.alias) outputs.alias = feeds.audio;
-      if (options.throwData)
-        Object.defineProperty(outputs.pitch, 'data', {
-          get() {
-            throw new Error('synthetic data failure');
-          }
-        });
-      return outputs;
-    }
-  };
-  return { runtime, stats };
-}
-
-test('SwiftF0 runtime copies outputs and disposes every tensor after success', async () => {
-  const { runtime, stats } = swiftF0RuntimeFixture();
-  const quiet = tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.005);
-  const result = await runSwiftF0Inference(quiet, 85, 520, runtime);
-  assert.equal(result.pitch.length, Math.floor(quiet.length / 256));
-  assert.equal(result.confidence.length, result.pitch.length);
-  assert.equal(stats.live, 0);
-  assert.equal(stats.disposed, 5);
-  assert.equal(result.pitch[0], 220, 'output remains usable after disposal clears tensor storage');
-  assert.ok(result.confidence[0] > 0.8);
-  assert.ok(stats.peak > 0.45 && stats.peak < 0.55, 'only model input should receive quiet gain');
-});
-
-for (const mode of ['failRun', 'malformed', 'invalid']) {
-  test(`SwiftF0 runtime releases tensors when ${mode} fails`, async () => {
-    const { runtime, stats } = swiftF0RuntimeFixture({ [mode]: true });
-    await assert.rejects(
-      runSwiftF0Inference(tone(220, 16000), 85, 520, runtime),
-      /synthetic run failure|malformed frame counts|invalid measurements/
-    );
-    assert.equal(stats.live, 0);
-  });
-}
-test('SwiftF0 worker queue serializes inference and skips stale queued epochs', async () => {
-  const releases = [];
-  const started = [];
-  let active = 0;
-  let maximum = 0;
-  const queue = new LatestEpochQueue(async (request, current) => {
-    active++;
-    maximum = Math.max(maximum, active);
-    started.push(request.id);
-    await new Promise((resolve) => releases.push(resolve));
-    if (!current()) started.push(`stale-${request.id}`);
-    active--;
-  });
-
-  const first = queue.submit({ id: 1, epoch: 1 });
-  await flush();
-  const stale = queue.submit({ id: 2, epoch: 1 });
-  const latest = queue.submit({ id: 3, epoch: 2 });
-  assert.deepEqual(started, [1]);
-  releases.shift()();
-  await first;
-  await flush();
-  assert.deepEqual(started, [1, 'stale-1', 3], 'queued request from epoch 1 must be skipped');
-  releases.shift()();
-  await Promise.all([stale, latest]);
-  assert.equal(maximum, 1);
-});
-
-for (const options of [
-  { failAllocation: 2 },
-  { failAllocation: 3 },
-  { wrongType: true },
-  { wrongShape: true },
-  { throwData: true },
-  { malformed: true, extra: true }
-]) {
-  test(`SwiftF0 cleans partial inputs and malformed output ownership: ${JSON.stringify(options)}`, async () => {
-    const { runtime, stats } = swiftF0RuntimeFixture(options);
-    await assert.rejects(runSwiftF0Inference(tone(220, 16000), 85, 520, runtime));
-    assert.equal(stats.live, 0);
-    assert.equal(
-      stats.disposed,
-      options.failAllocation ? options.failAllocation - 1 : options.extra ? 6 : 5
-    );
-  });
-}
-test('SwiftF0 releases all outputs once even when tensors alias and disposal throws', async () => {
-  const { runtime, stats } = swiftF0RuntimeFixture({
-    extra: true,
-    alias: true,
-    throwDispose: true
-  });
-  const result = await runSwiftF0Inference(tone(220, 16000), 85, 520, runtime);
-  assert.equal(stats.live, 0);
-  assert.equal(stats.disposed, 6);
-  assert.equal(result.pitch[0], 220);
-});
-test('retirement without a replacement request suppresses running and queued work', async () => {
-  let release;
-  const started = [],
-    published = [];
-  const queue = new LatestEpochQueue(async (request, current) => {
-    started.push(request.id);
-    await new Promise((resolve) => {
-      release = resolve;
-    });
-    if (current()) published.push(request.id);
-  });
-  const running = queue.submit({ id: 1, epoch: 1 });
-  await flush();
-  const queued = queue.submit({ id: 2, epoch: 1 });
-  queue.retire(2);
-  queue.retire(0);
-  release();
-  await Promise.all([running, queued]);
-  assert.deepEqual(started, [1]);
-  assert.deepEqual(published, []);
-});
-
-test('SwiftF0 worker queue never re-admits an older epoch', async () => {
-  const started = [];
-  const queue = new LatestEpochQueue(async (request) => {
-    started.push(request.id);
-  });
-  await queue.submit({ id: 1, epoch: 4 });
-  await queue.submit({ id: 2, epoch: 3 });
-  await queue.submit({ id: 3, epoch: 4 });
-  assert.deepEqual(started, [1, 3]);
-});
-
-test('SwiftF0 worker queue admits later work after a failed inference', async () => {
-  const started = [];
-  const queue = new LatestEpochQueue(async (request) => {
-    started.push(request.id);
-    if (request.id === 1) throw new Error('synthetic inference failure');
-  });
-  await assert.rejects(queue.submit({ id: 1, epoch: 1 }), /synthetic inference failure/);
-  await queue.submit({ id: 2, epoch: 1 });
-  assert.deepEqual(started, [1, 2]);
-});
-
 test('history is bounded in time and points, and seeks start a new contour', () => {
   let points = [];
   for (let i = 0; i < 10000; i++)
@@ -515,7 +458,7 @@ function fixture(options = {}) {
       a.paused = false;
       a.dispatchEvent(new Event('play'));
     },
-    frame(now = 600) {
+    frame(now = 700) {
       context.currentTime = now / 1000;
       const queued = [...frames.values()];
       frames.clear();
@@ -537,27 +480,6 @@ async function running(f = fixture()) {
   await flush();
   return f;
 }
-test('native 96 kHz fallback fails before download and Retry can reopen at 48 kHz', async () => {
-  const f = fixture({ sampleRates: [96000, 48000] });
-  f.controller.setEnabled(true);
-  await flush();
-  assert.equal(f.state.status, 'error');
-  assert.match(f.state.message, /96 kHz/);
-  assert.equal(f.workers.length, 0, 'unsupported output rate must not fetch the SwiftF0 worker');
-  assert.equal(f.sources.length, 0);
-  assert.equal(f.context.resumes, 0);
-  assert.equal(f.context.closes, 1);
-
-  f.controller.retry();
-  assert.equal(f.contexts, 2);
-  assert.equal(f.workers.length, 1);
-  f.ready();
-  await flush();
-  assert.equal(f.state.status, 'ready');
-  assert.equal(f.sources.length, 1);
-  f.controller.dispose();
-});
-
 test('disabled by default: no context, worker or audio capture', () => {
   const f = fixture();
   f.play();
@@ -612,48 +534,90 @@ test('show/hide and off/on stop analysis but retain the playback destination', a
   assert.equal(f.context.closes, 1);
   assert.equal(source.connections.size, 0);
 });
-for (const rate of [44100, 48000, 88200]) {
-  test(`worker duration follows captured samples at ${rate} Hz and mismatched replies still fail`, async () => {
-    const f = await running(fixture({ sampleRates: [rate] }));
-    try {
-      f.frame();
-      f.result();
-      assert.equal(f.state.points.length, 1);
-      f.a.currentTime += 0.1;
-      f.frame(800);
-      f.result(undefined, {
-        hz: 220,
-        amplitude: 0.5,
-        confidence: 1,
-        rms: 0.5,
-        offsetSeconds: 0.32,
-        windowSeconds: 0.65
-      });
-      assert.equal(f.state.status, 'error');
-      assert.equal(f.state.points.length, 1);
-    } finally {
-      f.controller.dispose();
+test('overlapping result batches append only newly stable timestamps', async () => {
+  const f = await running();
+  f.frame(700);
+  const worker = f.workers[0];
+  const id1 = worker.sent.at(-1).id;
+  worker.onmessage({
+    data: {
+      type: 'result',
+      id: id1,
+      epoch: worker.sent.find((request) => request.id === id1).epoch,
+      results: [
+        {
+          hz: 220,
+          amplitude: 0.4,
+          confidence: 1,
+          rms: 0.3,
+          offsetSeconds: 0.256,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        },
+        {
+          hz: 221,
+          amplitude: 0.4,
+          confidence: 1,
+          rms: 0.3,
+          offsetSeconds: 0.288,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        }
+      ]
     }
   });
-}
+  assert.equal(f.state.points.length, 2);
+  const previousLast = f.state.points.at(-1).time;
+
+  f.a.currentTime += 0.256;
+  f.frame(1000);
+  const id2 = worker.sent.at(-1).id;
+  worker.onmessage({
+    data: {
+      type: 'result',
+      id: id2,
+      epoch: worker.sent.find((request) => request.id === id2).epoch,
+      results: [
+        // This maps to the previous window's last absolute timestamp.
+        {
+          hz: 221,
+          amplitude: 0.4,
+          confidence: 1,
+          rms: 0.3,
+          offsetSeconds: 0.032,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        },
+        {
+          hz: 222,
+          amplitude: 0.4,
+          confidence: 1,
+          rms: 0.3,
+          offsetSeconds: 0.064,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        }
+      ]
+    }
+  });
+  assert.ok(f.state.points.length >= 3);
+  assert.ok(f.state.points.at(-1).time > previousLast);
+  f.controller.dispose();
+});
 
 test('bounded work: one in-flight request, timestamp at selected frame, no duplicate stalled samples', async () => {
   const f = await running();
-  f.frame(600);
+  f.frame(700);
   const worker = f.workers[0];
   assert.equal(worker.sent.length, 1);
   assert.equal(worker.sent[0].samples.length, Math.ceil(48000 * ANALYSIS_WINDOW_SECONDS));
   f.a.currentTime += 0.1;
-  f.frame(700);
+  f.frame(800);
   assert.equal(worker.sent.length, 1);
   f.result();
   assert.ok(
     Math.abs(f.state.points[0].time - (1 - worker.sent[0].samples.length / 48000 + 0.32)) < 1e-9
   );
-  f.frame(800);
+  f.frame(1100);
   assert.equal(worker.sent.length, 2);
   f.result();
-  f.frame(900);
+  f.frame(1000);
   assert.equal(worker.sent.length, 2);
   f.controller.dispose();
 });
@@ -670,7 +634,7 @@ test('seeking discards old results and even a delivered cancelled animation call
   f.a.dispatchEvent(new Event('seeked'));
   staleFrame(700);
   assert.equal(f.frames.size, 1);
-  f.frame(1300);
+  f.frame(1400);
   f.result();
   assert.equal(f.state.points.length, 1);
   assert.ok(f.state.points[0].time > 19);
@@ -694,6 +658,7 @@ test('replacement audio retires only the old route and rejects late callbacks', 
 });
 test('load and result timeouts expose retry without closing the output route', async () => {
   const f = fixture();
+  f.controller.setSpeechWindow({ start: 0, end: 100 });
   f.controller.setEnabled(true);
   f.timer(15000);
   assert.equal(f.state.status, 'error');
@@ -710,41 +675,16 @@ test('load and result timeouts expose retry without closing the output route', a
   f.controller.dispose();
 });
 test('bad worker measurements fail safely, and a retry can recover', async () => {
-  for (const result of [
-    { hz: NaN, amplitude: 1 },
-    {
-      hz: 220,
-      amplitude: 1,
-      rms: NaN,
-      confidence: 1,
-      offsetSeconds: 0.32,
-      windowSeconds: ANALYSIS_WINDOW_SECONDS
-    },
-    {
-      hz: 220,
-      amplitude: 1,
-      rms: 0.5,
-      confidence: 1.1,
-      offsetSeconds: 0.32,
-      windowSeconds: ANALYSIS_WINDOW_SECONDS
-    }
-  ]) {
-    const f = await running();
-    f.frame();
-    f.result(undefined, result);
-    assert.equal(f.state.status, 'error');
-    assert.equal(f.state.points.length, 0);
-    f.controller.dispose();
-  }
-
-  const recovered = await running();
-  recovered.frame();
-  recovered.result(undefined, { hz: NaN, amplitude: 1 });
-  recovered.controller.retry();
-  recovered.ready();
+  const f = await running();
+  f.frame();
+  f.result(undefined, { hz: NaN, amplitude: 1 });
+  assert.equal(f.state.status, 'error');
+  assert.equal(f.state.points.length, 0);
+  f.controller.retry();
+  f.ready();
   await flush();
-  assert.equal(recovered.state.status, 'ready');
-  recovered.controller.dispose();
+  assert.equal(f.state.status, 'ready');
+  f.controller.dispose();
 });
 test('worker construction failure also handles a rejected resume promise', async () => {
   const f = fixture({ workerThrows: true, resume: () => Promise.reject(Error('not allowed')) });
@@ -768,6 +708,607 @@ test('paused playback stops sampling; native Play still resumes retained routing
   f.controller.dispose();
   f.controller.dispose();
   assert.equal(f.context.closes, 1);
+});
+
+test('pause drops a pending result and watchdog while retaining the completed trace', async () => {
+  const f = await running();
+  f.frame(700);
+  f.result();
+  const completed = f.state.points;
+  f.a.currentTime += 0.1;
+  f.frame(1000);
+  assert.equal(f.workers[0].sent.length, 2, 'pause test must retire an active inference');
+  f.a.paused = true;
+  f.a.dispatchEvent(new Event('pause'));
+  assert.equal(f.state.activity, 'paused');
+  assert.equal(f.frames.size, 0);
+  assert.equal(f.timers.size, 0);
+  f.result();
+  assert.deepEqual(f.state.points, completed);
+  f.play();
+  await flush();
+  f.a.currentTime += 0.1;
+  f.frame(1700);
+  f.result();
+  assert.equal(f.state.points.length, 2);
+  assert.equal(f.state.points[1].breakBefore, true);
+  assert.equal((pitchPaths(f.state.points, f.state.time).pitch.match(/M/g) || []).length, 2);
+  f.controller.dispose();
+});
+test('invalid speech windows fail closed after clamping', async () => {
+  const f = await running();
+  f.controller.setSpeechWindow({ start: -5, end: -1 });
+  assert.equal(f.state.speechActive, false);
+  f.a.currentTime = 2;
+  f.controller.setSpeechWindow({ start: -5, end: -1 });
+  assert.equal(f.state.time, 2);
+  const before = f.workers[0].sent.length;
+  f.frame(1200);
+  assert.equal(f.workers[0].sent.length, before);
+  f.controller.dispose();
+});
+
+test('first subtitle synchronization establishes a cue boundary even when speech is active', async () => {
+  const f = await running();
+  f.a.currentTime = 3;
+  f.controller.setSpeechWindow({ start: 3, end: 4 });
+  f.frame(100);
+  const worker = f.workers[0];
+  assert.equal(worker.sent.length, 0, 'first active sync must wait for fresh future context');
+  f.a.currentTime = 3.2;
+  f.frame(900);
+  assert.equal(worker.sent.length, 1);
+  const id = worker.sent[0].id;
+  worker.onmessage({
+    data: {
+      type: 'result',
+      id,
+      epoch: worker.sent.find((request) => request.id === id).epoch,
+      results: [
+        {
+          hz: 110,
+          amplitude: 0.3,
+          confidence: 1,
+          rms: 0.2,
+          offsetSeconds: 0.1,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        },
+        {
+          hz: 220,
+          amplitude: 0.3,
+          confidence: 1,
+          rms: 0.2,
+          offsetSeconds: 0.6,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        }
+      ]
+    }
+  });
+  assert.equal(f.state.points.length, 1);
+  assert.ok(f.state.points.every((point) => point.time >= 2.996));
+  f.controller.dispose();
+});
+
+test('active cue boundary can advance without requiring a subtitle gap', async () => {
+  const f = await running();
+  f.a.currentTime = 4;
+  f.controller.setSpeechWindow({ start: 3.5, end: 4.1 });
+  f.controller.setSpeechWindow({ start: 4.15, end: 5 });
+  f.frame(700);
+  assert.equal(f.workers[0].sent.length, 0, 'upcoming cue waits without inference');
+  f.a.currentTime = 4.2;
+  f.frame(900);
+  const worker = f.workers[0];
+  const id = worker.sent.at(-1).id;
+  worker.onmessage({
+    data: {
+      type: 'result',
+      id,
+      epoch: worker.sent.find((request) => request.id === id).epoch,
+      results: [
+        {
+          hz: 180,
+          amplitude: 0.4,
+          confidence: 1,
+          rms: 0.3,
+          offsetSeconds: 0.2,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        },
+        {
+          hz: 220,
+          amplitude: 0.4,
+          confidence: 1,
+          rms: 0.3,
+          offsetSeconds: 0.6,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        }
+      ]
+    }
+  });
+  assert.equal(f.state.points.length, 1);
+  assert.ok(f.state.points.every((point) => point.time >= 4.146));
+  f.controller.dispose();
+});
+
+test('subtitle gaps stop inference and cue restart discards pre-cue batch frames', async () => {
+  const f = await running();
+  f.frame(700);
+  const beforeGap = f.workers[0].sent.length;
+  f.controller.setSpeechWindow();
+  assert.equal(f.frames.size, 0);
+  f.a.currentTime = 1.25;
+  f.controller.setSpeechWindow();
+  f.frame(1000);
+  assert.equal(f.workers[0].sent.length, beforeGap, 'known transcript gaps must not run SwiftF0');
+  assert.equal(f.state.time, 1.25, 'the rolling chart clock must advance while inference is gated');
+
+  f.controller.setSpeechWindow({ start: 1.25, end: 2 });
+  const worker = f.workers[0];
+  f.a.currentTime = 1.35;
+  f.frame(1100);
+  assert.equal(worker.sent.length, beforeGap, 'cue restart must wait for future context');
+  f.a.currentTime = 1.45;
+  f.frame(1200);
+  assert.equal(worker.sent.length, beforeGap + 1);
+  const id = worker.sent.at(-1).id;
+  const windowSeconds = ANALYSIS_WINDOW_SECONDS;
+  worker.onmessage({
+    data: {
+      type: 'result',
+      id,
+      epoch: worker.sent.find((request) => request.id === id).epoch,
+      results: [
+        { hz: 180, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.1, windowSeconds },
+        { hz: 220, amplitude: 0.4, confidence: 1, rms: 0.3, offsetSeconds: 0.5, windowSeconds }
+      ]
+    }
+  });
+  assert.ok(f.state.points.length >= 1);
+  assert.ok(f.state.points.every((point) => point.time >= 1.246));
+  f.controller.dispose();
+});
+
+test('ended retires in-flight work rather than firing a false error after five seconds', async () => {
+  const f = await running();
+  f.frame();
+  f.a.ended = true;
+  f.a.dispatchEvent(new Event('ended'));
+  f.result();
+  assert.equal(f.state.activity, 'ended');
+  assert.equal(f.state.points.length, 0);
+  assert.equal(f.timers.size, 0);
+  assert.equal(f.frames.size, 0);
+  f.controller.dispose();
+});
+test('buffering stops work and resumption starts a new smoothing epoch', async () => {
+  const f = await running();
+  f.frame();
+  const epoch = f.workers[0].sent[0].epoch;
+  f.a.dispatchEvent(new Event('waiting'));
+  f.result();
+  assert.equal(f.state.activity, 'buffering');
+  assert.equal(f.timers.size, 0);
+  assert.equal(f.frames.size, 0);
+  assert.equal(f.state.points.length, 0);
+  f.a.currentTime += 0.1;
+  f.a.dispatchEvent(new Event('playing'));
+  f.frame(1400);
+  assert.ok(f.workers[0].sent[1].epoch > epoch);
+  f.result();
+  assert.equal(f.state.activity, 'playing');
+  f.controller.dispose();
+});
+test('wait for a fresh audio window and media data before sampling', async () => {
+  const f = await running();
+  f.frame(10);
+  assert.equal(f.workers[0].sent.length, 0);
+  f.a.readyState = 1;
+  f.frame(600);
+  assert.equal(f.workers[0].sent.length, 0);
+  f.a.readyState = 4;
+  f.frame(700);
+  assert.equal(f.workers[0].sent.length, 1);
+  f.controller.dispose();
+});
+test('an unsolicited result without an id is ignored, not dereferenced as pending work', async () => {
+  const f = await running();
+  f.workers[0].onmessage({ data: { type: 'result' } });
+  assert.equal(f.state.status, 'ready');
+  assert.equal(f.state.points.length, 0);
+  f.controller.dispose();
+});
+test('native Play waits for suspended output to resume before scheduling analysis', async () => {
+  const f = await running();
+  f.a.paused = true;
+  f.a.dispatchEvent(new Event('pause'));
+  f.context.state = 'suspended';
+  let resume;
+  f.context.resume = () =>
+    new Promise((resolve) => {
+      resume = resolve;
+    });
+  f.play();
+  f.frame(200);
+  assert.equal(f.state.status, 'ready');
+  assert.equal(f.frames.size, 0);
+  f.context.state = 'running';
+  resume();
+  await flush();
+  assert.equal(f.frames.size, 1);
+  f.controller.dispose();
+});
+test('transcript cue gate suppresses background-only sampling and breaks the next contour', async () => {
+  const f = await running();
+  f.controller.setSpeechWindow();
+  assert.equal(f.state.speechActive, false);
+  assert.equal(f.frames.size, 0);
+  f.frame(1000);
+  assert.equal(f.workers[0].sent.length, 0);
+
+  f.controller.setSpeechWindow({ start: 1, end: 2 });
+  assert.equal(f.state.speechActive, true);
+  f.frame(1100);
+  assert.equal(f.workers[0].sent.length, 0, 'wait for SwiftF0 future context inside the cue');
+  f.a.currentTime += 0.25;
+  f.frame(1300);
+  assert.equal(f.workers[0].sent.length, 1);
+  assert.ok(
+    f.workers[0].sent[0].samples.slice(0, 12000).every((sample) => sample === 0),
+    'pre-cue samples must be zeroed before SwiftF0 inference'
+  );
+  assert.ok(
+    f.workers[0].sent[0].samples.slice(16000).some((sample) => Math.abs(sample) > 0.01),
+    'the authored cue samples must remain available to SwiftF0'
+  );
+  f.workers[0].onmessage({
+    data: {
+      type: 'result',
+      id: f.workers[0].sent.at(-1).id,
+      epoch: f.workers[0].sent.at(-1).epoch,
+      results: [
+        {
+          hz: 220,
+          amplitude: 0.5,
+          confidence: 1,
+          rms: 0.5,
+          offsetSeconds: 0.464,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        }
+      ]
+    }
+  });
+  assert.equal(f.state.points.length, 1);
+  assert.equal(f.state.points[0].breakBefore, true);
+
+  f.controller.setSpeechWindow();
+  f.a.currentTime += 0.05;
+  f.frame(1400);
+  assert.equal(f.workers[0].sent.length, 1, 'cue gaps must not enqueue pitch work');
+
+  f.controller.setSpeechWindow({ start: 1.3, end: 2.3 });
+  f.a.currentTime += 0.25;
+  f.frame(1700);
+  assert.equal(f.workers[0].sent.length, 2);
+  f.workers[0].onmessage({
+    data: {
+      type: 'result',
+      id: f.workers[0].sent.at(-1).id,
+      epoch: f.workers[0].sent.at(-1).epoch,
+      results: [
+        {
+          hz: 220,
+          amplitude: 0.5,
+          confidence: 1,
+          rms: 0.5,
+          offsetSeconds: 0.464,
+          windowSeconds: ANALYSIS_WINDOW_SECONDS
+        }
+      ]
+    }
+  });
+  assert.equal(f.state.points.length, 2);
+  assert.equal(
+    f.state.points[1].breakBefore,
+    true,
+    'new cues must not join across a background gap'
+  );
+  f.controller.dispose();
+});
+
+test('startup timeout distinguishes ready worker from unavailable audio output', async () => {
+  const f = fixture({ resume: () => new Promise(() => {}) });
+  f.controller.setEnabled(true);
+  f.ready();
+  f.timer(15000);
+  assert.equal(f.state.status, 'error');
+  assert.match(f.state.message, /audio output/);
+  assert.equal(f.sources.length, 0);
+  f.controller.dispose();
+});
+test('rolling graph puts current audio on the right and separates octave jumps and gaps', () => {
+  const point = { time: 2, hz: 100, amplitude: 0.5 };
+  const current = pitchPaths([point], 2);
+  assert.equal(current.marker.x, 624);
+  assert.ok(current.waveform.endsWith('Z'));
+  const plot = pitchPaths([point, { ...point, time: 2.04, hz: 400 }], 2.04);
+  assert.equal((plot.pitch.match(/M/g) || []).length, 2);
+  assert.deepEqual(pitchPaths([point], 11), { waveform: '', pitch: '' });
+});
+
+const rms = (samples, trim = 256) => {
+  const first = Math.min(trim, Math.floor(samples.length / 4));
+  const last = Math.max(first + 1, samples.length - first);
+  let square = 0;
+  for (let index = first; index < last; index++) square += samples[index] ** 2;
+  return Math.sqrt(square / (last - first));
+};
+
+test('high-rate resampling preserves speech and suppresses 12 kHz alias energy', () => {
+  for (const rate of [48000, 96000, 192000]) {
+    const speech = resampleForSwiftF0(tone(220, rate, 0.25, 1), rate);
+    const outOfBand = resampleForSwiftF0(tone(12000, rate, 0.25, 1), rate);
+    const speechRatio = rms(speech) / (1 / Math.sqrt(2));
+    const aliasRatio = rms(outOfBand) / (1 / Math.sqrt(2));
+    assert.ok(speechRatio > 0.97 && speechRatio < 1.03, `${rate}: speech gain ${speechRatio}`);
+    assert.ok(aliasRatio < 0.005, `${rate}: alias ratio ${aliasRatio}`);
+  }
+});
+
+test('analyser capacity must cover SwiftF0 left and right context', () => {
+  assert.equal(hasStableSwiftF0Context(48000), true);
+  assert.equal(hasStableSwiftF0Context(88200), true);
+  assert.equal(hasStableSwiftF0Context(96000), false);
+  assert.equal(hasStableSwiftF0Context(192000), false);
+});
+
+test('under-context model output fails closed instead of publishing an edge frame', () => {
+  const samples = tone(220, 16000, 0.34);
+  const count = Math.floor(samples.length / 256);
+  const result = measurementFromSwiftF0(
+    samples,
+    new Float64Array(count).fill(220),
+    new Float32Array(count).fill(1)
+  );
+  assert.equal(result.hz, null);
+  assert.equal(result.confidence, 0);
+});
+
+function inferWithRuntime(samples, minimum, maximum, runtime) {
+  return runSwiftF0Inference(
+    runtime,
+    (type, data, dims) => runtime.createTensor(type, data, dims),
+    samples,
+    minimum,
+    maximum,
+    swiftF0ModelGain(samples)
+  );
+}
+
+test('current-hop silence is not voiced by energy from the previous hop', () => {
+  const samples = new Float32Array(Math.ceil(16000 * ANALYSIS_WINDOW_SECONDS));
+  const frameCount = Math.floor(samples.length / 256);
+  const selected = frameCount - 1 - 10;
+  const center = selected * 256;
+  for (let index = center - 256; index < center; index++)
+    samples[index] = 0.4 * Math.sin((2 * Math.PI * 220 * index) / 16000);
+  const pitch = new Float64Array(frameCount).fill(220);
+  const confidence = new Float32Array(frameCount).fill(1);
+  const result = measurementFromSwiftF0(samples, pitch, confidence);
+  assert.equal(result.hz, null);
+  assert.equal(result.confidence, 0);
+  assert.ok(result.amplitude > 0, 'centered display level should still see the preceding hop');
+});
+
+test('quiet non-silent audio is gained only for model inference', () => {
+  const quiet = tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.005);
+  const gain = swiftF0ModelGain(quiet);
+  assert.ok(gain > 1);
+  assert.ok(Math.abs(0.005 * gain - 0.5) < 0.002);
+  assert.equal(swiftF0ModelGain(new Float32Array(quiet.length)), 1);
+  assert.equal(swiftF0ModelGain(tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.1)), 1);
+});
+
+function swiftF0RuntimeFixture({
+  failRun = false,
+  malformed = false,
+  invalid = false,
+  wrongType = false,
+  extraOutput = false,
+  aliases = false,
+  failAllocation = 0,
+  failDisposal = false
+} = {}) {
+  const stats = { live: 0, disposed: 0, attempts: 0, peak: 0 };
+  let allocations = 0;
+  class Tensor {
+    constructor(type, data, dims) {
+      this.type = type;
+      this.data = data;
+      this.dims = dims;
+      this.disposed = false;
+      stats.live++;
+    }
+    dispose() {
+      stats.attempts++;
+      assert.equal(this.disposed, false, 'each tensor must be disposed exactly once');
+      this.disposed = true;
+      stats.live--;
+      stats.disposed++;
+      if (failDisposal) throw new Error('synthetic disposal failure');
+    }
+  }
+  const runtime = {
+    createTensor(type, data, dims) {
+      if (++allocations === failAllocation) throw new Error('synthetic allocation failure');
+      return new Tensor(type, data, dims);
+    },
+    async run(feeds) {
+      stats.peak = Math.max(...feeds.audio.data.map((value) => Math.abs(value)));
+      if (failRun) throw new Error('synthetic run failure');
+      const count = Math.max(1, Math.floor(feeds.audio.data.length / 256));
+      const pitch = new (wrongType ? Float32Array : Float64Array)(count).fill(220);
+      const confidence = new Float32Array(malformed ? Math.max(0, count - 1) : count).fill(0.9);
+      if (invalid) pitch[0] = NaN;
+      const result = {
+        pitch: new Tensor(
+          wrongType ? 'float32' : 'float64',
+          wrongType ? Float32Array.from(pitch) : pitch,
+          [1, count]
+        ),
+        confidence: new Tensor('float32', confidence, [1, confidence.length])
+      };
+      if (extraOutput) result.extra = new Tensor('float32', Float32Array.of(1), [1]);
+      if (aliases) {
+        result.audioAlias = feeds.audio;
+        result.pitchAlias = result.pitch;
+      }
+      return result;
+    }
+  };
+  return { runtime, stats };
+}
+
+for (const malformed of [false, true]) {
+  test(`SwiftF0 disposes unexpected outputs and aliases after ${malformed ? 'failure' : 'success'}`, async () => {
+    const { runtime, stats } = swiftF0RuntimeFixture({
+      extraOutput: true,
+      aliases: true,
+      malformed
+    });
+    const inference = inferWithRuntime(tone(220, 16000), 85, 520, runtime);
+    if (malformed) await assert.rejects(inference, /malformed frame counts/);
+    else await inference;
+    assert.equal(stats.live, 0);
+    assert.equal(stats.disposed, 6);
+    assert.equal(stats.attempts, 6, 'raw output/feed aliases must be disposed once');
+  });
+}
+
+test('SwiftF0 rejects changed output tensor types and releases all raw outputs', async () => {
+  const { runtime, stats } = swiftF0RuntimeFixture({ wrongType: true, extraOutput: true });
+  await assert.rejects(
+    inferWithRuntime(tone(220, 16000), 85, 520, runtime),
+    /unexpected output tensor types/
+  );
+  assert.equal(stats.live, 0);
+  assert.equal(stats.disposed, 6);
+  assert.equal(stats.attempts, 6);
+});
+
+test('SwiftF0 releases earlier feeds when allocation fails', async () => {
+  const { runtime, stats } = swiftF0RuntimeFixture({ failAllocation: 3 });
+  await assert.rejects(
+    inferWithRuntime(tone(220, 16000), 85, 520, runtime),
+    /synthetic allocation failure/
+  );
+  assert.equal(stats.live, 0);
+  assert.equal(stats.disposed, 2);
+  assert.equal(stats.attempts, 2);
+});
+
+test('SwiftF0 continues raw-output cleanup after disposal throws', async () => {
+  const { runtime, stats } = swiftF0RuntimeFixture({
+    extraOutput: true,
+    aliases: true,
+    failDisposal: true
+  });
+  const result = await inferWithRuntime(tone(220, 16000), 85, 520, runtime);
+  assert.equal(result.pitch[0], 220);
+  assert.equal(stats.live, 0);
+  assert.equal(stats.disposed, 6);
+  assert.equal(stats.attempts, 6);
+});
+
+test('SwiftF0 runtime copies outputs and disposes every tensor after success', async () => {
+  const { runtime, stats } = swiftF0RuntimeFixture();
+  const quiet = tone(220, 16000, ANALYSIS_WINDOW_SECONDS, 0.005);
+  const result = await inferWithRuntime(quiet, 85, 520, runtime);
+  assert.equal(result.pitch.length, Math.floor(quiet.length / 256));
+  assert.equal(result.confidence.length, result.pitch.length);
+  assert.equal(stats.live, 0);
+  assert.equal(stats.disposed, 5);
+  assert.ok(stats.peak > 0.45 && stats.peak < 0.55, 'only model input should receive quiet gain');
+});
+
+for (const mode of ['failRun', 'malformed', 'invalid']) {
+  test(`SwiftF0 runtime releases tensors when ${mode} fails`, async () => {
+    const { runtime, stats } = swiftF0RuntimeFixture({ [mode]: true });
+    await assert.rejects(
+      inferWithRuntime(tone(220, 16000), 85, 520, runtime),
+      /synthetic run failure|malformed frame counts|invalid measurements/
+    );
+    assert.equal(stats.live, 0);
+  });
+}
+test('SwiftF0 worker queue serializes inference and skips stale queued epochs', async () => {
+  const releases = [];
+  const started = [];
+  let active = 0;
+  let maximum = 0;
+  const queue = new LatestEpochQueue(async (request, current) => {
+    active++;
+    maximum = Math.max(maximum, active);
+    started.push(request.id);
+    await new Promise((resolve) => releases.push(resolve));
+    if (!current()) started.push(`stale-${request.id}`);
+    active--;
+  });
+
+  const first = queue.submit({ id: 1, epoch: 1 });
+  await flush();
+  const stale = queue.submit({ id: 2, epoch: 1 });
+  const latest = queue.submit({ id: 3, epoch: 2 });
+  assert.deepEqual(started, [1]);
+  releases.shift()();
+  await first;
+  await flush();
+  assert.deepEqual(started, [1, 'stale-1', 3], 'queued request from epoch 1 must be skipped');
+  releases.shift()();
+  await Promise.all([stale, latest]);
+  assert.equal(maximum, 1);
+});
+
+test('SwiftF0 worker queue never re-admits an older epoch', async () => {
+  const started = [];
+  const queue = new LatestEpochQueue(async (request) => {
+    started.push(request.id);
+  });
+  await queue.submit({ id: 1, epoch: 4 });
+  await queue.submit({ id: 2, epoch: 3 });
+  await queue.submit({ id: 3, epoch: 4 });
+  assert.deepEqual(started, [1, 3]);
+});
+
+test('SwiftF0 worker queue admits later work after a failed inference', async () => {
+  const started = [];
+  const queue = new LatestEpochQueue(async (request) => {
+    started.push(request.id);
+    if (request.id === 1) throw new Error('synthetic inference failure');
+  });
+  await assert.rejects(queue.submit({ id: 1, epoch: 1 }), /synthetic inference failure/);
+  await queue.submit({ id: 2, epoch: 1 });
+  assert.deepEqual(started, [1, 2]);
+});
+
+test('native 96 kHz fallback fails before download and Retry can reopen at 48 kHz', async () => {
+  const f = fixture({ sampleRates: [96000, 48000] });
+  f.controller.setEnabled(true);
+  await flush();
+  assert.equal(f.state.status, 'error');
+  assert.match(f.state.message, /96 kHz/);
+  assert.equal(f.workers.length, 0, 'unsupported output rate must not fetch the SwiftF0 worker');
+  assert.equal(f.sources.length, 0);
+  assert.equal(f.context.resumes, 0);
+  assert.equal(f.context.closes, 1);
+
+  f.controller.retry();
+  assert.equal(f.contexts, 2);
+  assert.equal(f.workers.length, 1);
+  f.ready();
+  await flush();
+  assert.equal(f.state.status, 'ready');
+  assert.equal(f.sources.length, 1);
+  f.controller.dispose();
 });
 
 test('result racing a pause property change retires its watchdog silently', async () => {
@@ -826,118 +1367,234 @@ test('current analysis errors retire the matching watchdog and expose Retry', as
   f.controller.dispose();
 });
 
-test('pause drops a pending result and watchdog while retaining the completed trace', async () => {
-  const f = await running();
-  f.frame(600);
-  f.result();
-  const completed = f.state.points;
-  f.a.currentTime += 0.1;
-  f.frame(700);
-  f.a.paused = true;
-  f.a.dispatchEvent(new Event('pause'));
-  assert.equal(f.state.activity, 'paused');
-  assert.equal(f.frames.size, 0);
-  assert.equal(f.timers.size, 0);
-  f.result();
-  assert.deepEqual(f.state.points, completed);
-  f.play();
+test('invalid RMS and confidence fail safely without weakening retry recovery', async () => {
+  for (const result of [
+    { hz: NaN, amplitude: 1 },
+    {
+      hz: 220,
+      amplitude: 1,
+      rms: NaN,
+      confidence: 1,
+      offsetSeconds: 0.32,
+      windowSeconds: ANALYSIS_WINDOW_SECONDS
+    },
+    {
+      hz: 220,
+      amplitude: 1,
+      rms: 0.5,
+      confidence: 1.1,
+      offsetSeconds: 0.32,
+      windowSeconds: ANALYSIS_WINDOW_SECONDS
+    }
+  ]) {
+    const f = await running();
+    f.frame();
+    f.result(undefined, result);
+    assert.equal(f.state.status, 'error');
+    assert.equal(f.state.points.length, 0);
+    f.controller.dispose();
+  }
+
+  const recovered = await running();
+  recovered.frame();
+  recovered.result(undefined, { hz: NaN, amplitude: 1 });
+  recovered.controller.retry();
+  recovered.ready();
   await flush();
-  f.a.currentTime += 0.1;
-  f.frame(1300);
-  f.result();
-  assert.equal(f.state.points.length, 2);
-  assert.equal(f.state.points[1].breakBefore, true);
-  assert.equal((pitchPaths(f.state.points, f.state.time).pitch.match(/M/g) || []).length, 2);
-  f.controller.dispose();
+  assert.equal(recovered.state.status, 'ready');
+  recovered.controller.dispose();
 });
-test('ended retires in-flight work rather than firing a false error after five seconds', async () => {
+
+test('a malformed later frame rejects the complete batch before appending its valid prefix', async () => {
   const f = await running();
   f.frame();
-  f.a.ended = true;
-  f.a.dispatchEvent(new Event('ended'));
-  f.result();
-  assert.equal(f.state.activity, 'ended');
-  assert.equal(f.state.points.length, 0);
-  assert.equal(f.timers.size, 0);
-  assert.equal(f.frames.size, 0);
-  f.controller.dispose();
-});
-test('buffering stops work and resumption starts a new smoothing epoch', async () => {
-  const f = await running();
-  f.frame();
-  const epoch = f.workers[0].sent[0].epoch;
-  f.a.dispatchEvent(new Event('waiting'));
-  f.result();
-  assert.equal(f.state.activity, 'buffering');
-  assert.equal(f.timers.size, 0);
-  assert.equal(f.frames.size, 0);
-  assert.equal(f.state.points.length, 0);
-  f.a.currentTime += 0.1;
-  f.a.dispatchEvent(new Event('playing'));
-  f.frame(1200);
-  assert.ok(f.workers[0].sent[1].epoch > epoch);
-  f.result();
-  assert.equal(f.state.activity, 'playing');
-  f.controller.dispose();
-});
-test('wait for a fresh audio window and media data before sampling', async () => {
-  const f = await running();
-  f.frame(10);
-  assert.equal(f.workers[0].sent.length, 0);
-  f.a.readyState = 1;
-  f.frame(600);
-  assert.equal(f.workers[0].sent.length, 0);
-  f.a.readyState = 4;
-  f.frame(700);
-  assert.equal(f.workers[0].sent.length, 1);
-  f.controller.dispose();
-});
-test('an unsolicited result without an id is ignored, not dereferenced as pending work', async () => {
-  const f = await running();
-  f.workers[0].onmessage({ data: { type: 'result' } });
-  assert.equal(f.state.status, 'ready');
-  assert.equal(f.state.points.length, 0);
-  f.controller.dispose();
-});
-test('native Play waits for suspended output to resume before scheduling analysis', async () => {
-  const f = await running();
-  f.a.paused = true;
-  f.a.dispatchEvent(new Event('pause'));
-  f.context.state = 'suspended';
-  let resume;
-  f.context.resume = () =>
-    new Promise((resolve) => {
-      resume = resolve;
-    });
-  f.play();
-  f.frame(200);
-  assert.equal(f.state.status, 'ready');
-  assert.equal(f.frames.size, 0);
-  f.context.state = 'running';
-  resume();
-  await flush();
-  assert.equal(f.frames.size, 1);
-  f.controller.dispose();
-});
-test('startup timeout distinguishes ready worker from unavailable audio output', async () => {
-  const f = fixture({ resume: () => new Promise(() => {}) });
-  f.controller.setEnabled(true);
-  f.ready();
-  f.timer(15000);
+  const worker = f.workers[0];
+  const valid = {
+    hz: 220,
+    amplitude: 0.5,
+    confidence: 1,
+    rms: 0.5,
+    offsetSeconds: 0.32,
+    windowSeconds: ANALYSIS_WINDOW_SECONDS
+  };
+  worker.onmessage({
+    data: {
+      type: 'result',
+      id: worker.sent.at(-1).id,
+      epoch: worker.sent.at(-1).epoch,
+      results: [valid, { ...valid, offsetSeconds: 0.352, confidence: 1.1 }]
+    }
+  });
   assert.equal(f.state.status, 'error');
-  assert.match(f.state.message, /audio output/);
-  assert.equal(f.sources.length, 0);
+  assert.equal(f.state.points.length, 0);
+  assert.equal(f.timers.size, 0);
   f.controller.dispose();
 });
-test('rolling graph puts current audio on the right and separates octave jumps and gaps', () => {
-  const point = { time: 2, hz: 100, amplitude: 0.5 };
-  const current = pitchPaths([point], 2);
-  assert.equal(current.marker.x, 624);
-  assert.ok(current.waveform.endsWith('Z'));
-  const plot = pitchPaths([point, { ...point, time: 2.04, hz: 400 }], 2.04);
-  assert.equal((plot.pitch.match(/M/g) || []).length, 2);
-  assert.deepEqual(pitchPaths([point], 11), { waveform: '', pitch: '' });
+
+test('a retired cue error cannot retire the new cue request or its watchdog', async () => {
+  const f = await running();
+  f.frame();
+  const worker = f.workers[0];
+  const retired = worker.sent.at(-1);
+  f.controller.setSpeechWindow({ start: 1, end: 2 });
+  f.a.currentTime = 1.3;
+  f.frame(1000);
+  const current = worker.sent.at(-1);
+  assert.notEqual(current.id, retired.id);
+  assert.ok(current.epoch > retired.epoch);
+  const watchdogs = f.timers.size;
+  assert.ok(watchdogs > 0);
+  f.analysisError(worker, retired.id);
+  assert.equal(f.state.status, 'ready');
+  assert.equal(f.timers.size, watchdogs);
+  f.result();
+  assert.equal(f.timers.size, 0);
+  assert.equal(f.state.points.length, 0, 'the default frame lies before the new cue');
+  f.controller.dispose();
 });
+
+function strictRuntimeFixture(options = {}) {
+  const { failRun = false, malformed = false, invalid = false } = options;
+  let allocations = 0;
+  const stats = { live: 0, disposed: 0, peak: 0 };
+  class Tensor {
+    constructor(type, data, dims) {
+      this.type = type;
+      this.data = data;
+      this.dims = dims;
+      this.disposed = false;
+      stats.live++;
+    }
+    dispose() {
+      assert.equal(this.disposed, false, 'each tensor must be disposed exactly once');
+      this.disposed = true;
+      stats.live--;
+      stats.disposed++;
+      if (!options.throwData) this.data.fill(0);
+      if (options.throwDispose) throw new Error('synthetic release failure');
+    }
+  }
+  const runtime = {
+    createTensor(type, data, dims) {
+      if (++allocations === options.failAllocation) throw new Error('synthetic allocation failure');
+      return new Tensor(type, data, dims);
+    },
+    async run(feeds) {
+      stats.peak = Math.max(...feeds.audio.data.map((value) => Math.abs(value)));
+      if (failRun) throw new Error('synthetic run failure');
+      const count = Math.max(1, Math.floor(feeds.audio.data.length / 256));
+      const pitch = new Float64Array(count).fill(220);
+      const confidence = new Float32Array(malformed ? Math.max(0, count - 1) : count).fill(0.9);
+      if (invalid) pitch[0] = NaN;
+      const outputs = {
+        pitch: new Tensor(
+          options.wrongType ? 'float32' : 'float64',
+          pitch,
+          options.wrongShape ? [count] : [1, count]
+        ),
+        confidence: new Tensor('float32', confidence, [1, confidence.length])
+      };
+      if (options.extra) outputs.extra = new Tensor('float32', new Float32Array(1), [1]);
+      if (options.alias) outputs.alias = feeds.audio;
+      if (options.throwData)
+        Object.defineProperty(outputs.pitch, 'data', {
+          get() {
+            throw new Error('synthetic data failure');
+          }
+        });
+      return outputs;
+    }
+  };
+  return { runtime, stats };
+}
+
+for (const options of [
+  { failAllocation: 2 },
+  { failAllocation: 3 },
+  { wrongType: true },
+  { wrongShape: true },
+  { throwData: true },
+  { malformed: true, extra: true }
+]) {
+  test(`SwiftF0 cleans partial inputs and malformed output ownership: ${JSON.stringify(options)}`, async () => {
+    const { runtime, stats } = strictRuntimeFixture(options);
+    await assert.rejects(inferWithRuntime(tone(220, 16000), 85, 520, runtime));
+    assert.equal(stats.live, 0);
+    assert.equal(
+      stats.disposed,
+      options.failAllocation ? options.failAllocation - 1 : options.extra ? 6 : 5
+    );
+  });
+}
+test('SwiftF0 releases all outputs once even when tensors alias and disposal throws', async () => {
+  const { runtime, stats } = strictRuntimeFixture({
+    extra: true,
+    alias: true,
+    throwDispose: true
+  });
+  const result = await inferWithRuntime(tone(220, 16000), 85, 520, runtime);
+  assert.equal(stats.live, 0);
+  assert.equal(stats.disposed, 6);
+  assert.equal(result.pitch[0], 220);
+});
+test('retirement without a replacement request suppresses running and queued work', async () => {
+  let release;
+  const started = [],
+    published = [];
+  const queue = new LatestEpochQueue(async (request, current) => {
+    started.push(request.id);
+    await new Promise((resolve) => {
+      release = resolve;
+    });
+    if (current()) published.push(request.id);
+  });
+  const running = queue.submit({ id: 1, epoch: 1 });
+  await flush();
+  const queued = queue.submit({ id: 2, epoch: 1 });
+  queue.retire(2);
+  queue.retire(0);
+  release();
+  await Promise.all([running, queued]);
+  assert.deepEqual(started, [1]);
+  assert.deepEqual(published, []);
+});
+
+test('SwiftF0 worker queue never re-admits an older epoch', async () => {
+  const started = [];
+  const queue = new LatestEpochQueue(async (request) => {
+    started.push(request.id);
+  });
+  await queue.submit({ id: 1, epoch: 4 });
+  await queue.submit({ id: 2, epoch: 3 });
+  await queue.submit({ id: 3, epoch: 4 });
+  assert.deepEqual(started, [1, 3]);
+});
+
+for (const rate of [44100, 48000, 88200]) {
+  test(`worker duration follows captured samples at ${rate} Hz and mismatched replies still fail`, async () => {
+    const f = await running(fixture({ sampleRates: [rate] }));
+    try {
+      f.frame();
+      f.result();
+      assert.equal(f.state.points.length, 1);
+      f.a.currentTime += 0.4;
+      f.frame(1100);
+      assert.equal(f.workers[0].sent.length, 2, 'mismatched reply belongs to a new pending window');
+      f.result(undefined, {
+        hz: 220,
+        amplitude: 0.5,
+        confidence: 1,
+        rms: 0.5,
+        offsetSeconds: 0.32,
+        windowSeconds: 0.65
+      });
+      assert.equal(f.state.status, 'error');
+      assert.equal(f.state.points.length, 1);
+    } finally {
+      f.controller.dispose();
+    }
+  });
+}
 
 test('no cue means no analysis, while the media clock keeps moving through a gap', async () => {
   const f = await running(fixture({ speech: false }));
@@ -988,7 +1645,14 @@ test('cue entry masks pre-cue sound, projects rate-scaled time and starts a brok
   const boundary = Math.ceil((1.5 - start) * request.rate);
   assert.ok(request.samples.slice(0, boundary).every((value) => value === 0));
   assert.ok(request.samples.slice(boundary).some((value) => value !== 0));
-  f.result();
+  f.result(undefined, {
+    hz: 220,
+    amplitude: 0.5,
+    confidence: 1,
+    rms: 0.5,
+    offsetSeconds: 1.6 - start,
+    windowSeconds: request.samples.length / request.rate
+  });
   assert.equal(f.state.points.length, completed.length + 1);
   assert.ok(f.state.points.at(-1).time >= 1.5);
   assert.equal(f.state.points.at(-1).breakBefore, true);
@@ -1019,8 +1683,8 @@ test('cue changes cannot shorten the full fresh-audio wait after seeking', async
   f.a.currentTime = 20.2;
   f.frame(800);
   assert.equal(f.workers[0].sent.length, 1);
-  f.a.currentTime = 20.6;
-  f.frame(1200);
+  f.a.currentTime = 20.7;
+  f.frame(1400);
   assert.equal(f.workers[0].sent.length, 2);
   f.controller.dispose();
 });
@@ -1079,3 +1743,52 @@ test('invalid cue intervals fail closed and an expired cue never dispatches anal
   assert.equal(f.workers[0].sent.length, 0);
   f.controller.dispose();
 });
+
+for (const followingCue of [false, true]) {
+  test(`a short outgoing cue keeps its masked delayed final window (next cue: ${followingCue})`, async () => {
+    const f = await running();
+    try {
+      f.a.currentTime = 1;
+      f.controller.setSpeechWindow({ start: 1, end: 1.1 }, {});
+      f.frame(700);
+      assert.equal(f.workers[0].sent.length, 1);
+      f.a.currentTime = 1.1;
+      f.controller.setSpeechWindow(followingCue ? { start: 1.1, end: 2 } : null, {});
+      // A non-final reply cannot claim authority from the following phrase.
+      f.result();
+      const before = f.workers[0].sent.length;
+      f.a.currentTime = 1.2;
+      f.frame(800);
+      assert.equal(f.workers[0].sent.length, before);
+      f.a.currentTime = 1.28;
+      f.frame(880);
+      const request = f.workers[0].sent.at(-1);
+      assert.equal(f.workers[0].sent.length, before + 1);
+      const origin = 1.28 - request.samples.length / request.rate;
+      const first = Math.ceil((1 - origin) * request.rate);
+      const last = Math.ceil((1.1 - origin) * request.rate);
+      assert.ok(request.samples.slice(0, first).every((value) => value === 0));
+      assert.ok(request.samples.slice(last).every((value) => value === 0));
+      assert.ok(request.samples.slice(first, last).some((value) => value !== 0));
+      const offsetSeconds = 1.08 - origin;
+      f.result(undefined, {
+        hz: 220,
+        amplitude: 0.3,
+        rms: 0.2,
+        confidence: 1,
+        offsetSeconds,
+        windowSeconds: request.samples.length / request.rate
+      });
+      assert.equal(f.state.points.length, 1);
+      assert.ok(Math.abs(f.state.points[0].time - 1.08) < 1e-9);
+      assert.equal(f.state.points[0].breakBefore, true);
+      if (!followingCue) {
+        f.a.currentTime = 1.5;
+        f.frame(1200);
+        assert.equal(f.workers[0].sent.length, before + 1);
+      }
+    } finally {
+      f.controller.dispose();
+    }
+  });
+}

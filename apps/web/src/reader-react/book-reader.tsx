@@ -289,6 +289,7 @@ export function BookReader(props: Partial<BookReaderProps> & ReaderViewProps) {
                 <BookReaderPaginated
                   htmlContent={c.htmlContent}
                   languageBook={language.book}
+                  pageDirection={c.pageDirection}
                   width={c.$contentViewportWidth$ ?? 0}
                   height={c.$contentViewportHeight$ ?? 0}
                   verticalMode={c.verticalMode}

@@ -160,7 +160,7 @@ export function EditorsPicks({
           ? 'editors-picks flex min-h-0 flex-col text-left'
           : embedded
             ? 'editors-picks rounded-2xl border border-border/70 bg-muted/30 p-[16px] text-left sm:p-5'
-            : 'editors-picks text-left'
+            : 'editors-picks flex min-h-0 flex-col text-left'
       }
     >
       <div className={contained ? 'sr-only' : 'mb-3'}>
@@ -191,7 +191,7 @@ export function EditorsPicks({
               ? 'min-h-0 overflow-y-auto overscroll-contain pr-1'
               : embedded
                 ? 'max-h-[min(34rem,55dvh)] overflow-y-auto overscroll-contain pr-1'
-                : 'max-h-[min(34rem,60dvh)] overflow-y-auto overscroll-contain pr-1'
+                : 'max-h-[min(34rem,60dvh)] min-h-0 overflow-y-auto overscroll-contain pr-1'
           }
         >
           <div className="grid gap-3">

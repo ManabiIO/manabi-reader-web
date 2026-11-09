@@ -77,6 +77,7 @@ export function SnippetCapture(props: CaptureProps & ReaderViewProps) {
                   onchoose={(item) => void c.append(item.id)}
                 ></Shelf>
               </Dom>
+              {c.status ? <p role="status">{c.status}</p> : null}
               {c.error ? (
                 <>
                   <Dom scopeClass="snippet-scope-capture" as="p" role={'alert'}>
@@ -93,18 +94,20 @@ export function SnippetCapture(props: CaptureProps & ReaderViewProps) {
       ) : (
         <>
           {' '}
-          {c.error ? (
+          {c.error || c.status ? (
             <>
               <Dom
                 scopeClass="snippet-scope-capture"
                 as="div"
-                role={'alert'}
+                role={c.error ? 'alert' : 'status'}
                 className={['capture-error'].filter(Boolean).join(' ')}
               >
                 <Dom scopeClass="snippet-scope-capture" as="span">
                   {c.error}
+                  {c.error && c.status ? <br /> : null}
+                  {c.status}
                 </Dom>
-                <Button variant={'ghost'} size={'sm'} onClick={() => (c.error = '')}>
+                <Button variant={'ghost'} size={'sm'} onClick={c.dismissStatus}>
                   {'Dismiss'}
                 </Button>
               </Dom>

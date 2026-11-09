@@ -519,14 +519,16 @@ test('Library section tabs preserve wrapping, text-zoom-safe spacing and subpath
       window.document.documentElement.style.fontSize = fontSize;
       const layout = window.getComputedStyle(nav);
       assert.equal(layout.flexWrap, 'wrap');
-      assert.equal(layout.maxWidth, 'calc(100% - 48px)');
+      assert.equal(layout.width, 'fit-content');
+      assert.equal(layout.maxWidth, 'calc(100% - 32px)');
       assert.equal(layout.gap, '6px');
-      assert.equal(layout.marginLeft, '24px');
+      assert.equal(layout.marginLeft, '16px');
       for (const link of links) {
         const style = window.getComputedStyle(link);
         assert.equal(style.minHeight, '44px');
         assert.equal(style.maxWidth, '100%');
         assert.equal(style.minWidth, '0');
+        assert.equal(style.whiteSpace, 'nowrap');
         assert.equal(style.overflowWrap, 'anywhere');
       }
     }

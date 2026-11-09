@@ -1,8 +1,8 @@
 /** @license BSD-3-Clause; Copyright (c) 2026, ッツ Reader Authors. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync, renameSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { build } from 'esbuild';
@@ -885,7 +885,113 @@ test('an admitted durable mutation can settle after route blur without reopening
   }
 });
 
+test('shared Summary paging retains owned keyboard focus at boundaries and after choosing a page', async () => {
+  const fake = fakePort({
+    async load(query) {
+      return { ...snapshot(query), pages: 3, totalRows: 3 };
+    }
+  });
+  const fixture = await mount(fake.port);
+  try {
+    await act(async () => findButton('Next statistics page').focus());
+    await press('Next statistics page');
+    assert.ok(
+      document.activeElement === findButton('Next statistics page'),
+      'middle-page read retains the initiating next control'
+    );
+    await act(async () => findButton('Previous statistics page').focus());
+    await press('Previous statistics page');
+    assert.ok(
+      document.activeElement === findButton('Next statistics page'),
+      'first-page boundary hands focus to enabled next control'
+    );
+    await press('Choose statistics page');
+    const chooseTwo = findButton('2', dialog('Statistics pages'));
+    await act(async () => chooseTwo.focus());
+    await press('2', dialog('Statistics pages'));
+    const chooser = findButton('Choose statistics page');
+    assert.ok(document.activeElement === chooser, 'page chooser must regain owned focus');
+    const next = findButton('Next statistics page');
+    await act(async () => next.focus());
+    await press('Next statistics page');
+    assert.equal(
+      findButton('Next statistics page').matches(':disabled,[aria-disabled="true"]'),
+      true
+    );
+    assert.ok(
+      document.activeElement === findButton('Previous statistics page'),
+      `previous page must own focus; actual ${document.activeElement?.tagName} aria-label=${document.activeElement?.getAttribute('aria-label')}`
+    );
+    assert.match(
+      fixture.container.querySelector('[data-testid="statistics-summary"] [role="status"]')
+        .textContent,
+      /Page 3 of 3/
+    );
+    await press('Previous statistics page');
+    assert.ok(
+      document.activeElement === findButton('Previous statistics page'),
+      'previous page must own focus'
+    );
+    await press('Previous statistics page');
+    assert.equal(
+      findButton('Previous statistics page').matches(':disabled,[aria-disabled="true"]'),
+      true
+    );
+    assert.ok(
+      document.activeElement === findButton('Next statistics page'),
+      'next page must own focus at first-page boundary'
+    );
+  } finally {
+    await fixture.cleanup();
+  }
+});
+
+test('shared Summary page completion cannot reclaim a newer focus destination', async () => {
+  for (const retainFocus of [true, false]) {
+    let release;
+    const fake = fakePort({
+      load(query) {
+        const value = { ...snapshot(query), pages: 3, totalRows: 3 };
+        return query.page === 2
+          ? new Promise((resolve) => {
+              release = () => resolve(value);
+            })
+          : Promise.resolve(value);
+      }
+    });
+    const fixture = await mount(fake.port);
+    const outside = document.createElement('button');
+    outside.textContent = 'Another focus destination';
+    document.body.append(outside);
+    try {
+      const next = findButton('Next statistics page');
+      await act(async () => {
+        next.focus();
+        next.click();
+      });
+      assert.ok(release, 'the actual port read is held');
+      await act(async () => {
+        outside.focus();
+        if (!retainFocus) outside.blur();
+      });
+      const expected = document.activeElement;
+      await act(async () => release());
+      await settle();
+      assert.ok(document.activeElement === expected, 'page completion must preserve newer focus');
+    } finally {
+      await fixture.cleanup();
+      outside.remove();
+      release?.();
+    }
+  }
+});
+
 test.after(() => {
-  rmSync(output, { recursive: true, force: true });
-  dom.window.close();
+  try {
+    const trash = join(homedir(), '.Trash');
+    mkdirSync(trash, { recursive: true });
+    renameSync(output, join(trash, 'shared-statistics-actual-web-' + Date.now()));
+  } finally {
+    dom.window.close();
+  }
 });

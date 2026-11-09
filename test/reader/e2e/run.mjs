@@ -176,9 +176,12 @@ async function launch(name, withExtension = false) {
     channel: 'chromium',
     headless: true,
     viewport: { width: 1280, height: 900 },
-    args: withExtension
-      ? [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
-      : []
+    args: [
+      ...(withExtension
+        ? [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
+        : []),
+      ...(process.platform === 'darwin' ? ['--disable-features=MacAppCodeSignClone'] : [])
+    ]
   });
   ctx.setDefaultTimeout(20000);
   ctx.setDefaultNavigationTimeout(30000);

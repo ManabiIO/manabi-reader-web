@@ -74,7 +74,7 @@ export function createStatisticsSummary(
   let statisticsDateRangeLabel: string = props.statisticsDateRangeLabel;
   const dispatch = (name: string, detail?: unknown) => emit(name, detail);
   const statisticsSummaryBaseRowRem = 3;
-  const statisticsSummaryBaseRowGap = 1.5;
+  const statisticsSummaryRowGapPx = 24;
   let renderFullStatisticsSummaryTable = window && window.matchMedia('(min-width: 768px)').matches;
   let statisticsSummaryTableContainerElm: HTMLElement | null = null;
   let statisticsSummaryPopover: PopoverHandle | undefined;
@@ -82,6 +82,8 @@ export function createStatisticsSummary(
   let statisticsSummaryDetailsOpen = false;
   let detailsRequest = 0;
   let statisticsSummaryButtonContainer: HTMLElement | null = null;
+  let previousSummaryPage: HTMLButtonElement | null = null;
+  let nextSummaryPage: HTMLButtonElement | null = null;
   let statisticsData: BookStatistic[] = [];
   let currentStatisticsSummaryRows: BookStatistic[] = [];
   let statisticsSummaryGridRowMod = 0;
@@ -286,6 +288,25 @@ export function createStatisticsSummary(
       updateTableData();
     }
   }
+  async function pageSummary(delta: -1 | 1) {
+    if (__readerController.disposed || statisticsSummaryMaxPages < 1) return;
+    const origin = delta > 0 ? nextSummaryPage : previousSummaryPage;
+    const ownedFocus = !!origin && document.activeElement === origin;
+    setRowInEditMode();
+    __readerController.changed(
+      (currentStatisticsSummaryPage = limitToRange(
+        1,
+        statisticsSummaryMaxPages,
+        currentStatisticsSummaryPage + delta
+      ))
+    );
+    await readerTick();
+    if (__readerController.disposed || !ownedFocus || !origin?.isConnected || !origin.disabled)
+      return;
+    if (document.activeElement !== origin && document.activeElement !== document.body) return;
+    const target = delta > 0 ? previousSummaryPage : nextSummaryPage;
+    if (target?.isConnected && !target.disabled) target.focus({ preventScroll: true });
+  }
   function updateRowsPerPage(executeSort = true) {
     readerTick().then(() => {
       if (__readerController.disposed) return;
@@ -298,10 +319,8 @@ export function createStatisticsSummary(
                 1,
                 Math.ceil(
                   (getFullHeight(window, table) - getFullHeight(window, buttons, true)) /
-                    convertRemToPixels(
-                      window,
-                      statisticsSummaryBaseRowRem + statisticsSummaryBaseRowGap + 0.4
-                    )
+                    (convertRemToPixels(window, statisticsSummaryBaseRowRem + 0.4) +
+                      statisticsSummaryRowGapPx)
                 )
               )
             : 1)
@@ -478,6 +497,7 @@ export function createStatisticsSummary(
     dispatchDeleteRequest,
     handlePropertyChange,
     updateRowsPerPage,
+    pageSummary,
     updatePageData,
     updateTableData,
     applyTableSort,
@@ -506,8 +526,14 @@ export function createStatisticsSummary(
     get statisticsSummaryBaseRowRem() {
       return statisticsSummaryBaseRowRem;
     },
-    get statisticsSummaryBaseRowGap() {
-      return statisticsSummaryBaseRowGap;
+    get statisticsSummaryRowGapPx() {
+      return statisticsSummaryRowGapPx;
+    },
+    set previousSummaryPage(value: HTMLButtonElement | null) {
+      previousSummaryPage = value;
+    },
+    set nextSummaryPage(value: HTMLButtonElement | null) {
+      nextSummaryPage = value;
     },
     get renderFullStatisticsSummaryTable() {
       return renderFullStatisticsSummaryTable;

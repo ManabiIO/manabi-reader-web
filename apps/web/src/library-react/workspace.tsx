@@ -1182,8 +1182,8 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
             .filter(Boolean)
             .join(' ')}
         >
-          <Dialog.Header>
-            <Dialog.Title className={['pr-8'].filter(Boolean).join(' ')}>
+          <Dialog.Header className="min-w-0 pe-[60px]">
+            <Dialog.Title>
               {c.dialog === 'details'
                 ? 'Book details'
                 : c.dialog === 'rename'
@@ -1196,7 +1196,7 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
                         ? 'Rename series'
                         : 'Create series'}
             </Dialog.Title>
-            <Dialog.Description>
+            <Dialog.Description className="min-w-0 [overflow-wrap:anywhere]">
               {c.dialog === 'details'
                 ? c.targetBook?.title
                 : c.dialog === 'rename'
@@ -1213,7 +1213,9 @@ export function WorkspaceView({ c, children }: { c: WorkspaceController; childre
           {c.dialog === 'details' && c.targetBook ? (
             <>
               <dl
-                className={['grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-3 text-sm']
+                className={[
+                  'grid grid-cols-1 gap-x-[20px] gap-y-3 pe-[52px] text-sm min-[480px]:grid-cols-[auto_minmax(0,1fr)] [&>dd]:min-w-0 [&>dd]:break-words'
+                ]
                   .filter(Boolean)
                   .join(' ')}
               >

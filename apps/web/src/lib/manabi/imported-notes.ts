@@ -5,6 +5,7 @@
  */
 
 import { database } from '$lib/data/store';
+import { commitTransaction } from '$lib/data/database/books-db/commit-transaction.mjs';
 import { localProfileUser } from './client';
 import { canonical, MigrationConflict } from './ttu-migration-format';
 import type { ReaderImportRecord } from '$lib/data/database/books-db/versions/v10/books-db-v10';
@@ -85,7 +86,7 @@ export async function editImportedNote(
   if (body.length > 65536 || label.length > 512) throw new Error('The note is too large.');
   const db = await database.db;
   const tx = db.transaction('readerImportRecord', 'readwrite');
-  try {
+  await commitTransaction(tx, async () => {
     const value = await tx.store.get(expected.id);
     checkOwner(owner);
     if (!value || (value.accountId !== null && value.accountId !== owner))
@@ -104,16 +105,7 @@ export async function editImportedNote(
       modifiedAt,
       deletedAt: deleted ? modifiedAt : undefined
     });
-    await tx.done;
-  } catch (error) {
-    try {
-      tx.abort();
-    } catch {
-      /* Already committed or aborted. */
-    }
-    await tx.done.catch(() => undefined);
-    throw error;
-  }
+  });
 }
 export async function exportImportedNotes(bookId: number, bookKey: string) {
   const owner = localProfileUser()?.id ?? null,
@@ -165,8 +157,8 @@ export async function restoreImportedNotes(
     ['data', 'readerImportRecord', 'readerBookScope', 'readerAnnotation', 'readerAnnotationScope'],
     'readwrite'
   );
-  let changed = 0;
-  try {
+  return commitTransaction(tx, async () => {
+    let changed = 0;
     const book = (await tx.objectStore('data').get(bookId)) as
       | { contentHash?: string; manabiTtuImport?: { content: string } }
       | undefined;
@@ -214,15 +206,6 @@ export async function restoreImportedNotes(
       changed++;
     }
     checkOwner(owner);
-    await tx.done;
     return changed;
-  } catch (error) {
-    try {
-      tx.abort();
-    } catch {
-      /* Already committed or aborted. */
-    }
-    await tx.done.catch(() => undefined);
-    throw error;
-  }
+  });
 }

@@ -144,6 +144,12 @@ class FoliateSlide(ReaderBrowser):
         bounds = self.page.evaluate("window.slideRoot.querySelector('#top .page-indicator').getBoundingClientRect().toJSON()")
         self.page.mouse.click(bounds['x'] + bounds['width']/2, bounds['y'] + bounds['height']/2)
 
+    def set_controls(self, expanded):
+        controls = self.page.locator('.reader-controls')
+        if (controls.get_attribute('aria-expanded') == 'true') != expanded:
+            self.toggle_controls()
+        expect(controls).to_have_attribute('aria-expanded', str(expanded).lower())
+
     def open_numbered_book(self):
         self.page.set_viewport_size({'width': 390, 'height': 844})
         title, archive = numbered_epub()
@@ -230,7 +236,9 @@ class FoliateSlide(ReaderBrowser):
     def test_unknown_counts_progress_from_percent_to_current_to_total(self):
         self.open_numbered_book()
         self.page.evaluate(f"async () => await {P}.goTo({{index:2}})")
-        self.toggle_controls()
+        self.page.evaluate('document.activeElement?.blur()')
+        self.page.mouse.move(195, 600)
+        self.set_controls(False)
         self.page.evaluate(f"""() => {{
           window.countGates={{}};
           for (const index of [0,3]) {{
@@ -257,7 +265,7 @@ class FoliateSlide(ReaderBrowser):
         # every chapter is measured, the exact current page is known but the
         # compact indicator intentionally withholds the total until expanded.
         self.assertEqual(self.indicator(), str(1 + sum(counts[:2])))
-        self.toggle_controls()
+        self.set_controls(True)
         self.assertEqual(self.indicator(), f'{1 + sum(counts[:2])} of {sum(counts)}')
         self.screenshot('page-number-total-ready')
 
@@ -447,6 +455,68 @@ class FoliateSlide(ReaderBrowser):
           return {{navigated,invalid,unchanged,recovered:!!turn,errors}};
         }}""")
         self.assertEqual(result, {'navigated': False, 'invalid': [False, False], 'unchanged': True, 'recovered': True, 'errors': 1})
+
+    def test_page_progression_direction_restores_authored_styles_after_layout_changes(self):
+        self.open_numbered_book()
+        result = self.page.evaluate("""() => {
+          const p = """ + P + """, doc = p.getContents()[0].doc;
+          p.bookDir = 'ltr';
+          p.render();
+          doc.documentElement.style.setProperty('direction', 'ltr', 'important');
+          doc.body.style.setProperty('direction', 'ltr');
+          const styles = () => [doc.documentElement, doc.body].map(element => ({
+            value: element.style.getPropertyValue('direction'),
+            priority: element.style.getPropertyPriority('direction')
+          }));
+          const authored = styles();
+          p.bookDir = 'rtl';
+          p.render();
+          const separated = styles();
+          p.setAttribute('flow', 'scrolled');
+          p.render();
+          const scrolled = styles();
+          p.removeAttribute('flow');
+          p.render();
+          p.bookDir = 'ltr';
+          p.render();
+          return { authored, separated, scrolled, aligned: styles(),
+            sameDocument: p.getContents()[0].doc === doc };
+        }""")
+        self.assertTrue(result['sameDocument'])
+        self.assertEqual(result['separated'][0], {'value': 'rtl', 'priority': 'important'})
+        self.assertEqual(result['separated'][1], {'value': 'ltr', 'priority': 'important'})
+        self.assertEqual(result['scrolled'], result['authored'])
+        self.assertEqual(result['aligned'], result['authored'])
+        self.assertEqual([], self.errors)
+
+    def test_missing_section_source_fails_without_moving_visible_reader(self):
+        self.open_numbered_book()
+        result = self.page.evaluate(f"""async () => {{
+          const p={P}, section=p.sections[1], load=section.load;
+          let errors=0;
+          p.addEventListener('navigationerror',()=>errors++);
+          const before={{index:p.getContents()[0].index,page:p.page,
+            text:p.getContents()[0].doc.body.textContent}};
+          section.load=async()=>null;
+          const navigated=await p.goTo({{index:1}});
+          const after={{index:p.getContents()[0].index,page:p.page,
+            text:p.getContents()[0].doc.body.textContent}};
+          section.load=load;
+          const retry=await p.goTo({{index:1}});
+          return {{
+            navigated,retry,errors,
+            unchanged:before.index===after.index && before.page===after.page && before.text===after.text,
+            index:p.getContents()[0].index,
+            text:p.getContents()[0].doc.body.textContent
+          }};
+        }}""")
+        self.assertFalse(result['navigated'])
+        self.assertTrue(result['unchanged'])
+        self.assertEqual(1, result['errors'])
+        self.assertTrue(result['retry'])
+        self.assertEqual(1, result['index'])
+        self.assertIn('Chapter 2', result['text'])
+        self.assertEqual([], self.errors)
 
     def test_cross_chapter_iframe_load_is_staged_and_supersedable(self):
         self.open_numbered_book()

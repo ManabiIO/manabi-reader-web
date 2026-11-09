@@ -4,7 +4,7 @@
  * All rights reserved.
  */
 
-import { Observable, take, type Subject, type BehaviorSubject } from 'rxjs';
+import { Observable, Subscription, take, type Subject, type BehaviorSubject } from 'rxjs';
 import {
   sectionProgress$,
   sectionList$,
@@ -186,12 +186,19 @@ export class PageManagerPaginated implements PageManager {
   }
 
   private scrollToPos(pos: number, isUser: boolean) {
+    // The same content element is reused for direct chapter and search jumps.
+    // Retire any previous final-page translation before using native scroll.
+    this.contentEl.style.removeProperty('transform');
+    this.translateX = 0;
     this.virtualScrollPos$.next(pos);
     this.scrollEl.scrollTo({ [this.verticalMode ? 'top' : 'left']: pos });
     this.pageChange$.next(isUser);
   }
 
   private translateXToPos(pos: number, isUser: boolean) {
+    // Translation is an absolute page position; do not compound it with
+    // a physical offset retained from the preceding scrollable page.
+    this.scrollEl.scrollLeft = 0;
     this.virtualScrollPos$.next(-pos);
     this.contentEl.style.transform = `translateX(${pos}px)`;
     this.translateX = pos;
@@ -211,13 +218,27 @@ export class PageManagerPaginated implements PageManager {
         return undefined;
       }
 
-      const subscription = this.sectionRenderComplete$.subscribe((newIndex) => {
-        if (newIndex === index) {
-          subscriber.next();
-        }
-        subscriber.complete();
-        subscription.unsubscribe();
-      });
+      const subscription = new Subscription();
+      subscription.add(
+        this.sectionRenderComplete$.subscribe({
+          next: (newIndex) => {
+            if (newIndex !== index || this.sectionIndex$.getValue() !== index) return;
+            subscriber.next();
+            subscriber.complete();
+          },
+          complete: () => subscriber.complete()
+        })
+      );
+      if (subscriber.closed) return subscription;
+      // BehaviorSubject immediately emits its current value; only subsequent
+      // changes can supersede this request.
+      let watching = false;
+      subscription.add(
+        this.sectionIndex$.subscribe((currentIndex) => {
+          if (watching && currentIndex !== index) subscriber.complete();
+        })
+      );
+      watching = true;
       this.sectionIndex$.next(index);
       return subscription;
     });

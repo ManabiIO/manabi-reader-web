@@ -12,7 +12,9 @@ const source = new URL('../../', import.meta.url).pathname;
 const built = await build({
   stdin: {
     contents: `export {createPaginated} from './apps/web/src/reader-react/paginated-controller';
-    export {createContinuous} from './apps/web/src/reader-react/continuous-controller';`,
+    export {createContinuous} from './apps/web/src/reader-react/continuous-controller';
+    export {PageManagerPaginated} from './apps/web/src/lib/components/book-reader/book-reader-paginated/page-manager-paginated';
+    export {BehaviorSubject, Subject} from 'rxjs';`,
     resolveDir: source
   },
   bundle: true,
@@ -147,6 +149,7 @@ function fixture(mode, withLanguage = true) {
     dom,
     root,
     controller,
+    modules: module.exports,
     events,
     entered,
     gate,
@@ -300,3 +303,170 @@ for (const mode of ['paginated', 'continuous']) {
     }
   });
 }
+
+test('paginated pending locator settles on reader teardown', async () => {
+  const f = fixture('paginated');
+  try {
+    await until(() => f.controller.currentSpineIndex === 1 && !!f.controller.displayedHtml);
+    // A different section cannot finish rendering until its DOM is mounted.
+    const pending = f.controller.revealLocator({ resource: { spineIndex: 0 } }, 'book');
+    f.controller.controller.destroy();
+    const result = await Promise.race([pending, pause(1000).then(() => 'timeout')]);
+    assert.equal(result, false, 'teardown must settle the retired navigation');
+  } finally {
+    f.gate.resolve();
+    f.close();
+  }
+});
+
+test('newer locator waits for the same in-flight chapter', async () => {
+  const f = fixture('paginated');
+  try {
+    await until(() => f.controller.currentSpineIndex === 1 && !!f.controller.displayedHtml);
+    const first = f.controller.revealLocator({ resource: { spineIndex: 0 } }, 'book');
+    let secondSettled = false;
+    const second = f.controller.revealLocator({ resource: { spineIndex: 0 } }, 'book');
+    void second.then(() => {
+      secondSettled = true;
+    });
+    assert.equal(await Promise.race([first, pause(1000).then(() => 'timeout')]), false);
+    await pause(20);
+    assert.equal(secondSettled, false, 'the replacement must wait for its section to render');
+    f.controller.controller.destroy();
+    assert.equal(await Promise.race([second, pause(1000).then(() => 'timeout')]), false);
+  } finally {
+    f.gate.resolve();
+    f.close();
+  }
+});
+
+test('failed pending chapter settles locator and exposes the error', async () => {
+  const f = fixture('paginated');
+  try {
+    await until(() => f.controller.currentSpineIndex === 1 && !!f.controller.displayedHtml);
+    f.language.open = async () => {
+      throw new Error('Chapter could not be prepared');
+    };
+    const pending = f.controller.revealLocator({ resource: { spineIndex: 0 } }, 'book');
+    await until(() => f.controller.currentSpineIndex === 0 && !!f.controller.displayedHtml);
+    f.root.innerHTML = f.controller.displayedHtml;
+    f.controller.onHtmlLoad();
+    assert.equal(await Promise.race([pending, pause(1000).then(() => 'timeout')]), false);
+    assert.equal(f.controller.openingError, 'Chapter could not be prepared');
+  } finally {
+    f.gate.resolve();
+    f.close();
+  }
+});
+
+test('paginated direct jumps clear previous physical and translated offsets', async () => {
+  const f = fixture('paginated');
+  try {
+    await until(() => !!f.controller.concretePageManager);
+    const scroll = f.dom.window.document.getElementById('scroll');
+    Object.defineProperty(scroll, 'scrollWidth', { configurable: true, value: 1200 });
+    scroll.scrollTo = ({ left = 0, top = 0 } = {}) => {
+      scroll.scrollLeft = left;
+      scroll.scrollTop = top;
+    };
+    scroll.scrollLeft = 300;
+    f.controller.concretePageManager.scrollTo(840, false);
+    assert.equal(scroll.scrollLeft, 0, 'translation must not compound the prior native scroll');
+    assert.equal(f.root.style.transform, 'translateX(-840px)');
+
+    f.controller.concretePageManager.scrollTo(0, false);
+    assert.equal(f.root.style.transform, '', 'direct jumps must retire the old translation');
+  } finally {
+    f.gate.resolve();
+    f.close();
+  }
+});
+
+for (const supersede of [false, true]) {
+  test(`page turn ${supersede ? 'retires when replaced' : 'ignores stale section completion'}`, async () => {
+    const f = fixture('paginated');
+    try {
+      const { PageManagerPaginated, BehaviorSubject, Subject } = f.modules;
+      const index = new BehaviorSubject(0);
+      const position = new BehaviorSubject(0);
+      const rendered = new Subject();
+      const pageChange = new Subject();
+      const events = [];
+      pageChange.subscribe((isUser) => events.push(isUser));
+      const scroll = f.dom.window.document.getElementById('scroll');
+      Object.defineProperty(scroll, 'scrollWidth', { configurable: true, value: 800 });
+      scroll.scrollTo = ({ left = 0, top = 0 } = {}) => {
+        scroll.scrollLeft = left;
+        scroll.scrollTop = top;
+      };
+      const sections = [
+        f.dom.window.document.createElement('div'),
+        f.dom.window.document.createElement('div')
+      ];
+      const manager = new PageManagerPaginated(
+        f.root,
+        scroll,
+        sections,
+        index,
+        position,
+        800,
+        600,
+        40,
+        false,
+        pageChange,
+        rendered
+      );
+      manager.nextPage();
+      assert.equal(index.getValue(), 1);
+      if (supersede) index.next(0);
+      rendered.next(0);
+      assert.deepEqual(events, [], 'unrelated completion must never advance the turn');
+      rendered.next(1);
+      assert.deepEqual(events, supersede ? [] : [true]);
+      assert.equal(index.observed, false, 'settled turns must release section observation');
+    } finally {
+      f.gate.resolve();
+      f.close();
+    }
+  });
+}
+
+test('page turn releases its section observer on teardown', async () => {
+  const f = fixture('paginated');
+  try {
+    const { PageManagerPaginated, BehaviorSubject, Subject } = f.modules;
+    const index = new BehaviorSubject(0);
+    const position = new BehaviorSubject(0);
+    const rendered = new Subject();
+    const pageChange = new Subject();
+    const scroll = f.dom.window.document.getElementById('scroll');
+    Object.defineProperty(scroll, 'scrollWidth', { configurable: true, value: 800 });
+    const sections = [
+      f.dom.window.document.createElement('div'),
+      f.dom.window.document.createElement('div')
+    ];
+    const manager = new PageManagerPaginated(
+      f.root,
+      scroll,
+      sections,
+      index,
+      position,
+      800,
+      600,
+      40,
+      false,
+      pageChange,
+      rendered
+    );
+    manager.nextPage();
+    assert.equal(index.observed, true);
+    rendered.complete();
+    assert.equal(index.observed, false);
+    index.next(0);
+    manager.nextPage();
+    assert.equal(index.getValue(), 0, 'closed readers must reject a new page turn');
+  } finally {
+    f.gate.resolve();
+    f.close();
+  }
+});

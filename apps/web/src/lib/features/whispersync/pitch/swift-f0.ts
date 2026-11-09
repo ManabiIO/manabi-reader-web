@@ -5,11 +5,11 @@ import { resolveSwiftF0AssetURLs } from './asset-urls';
 import {
   MAX_HZ,
   MIN_HZ,
-  measurementFromSwiftF0,
+  measurementsFromSwiftF0,
   resampleForSwiftF0,
   type Measurement
 } from './analysis';
-import { runSwiftF0Inference } from './swift-f0-runtime';
+import { runSwiftF0Inference, swiftF0ModelGain, type SwiftF0SessionLike } from './swift-f0-runtime';
 
 let sessionPromise: Promise<ort.InferenceSession> | undefined;
 
@@ -35,20 +35,26 @@ export function prepareSwiftF0(assetBaseURL: string): Promise<ort.InferenceSessi
 export async function analyseSwiftF0Window(
   input: Float32Array,
   rate: number
-): Promise<Measurement> {
+): Promise<Measurement[]> {
   const samples = resampleForSwiftF0(input, rate);
-  if (!samples.length)
-    return measurementFromSwiftF0(samples, [], [], {
-      windowSeconds: Number.isFinite(rate) && rate > 0 ? input.length / rate : 0
-    });
+  if (!samples.length) return [];
 
   if (!sessionPromise) throw new Error('SwiftF0 has not been initialized');
   const session = await sessionPromise;
-  const { pitch, confidence } = await runSwiftF0Inference(samples, MIN_HZ, MAX_HZ, {
-    createTensor: (type, data, dims) => new ort.Tensor(type, data, dims),
-    run: (feeds) => session.run(feeds)
-  });
-  return measurementFromSwiftF0(samples, pitch, confidence, {
+  const tensorSession: SwiftF0SessionLike<ort.Tensor> = {
+    async run(feeds) {
+      return (await session.run(feeds)) as Record<string, ort.Tensor>;
+    }
+  };
+  const { pitch, confidence } = await runSwiftF0Inference(
+    tensorSession,
+    (type, data, dims) => new ort.Tensor(type, data, dims),
+    samples,
+    MIN_HZ,
+    MAX_HZ,
+    swiftF0ModelGain(samples)
+  );
+  return measurementsFromSwiftF0(samples, pitch, confidence, {
     windowSeconds: input.length / rate
   });
 }

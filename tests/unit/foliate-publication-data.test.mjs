@@ -294,3 +294,15 @@ test('restored rendition retains only bounded supported scalar hints', () => {
   value.rendition = { layout: 'x'.repeat(129) };
   assert.throws(() => readEpubPublication(value, packed.elementHtml), /navigation text|rendition/i);
 });
+
+test('persisted fixed-layout rendition cannot bypass the reflow-only import gate', () => {
+  const packed = packEpubResources(resources(), {
+    rendition: { layout: 'reflowable' }
+  });
+  const restored = globalThis.structuredClone(packed.epubPublication);
+  restored.rendition.layout = 'pre-paginated';
+  assert.throws(
+    () => readEpubPublication(restored, packed.elementHtml),
+    /Fixed-layout EPUBs are not supported/i
+  );
+});

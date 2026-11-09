@@ -4,6 +4,7 @@ import { Buffer } from 'node:buffer';
 import { build } from 'esbuild';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { legacySnippetLinks } from './fixtures/legacy-snippet-links.mjs';
 import {
   canonical,
   createSnippet,
@@ -22,7 +23,7 @@ globalThis[Symbol.for(fixtureKey)] = memory;
 
 const result = await build({
   stdin: {
-    contents: `export { exportSnippets, restoreBackup } from './src/lib/snippets/portability.ts';`,
+    contents: `export { decodeBackup, exportSnippets, restoreBackup } from './src/lib/snippets/portability.ts';`,
     resolveDir: fileURLToPath(new URL('../../apps/web/', import.meta.url))
   },
   bundle: true,
@@ -90,7 +91,7 @@ const result = await build({
     }
   ]
 });
-const { exportSnippets, restoreBackup } = await import(
+const { decodeBackup, exportSnippets, restoreBackup } = await import(
   'data:text/javascript;base64,' + Buffer.from(result.outputFiles[0].text).toString('base64')
 );
 
@@ -314,4 +315,89 @@ test('JSON backup refuses to silently drop unresolved conflict branches', async 
   const current = memory.records.get(key(base.id));
   assert.equal(current.conflicts.length, 1);
   assert.equal(current.conflicts[0].revision, remote.revision);
+});
+
+test('legacy v1 link metadata survives actual backup restore and JSON/HTML export without a new identity', async () => {
+  reset();
+  const legacy = legacySnippetLinks();
+  const originalBytes = canonical(legacy) + '\n';
+  assert.equal(encodeSnippet(parseSnippet(originalBytes)), originalBytes);
+  const rawBackup = backup(legacy);
+  assert.equal(await restoreBackup(rawBackup, selected), 1);
+  const restored = memory.records.get(key(legacy.id));
+  assert.deepEqual(restored.document, legacy);
+  assert.equal(encodeSnippet(restored.document), originalBytes);
+  assert.deepEqual(restored.locations, []);
+
+  // Keep the real download/export functions; substitute only browser I/O.
+  const downloads = [];
+  const blobs = new Map();
+  const revocations = [];
+  const originalDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalCreateURL = URL.createObjectURL;
+  const originalRevokeURL = URL.revokeObjectURL;
+  let urlSequence = 0;
+  try {
+    URL.createObjectURL = (blob) => {
+      const url = 'blob:legacy-snippet-export-' + ++urlSequence;
+      blobs.set(url, blob);
+      return url;
+    };
+    URL.revokeObjectURL = (url) => blobs.delete(url);
+    globalThis.setTimeout = (callback, delay, ...args) => {
+      if (delay === 60000) {
+        revocations.push(() => callback(...args));
+        return 0;
+      }
+      return originalSetTimeout(callback, delay, ...args);
+    };
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: {
+        createElement(tag) {
+          assert.equal(tag, 'a');
+          return {
+            click() {
+              downloads.push({ name: this.download, blob: blobs.get(this.href) });
+            }
+          };
+        }
+      }
+    });
+
+    await exportSnippets([legacy.id], selected, 'json');
+    assert.equal(await downloads[0].blob.text(), originalBytes);
+    assert.equal(downloads[0].name, legacy.title.text + ' — ' + legacy.id + '.manabi-snippet.json');
+
+    await exportSnippets([legacy.id], selected, 'html');
+    const html = await downloads[1].blob.text();
+    const anchors = [...html.matchAll(/<a\b([^>]*)>/g)].map((match) => match[1]);
+    assert.equal(anchors.length, 7);
+    assert.match(anchors[0], /target="_self"/);
+    assert.match(anchors[0], /rel="external"/);
+    assert.match(anchors[1], /rel=""/);
+    for (const anchor of anchors.slice(2)) {
+      assert.match(anchor, /target="_blank"/);
+      const rel = /rel="([^"]*)"/.exec(anchor)[1].toLowerCase().split(/\s+/);
+      assert.ok(rel.includes('noopener') && rel.includes('noreferrer'));
+      assert.ok(!rel.includes('opener'));
+    }
+
+    const second = createSnippet(plainContent('Second backup document'));
+    memory.records.set(key(second.id), record(second));
+    await exportSnippets([legacy.id, second.id], selected, 'json');
+    const exportedBackup = decodeBackup(await downloads[2].blob.text());
+    const exportedLegacy = exportedBackup.items.find((item) => item.id === legacy.id);
+    assert.equal(encodeSnippet(exportedLegacy), originalBytes);
+    assert.deepEqual(memory.records.get(key(legacy.id)), restored);
+    assert.equal(backup(legacy), rawBackup);
+  } finally {
+    for (const revoke of revocations) revoke();
+    globalThis.setTimeout = originalSetTimeout;
+    URL.createObjectURL = originalCreateURL;
+    URL.revokeObjectURL = originalRevokeURL;
+    if (originalDocument) Object.defineProperty(globalThis, 'document', originalDocument);
+    else delete globalThis.document;
+  }
 });

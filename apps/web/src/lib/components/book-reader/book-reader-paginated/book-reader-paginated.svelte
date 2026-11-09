@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getParagraphNodes } from '$lib/components/book-reader/get-paragraph-nodes';
   import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
   import {
     projectResource,
@@ -7,13 +8,18 @@
     type ReaderLocator
   } from '$lib/reader-location';
   import { browser } from '$app/environment';
-  import { nextChapter$ } from '$lib/components/book-reader/book-toc/book-toc';
+  import {
+    nextChapter$,
+    type ReaderChapterTarget
+  } from '$lib/components/book-reader/book-toc/book-toc';
   import HtmlRenderer from '$lib/components/html-renderer.svelte';
   import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
   import { SECTION_CHANGE } from '$lib/data/events';
   import { resolveReaderFont } from '$lib/data/reader-typography';
   import { observeReaderFontLayout } from '$lib/functions/reader-font-layout';
   import { FuriganaStyle } from '$lib/data/furigana-style';
+  import type { PageDirection } from '$lib/library/direction';
+  import { reversesPhysicalPageTurns } from '$lib/foliate-epub/page-direction';
   import {
     disableWheelNavigation$,
     firstDimensionMargin$,
@@ -57,6 +63,8 @@
   export let height: number;
 
   export let verticalMode: boolean;
+
+  export let pageDirection: PageDirection = 'unknown';
 
   export let fontFeatureSettings: string;
 
@@ -168,6 +176,14 @@
   let currentSectionId = '';
   let currentSpineIndex = -1;
   let mountedGeneration = 0;
+  let chapterNavigationGeneration = 0;
+  let cancelChapterNavigationWait: (() => void) | undefined;
+
+  const cancelPendingChapterNavigation = () => {
+    chapterNavigationGeneration += 1;
+    cancelChapterNavigationWait?.();
+    cancelChapterNavigationWait = undefined;
+  };
 
   let disposed = false;
   let renderGeneration = 0;
@@ -209,16 +225,28 @@
     return scrollEl?.ownerDocument.defaultView?.getSelection() ?? null;
   }
 
-  $: bookmarkData.then((data) => {
-    useExploredCharCount = false;
-    updateBookmarkScreen(data);
-  });
+  $: observeBookmarkData(bookmarkData);
+
+  // Only a new saved-bookmark promise should reset the explored-count policy.
+  // Keep screen updates outside the reactive dependency scan: they also read
+  // the geometry and count state that they publish after the promise settles.
+  function observeBookmarkData(pending: Promise<BooksDbBookmarkData | undefined>) {
+    void pending.then((data) => {
+      if (disposed || pending !== bookmarkData) return;
+      useExploredCharCount = false;
+      updateBookmarkScreen(data);
+    });
+  }
 
   $: if (width) width$.next(width);
 
   $: if (height) height$.next(height);
 
   $: columnCount = verticalMode ? 1 : pageColumns || Math.ceil(width / 1000);
+
+  // The legacy paginator remains the production fallback while Foliate is gated.
+  // Keep reading order separate from paragraph bidi direction here too.
+  $: reversePageOrder = reversesPhysicalPageTurns(verticalMode, pageDirection);
 
   $: {
     if (htmlContent) {
@@ -389,6 +417,7 @@
   onDestroy(() => {
     disposed = true;
     renderGeneration += 1;
+    cancelPendingChapterNavigation();
     stopFontLayout?.();
     sectionReady$.complete();
     sectionRenderComplete$.complete();
@@ -421,6 +450,7 @@
     });
 
   pageChange$.pipe(takeUntil(destroy$)).subscribe((isUser) => {
+    if (isUser) cancelPendingChapterNavigation();
     if (!calculator) return;
 
     if (!isResizing) {
@@ -496,7 +526,7 @@
       takeUntil(destroy$)
     )
     .subscribe((ev) => {
-      let multiplier = (ev.deltaX < 0 ? -1 : 1) * (verticalMode ? -1 : 1);
+      let multiplier = (ev.deltaX < 0 ? -1 : 1) * (reversePageOrder ? -1 : 1);
       if (!ev.deltaX) {
         multiplier = ev.deltaY < 0 ? -1 : 1;
       }
@@ -673,7 +703,7 @@
     if (!concretePageManager || $skipKeyDownListener$ || readerUIOwnsEvent(ev)) return;
     if (ev.detail.direction !== 'left' && ev.detail.direction !== 'right') return;
     const swipeLeft = ev.detail.direction === 'left';
-    const nextPage = verticalMode ? !swipeLeft : swipeLeft;
+    const nextPage = reversePageOrder ? !swipeLeft : swipeLeft;
     concretePageManager.flipPage(nextPage ? 1 : -1);
   }
 
@@ -692,11 +722,11 @@
     switch (ev.code) {
       case 'ArrowLeft':
       case 'KeyA':
-        concretePageManager[verticalMode ? 'nextPage' : 'prevPage']();
+        concretePageManager[reversePageOrder ? 'nextPage' : 'prevPage']();
         break;
       case 'ArrowRight':
       case 'KeyD':
-        concretePageManager[verticalMode ? 'prevPage' : 'nextPage']();
+        concretePageManager[reversePageOrder ? 'prevPage' : 'nextPage']();
         break;
       case 'ArrowUp':
         concretePageManager.prevPage();
@@ -708,53 +738,36 @@
     }
   }
 
-  nextChapter$.pipe(takeUntil(destroy$)).subscribe((target) => {
-    const nextSectionIndex =
-      typeof target === 'string'
-        ? sections.findIndex(
-            (section) =>
-              section.id === target || section.querySelector(`[id="${CSS.escape(target)}"]`)
-          )
-        : target.spineIndex;
-
-    if (nextSectionIndex < 0 || nextSectionIndex >= sections.length) return;
-    sectionIndex$.next(nextSectionIndex);
-    concretePageManager?.scrollTo(0, true);
-  });
-
-  /** Reveal a source range after its virtual section has mounted and measured. */
-  export async function revealLocator(locator: ReaderLocator, bookKey: string): Promise<boolean> {
-    const targetIndex = locator.resource.spineIndex;
-    if (targetIndex < 0 || targetIndex >= sections.length || disposed) return false;
-    if (sectionIndex$.getValue() !== targetIndex) {
-      const ready = new Promise<void>((resolve) => {
-        sectionReady$.pipe(take(1)).subscribe(() => resolve());
+  function waitForChapterSection(index: number, generation: number): Promise<boolean> {
+    cancelChapterNavigationWait?.();
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      let subscription: ReturnType<typeof sectionRenderComplete$.subscribe> | undefined;
+      const cancel = () => finish(false);
+      const finish = (value: boolean) => {
+        if (settled) return;
+        settled = true;
+        subscription?.unsubscribe();
+        if (cancelChapterNavigationWait === cancel) cancelChapterNavigationWait = undefined;
+        resolve(value);
+      };
+      subscription = sectionRenderComplete$.subscribe((renderedIndex) => {
+        if (
+          disposed ||
+          generation !== chapterNavigationGeneration ||
+          sectionIndex$.getValue() !== index
+        ) {
+          finish(false);
+          return;
+        }
+        if (renderedIndex === index) finish(true);
       });
-      sectionIndex$.next(targetIndex);
-      // The previous resource's virtual page position survives a direct spine
-      // switch. Reset it before measuring the newly mounted resource, or a
-      // return can calculate its page from the search result's scroll offset.
-      concretePageManager?.scrollTo(0, false);
-      await ready;
-      // Section readiness is published before Svelte applies its display and
-      // bookmark-layout updates. Let those settle before accepting the jump.
-      await tick();
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    }
-    if (!scrollEl || !contentEl || !concretePageManager || disposed) return false;
-    const generation = renderGeneration;
-    const projected = projectResource(contentEl, locator.resource);
-    const position = await resolveLocator(locator, projected, bookKey);
-    if (
-      !position ||
-      disposed ||
-      generation !== renderGeneration ||
-      sectionIndex$.getValue() !== targetIndex
-    )
-      return false;
-    const range = rangeAt(projected, position.start, position.end);
-    if (!range) return false;
-    const rect = range.getBoundingClientRect();
+      cancelChapterNavigationWait = cancel;
+    });
+  }
+
+  function scrollRectToPage(rect: DOMRect | DOMRectReadOnly, isUser: boolean): boolean {
+    if (!scrollEl || !concretePageManager) return false;
     const host = scrollEl.getBoundingClientRect();
     const pageSize = (verticalMode ? height : width) + gap;
     const relative = verticalMode ? rect.top - host.top : rect.left - host.left;
@@ -762,11 +775,128 @@
       0,
       Math.floor((virtualScrollPos$.getValue() + relative) / pageSize) * pageSize
     );
-    concretePageManager.scrollTo(target, false);
+    concretePageManager.scrollTo(target, isUser);
+    return true;
+  }
+
+  function scrollFragmentToPage(fragment: string): boolean {
+    if (!contentEl || !calculator || !concretePageManager) return false;
+    const target = contentEl.querySelector<HTMLElement>(`#${CSS.escape(fragment)}`);
+    if (!target) return false;
+
+    // Text targets should use the same measured character/page model that owns
+    // bookmarks and Return. Viewport rectangles are relative to the currently
+    // clipped CSS column and can map a deep target back to page one.
+    const firstMeasuredNode = getParagraphNodes(target)[0];
+    if (firstMeasuredNode) {
+      const range = target.ownerDocument.createRange();
+      // A collapsed range before the first child intersects no measured text.
+      // Select that node so the character projection can locate its page.
+      range.selectNode(firstMeasuredNode);
+      const characterCount = calculator.calcExploredCharCount(range);
+      const scrollPos = calculator.getScrollPosByCharCount(characterCount);
+      if (Number.isFinite(scrollPos) && scrollPos >= 0) {
+        concretePageManager.scrollTo(scrollPos, true);
+        return true;
+      }
+    }
+
+    // Keep a geometry path for empty/image anchors that have no canonical text
+    // position in the character projection.
+    return scrollRectToPage(target.getBoundingClientRect(), true);
+  }
+
+  async function navigateChapterTarget(target: ReaderChapterTarget) {
+    cancelPendingChapterNavigation();
+    const generation = chapterNavigationGeneration;
+
+    const nextSectionIndex =
+      typeof target === 'string'
+        ? sections.findIndex(
+            (section) =>
+              section.id === target || section.querySelector(`[id="${CSS.escape(target)}"]`)
+          )
+        : target.spineIndex;
+    if (nextSectionIndex < 0 || nextSectionIndex >= sections.length || disposed) return;
+
+    const fragment = typeof target === 'string' ? undefined : target.fragment;
+    const changesSection = sectionIndex$.getValue() !== nextSectionIndex;
+    if (changesSection || !allowDisplay || currentSpineIndex !== nextSectionIndex) {
+      const rendered = waitForChapterSection(nextSectionIndex, generation);
+      if (changesSection) {
+        sectionIndex$.next(nextSectionIndex);
+        concretePageManager?.scrollTo(0, false);
+      }
+      if (!(await rendered)) return;
+      await tick();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    if (
+      disposed ||
+      generation !== chapterNavigationGeneration ||
+      sectionIndex$.getValue() !== nextSectionIndex ||
+      !concretePageManager
+    )
+      return;
+
+    if (fragment && scrollFragmentToPage(fragment)) return;
+    concretePageManager.scrollTo(0, true);
+  }
+
+  nextChapter$.pipe(takeUntil(destroy$)).subscribe((target) => {
+    void navigateChapterTarget(target);
+  });
+
+  /** Reveal a source range after its virtual section has mounted and measured. */
+  export async function revealLocator(locator: ReaderLocator, bookKey: string): Promise<boolean> {
+    cancelPendingChapterNavigation();
+    const navigationGeneration = chapterNavigationGeneration;
+    const targetIndex = locator.resource.spineIndex;
+    if (targetIndex < 0 || targetIndex >= sections.length || disposed) return false;
+    const changesSection = sectionIndex$.getValue() !== targetIndex;
+    if (changesSection || !allowDisplay || currentSpineIndex !== targetIndex) {
+      const ready = waitForChapterSection(targetIndex, navigationGeneration);
+      if (changesSection) {
+        sectionIndex$.next(targetIndex);
+        // Reset the old resource's virtual position before measuring the new one.
+        concretePageManager?.scrollTo(0, false);
+      }
+      if (!(await ready)) return false;
+      // Section readiness is published before Svelte applies its display and
+      // bookmark-layout updates. Let those settle before accepting the jump.
+      await tick();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    if (
+      !scrollEl ||
+      !contentEl ||
+      !concretePageManager ||
+      disposed ||
+      navigationGeneration !== chapterNavigationGeneration ||
+      sectionIndex$.getValue() !== targetIndex
+    )
+      return false;
+    const generation = renderGeneration;
+    const projected = projectResource(contentEl, locator.resource);
+    const position = await resolveLocator(locator, projected, bookKey);
+    if (
+      !position ||
+      disposed ||
+      generation !== renderGeneration ||
+      navigationGeneration !== chapterNavigationGeneration ||
+      sectionIndex$.getValue() !== targetIndex
+    )
+      return false;
+    const range = rangeAt(projected, position.start, position.end);
+    if (!range) return false;
+    const rect = range.getBoundingClientRect();
+    if (!scrollRectToPage(rect, false)) return false;
+    const target = virtualScrollPos$.getValue();
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     return (
       !disposed &&
       generation === renderGeneration &&
+      navigationGeneration === chapterNavigationGeneration &&
       sectionIndex$.getValue() === targetIndex &&
       (!verticalMode || Math.abs(scrollEl.scrollTop - target) <= 2)
     );

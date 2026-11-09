@@ -94,8 +94,9 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                 <>
                   <Dom
                     as="div"
+                    data-statistics-summary-grid
                     className={[
-                      'grid grid-cols-[0.75fr_1fr] items-center gap-x-8',
+                      'grid grid-cols-[0.75fr_1fr] items-center gap-x-[32px]',
                       isNoneAggregation && 'md:grid-cols-[0.31fr_0.6fr_0.77fr_0.74fr_0.6fr_0.57fr]',
                       isNoneAggregation &&
                         'lg:grid-cols-[0.14fr_0.26fr_0.85fr_repeat(2,_0.59fr)_0.45fr]',
@@ -108,7 +109,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                       .join(' ')}
                     style={{
                       gridAutoRows: `${c.statisticsSummaryBaseRowRem}rem`,
-                      rowGap: `${c.statisticsSummaryBaseRowGap}rem`
+                      rowGap: `${c.statisticsSummaryRowGapPx}px`
                     }}
                   >
                     {c.renderFullStatisticsSummaryTable ? (
@@ -210,7 +211,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                 >
                                   <Button
                                     variant={currentRowInEdit ? 'ghost' : 'destructive'}
-                                    size={'icon-sm'}
+                                    size={'icon'}
                                     shape={'circle'}
                                     aria-label={
                                       currentRowInEdit
@@ -239,7 +240,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                     <>
                                       <Button
                                         variant={currentRowInEdit ? 'secondary' : 'ghost'}
-                                        size={'icon-sm'}
+                                        size={'icon'}
                                         shape={'circle'}
                                         aria-label={
                                           currentRowInEdit
@@ -290,7 +291,10 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                   as="button"
                                   type={'button'}
                                   title={currentStatisticsSummaryRow.title}
-                                  className={['line-clamp-2', isDateAggregation && 'hidden']
+                                  className={[
+                                    'line-clamp-2 min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring',
+                                    isDateAggregation && 'hidden'
+                                  ]
                                     .filter(Boolean)
                                     .join(' ')}
                                   events={{
@@ -335,7 +339,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                       as="button"
                                       type="button"
                                       data-summary-metric="readingTime"
-                                      className="text-left focus-visible:outline-2 focus-visible:outline-ring"
+                                      className="min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
                                       aria-pressed={c.$lastBlurredTrackerItems$.has('readingTime')}
                                       aria-label={c.metricAccessibleLabel(
                                         'readingTime',
@@ -401,7 +405,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                       as="button"
                                       type="button"
                                       data-summary-metric="charactersRead"
-                                      className="text-left focus-visible:outline-2 focus-visible:outline-ring"
+                                      className="min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
                                       aria-pressed={c.$lastBlurredTrackerItems$.has(
                                         'charactersRead'
                                       )}
@@ -471,7 +475,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                                       as="button"
                                       type="button"
                                       data-summary-metric="lastReadingSpeed"
-                                      className="text-left focus-visible:outline-2 focus-visible:outline-ring"
+                                      className="min-h-[44px] rounded-lg px-2 py-2 text-left focus-visible:outline-2 focus-visible:outline-ring"
                                       aria-pressed={c.$lastBlurredTrackerItems$.has(
                                         'lastReadingSpeed'
                                       )}
@@ -581,30 +585,37 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
         elementRef={(value: HTMLDivElement | null) => {
           c.statisticsSummaryButtonContainer = value;
         }}
-        className={['my-6 flex justify-between', c.statisticsSummaryMaxPages < 2 && 'invisible']
+        className={[
+          'my-[24px] flex items-center justify-between gap-[8px]',
+          c.statisticsSummaryMaxPages < 2 && 'invisible'
+        ]
           .filter(Boolean)
           .join(' ')}
       >
         <Dom
           as="button"
+          type="button"
+          aria-label="Previous statistics page"
+          elementRef={(value: HTMLButtonElement | null) => {
+            c.previousSummaryPage = value;
+          }}
           disabled={c.currentStatisticsSummaryPage === 1}
           className={[
+            'flex size-[44px] shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-ring',
             c.currentStatisticsSummaryPage === 1 && 'opacity-25',
             c.currentStatisticsSummaryPage === 1 && 'cursor-not-allowed'
           ]
             .filter(Boolean)
             .join(' ')}
           events={{
-            click: () => {
-              c.setRowInEditMode();
-              c.currentStatisticsSummaryPage -= 1;
-            }
+            click: () => void c.pageSummary(-1)
           }}
         >
           <AppIcon icon={faChevronLeft}></AppIcon>
         </Dom>
         <Popover
           yOffset={5}
+          innerContainerStyles="min-height:44px;padding-inline:12px;"
           events={{
             open: () => {
               const currentPageElement =
@@ -620,7 +631,7 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
             }
           }}
         >
-          <Dom as="div" className={['mx-6'].filter(Boolean).join(' ')}>
+          <Dom as="div" className="whitespace-nowrap tabular-nums">
             {c.statisticsSummaryPageLabel}
           </Dom>
           <Dom
@@ -639,17 +650,23 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
                     c.statisticsSummaryPageRefs[pageIndex + 1] = value;
                   }}
                   className={[
-                    'hover:bg-accent hover:text-foreground hover:opacity-50',
+                    'min-h-[44px] rounded-lg px-3 py-2 text-center hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring',
                     statisticsSummaryPage === c.currentStatisticsSummaryPage && 'bg-accent',
                     statisticsSummaryPage === c.currentStatisticsSummaryPage && 'text-foreground'
                   ]
                     .filter(Boolean)
                     .join(' ')}
+                  type="button"
+                  aria-current={
+                    statisticsSummaryPage === c.currentStatisticsSummaryPage ? 'page' : undefined
+                  }
                   events={{
-                    click: ({ target }: MouseEvent) => {
+                    click: ({ currentTarget }: MouseEvent) => {
                       c.setRowInEditMode();
                       c.currentStatisticsSummaryPage = statisticsSummaryPage;
-                      target?.dispatchEvent(new CustomEvent(CLOSE_POPOVER, { bubbles: true }));
+                      currentTarget?.dispatchEvent(
+                        new CustomEvent(CLOSE_POPOVER, { bubbles: true })
+                      );
                     }
                   }}
                 >
@@ -659,20 +676,26 @@ export function StatisticsSummary(props: Partial<StatisticsSummaryProps> & Reade
             ))}
           </Dom>
         </Popover>
+        <span className="sr-only" role="status" aria-live="polite">
+          {c.statisticsSummaryPageLabel}
+        </span>
         <Dom
           as="button"
+          type="button"
+          aria-label="Next statistics page"
+          elementRef={(value: HTMLButtonElement | null) => {
+            c.nextSummaryPage = value;
+          }}
           disabled={c.currentStatisticsSummaryPage === c.statisticsSummaryMaxPages}
           className={[
+            'flex size-[44px] shrink-0 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-ring',
             c.currentStatisticsSummaryPage === c.statisticsSummaryMaxPages && 'opacity-25',
             c.currentStatisticsSummaryPage === c.statisticsSummaryMaxPages && 'cursor-not-allowed'
           ]
             .filter(Boolean)
             .join(' ')}
           events={{
-            click: () => {
-              c.setRowInEditMode();
-              c.currentStatisticsSummaryPage += 1;
-            }
+            click: () => void c.pageSummary(1)
           }}
         >
           <AppIcon icon={faChevronRight}></AppIcon>

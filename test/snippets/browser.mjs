@@ -278,6 +278,212 @@ try {
     readingArticle.evaluate((node) => parseFloat(window.getComputedStyle(node).fontSize));
   const defaultReaderFont = await readerFont();
   assert.equal(defaultReaderFont, 20);
+  // Every deliberate capture is persisted before presentation. Dispatch both
+  // in the same task so the second event exercises the first capture's busy
+  // suspension rather than only the already-open dialog path.
+  const capturePrefix = 'capture-durability-' + Date.now();
+  const draftCount = async () =>
+    (await records(page, 'snippetDrafts')).filter((draft) =>
+      draft.document?.source?.item?.startsWith(capturePrefix)
+    ).length;
+  await page.evaluate((capturePrefix) => {
+    const dispatch = (suffix, html) =>
+      window.dispatchEvent(
+        new CustomEvent('manabi-capture-snippet', {
+          detail: {
+            html,
+            title: 'Concurrent capture source',
+            item: capturePrefix + '-' + suffix,
+            owner: null
+          }
+        })
+      );
+    dispatch('first', '<p>最初の選択は開いたダイアログで処理します。</p>');
+    dispatch('second', '<p>二番目の選択も失わず後で復元します。</p>');
+  }, capturePrefix);
+  const captureDialog = page.getByRole('dialog', { name: 'Add to snippet' });
+  await expect(captureDialog).toBeVisible();
+  await expect.poll(draftCount).toBe(2);
+  await expect(captureDialog.getByRole('status')).toContainText(
+    '1 additional selection saved for later.'
+  );
+  await captureDialog.getByRole('button', { name: 'Keep for later', exact: true }).click();
+  await expect(captureDialog).toHaveCount(0);
+  const retainedCaptureStatus = page
+    .getByRole('status')
+    .filter({ hasText: '1 additional selection saved for later.' });
+  await expect(retainedCaptureStatus).toHaveCount(1);
+  await expect(retainedCaptureStatus).toBeVisible();
+  await page.reload();
+  await expect.poll(draftCount).toBe(2);
+  const capturedDrafts = (await records(page, 'snippetDrafts')).filter((draft) =>
+    draft.document?.source?.item?.startsWith(capturePrefix)
+  );
+  assert.deepEqual(capturedDrafts.map((draft) => draft.document.source.item).sort(), [
+    capturePrefix + '-first',
+    capturePrefix + '-second'
+  ]);
+  assert(
+    capturedDrafts.some((draft) =>
+      JSON.stringify(draft.document.content).includes('最初の選択は開いたダイアログで処理します。')
+    )
+  );
+  assert(
+    capturedDrafts.some((draft) =>
+      JSON.stringify(draft.document.content).includes('二番目の選択も失わず後で復元します。')
+    )
+  );
+  const deleteDraftKeys = (keys) =>
+    page.evaluate(
+      ({ keys, databaseName }) =>
+        new Promise((resolve, reject) => {
+          let db,
+            tx,
+            settled = false;
+          const finish = (error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(deadline);
+            db?.close();
+            if (error) reject(error);
+            else resolve();
+          };
+          const deadline = setTimeout(() => {
+            try {
+              tx?.abort();
+            } catch {
+              /* Preserve the fixture timeout. */
+            }
+            finish(new Error('Snippet draft fixture cleanup timed out'));
+          }, 10000);
+          const open = indexedDB.open(databaseName);
+          open.onerror = () => finish(open.error ?? new Error('Snippet fixture database failed'));
+          open.onblocked = () => finish(new Error('Snippet fixture database open was blocked'));
+          open.onupgradeneeded = () => {
+            open.transaction.abort();
+            finish(new Error('Snippet fixture must not create a missing database'));
+          };
+          open.onsuccess = () => {
+            db = open.result;
+            if (settled) {
+              db.close();
+              return;
+            }
+            try {
+              tx = db.transaction('snippetDrafts', 'readwrite');
+              tx.oncomplete = () => finish();
+              tx.onerror = () => finish(tx.error ?? new Error('Snippet draft cleanup failed'));
+              tx.onabort = () => finish(tx.error ?? new Error('Snippet draft cleanup aborted'));
+              for (const key of keys) tx.objectStore('snippetDrafts').delete(key);
+            } catch (error) {
+              try {
+                tx?.abort();
+              } catch {
+                /* Drain via the original failure. */
+              }
+              finish(error);
+            }
+          };
+        }),
+      { keys, databaseName: integrationDatabase }
+    );
+  await deleteDraftKeys(capturedDrafts.map((draft) => draft.key));
+  passed('concurrent captures persist independently before destination UI');
+
+  // A failing first capture must not hide or discard a second capture admitted
+  // during the same busy window.
+  const mixedPrefix = 'capture-mixed-outcome-' + Date.now();
+  await page.evaluate((mixedPrefix) => {
+    const dispatch = (suffix, html) =>
+      window.dispatchEvent(
+        new CustomEvent('manabi-capture-snippet', {
+          detail: {
+            html,
+            title: 'Mixed capture source',
+            item: mixedPrefix + '-' + suffix,
+            owner: null
+          }
+        })
+      );
+    dispatch('too-large', '<p>' + 'x'.repeat(2 * 1024 * 1024 + 1) + '</p>');
+    dispatch('saved', '<p>先の選択が失敗しても、この選択は下書きに残します。</p>');
+  }, mixedPrefix);
+  const mixedDrafts = async () =>
+    (await records(page, 'snippetDrafts')).filter((draft) =>
+      draft.document?.source?.item?.startsWith(mixedPrefix)
+    );
+  await expect.poll(async () => (await mixedDrafts()).length).toBe(1);
+  await expect(page.getByRole('dialog', { name: 'Add to snippet' })).toHaveCount(0);
+  const captureNotice = page.getByRole('alert');
+  await expect(captureNotice).toContainText('Pasted content exceeds the 2 MiB limit.');
+  await expect(captureNotice).toContainText('1 additional selection saved for later.');
+  const [mixedDraft] = await mixedDrafts();
+  assert.equal(mixedDraft.document.source.item, mixedPrefix + '-saved');
+  assert(JSON.stringify(mixedDraft.document.content).includes('この選択は下書きに残します。'));
+  await deleteDraftKeys([mixedDraft.key]);
+  await captureNotice.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  passed('a failed capture cannot hide or discard a concurrent persisted capture');
+
+  // A committed append must not be reported as failed merely because best-effort
+  // cleanup of its already-durable capture draft failed.
+  const cleanupPrefix = 'capture-cleanup-failure-' + Date.now();
+  await page.evaluate((cleanupPrefix) => {
+    window.dispatchEvent(
+      new CustomEvent('manabi-capture-snippet', {
+        detail: {
+          html: '<p>追加は成功し、下書き削除だけ失敗します。</p>',
+          title: 'Cleanup failure source',
+          item: cleanupPrefix,
+          owner: null
+        }
+      })
+    );
+  }, cleanupPrefix);
+  const cleanupDialog = page.getByRole('dialog', { name: 'Add to snippet' });
+  await expect(cleanupDialog).toBeVisible();
+  await expect
+    .poll(
+      async () =>
+        (await records(page, 'snippetDrafts')).filter(
+          (draft) => draft.document?.source?.item === cleanupPrefix
+        ).length
+    )
+    .toBe(1);
+  await page.evaluate(() => {
+    const original = globalThis.IDBObjectStore.prototype.delete;
+    let armed = true;
+    globalThis.IDBObjectStore.prototype.delete = function (key) {
+      if (armed && this.name === 'snippetDrafts') {
+        armed = false;
+        globalThis.IDBObjectStore.prototype.delete = original;
+        throw new globalThis.DOMException('Injected capture cleanup failure', 'AbortError');
+      }
+      return original.call(this, key);
+    };
+  });
+  await cleanupDialog.getByRole('link', { name: '散歩の記録', exact: true }).click();
+  await expect(cleanupDialog).toHaveCount(0);
+  const cleanupNotice = page
+    .getByRole('status')
+    .filter({ hasText: /Added to snippet\..*saved capture draft could not be cleaned up/ });
+  await expect(cleanupNotice).toBeVisible();
+  await expect
+    .poll(async () => {
+      const item = (await records(page)).find((record) => record.document.id === id);
+      return (
+        JSON.stringify(item?.document.content ?? {}).match(
+          /追加は成功し、下書き削除だけ失敗します。/g
+        )?.length ?? 0
+      );
+    })
+    .toBe(1);
+  const cleanupDrafts = (await records(page, 'snippetDrafts')).filter(
+    (draft) => draft.document?.source?.item === cleanupPrefix
+  );
+  assert.equal(cleanupDrafts.length, 1, 'Failed cleanup keeps the capture draft recoverable.');
+  await deleteDraftKeys(cleanupDrafts.map((draft) => draft.key));
+  await cleanupNotice.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  passed('committed capture append survives draft cleanup failure without inviting a retry');
 
   // Stress the actual reader controls and vertical layout at enlarged UI text.
   await page.setViewportSize({ width: 320, height: 480 });
@@ -476,6 +682,103 @@ try {
     await mkdir(dirname(largeTextPath), { recursive: true });
     await page.screenshot({ path: largeTextPath, fullPage: true });
   }
+
+  const selectionToggleLarge = page.getByRole('button', {
+    name: /^(?:Select|Done selecting)$/
+  });
+  await selectionToggleLarge.focus();
+  await selectionToggleLarge.press('Enter');
+  const enlargedBatch = page.getByRole('toolbar', {
+    name: 'Selected snippet actions',
+    exact: true
+  });
+  await expect(enlargedBatch).toBeVisible();
+  assert(
+    (await enlargedBatch.evaluate((node) => node.scrollWidth - node.clientWidth)) <= 1,
+    'Snippet batch actions must not overflow horizontally at 200% text'
+  );
+  const batchBox = await enlargedBatch.boundingBox();
+  assert(
+    batchBox.x >= -1 && batchBox.x + batchBox.width <= 321,
+    'Snippet batch toolbar must remain inside the narrow viewport'
+  );
+  const batchStatus = enlargedBatch.getByRole('status');
+  await expect(batchStatus).toHaveAttribute('aria-atomic', 'true');
+  await expect(batchStatus).toHaveText('0 selected');
+  const selectAllLarge = enlargedBatch.getByRole('button', {
+    name: 'Select all visible',
+    exact: true
+  });
+  await selectAllLarge.focus();
+  await selectAllLarge.press('Enter');
+  await expect(batchStatus).toHaveText('1 selected');
+  const enlargedSelection = page.getByRole('checkbox', { name: 'Select 散歩の記録', exact: true });
+  await expect(enlargedSelection).toBeChecked();
+  for (const name of [
+    'Select all visible',
+    'Collections…',
+    'Move to…',
+    'Export selected',
+    'Move to Trash'
+  ]) {
+    const control = enlargedBatch.getByRole('button', { name, exact: true });
+    const box = await control.boundingBox();
+    assert(box && box.height >= 43.5, `${name} must remain at least 44 CSS px high`);
+    assert(box.x >= -1 && box.x + box.width <= 321, `${name} must stay inside the viewport`);
+  }
+  if (largeTextEvidence) {
+    const selectionPath = largeTextEvidence.replace(/\.png$/i, '-selection-large-text.png');
+    await page.screenshot({ path: selectionPath, fullPage: true });
+  }
+
+  await selectAllLarge.press('Escape');
+  await expect(enlargedBatch).toHaveCount(0);
+  await expect(selectionToggleLarge).toHaveText('Select');
+  await expect(selectionToggleLarge).toBeFocused();
+
+  await selectionToggleLarge.press('Enter');
+  const checkboxEscape = page.getByRole('checkbox', { name: 'Select 散歩の記録', exact: true });
+  await checkboxEscape.focus();
+  await checkboxEscape.press('Space');
+  await expect(
+    page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true }).getByRole('status')
+  ).toHaveText('1 selected');
+  await page.setViewportSize({ width: 320, height: 320 });
+  await checkboxEscape.scrollIntoViewIfNeeded();
+  const beforeExit = await selectionToggleLarge.boundingBox();
+  assert(
+    beforeExit.y < 0 || beforeExit.y + beforeExit.height > 321,
+    'Short-viewport fixture must actually move the selection toggle offscreen'
+  );
+  await checkboxEscape.press('Escape');
+  await expect(
+    page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })
+  ).toHaveCount(0);
+  await expect(selectionToggleLarge).toBeFocused();
+  const returnedToggle = await selectionToggleLarge.boundingBox();
+  assert(
+    returnedToggle.x >= -1 &&
+      returnedToggle.y >= -1 &&
+      returnedToggle.x + returnedToggle.width <= 321 &&
+      returnedToggle.y + returnedToggle.height <= 321,
+    `Selection exit must return visible focus: ${JSON.stringify(returnedToggle)}`
+  );
+  await selectionToggleLarge.click({ trial: true });
+  await page.setViewportSize({ width: 320, height: 640 });
+
+  await selectionToggleLarge.press('Enter');
+  await expect(
+    page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })
+  ).toBeVisible();
+  await expect(selectionToggleLarge).toHaveText('Done selecting');
+  await selectionToggleLarge.press('Escape');
+  await expect(
+    page.getByRole('toolbar', { name: 'Selected snippet actions', exact: true })
+  ).toHaveCount(0);
+  await expect(selectionToggleLarge).toHaveText('Select');
+  await expect(selectionToggleLarge).toBeFocused();
+  passed('snippet selection reflows and exits consistently by keyboard at 200% text');
+
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.evaluate(() => {
     document.documentElement.style.fontSize = '';
@@ -692,6 +995,95 @@ try {
     conflictedRecord.conflicts.some((version) => version.revision === conflictingImport.revision)
   );
   passed('single-document conflicting import keeps both versions instead of rejecting the file');
+
+  await openLibrary(page);
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'commonmark.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from('Hi. there\n\nOk. Next step.\n\nEx) aside\n\n0. zero\n1. one')
+  });
+  const safetyMarkdownEditor = page.getByRole('textbox', { name: 'Snippet text', exact: true });
+  await expect(safetyMarkdownEditor).toContainText('Hi. there');
+  await expect(safetyMarkdownEditor).toContainText('Ok. Next step.');
+  await expect(safetyMarkdownEditor).toContainText('Ex) aside');
+  await expect(safetyMarkdownEditor.locator('ol')).toHaveAttribute('start', '0');
+  await expect(safetyMarkdownEditor.locator('li').first()).toContainText('zero');
+  assert.equal(
+    await safetyMarkdownEditor.locator('p').first().innerText(),
+    'Hi. there',
+    'Alphabetic sentence prefixes must not become TipTap ordered-list markers.'
+  );
+  await page
+    .getByRole('textbox', { name: 'Snippet title', exact: true })
+    .fill('CommonMark round trip');
+  await commit(page, true);
+
+  const roundTripButton = page.getByRole('button', { name: 'Markdown', exact: true });
+  const roundTripMenuItem = page.getByRole('menuitem', { name: 'Markdown', exact: true });
+  const downloadPromise = page.waitForEvent('download');
+  if (await roundTripButton.isVisible()) {
+    await roundTripButton.click();
+  } else {
+    await page.getByRole('button', { name: 'More actions', exact: true }).click();
+    await roundTripMenuItem.click();
+  }
+  const safetyMarkdownDownload = await downloadPromise,
+    safetyMarkdownPath = await safetyMarkdownDownload.path();
+  assert(safetyMarkdownPath, 'Markdown export must produce a downloadable file');
+  const exportedMarkdown = await readFile(safetyMarkdownPath, 'utf8');
+  assert.match(exportedMarkdown, /Hi\. there/);
+  assert.match(exportedMarkdown, /Ok\. Next step\./);
+  assert.match(exportedMarkdown, /Ex\) aside/);
+  assert.match(
+    exportedMarkdown,
+    /<ol[^>]*start=["']0["']/,
+    'Zero-start ordered lists must use lossless HTML inside Markdown export'
+  );
+
+  await openLibrary(page);
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'round-trip.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from(exportedMarkdown)
+  });
+  const roundTripEditor = page.getByRole('textbox', { name: 'Snippet text', exact: true });
+  await expect(roundTripEditor).toContainText('Hi. there');
+  await expect(roundTripEditor).toContainText('Ok. Next step.');
+  await expect(roundTripEditor).toContainText('Ex) aside');
+  await expect(roundTripEditor.locator('ol')).toHaveAttribute('start', '0');
+  await expect(roundTripEditor.locator('li').first()).toContainText('zero');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  let markdownLeave = page.getByRole('dialog', { name: 'Keep this draft?' });
+  await expect(markdownLeave).toBeVisible();
+  await markdownLeave.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Snippets', exact: true })).toBeVisible();
+  passed('Markdown import and export round-trip prose plus CommonMark zero-start lists');
+
+  await openLibrary(page);
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'hostile.md',
+    mimeType: 'text/markdown',
+    buffer: Buffer.from(
+      '<script>window.__snippetMarkdownExecuted=true</script>\n\n' +
+        '[unsafe](javascript:alert(1))\n\n' +
+        '<iframe src="https://example.invalid/"></iframe>\n\n' +
+        '**safe text remains**'
+    )
+  });
+  const hostileEditor = page.getByRole('textbox', { name: 'Snippet text', exact: true });
+  await expect(hostileEditor).toContainText('safe text remains');
+  await expect(hostileEditor.locator('script, iframe, [href^="javascript:"]')).toHaveCount(0);
+  assert.equal(
+    await page.evaluate(() => window.__snippetMarkdownExecuted),
+    undefined,
+    'Markdown raw HTML must be sanitized before it can execute'
+  );
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  markdownLeave = page.getByRole('dialog', { name: 'Keep this draft?' });
+  await expect(markdownLeave).toBeVisible();
+  await markdownLeave.getByRole('button', { name: 'Discard draft and leave', exact: true }).click();
+  passed('Markdown import retains the shared HTML sanitization boundary');
+
   await local.ctx.close();
 
   const cloud = await context('alice');

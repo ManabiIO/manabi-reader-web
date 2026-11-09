@@ -2,10 +2,7 @@
   import { foldSearch } from './search-normalization';
   import { buildBookTitleSearchSnapshot } from '../search/book-title-match-text';
   import { librarySelection } from './selection-action';
-  import {
-    librarySelectionScopeKey,
-    type LibrarySelectionEligibility
-  } from './selection';
+  import { librarySelectionScopeKey, type LibrarySelectionEligibility } from './selection';
   import BookOrganizationDialog from './book-organization-dialog.svelte';
   import type { BookPresentation, PresentationChange } from './organization';
   import { onMount, createEventDispatcher, tick, type Snippet } from 'svelte';
@@ -344,10 +341,7 @@
     nextLibrarySearchScope === pendingLibrarySearchScope
   )
     pendingLibrarySearchScope = undefined;
-  $: if (
-    pendingLibrarySearchScope === undefined &&
-    librarySearchScope !== nextLibrarySearchScope
-  ) {
+  $: if (pendingLibrarySearchScope === undefined && librarySearchScope !== nextLibrarySearchScope) {
     retireSelectionScope(selectionScopeFor(nextSelectionSearch, nextLibrarySearchScope));
     librarySearchScope = nextLibrarySearchScope;
   }
@@ -371,18 +365,18 @@
     ? []
     : flatDestination
       ? books
-        .filter((book) =>
-          includesBook(
-            book,
-            collectionId,
-            selectedCollection?.members,
-            notFinished,
-            shelfQuery,
-            seriesMatchedKeys
+          .filter((book) =>
+            includesBook(
+              book,
+              collectionId,
+              selectedCollection?.members,
+              notFinished,
+              shelfQuery,
+              seriesMatchedKeys
+            )
           )
-        )
-        .map((book) => ({ kind: 'book' as const, id: book.key, book }))
-    : series?.children || tree;
+          .map((book) => ({ kind: 'book' as const, id: book.key, book }))
+      : series?.children || tree;
   $: sortedDestination = visibleShelf(
     destinationNodes,
     (book) =>
@@ -402,30 +396,32 @@
       ? orderFinishedNodes(sortedDestination, finishedOrder)
       : sortedDestination;
   $: visibleBooks = allBooks(displayed);
-  $: scopedSeriesBooks = !unifiedSearchOwnsShelf && series
-    ? series.books.filter((book) =>
-        includesBook(
-          book,
-          collectionId,
-          selectedCollection?.members,
-          notFinished,
-          shelfQuery,
-          seriesMatchedKeys
+  $: scopedSeriesBooks =
+    !unifiedSearchOwnsShelf && series
+      ? series.books.filter((book) =>
+          includesBook(
+            book,
+            collectionId,
+            selectedCollection?.members,
+            notFinished,
+            shelfQuery,
+            seriesMatchedKeys
+          )
         )
-      )
-    : [];
-  $: scopedVolumeOrder = !unifiedSearchOwnsShelf && series
-    ? allBooks(series.children).filter((book) =>
-        includesBook(
-          book,
-          collectionId,
-          selectedCollection?.members,
-          notFinished,
-          shelfQuery,
-          seriesMatchedKeys
+      : [];
+  $: scopedVolumeOrder =
+    !unifiedSearchOwnsShelf && series
+      ? allBooks(series.children).filter((book) =>
+          includesBook(
+            book,
+            collectionId,
+            selectedCollection?.members,
+            notFinished,
+            shelfQuery,
+            seriesMatchedKeys
+          )
         )
-      )
-    : [];
+      : [];
   $: resume = series ? seriesReadingTarget(scopedSeriesBooks, scopedVolumeOrder) : undefined;
   $: seriesCreators = series ? sharedCreatorLine(scopedSeriesBooks) : undefined;
   $: recentBooks =
@@ -1846,7 +1842,9 @@
       >
     </Dialog.Header>
     {#if dialog === 'details' && targetBook}
-      <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-3 text-sm">
+      <dl
+        class="grid grid-cols-1 gap-x-[20px] gap-y-3 pe-[52px] text-sm min-[480px]:grid-cols-[auto_minmax(0,1fr)] [&>dd]:min-w-0 [&>dd]:break-words"
+      >
         <dt class="text-muted-foreground">Characters</dt>
         <dd>{targetBook.characters || 'No data'}</dd>
         <dt class="text-muted-foreground">Last read</dt>

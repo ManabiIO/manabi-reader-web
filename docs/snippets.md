@@ -64,6 +64,18 @@ asks when there are multiple eligible sources. Clearing the default never moves 
 required to start: choosing this-device-only is explicit and labeled, and Move publishes such
 a document later. Native local-folder and strong-ETag WebDAV adapters are included. Local folder
 writes cannot atomically exclude external applications; the picker warns users to close them.
+Every local snippet read, capability check, folder creation, write and remove holds the same
+connected-folder generation lock as book/state operations. Disconnect/reconnect therefore waits for
+admitted physical I/O; queued snippet work revalidates the exact directory handle and durable write
+consent before touching disk, so a reused source ID cannot retarget an older operation. If the same
+portable snippet later reappears under a newly connected source ID, discovery may rebind the storage
+home only when the old source is **authoritatively** absent and the newly found document is identical
+or causally related. Local-folder and WebDAV absence comes directly from local connection state.
+Cloud absence is authoritative only when the signed-in connections endpoint successfully supplied
+that snapshot; an offline/mismatched-account cached cloud list is never deletion/disconnect evidence.
+Dirty local descendants are preserved and uploaded over their remote ancestor; sibling revisions
+still require explicit conflict resolution, and an upload targeting a still-active source keeps
+ownership.
 A first-create crash can leave File System Access's newly created directory entry at zero bytes.
 Retry may reclaim only the exact deterministic filename for that pending snippet; unrelated
 zero-byte names and non-empty malformed files are never overwritten.
@@ -113,9 +125,19 @@ Collections use existing organization storage and preferences, adding `snippet:<
 members. The client sends the `snippets-v1` capability so an older client cannot silently strip
 members in the backend compatibility path. Membership changes capture scope inside the shared
 transaction. JSON backup import is additive and preserves conflicting bodies rather than
-adopting another installation's provider locators. JSON/HTML/Markdown export is available;
-ruby Markdown exports retain raw HTML rather than silently dropping annotations. Multi-document
-backups preserve collection memberships. Reading state is independently stored at the source.
+adopting another installation's provider locators. JSON/HTML/Markdown export is available.
+TipTap JSON remains canonical: Markdown is explicit interchange only. Markdown import uses a fresh
+vanilla Marked instance rather than TipTap's experimental registered tokenizer state, so ordinary
+CommonMark prose cannot be reclassified by alpha/roman ordered-list extensions and repeated editors
+cannot accumulate parser behavior globally. Ruby and valid zero-start ordered lists export as raw
+HTML (valid Markdown) because that is lossless where TipTap 3.31.x's Markdown serializer is not.
+Version-1 JSON retains previously supported bounded link metadata, including empty or non-default
+`rel` values, during read, restore and JSON backup/export. Reader/HTML output and the editor DOM
+remove `opener` and require `noopener noreferrer` for new-tab links without rewriting the saved
+revision or provenance. Safe same-window relationships remain intact; an explicit edit creates a
+new document revision through the normal save path.
+Multi-document backups preserve collection memberships. Reading state is independently stored at
+the source.
 
 ## Verification and rollout
 

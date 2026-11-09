@@ -32,7 +32,10 @@ try {
   browser = await chromium.launch({
     headless: true,
     executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
-    args: ['--no-sandbox']
+    args: [
+      '--no-sandbox',
+      ...(process.platform === 'darwin' ? ['--disable-features=MacAppCodeSignClone'] : [])
+    ]
   });
   const page = await browser.newPage();
   await page.goto(`http://127.0.0.1:${server.address().port}`);

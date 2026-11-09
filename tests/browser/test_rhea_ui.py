@@ -22,12 +22,13 @@ from reader_fixture import reader_fixture
 from browser_launch import launch_options
 
 
-def chaptered_epub():
+def chaptered_epub(title=TITLE):
     output = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(epub())) as source, zipfile.ZipFile(output, 'w', zipfile.ZIP_DEFLATED) as target:
         for item in source.infolist():
             value = source.read(item)
             if item.filename == 'content.opf':
+                value = value.replace(TITLE.encode(), title.encode())
                 value = value.replace(b'</manifest>', b'<item id="chapter2" href="chapter2.xhtml" media-type="application/xhtml+xml"/><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/></manifest>')
                 value = value.replace(b'<spine>', b'<spine toc="ncx">').replace(b'</spine>', b'<itemref idref="chapter2"/></spine>')
             target.writestr(item.filename, value)
@@ -156,9 +157,26 @@ class RheaReader(previous.RefinedAppearance):
         self.assertLessEqual(menu_box['x'] + menu_box['width'], 321)
         self.assertLessEqual(menu_box['y'] + menu_box['height'], 321)
         self.assertLessEqual(menu.evaluate('e => e.scrollWidth - e.clientWidth'), 1)
-        for item in menu.get_by_role('menuitem').all():
+        items = menu.get_by_role('menuitem')
+        for item in items.all():
             box = item.bounding_box()
             self.assertGreaterEqual(box['height'], 43.99)
+        # The short menu intentionally scrolls. Keyboard navigation must bring
+        # its final action completely into view instead of merely exposing a
+        # clipped label at the viewport edge.
+        items.first.focus()
+        for _ in range(items.count() - 1):
+            self.page.keyboard.press('ArrowDown')
+        last = items.last
+        expect(last).to_be_focused()
+        last_box = last.bounding_box()
+        self.assertGreaterEqual(last_box['y'], -1)
+        self.assertLessEqual(last_box['y'] + last_box['height'], 321)
+        self.assertTrue(last.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
         self.page.screenshot(path='test-results/reader-toolbar-enlarged-short.png')
         self.page.keyboard.press('Escape')
         expect(menu).to_have_count(0)
@@ -166,6 +184,61 @@ class RheaReader(previous.RefinedAppearance):
         self.page.get_by_role('button', name='Hide reading controls', exact=True).click()
         expect(toolbar).to_have_count(0)
         expect(self.page.locator('.book-content')).to_be_visible()
+
+    def test_short_enlarged_reading_tools_keyboard_scrolls_every_action_fully_into_view(self):
+        self.open_book()
+        self.wait_for_fonts()
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        reveal_reader_controls(self.page)
+
+        tools = self.page.get_by_role('button', name='Reading tools', exact=True)
+        tools.focus()
+        tools.press('Enter')
+        menu = self.page.get_by_role('menu')
+        expect(menu).to_be_visible()
+        self.assertLessEqual(menu.evaluate('e => e.scrollWidth-e.clientWidth'), 1)
+        self.assertGreater(menu.evaluate('e => e.scrollHeight-e.clientHeight'), 1)
+
+        labels = menu.get_by_role('menuitem').all_text_contents()
+        self.assertIn('Save Reading Position', labels)
+        self.assertIn('Jump to Position', labels)
+        self.assertIn('Browse Book', labels)
+        self.assertIn('Search Book', labels)
+        self.assertIn('Settings', labels)
+        self.assertIn('Dictionary Setup', labels)
+        self.assertIn('Statistics', labels)
+        self.assertIn('User guide', labels)
+
+        # Content owns initial focus. Native menu ArrowDown traversal must reveal
+        # each item; a merely mounted/clipped row does not count as reachable.
+        menu.focus()
+        for expected_label in labels:
+            self.page.keyboard.press('ArrowDown')
+            focused = menu.locator('[role="menuitem"]:focus')
+            expect(focused).to_have_count(1)
+            self.assertEqual(expected_label, focused.inner_text().strip())
+            box = focused.bounding_box()
+            self.assertGreaterEqual(box['height'], 43.99)
+            self.assertGreaterEqual(box['x'], -1)
+            self.assertGreaterEqual(box['y'], -1, (expected_label, box))
+            self.assertLessEqual(box['x'] + box['width'], 321, (expected_label, box))
+            self.assertLessEqual(box['y'] + box['height'], 321, (expected_label, box))
+            self.assertTrue(focused.evaluate('''e => {
+              const r=e.getBoundingClientRect();
+              const x=r.left+r.width/2, y=r.top+r.height/2;
+              const hit=document.elementFromPoint(x,y);
+              return !!hit && (hit===e || e.contains(hit));
+            }'''), (expected_label, box))
+
+        # Traversing beyond the final item wraps or remains within the owned
+        # menu; focus must never fall behind the portal or onto body.
+        self.page.keyboard.press('ArrowDown')
+        self.assertTrue(menu.evaluate('e => e.contains(document.activeElement)'))
+        self.page.screenshot(path='test-results/reader-tools-enlarged-keyboard-scroll.png')
+        self.page.keyboard.press('Escape')
+        expect(menu).to_have_count(0)
+        expect(tools).to_be_focused()
 
     def test_reduced_motion_eliminates_reader_toolbar_entrance_motion(self):
         self.open_book(font='Klee One')
@@ -350,6 +423,44 @@ class RheaReader(previous.RefinedAppearance):
             profile.cleanup()
             self.context, self.page = original_context, original_page
 
+    def test_contents_long_title_keeps_chapters_and_dismissal_reachable_at_200_percent(self):
+        long_title = ('A deliberately long book title ' * 8).strip()
+        self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
+        expect(self.page.locator('input[type=file][webkitdirectory]')).to_be_attached()
+        self.page.locator('input[type=file][accept*=".epub"]').first.set_input_files({
+            'name': 'long-title.epub', 'mimeType': 'application/epub+zip',
+            'buffer': chaptered_epub(long_title)})
+        self.page.get_by_role('button', name='Read ' + long_title.strip(), exact=True).click(timeout=30000)
+        expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
+        self.wait_for_fonts()
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        reveal_reader_controls(self.page)
+        self.page.get_by_role('button', name='Contents', exact=True).click()
+        panel = self.page.get_by_role('dialog', name='Table of contents', exact=True)
+        scroll = panel.locator('[data-toc-scroll]')
+        self.assertGreater(scroll.evaluate('e => e.clientHeight'), 44)
+        self.assertGreater(scroll.evaluate('e => e.scrollHeight - e.clientHeight'), 100)
+        close = panel.get_by_role('button', name='Close Table of Contents', exact=True)
+        before = close.bounding_box()
+        chapters = panel.get_by_role('navigation', name='Chapters', exact=True)
+        for name in ('The journey begins', 'A new morning'):
+            chapter = chapters.get_by_role('button', name=name, exact=True)
+            chapter.scroll_into_view_if_needed()
+            bounds = chapter.bounding_box()
+            self.assertGreaterEqual(bounds['height'], 43.99)
+            self.assertTrue(chapter.evaluate('''e => {
+              const r = e.getBoundingClientRect();
+              const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+              return !!hit && (hit === e || e.contains(hit));
+            }'''))
+            self.assertAlmostEqual(close.bounding_box()['y'], before['y'], delta=1)
+            close.click(trial=True)
+        chapters.get_by_role('button', name='A new morning', exact=True).click()
+        expect(panel).to_have_count(0)
+        expect(self.page.locator('.book-content')).to_contain_text('A new morning')
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
     def test_contents_navigation_reflows_and_returns_focus_at_phone_and_desktop(self):
         self.context.add_init_script(reader_fixture("if (location.pathname.endsWith('/manage')) { localStorage.setItem('fontFamilyGroupOne', 'Klee One'); localStorage.setItem('viewMode', 'paginated'); }"))
         self.page.goto(self.origin + reader_fixture('/reader-web/manage'))
@@ -359,6 +470,62 @@ class RheaReader(previous.RefinedAppearance):
         self.page.get_by_role('button', name='Read ' + TITLE, exact=True).click(timeout=30000)
         expect(self.page.locator('.book-content')).to_have_attribute('aria-busy', 'false')
         self.wait_for_fonts()
+
+        self.page.set_viewport_size({'width': 320, 'height': 360})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+        reveal_reader_controls(self.page)
+        self.page.get_by_role('button', name='Contents', exact=True).click()
+        enlarged = self.page.get_by_role('dialog', name='Table of contents', exact=True)
+        heading = enlarged.get_by_role('heading', name='Contents', exact=True)
+        close = enlarged.get_by_role('button', name='Close Table of Contents', exact=True)
+        expect(heading).to_be_visible()
+        self.assertEqual('nowrap', heading.evaluate('e => getComputedStyle(e).whiteSpace'))
+        heading_box, close_box = heading.bounding_box(), close.bounding_box()
+        self.assertLessEqual(heading_box['height'], float(
+            heading.evaluate('e => parseFloat(getComputedStyle(e).lineHeight)')) + 1)
+        self.assertLessEqual(heading_box['x'] + heading_box['width'], close_box['x'] - 1)
+        self.assertGreaterEqual(close_box['width'], 43.99)
+        self.assertGreaterEqual(close_box['height'], 43.99)
+        self.assertLessEqual(close_box['x'] + close_box['width'], 321)
+        self.assertLessEqual(close_box['y'] + close_box['height'], 361)
+        self.assertTrue(close.evaluate('''e => {
+          const r=e.getBoundingClientRect();
+          const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+          return !!hit && (hit===e || e.contains(hit));
+        }'''))
+
+        scroll = enlarged.locator('[data-toc-scroll]')
+        self.page.wait_for_function(
+            'e => e.scrollHeight > e.clientHeight',
+            arg=scroll.element_handle()
+        )
+        scroll.evaluate('e => e.scrollTop = e.scrollHeight')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=scroll.element_handle())
+        self.assertEqual('hidden', enlarged.evaluate('e => getComputedStyle(e).overflowY'))
+        for control_name in ('Close Table of Contents', 'Previous Chapter', 'Next Chapter'):
+            control = enlarged.get_by_role('button', name=control_name, exact=True)
+            control.scroll_into_view_if_needed()
+            bounds = control.bounding_box()
+            self.assertGreaterEqual(bounds['height'], 43.99)
+            self.assertGreaterEqual(bounds['x'], -1)
+            self.assertGreaterEqual(bounds['y'], -1)
+            self.assertLessEqual(bounds['x'] + bounds['width'], 321)
+            self.assertLessEqual(bounds['y'] + bounds['height'], 361)
+            if control.is_enabled():
+                self.assertTrue(control.evaluate('''e => {
+                  const r=e.getBoundingClientRect();
+                  const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+                  return !!hit && (hit===e || e.contains(hit));
+                }'''), control_name)
+            else:
+                # Disabled chapter navigation intentionally has pointer-events:none.
+                expect(control).to_be_disabled()
+
+        self.page.screenshot(path='test-results/contents-enlarged-word-intact.png')
+        close.click()
+        expect(enlarged).to_have_count(0)
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
         for width in (320, 390, 1440):
             self.page.set_viewport_size({'width': width, 'height': 844})
             reveal_reader_controls(self.page)
@@ -1108,29 +1275,123 @@ class RheaReader(previous.RefinedAppearance):
         self.page.keyboard.press('Escape')
         expect(panel).to_have_count(0)
 
+    def test_statistics_options_close_stays_reachable_after_enlarged_body_scroll(self):
+        self.page.goto(self.origin + reader_fixture('/reader-web/statistics'))
+        self.page.set_viewport_size({'width': 320, 'height': 320})
+        self.page.evaluate('document.documentElement.style.fontSize = "200%"')
+
+        trigger = self.page.get_by_role('button', name='Statistics options', exact=True)
+        trigger.click()
+        self.page.get_by_role('menuitem', name='Statistics Settings', exact=True).click()
+        panel = self.page.get_by_role('dialog', name='Statistics options', exact=True)
+        expect(panel).to_be_visible()
+        # The shared sheet owns its scrollport and keeps bounded chrome sticky.
+        scroll = panel
+        expect(panel.locator('[data-sticky-header]')).to_have_css('position', 'sticky')
+        self.page.wait_for_function('e => e.scrollHeight > e.clientHeight', arg=scroll.element_handle())
+        scroll.evaluate('e => e.scrollTop = e.scrollHeight')
+        self.page.wait_for_function('e => e.scrollTop > 0', arg=scroll.element_handle())
+
+        close = panel.get_by_role('button', name='Close statistics options', exact=True)
+        box = close.bounding_box()
+        viewport = self.page.evaluate('''() => {
+          const v = visualViewport;
+          return {
+            left: v?.offsetLeft ?? 0,
+            top: v?.offsetTop ?? 0,
+            right: (v?.offsetLeft ?? 0) + (v?.width ?? innerWidth),
+            bottom: (v?.offsetTop ?? 0) + (v?.height ?? innerHeight)
+          };
+        }''')
+        self.assertGreaterEqual(box['width'], 43.99)
+        self.assertGreaterEqual(box['height'], 43.99)
+        self.assertGreaterEqual(box['x'], viewport['left'] - 1)
+        self.assertGreaterEqual(box['y'], viewport['top'] - 1)
+        self.assertLessEqual(box['x'] + box['width'], viewport['right'] + 1)
+        self.assertLessEqual(box['y'] + box['height'], viewport['bottom'] + 1)
+        center_hit = '''e => {
+          const r = e.getBoundingClientRect();
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return !!hit && (hit === e || e.contains(hit));
+        }'''
+        try:
+            self.page.wait_for_function(center_hit, arg=close.element_handle(), timeout=2000)
+        except Exception as error:
+            diagnostics = close.evaluate('''e => {
+              const r = e.getBoundingClientRect();
+              const x = r.left + r.width / 2;
+              const y = r.top + r.height / 2;
+              const hit = document.elementFromPoint(x, y);
+              const describe = node => node && ({
+                tag: node.tagName, id: node.id, className: String(node.className || ''),
+                role: node.getAttribute('role'), text: (node.textContent || '').trim().slice(0, 100),
+                rect: (() => { const b = node.getBoundingClientRect(); return {x:b.x,y:b.y,width:b.width,height:b.height}; })()
+              });
+              return { point: {x, y}, close: describe(e), hit: describe(hit),
+                stack: document.elementsFromPoint(x, y).slice(0, 6).map(describe),
+                panel: describe(e.closest('[role="dialog"]')) };
+            }''')
+            self.fail(f'Close control center hit-test did not settle: {diagnostics}; {error}')
+        self.assertEqual('auto', panel.evaluate('e => getComputedStyle(e).overflowY'))
+
+        Path('test-results').mkdir(exist_ok=True)
+        self.page.screenshot(
+            path='test-results/statistics-options-post-scroll-200.png'
+        )
+        close.focus()
+        expect(close).to_be_focused()
+        close.press('Enter')
+        expect(panel).to_have_count(0)
+        expect(trigger).to_be_focused()
+        self.page.evaluate('document.documentElement.style.fontSize = ""')
+
     def test_statistics_raw_recovery_download_preserves_ambiguous_days(self):
         self.page.goto(self.origin + reader_fixture('/reader-web/statistics'))
         expect(self.page.get_by_test_id('shared-statistics-screen')).to_be_visible()
         expect(self.page.get_by_role('button', name='Statistics options', exact=True)).to_be_visible()
         # The header can render before the application's database upgrade. A
         # bare open here would create an empty v1 database if it wins that race.
-        # Observe the real schema, never create or upgrade it from this fixture.
-        self.page.wait_for_function(reader_fixture('''() => new Promise((resolve, reject) => {
-          const open = indexedDB.open('books');
-          let absent = false;
-          open.onupgradeneeded = () => { absent = true; open.transaction.abort(); };
-          open.onerror = () => absent ? resolve(false) : reject(open.error);
-          open.onsuccess = () => {
-            const db = open.result;
-            const ready = ['statistic', 'readerStatistic', 'readerStatisticMigration']
-              .every(name => db.objectStoreNames.contains(name));
-            db.close();
-            resolve(ready);
+        # Wait on the real schema with one bounded Promise loop; do not rely on
+        # wait_for_function polling an async predicate or upgrade from the fixture.
+        self.page.evaluate(reader_fixture('''() => new Promise((resolve, reject) => {
+          const required = ['statistic', 'readerStatistic', 'readerStatisticMigration'];
+          const deadline = performance.now() + 15000;
+          const retry = () => {
+            if (performance.now() >= deadline) {
+              reject(new Error('Statistics schema did not become ready'));
+              return;
+            }
+            setTimeout(check, 50);
           };
+          const check = () => {
+            const open = indexedDB.open('books');
+            let absent = false;
+            open.onupgradeneeded = () => {
+              absent = true;
+              open.transaction.abort();
+            };
+            open.onerror = () => {
+              if (absent) retry();
+              else reject(open.error);
+            };
+            open.onsuccess = () => {
+              const db = open.result;
+              const ready = required.every(name => db.objectStoreNames.contains(name));
+              db.close();
+              if (ready) resolve();
+              else retry();
+            };
+          };
+          check();
         })'''))
         self.page.evaluate(reader_fixture('''() => new Promise((resolve, reject) => {
           const deadline = setTimeout(() => reject(new Error('Statistics seed transaction stalled')), 15000);
           const open = indexedDB.open('books');
+          open.onupgradeneeded = () => {
+            open.transaction.abort();
+            clearTimeout(deadline);
+            reject(new Error('Statistics database disappeared before seeding'));
+          };
           open.onerror = () => { clearTimeout(deadline); reject(open.error); };
           open.onsuccess = () => {
             const db = open.result;

@@ -41,7 +41,16 @@ class LibraryGridLabels(LibraryBase):
             title:{left:title.left,right:title.right,top:title.top,bottom:title.bottom,height:title.height},
             author:{left:author.left,right:author.right,top:author.top,bottom:author.bottom},
             card:{left:card.left,right:card.right},
-            pageOverflow:document.documentElement.scrollWidth-innerWidth
+            pageOverflow:document.documentElement.scrollWidth-innerWidth,
+            overflowCandidates: document.documentElement.scrollWidth > innerWidth + 1
+              ? [...document.querySelectorAll('body *')].map(element => {
+                  const rect = element.getBoundingClientRect();
+                  const style = getComputedStyle(element);
+                  return { tag: element.tagName, className: String(element.className).slice(0, 160),
+                    left: rect.left, right: rect.right, overflowX: style.overflowX,
+                    position: style.position };
+                }).filter(element => element.left < -1 || element.right > innerWidth + 1).slice(0, 16)
+              : []
           };
         }''')
         self.assertGreaterEqual(geometry['title']['top'], geometry['cover']['bottom'] + 4, geometry)

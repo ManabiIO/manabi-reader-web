@@ -36,11 +36,7 @@
     currentChapterIndex,
     verticalMode ? 1 : -1
   );
-  $: nextIndex = adjacentChapterIndex(
-    chapters.length,
-    currentChapterIndex,
-    verticalMode ? -1 : 1
-  );
+  $: nextIndex = adjacentChapterIndex(chapters.length, currentChapterIndex, verticalMode ? -1 : 1);
   $: {
     const [mainChapters, chapterIndex, referenceId] = getChapterData(sectionData);
     chapters = mainChapters;
@@ -110,95 +106,103 @@
   }
 </script>
 
-<!-- The enclosing Sheet is the sole scroll owner. A long title, large text or
-     short landscape viewport must never shrink the chapter list to nothing. -->
-<section class="contents-panel flex min-h-full shrink-0 flex-col" aria-label="Table of contents">
-  <header class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 px-6 pt-6 pb-4">
+<!-- Dismissal stays visible; unbounded titles, progress and chapter actions share one scroll body. -->
+<section
+  class="contents-panel flex min-h-0 flex-1 flex-col overflow-hidden"
+  aria-label="Table of contents"
+>
+  <header
+    class="grid shrink-0 grid-cols-[minmax(0,1fr)_44px] items-start gap-[16px] px-[24px] pt-[24px] pb-[16px]"
+  >
     <div class="min-w-0">
-      <h2 class="text-xl font-semibold">Contents</h2>
-      <p class="mt-1 text-sm text-muted-foreground [overflow-wrap:anywhere]">{bookTitle}</p>
+      <h2 class="whitespace-nowrap text-xl font-semibold">Contents</h2>
     </div>
     <CloseButton aria-label="Close Table of Contents" onclick={closeTocMenu} />
   </header>
-  {#if currentChapter}
-    <div class="mx-6 mb-3 border-b border-border pb-4">
-      <p class="text-xs font-medium text-muted-foreground">Current chapter</p>
-      <p class="mt-1 font-medium [overflow-wrap:anywhere]">
-        {currentChapter.label || `Chapter ${currentChapterIndex + 1}`}
-      </p>
-      {#if currentChapterProgress !== undefined}
-        <div
-          class="mt-3 h-1 overflow-hidden rounded-full bg-foreground/10"
-          role="progressbar"
-          aria-label="Chapter progress"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={currentChapterProgress}
-        >
+  <div data-toc-scroll class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+    <p data-toc-book-title class="mx-6 mb-3 text-sm text-muted-foreground [overflow-wrap:anywhere]">
+      {bookTitle}
+    </p>
+    {#if currentChapter}
+      <div class="mx-6 mb-3 shrink-0 border-b border-border pb-4">
+        <p class="text-xs font-medium text-muted-foreground">Current chapter</p>
+        <p class="mt-1 font-medium [overflow-wrap:anywhere]">
+          {currentChapter.label || `Chapter ${currentChapterIndex + 1}`}
+        </p>
+        {#if currentChapterProgress !== undefined}
           <div
-            class="h-full rounded-full bg-foreground/60"
-            style:width={`${currentChapterProgress}%`}
-          ></div>
-        </div>
-      {/if}
-      <p class="mt-2 text-xs text-muted-foreground [overflow-wrap:anywhere]">
-        {currentChapterProgress === undefined
-          ? 'Progress unavailable'
-          : `${Number(currentChapterProgress.toFixed(2))}%`}
-        {#if characterProgress}
-          · {characterProgress.read} / {characterProgress.total} characters
+            class="mt-3 h-1 overflow-hidden rounded-full bg-foreground/10"
+            role="progressbar"
+            aria-label="Chapter progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={currentChapterProgress}
+          >
+            <div
+              class="h-full rounded-full bg-foreground/60"
+              style:width={`${currentChapterProgress}%`}
+            ></div>
+          </div>
         {/if}
-      </p>
-    </div>
-  {/if}
-  <nav bind:this={chapterList} class="flex-1 px-3 pb-4" aria-label="Chapters">
-    {#each chapters as chapter, index (chapter.reference)}
-      <button
-        type="button"
-        title={`Go to ${chapter.label || `Chapter ${index + 1}`}`}
-        class="chapter-row flex min-h-14 w-full items-center gap-3 rounded-xl px-3 py-3 text-left"
-        aria-current={index === currentChapterIndex ? 'location' : undefined}
-        on:click={() => goToChapter(index, true)}
+        <p class="mt-2 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+          {currentChapterProgress === undefined
+            ? 'Progress unavailable'
+            : `${Number(currentChapterProgress.toFixed(2))}%`}
+          {#if characterProgress}
+            · {characterProgress.read} / {characterProgress.total} characters
+          {/if}
+        </p>
+      </div>
+    {/if}
+    <nav bind:this={chapterList} class="px-3 pb-4" aria-label="Chapters">
+      {#each chapters as chapter, index (chapter.reference)}
+        <button
+          type="button"
+          title={`Go to ${chapter.label || `Chapter ${index + 1}`}`}
+          class="chapter-row flex min-h-14 w-full items-center gap-3 rounded-xl px-3 py-3 text-left"
+          aria-current={index === currentChapterIndex ? 'location' : undefined}
+          on:click={() => goToChapter(index, true)}
+        >
+          <span class="min-w-0 flex-1 [overflow-wrap:anywhere]">
+            {chapter.label || `Chapter ${index + 1}`}
+          </span>
+          {#if chapter.progress === 100}<Check
+              class="size-4 shrink-0 text-muted-foreground"
+              aria-label="Finished"
+            />{:else if index === currentChapterIndex}<span
+              class="size-1.5 shrink-0 rounded-full bg-foreground"
+              aria-hidden="true"
+            ></span>{/if}
+        </button>
+      {:else}
+        <p class="px-3 py-6 text-sm text-muted-foreground">No chapters available for this book.</p>
+      {/each}
+    </nav>
+    <footer class="flex shrink-0 flex-wrap justify-between gap-2 border-t border-border p-4">
+      <Button
+        variant="ghost"
+        class="min-h-11"
+        disabled={previousIndex < 0}
+        title={`${verticalMode ? 'Next' : 'Previous'} Chapter`}
+        aria-label={`${verticalMode ? 'Next' : 'Previous'} Chapter`}
+        onclick={() => goToChapter(previousIndex)}
+        ><CaretLeft aria-hidden="true" /><span
+          >{verticalMode ? 'Next' : 'Previous'}<span class="hidden sm:inline"> Chapter</span></span
+        ></Button
       >
-        <span class="min-w-0 flex-1 [overflow-wrap:anywhere]">
-          {chapter.label || `Chapter ${index + 1}`}
-        </span>
-        {#if chapter.progress === 100}<Check
-            class="size-4 shrink-0 text-muted-foreground"
-            aria-label="Finished"
-          />{:else if index === currentChapterIndex}<span
-            class="size-1.5 shrink-0 rounded-full bg-foreground"
-            aria-hidden="true"
-          ></span>{/if}
-      </button>
-    {:else}
-      <p class="px-3 py-6 text-sm text-muted-foreground">No chapters available for this book.</p>
-    {/each}
-  </nav>
-  <footer class="flex flex-wrap justify-between gap-2 border-t border-border p-4">
-    <Button
-      variant="ghost"
-      class="min-h-11"
-      disabled={previousIndex < 0}
-      title={`${verticalMode ? 'Next' : 'Previous'} Chapter`}
-      aria-label={`${verticalMode ? 'Next' : 'Previous'} Chapter`}
-      onclick={() => goToChapter(previousIndex)}
-      ><CaretLeft aria-hidden="true" /><span
-        >{verticalMode ? 'Next' : 'Previous'}<span class="hidden sm:inline"> Chapter</span></span
-      ></Button
-    >
-    <Button
-      variant="ghost"
-      class="min-h-11"
-      disabled={nextIndex < 0}
-      title={`${verticalMode ? 'Previous' : 'Next'} Chapter`}
-      aria-label={`${verticalMode ? 'Previous' : 'Next'} Chapter`}
-      onclick={() => goToChapter(nextIndex)}
-      ><span
-        >{verticalMode ? 'Previous' : 'Next'}<span class="hidden sm:inline"> Chapter</span></span
-      ><CaretRight aria-hidden="true" /></Button
-    >
-  </footer>
+      <Button
+        variant="ghost"
+        class="min-h-11"
+        disabled={nextIndex < 0}
+        title={`${verticalMode ? 'Previous' : 'Next'} Chapter`}
+        aria-label={`${verticalMode ? 'Previous' : 'Next'} Chapter`}
+        onclick={() => goToChapter(nextIndex)}
+        ><span
+          >{verticalMode ? 'Previous' : 'Next'}<span class="hidden sm:inline"> Chapter</span></span
+        ><CaretRight aria-hidden="true" /></Button
+      >
+    </footer>
+  </div>
 </section>
 
 <style>

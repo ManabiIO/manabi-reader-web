@@ -10,24 +10,56 @@ import {
   generateJSON,
   getSchema,
   type Extensions,
-  type JSONContent
+  type JSONContent,
+  type Mark
 } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import RubyText from '@tiptap/extension-ruby-text';
 import UniqueID from '@tiptap/extension-unique-id';
 import { Markdown, MarkdownManager } from '@tiptap/markdown';
+import { Marked, marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { snippetLinkPresentation } from './presentation.ts';
 import {
   identifyBlocks,
   MAX_SNIPPET_BYTES,
   plainContent,
   validateContent,
   type TextNode
-} from './document';
+} from './document.ts';
+
+function isolatedMarked(): typeof marked {
+  // TipTap's option type names the callable singleton, but MarkdownManager only
+  // consumes its Marked-instance surface (defaults/Lexer/use/setOptions). Upstream
+  // recommends a private Marked instance to avoid global tokenizer accumulation.
+  return new Marked() as unknown as typeof marked;
+}
+
+// Keep the canonical mark attributes in the editor model. Only their DOM
+// projection is hardened, including marks introduced after editor creation.
+const DisplaySafeStarterKit = StarterKit.extend({
+  addExtensions() {
+    return (this.parent?.() ?? []).map((extension) =>
+      extension.name === 'link'
+        ? (extension as Mark).extend({
+            renderHTML(properties) {
+              if (!this.parent) throw new Error('Snippet link renderer is unavailable.');
+              const { HTMLAttributes } = properties;
+              // Preserve the upstream renderer's URI checks and configured attrs.
+              return this.parent({
+                ...properties,
+                HTMLAttributes: { ...HTMLAttributes, ...snippetLinkPresentation(HTMLAttributes) }
+              });
+            }
+          })
+        : extension
+    );
+  }
+});
 
 export function extensions(): Extensions {
   return [
-    StarterKit.configure({
+    DisplaySafeStarterKit.configure({
       link: {
         openOnClick: false,
         autolink: false,
@@ -49,13 +81,13 @@ export function extensions(): Extensions {
         'horizontalRule'
       ]
     }),
-    Markdown
+    Markdown.configure({ marked: isolatedMarked() })
   ];
 }
 export function cleanHTML(html: string): string {
   if (new TextEncoder().encode(html).length > MAX_SNIPPET_BYTES)
     throw new Error('Pasted content exceeds the 2 MiB limit.');
-  return DOMPurify.sanitize(html, {
+  const sanitized = DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
       'p',
       'div',
@@ -87,9 +119,10 @@ export function cleanHTML(html: string): string {
       'rp',
       'span'
     ],
-    ALLOWED_ATTR: ['href', 'title', 'start', 'type', 'data-id'],
+    ALLOWED_ATTR: ['href', 'title', 'target', 'rel', 'start', 'type', 'data-id'],
     ALLOW_DATA_ATTR: false,
-    ADD_URI_SAFE_ATTR: ['data-id', 'start', 'type', 'title'],
+    // These are validated link metadata, never URL-bearing attributes.
+    ADD_URI_SAFE_ATTR: ['data-id', 'start', 'type', 'title', 'target', 'rel'],
     FORBID_TAGS: [
       'style',
       'script',
@@ -104,18 +137,33 @@ export function cleanHTML(html: string): string {
     ],
     ALLOWED_URI_REGEXP: /^(?:https?:|mailto:)/i
   });
+  // This fragment is detached and already sanitized. Avoid process-global
+  // DOMPurify hooks; paste and HTML export get the same safe DOM attributes.
+  const fragment = document.createElement('template');
+  fragment.innerHTML = sanitized;
+  for (const anchor of fragment.content.querySelectorAll('a')) {
+    const link = snippetLinkPresentation({
+      target: anchor.getAttribute('target'),
+      rel: anchor.getAttribute('rel')
+    });
+    anchor.setAttribute('target', link.target);
+    anchor.setAttribute('rel', link.rel);
+  }
+  return fragment.innerHTML;
+}
+export function markdownHTML(value: string): string {
+  // TipTap 3.31.x registers an experimental ordered-list tokenizer which treats
+  // alphabetic/roman sentence prefixes (for example "Hi. there") as list markers.
+  // Import only needs CommonMark -> HTML, so use an isolated vanilla Marked lexer.
+  // Never share its tokenizer registry with an editor or another import.
+  return new Marked().parse(value, { async: false });
 }
 export function importContent(value: string, format: 'text' | 'html' | 'markdown'): TextNode {
   if (new TextEncoder().encode(value).length > MAX_SNIPPET_BYTES)
     throw new Error('Pasted content exceeds the 2 MiB limit.');
   if (format === 'text') return plainContent(value);
   // Markdown HTML also goes through the same DOM sanitization boundary.
-  const html =
-    format === 'html'
-      ? value
-      : (new MarkdownManager({ extensions: extensions() }).instance.parse(value, {
-          async: false
-        }) as string);
+  const html = format === 'html' ? value : markdownHTML(value);
   const content = identifyBlocks(generateJSON(cleanHTML(html), extensions()) as TextNode, true);
   validateContent(content);
   getSchema(extensions()).nodeFromJSON(content).check();
@@ -123,14 +171,46 @@ export function importContent(value: string, format: 'text' | 'html' | 'markdown
 }
 export function renderContent(content: TextNode): string {
   validateContent(content);
-  return cleanHTML(generateHTML(content as JSONContent, extensions()));
+  return cleanHTML(generateHTML(structuredClone(content) as JSONContent, extensions()));
+}
+export function requiresHTMLMarkdown(content: TextNode): boolean {
+  // CommonMark/GFM has no lossless syntax for ruby or underline. It also cannot
+  // represent HTML ordered-list marker styles, and TipTap 3.31.x rewrites a
+  // valid zero start to one. Raw HTML is valid Markdown, so prefer that over
+  // silently erasing authored semantics.
+  if (content.marks?.some((mark) => mark.type === 'rubyText' || mark.type === 'underline'))
+    return true;
+  if (
+    content.type === 'orderedList' &&
+    (content.attrs?.start === 0 ||
+      (content.attrs?.type !== undefined &&
+        content.attrs?.type !== null &&
+        content.attrs?.type !== '1'))
+  )
+    return true;
+  // A non-default imported HTML link has semantics Markdown cannot carry.
+  if (
+    content.marks?.some(
+      (mark) =>
+        mark.type === 'link' &&
+        (mark.attrs?.target === '_self' ||
+          (mark.attrs?.rel !== undefined &&
+            mark.attrs?.rel !== null &&
+            mark.attrs?.rel !== 'noopener noreferrer nofollow'))
+    )
+  )
+    return true;
+  return content.content?.some(requiresHTMLMarkdown) ?? false;
 }
 export function exportMarkdown(content: TextNode): string {
-  // CommonMark has no ruby construct. Raw HTML is valid Markdown and preserves it losslessly.
-  const hasRuby = JSON.stringify(content).includes('"rubyText"');
-  return hasRuby
+  // CommonMark has no ruby construct. TipTap 3.31.x also serializes a valid
+  // zero-start ordered list as starting at one. Raw HTML is valid Markdown and
+  // is the lossless representation for either case.
+  return requiresHTMLMarkdown(content)
     ? renderContent(content) + '\n'
-    : new MarkdownManager({ extensions: extensions() }).serialize(content as JSONContent);
+    : new MarkdownManager({ extensions: extensions(), marked: isolatedMarked() }).serialize(
+        content as JSONContent
+      );
 }
 export function createEditor(
   element: HTMLElement,
@@ -143,7 +223,8 @@ export function createEditor(
   return new Editor({
     element,
     extensions: configured,
-    content: content as JSONContent,
+    // TipTap owns this working copy; read/render must not mutate saved JSON.
+    content: structuredClone(content) as JSONContent,
     editorProps: {
       attributes: {
         class: 'snippet-editable',

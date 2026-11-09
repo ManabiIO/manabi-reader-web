@@ -13,7 +13,12 @@ import { bookFragmentElement } from '../lib/functions/book-security/book-fragmen
 import { readerUIOwnsEvent } from '$lib/functions/reader-ui-events';
 import { projectResource, rangeAt, resolveLocator, type ReaderLocator } from '$lib/reader-location';
 import { browser } from '../runtime/environment';
-import { nextChapter$ } from '$lib/components/book-reader/book-toc/book-toc';
+import {
+  nextChapter$,
+  type ReaderChapterTarget
+} from '$lib/components/book-reader/book-toc/book-toc';
+import type { PageDirection } from '$lib/library/direction';
+import { reversesPhysicalPageTurns } from '$lib/foliate-epub/page-direction';
 import type { BooksDbBookmarkData } from '$lib/data/database/books-db/versions/books-db';
 import { SECTION_CHANGE } from '$lib/data/events';
 import { observeReaderFontLayout } from '$lib/functions/reader-font-layout';
@@ -55,6 +60,7 @@ export interface PaginatedProps {
   width: number;
   height: number;
   verticalMode: boolean;
+  pageDirection?: PageDirection;
   fontFeatureSettings: string;
   verticalTextOrientation: string;
   prioritizeReaderStyles: boolean;
@@ -116,6 +122,8 @@ export function createPaginated(
   let width: number = props.width;
   let height: number = props.height;
   let verticalMode: boolean = props.verticalMode;
+  let pageDirection: PageDirection = props.pageDirection ?? 'unknown';
+  const reversePageOrder = () => reversesPhysicalPageTurns(verticalMode, pageDirection);
   let fontFeatureSettings: string = props.fontFeatureSettings;
   let verticalTextOrientation: string = props.verticalTextOrientation;
   let prioritizeReaderStyles: boolean = props.prioritizeReaderStyles;
@@ -170,6 +178,13 @@ export function createPaginated(
   let currentSectionId = '';
   let currentSpineIndex = -1;
   let mountedGeneration = 0;
+  let chapterNavigationGeneration = 0;
+  let cancelChapterNavigationWait: (() => void) | undefined;
+  const cancelPendingChapterNavigation = () => {
+    chapterNavigationGeneration += 1;
+    cancelChapterNavigationWait?.();
+    cancelChapterNavigationWait = undefined;
+  };
   let disposed = false;
   let renderGeneration = 0;
   const width$ = new Subject<number>();
@@ -417,6 +432,7 @@ export function createPaginated(
   }
   /** Experimental Code - May be removed or changed any time without warning */
   __readerController.onDestroy(() => {
+    cancelPendingChapterNavigation();
     __readerController.changed((disposed = true));
     __readerController.changed((renderGeneration += 1));
     stopFontLayout?.();
@@ -444,6 +460,7 @@ export function createPaginated(
       __readerController.changed((isResizing = false));
     });
   pageChange$.pipe(takeUntil(destroy$)).subscribe((isUser) => {
+    if (isUser) cancelPendingChapterNavigation();
     if (layoutSignal?.aborted || !calculator) return;
     if (!isResizing) {
       __readerController.changed((showCustomReadingPoint = false));
@@ -516,7 +533,7 @@ export function createPaginated(
       takeUntil(destroy$)
     )
     .subscribe((ev) => {
-      let multiplier = (ev.deltaX < 0 ? -1 : 1) * (verticalMode ? -1 : 1);
+      let multiplier = (ev.deltaX < 0 ? -1 : 1) * (reversePageOrder() ? -1 : 1);
       if (!ev.deltaX) {
         multiplier = ev.deltaY < 0 ? -1 : 1;
       }
@@ -569,8 +586,14 @@ export function createPaginated(
         }
       })
       .catch((error) => {
-        if (!disposed && generation === renderGeneration && error.name !== 'AbortError')
-          __readerController.changed((openingError = error.message));
+        if (!disposed && generation === renderGeneration && error?.name !== 'AbortError') {
+          // A failed render cannot produce section readiness. Retire its waiters
+          // before exposing the failure so pending jumps always settle.
+          cancelPendingChapterNavigation();
+          __readerController.changed(
+            (openingError = error instanceof Error ? error.message : String(error))
+          );
+        }
       });
   }
   function initializeLayout(signal?: AbortSignal) {
@@ -764,7 +787,7 @@ export function createPaginated(
     if (!concretePageManager || $skipKeyDownListener$ || readerUIOwnsEvent(ev)) return;
     if (ev.detail.direction !== 'left' && ev.detail.direction !== 'right') return;
     const swipeLeft = ev.detail.direction === 'left';
-    const nextPage = verticalMode ? !swipeLeft : swipeLeft;
+    const nextPage = reversePageOrder() ? !swipeLeft : swipeLeft;
     concretePageManager.flipPage(nextPage ? 1 : -1);
   }
   function onKeydown(ev: KeyboardEvent) {
@@ -782,11 +805,11 @@ export function createPaginated(
     switch (ev.code) {
       case 'ArrowLeft':
       case 'KeyA':
-        concretePageManager[verticalMode ? 'nextPage' : 'prevPage']();
+        concretePageManager[reversePageOrder() ? 'nextPage' : 'prevPage']();
         break;
       case 'ArrowRight':
       case 'KeyD':
-        concretePageManager[verticalMode ? 'prevPage' : 'nextPage']();
+        concretePageManager[reversePageOrder() ? 'prevPage' : 'nextPage']();
         break;
       case 'ArrowUp':
         concretePageManager.prevPage();
@@ -797,37 +820,140 @@ export function createPaginated(
       default:
     }
   }
-  nextChapter$.pipe(takeUntil(destroy$)).subscribe((target) => {
+  function waitForChapterSection(index: number, generation: number): Promise<boolean> {
+    cancelChapterNavigationWait?.();
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const cancel = () => finish(false);
+      const finish = (value: boolean) => {
+        if (settled) return;
+        settled = true;
+        subscription?.unsubscribe();
+        if (cancelChapterNavigationWait === cancel) cancelChapterNavigationWait = undefined;
+        resolve(value);
+      };
+      const subscription = sectionRenderComplete$.subscribe((renderedIndex) => {
+        if (
+          disposed ||
+          generation !== chapterNavigationGeneration ||
+          sectionIndex$.getValue() !== index
+        ) {
+          finish(false);
+          return;
+        }
+        if (renderedIndex === index) finish(true);
+      });
+      cancelChapterNavigationWait = cancel;
+    });
+  }
+
+  function scrollRectToPage(rect: DOMRect | DOMRectReadOnly, isUser: boolean): boolean {
+    if (!scrollEl || !concretePageManager) return false;
+    const host = scrollEl.getBoundingClientRect();
+    const pageSize = (verticalMode ? height : width) + gap;
+    const relative = verticalMode ? rect.top - host.top : rect.left - host.left;
+    const target = Math.max(
+      0,
+      Math.floor((virtualScrollPos$.getValue() + relative) / pageSize) * pageSize
+    );
+    concretePageManager.scrollTo(target, isUser);
+    return true;
+  }
+
+  function scrollFragmentToPage(fragment: string): boolean {
+    if (!contentEl || !calculator || !concretePageManager) return false;
+    const target = bookFragmentElement(contentEl, fragment);
+    if (!target) return false;
+
+    // Text targets should use the same measured character/page model that owns
+    // bookmarks and Return. Viewport rectangles are relative to the currently
+    // clipped CSS column and can map a deep target back to page one.
+    const firstMeasuredNode = getParagraphNodes(target)[0];
+    if (firstMeasuredNode) {
+      const range = target.ownerDocument.createRange();
+      // A collapsed range before the first child intersects no measured text.
+      // Select that node so the character projection can locate its page.
+      range.selectNode(firstMeasuredNode);
+      const scrollPos = calculator.getScrollPosToPoint(range);
+      if (Number.isFinite(scrollPos) && scrollPos >= 0) {
+        concretePageManager.scrollTo(scrollPos, true);
+        return true;
+      }
+    }
+
+    // Keep a geometry path for empty/image anchors that have no canonical text
+    // position in the character projection.
+    return scrollRectToPage(target.getBoundingClientRect(), true);
+  }
+
+  async function navigateChapterTarget(target: ReaderChapterTarget) {
+    cancelPendingChapterNavigation();
+    const generation = chapterNavigationGeneration;
+
     const nextSectionIndex =
       typeof target === 'string'
         ? sections.findIndex(
             (section) => section.id === target || bookFragmentElement(section, target)
           )
         : target.spineIndex;
-    if (nextSectionIndex < 0 || nextSectionIndex >= sections.length) return;
-    sectionIndex$.next(nextSectionIndex);
-    concretePageManager?.scrollTo(0, true);
-  });
-  /** Reveal a source range after its virtual section has mounted and measured. */
-  async function revealLocator(locator: ReaderLocator, bookKey: string): Promise<boolean> {
-    const targetIndex = locator.resource.spineIndex;
-    if (targetIndex < 0 || targetIndex >= sections.length || disposed) return false;
-    if (sectionIndex$.getValue() !== targetIndex) {
-      const ready = new Promise<void>((resolve) => {
-        sectionReady$.pipe(take(1)).subscribe(() => resolve());
-      });
-      sectionIndex$.next(targetIndex);
-      // The previous resource's virtual page position survives a direct spine
-      // switch. Reset it before measuring the newly mounted resource, or a
-      // return can calculate its page from the search result's scroll offset.
-      concretePageManager?.scrollTo(0, false);
-      await ready;
-      // Section readiness is published before React commits its display and
-      // bookmark-layout updates. Let those settle before accepting the jump.
+    if (nextSectionIndex < 0 || nextSectionIndex >= sections.length || disposed) return;
+
+    const fragment = typeof target === 'string' ? undefined : target.fragment;
+    const changesSection = sectionIndex$.getValue() !== nextSectionIndex;
+    if (changesSection || !allowDisplay || currentSpineIndex !== nextSectionIndex) {
+      const rendered = waitForChapterSection(nextSectionIndex, generation);
+      if (changesSection) {
+        sectionIndex$.next(nextSectionIndex);
+        concretePageManager?.scrollTo(0, false);
+      }
+      if (!(await rendered)) return;
       await readerTick();
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
     }
-    if (!scrollEl || !contentEl || !concretePageManager || disposed) return false;
+    if (
+      disposed ||
+      generation !== chapterNavigationGeneration ||
+      sectionIndex$.getValue() !== nextSectionIndex ||
+      !concretePageManager
+    )
+      return;
+
+    if (fragment && scrollFragmentToPage(fragment)) return;
+    concretePageManager.scrollTo(0, true);
+  }
+
+  nextChapter$.pipe(takeUntil(destroy$)).subscribe((target) => {
+    void navigateChapterTarget(target);
+  });
+
+  /** Reveal a source range after its virtual section has mounted and measured. */
+  async function revealLocator(locator: ReaderLocator, bookKey: string): Promise<boolean> {
+    cancelPendingChapterNavigation();
+    const navigationGeneration = chapterNavigationGeneration;
+    const targetIndex = locator.resource.spineIndex;
+    if (targetIndex < 0 || targetIndex >= sections.length || disposed) return false;
+    const changesSection = sectionIndex$.getValue() !== targetIndex;
+    if (changesSection || !allowDisplay || currentSpineIndex !== targetIndex) {
+      const ready = waitForChapterSection(targetIndex, navigationGeneration);
+      if (changesSection) {
+        sectionIndex$.next(targetIndex);
+        // Reset the old resource's virtual position before measuring the new one.
+        concretePageManager?.scrollTo(0, false);
+      }
+      if (!(await ready)) return false;
+      // Let React commit the measured section before accepting the jump.
+      await readerTick();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    if (
+      !scrollEl ||
+      !contentEl ||
+      !concretePageManager ||
+      disposed ||
+      navigationGeneration !== chapterNavigationGeneration ||
+      sectionIndex$.getValue() !== targetIndex
+    )
+      return false;
     const generation = renderGeneration;
     const projected = projectResource(contentEl, locator.resource);
     const position = await resolveLocator(locator, projected, bookKey);
@@ -835,6 +961,7 @@ export function createPaginated(
       !position ||
       disposed ||
       generation !== renderGeneration ||
+      navigationGeneration !== chapterNavigationGeneration ||
       sectionIndex$.getValue() !== targetIndex
     )
       return false;
@@ -853,6 +980,7 @@ export function createPaginated(
     return (
       !disposed &&
       generation === renderGeneration &&
+      navigationGeneration === chapterNavigationGeneration &&
       sectionIndex$.getValue() === targetIndex &&
       (!verticalMode || Math.abs(scrollEl.scrollTop - target) <= 2)
     );
@@ -935,6 +1063,15 @@ export function createPaginated(
     set height(nextValue: typeof height) {
       if (Object.is(height, nextValue)) return;
       height = nextValue;
+      __readerController.invalidate();
+    },
+    get pageDirection() {
+      return pageDirection;
+    },
+    set pageDirection(nextValue: PageDirection | undefined) {
+      const value = nextValue ?? 'unknown';
+      if (Object.is(pageDirection, value)) return;
+      pageDirection = value;
       __readerController.invalidate();
     },
     get verticalMode() {

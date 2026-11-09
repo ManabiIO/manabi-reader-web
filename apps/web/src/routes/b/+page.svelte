@@ -1013,15 +1013,12 @@
         scheduleReplication(StorageDataType.PROGRESS);
       }
 
-      const celebrateCompletion = !window.matchMedia(
-        '(prefers-reduced-motion: reduce)'
-      ).matches;
+      const celebrateCompletion = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
       if ($statisticsEnabled$ && $openTrackerOnCompletion$) {
         confettiWidthModifier = 36;
         confettiMaxRuns = 0;
-        bookCompleted =
-          celebrateCompletion && window.matchMedia('(min-width: 900px)').matches;
+        bookCompleted = celebrateCompletion && window.matchMedia('(min-width: 900px)').matches;
         isTrackerMenuOpen$.next(true);
       } else {
         dialogManager.dialogs$.next([]);
@@ -2604,7 +2601,7 @@
   <Sheet.Content
     side="left"
     showCloseButton={false}
-    class="writing-horizontal-tb data-[side=left]:w-full data-[side=left]:sm:max-w-md"
+    class="writing-horizontal-tb overflow-hidden data-[side=left]:w-full data-[side=left]:sm:max-w-md"
     onCloseAutoFocus={(event) => {
       event.preventDefault();
       document.querySelector<HTMLButtonElement>('[aria-label="Show reading controls"]')?.focus();
